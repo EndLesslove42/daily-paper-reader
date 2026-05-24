@@ -16,6 +16,7 @@ const {
   __setQuickRunMsgEl,
   __setQuickRunConferenceBtn,
   __setUnsavedChanges,
+  __setRunSelectionState,
 } = global.window.SubscriptionsManager.__test;
 
 function buildBaseConfig() {
@@ -199,7 +200,13 @@ function buildMockButton() {
 
 function testConferenceRunDisabledWhenUnsaved() {
   const btn = buildMockButton();
+  global.window.SubscriptionsSmartQuery = {
+    getSelectedProfileTags() {
+      return ['GENE'];
+    },
+  };
   __setQuickRunConferenceBtn(btn);
+  __setRunSelectionState({ conference: true, conferencePairs: ['ICML:2025'] });
   __setUnsavedChanges(true);
   refreshQuickRunButtons();
 
@@ -214,6 +221,8 @@ function testConferenceRunDisabledWhenUnsaved() {
   assert.equal(btn.classList.contains('chat-quick-run-item--disabled'), false);
   assert.equal(btn.title, '一次性触发会议论文拉取任务');
   __setQuickRunConferenceBtn(null);
+  __setRunSelectionState({});
+  delete global.window.SubscriptionsSmartQuery;
 }
 
 testNormalizeSubscriptionsAddsBiorxivBackend();

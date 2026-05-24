@@ -17,6 +17,9 @@ window.SubscriptionsSmartQuery = (function () {
 
   let currentProfiles = [];
   const pendingDeletedProfileIds = new Set();
+  const selectedProfileKeys = new Set();
+  let runSelectionMode = '';
+  let selectionChangeHandler = null;
   let modalOverlay = null;
   let modalPanel = null;
   let modalState = null;
@@ -256,6 +259,47 @@ window.SubscriptionsSmartQuery = (function () {
     if (!profileOrTag) return '';
     if (typeof profileOrTag === 'string') return toStableId(profileOrTag);
     return toStableId(profileOrTag.tag) || '';
+  };
+  const isConferenceOnlyProfile = (profile) =>
+    !!(
+      profile &&
+      (
+        profile.temporary === true ||
+        profile.conference_only === true ||
+        normalizeText(profile.scope).toLowerCase() === 'conference'
+      )
+    );
+  const canSelectProfileForRunMode = (profile) => {
+    if (!runSelectionMode) return false;
+    if (runSelectionMode === 'daily') return !isConferenceOnlyProfile(profile);
+    if (runSelectionMode === 'conference') return true;
+    return false;
+  };
+  const notifySelectionChange = () => {
+    if (typeof selectionChangeHandler !== 'function') return;
+    const selectedProfiles = (currentProfiles || []).filter((profile) =>
+      selectedProfileKeys.has(getProfileKey(profile)),
+    );
+    selectionChangeHandler(selectedProfiles.map((profile) => ({
+      tag: normalizeText(profile && profile.tag),
+      description: normalizeText(profile && profile.description),
+      scope: normalizeText(profile && profile.scope),
+      temporary: isConferenceOnlyProfile(profile),
+    })));
+  };
+  const toggleProfileSelection = (profileId) => {
+    if (!runSelectionMode) return;
+    const profile = findCurrentProfile(profileId);
+    if (!profile || !canSelectProfileForRunMode(profile)) return;
+    const key = getProfileKey(profile);
+    if (!key) return;
+    if (selectedProfileKeys.has(key)) {
+      selectedProfileKeys.delete(key);
+    } else {
+      selectedProfileKeys.add(key);
+    }
+    renderMain();
+    notifySelectionChange();
   };
 
   const filterVisiblePaperSources = (values) => {
@@ -1052,6 +1096,11 @@ window.SubscriptionsSmartQuery = (function () {
 
       profile.description = normalizeText(profile.description || description || '');
       profile.paper_sources = normalizePaperSources(paperSources, { fallbackToArxiv: false });
+      if (candidates && candidates.temporaryProfile) {
+        profile.scope = 'conference';
+        profile.temporary = true;
+        profile.conference_only = true;
+      }
       profile.keywords = kwList;
       const mergedIntentQueries = [];
       const intentSeen = new Set();
@@ -1108,6 +1157,9 @@ window.SubscriptionsSmartQuery = (function () {
         tag: sanitizeAutoTag(tag || existedProfile.tag || '') || deriveTagFromCandidates(candidates) || `profile-${idx + 1}`,
         description: normalizeText(description || existedProfile.description || ''),
         paper_sources: normalizePaperSources(paperSources, { fallbackToArxiv: false }),
+        ...(candidates && candidates.temporaryProfile
+          ? { scope: 'conference', temporary: true, conference_only: true }
+          : {}),
         keywords:
           selectedKeywords.length > 0
             ? selectedKeywords
@@ -1665,45 +1717,56 @@ window.SubscriptionsSmartQuery = (function () {
   const renderMain = () => {
     if (!displayListEl) return;
     if (!currentProfiles.length) {
-      displayListEl.innerHTML = '<div style="color:#999;">暂无词条，先点「新增」打开对话生成。</div>';
+      displayListEl.innerHTML = '<div class="dpr-entry-empty">暂无词条，先点「新增」打开对话生成。</div>';
+      notifySelectionChange();
       return;
     }
 
     displayListEl.innerHTML = currentProfiles
       .map((p) => {
         const isPaused = !!p.paused;
-        const isQuickRunOpen = !!p._quickRunOpen;
+        const isTemporary = isConferenceOnlyProfile(p);
+        const selectable = canSelectProfileForRunMode(p);
+        const selected = selectedProfileKeys.has(getProfileKey(p));
         const pauseLabel = isPaused ? '恢复' : '暂停';
         const pauseBtnClass = isPaused ? 'dpr-entry-resume-btn' : 'dpr-entry-pause-btn';
-        const cardClass = 'dpr-entry-card' + (isPaused ? ' dpr-entry-card--paused' : '');
+        const cardClass = [
+          'dpr-entry-card',
+          isPaused ? 'dpr-entry-card--paused' : '',
+          isTemporary ? 'dpr-entry-card--temporary' : '',
+          runSelectionMode ? 'dpr-entry-card--selection-mode' : '',
+          selectable ? 'dpr-entry-card--selectable' : '',
+          selected ? 'is-selected' : '',
+          runSelectionMode && !selectable ? 'dpr-entry-card--selection-disabled' : '',
+        ].filter(Boolean).join(' ');
         const pausedBadge = isPaused ? '<span class="dpr-entry-paused-badge">已暂停</span>' : '';
+        const temporaryBadge = isTemporary ? '<span class="dpr-entry-temp-badge">临时</span>' : '';
         const profileId = escapeHtml(getProfileKey(p) || '');
-        const runPanelClass = `dpr-entry-run-panel${isQuickRunOpen ? ' is-open' : ''}`;
+        const selectionControl = runSelectionMode
+          ? `<span class="dpr-entry-select-dot" aria-hidden="true">${selected ? '✓' : ''}</span>`
+          : '';
         return `
           <div class="${cardClass}" data-profile-id="${profileId}">
             <div class="dpr-entry-top">
               <div class="dpr-entry-headline">
+                ${selectionControl}
                 <span class="dpr-entry-title">${escapeHtml(p.tag || '')}</span>
                 ${pausedBadge}
+                ${temporaryBadge}
                 <span class="dpr-entry-desc-inline">${escapeHtml(p.description || '（无描述）')}</span>
                 <span class="dpr-entry-source-inline">${renderProfileSourceChips(p.paper_sources)}</span>
               </div>
               <div class="dpr-entry-actions">
-                <button class="arxiv-tool-btn dpr-entry-run-toggle-btn" data-action="toggle-profile-runs" data-profile-id="${profileId}">${isQuickRunOpen ? '收起运行' : '运行'}</button>
                 <button class="arxiv-tool-btn ${pauseBtnClass}" data-action="pause-profile" data-profile-id="${profileId}">${pauseLabel}</button>
                 <button class="arxiv-tool-btn dpr-entry-edit-btn" data-action="edit-profile" data-profile-id="${profileId}">修改</button>
                 <button class="arxiv-tool-btn dpr-entry-delete-btn" data-action="delete-profile" data-profile-id="${profileId}">删除</button>
               </div>
             </div>
-            <div class="${runPanelClass}">
-              <button class="arxiv-tool-btn dpr-entry-run-btn" data-action="run-profile-10d" data-profile-id="${profileId}">10 天</button>
-              <button class="arxiv-tool-btn dpr-entry-run-btn" data-action="run-profile-30d-skims" data-profile-id="${profileId}">30 天速览</button>
-              <button class="arxiv-tool-btn dpr-entry-run-btn" data-action="run-profile-30d-standard" data-profile-id="${profileId}">30 天标准</button>
-            </div>
           </div>
         `;
       })
       .join('');
+    notifySelectionChange();
   };
 
   const openAddModal = (tag, description, candidates) => {
@@ -1747,6 +1810,7 @@ window.SubscriptionsSmartQuery = (function () {
       requestHistory: [],
       inputTag: sanitizeAutoTag(options.tag || ''),
       inputDesc: normalizeText(options.description || ''),
+      temporaryProfile: !!options.temporaryProfile,
       paper_sources: normalizePaperSources(options.paper_sources, { fallbackToAll: true }),
       pending: false,
       chatStatus: '',
@@ -1930,7 +1994,10 @@ window.SubscriptionsSmartQuery = (function () {
 
     modalPanel.innerHTML = `
       <div class="dpr-modal-head">
-        <div class="dpr-modal-title">${modalState && modalState.editProfileId ? '修改查询' : '新增查询'}</div>
+        <div class="dpr-modal-title">
+          ${modalState && modalState.editProfileId ? '修改查询' : (modalState.temporaryProfile ? '新增临时查询' : '新增查询')}
+          ${modalState.temporaryProfile ? '<span class="dpr-entry-temp-badge">仅会议检索</span>' : ''}
+        </div>
         <button class="arxiv-tool-btn" data-action="close">关闭</button>
       </div>
       <div class="dpr-chat-result-module">
@@ -2404,40 +2471,16 @@ window.SubscriptionsSmartQuery = (function () {
 
   const handleDisplayClick = (e) => {
     const actionEl = e.target && e.target.closest ? e.target.closest('[data-action][data-profile-id]') : null;
-    if (!actionEl) return;
+    if (!actionEl) {
+      const card = e.target && e.target.closest ? e.target.closest('.dpr-entry-card[data-profile-id]') : null;
+      if (card && runSelectionMode) {
+        toggleProfileSelection(card.getAttribute('data-profile-id') || '');
+      }
+      return;
+    }
     const profileId = actionEl.getAttribute('data-profile-id');
     if (!profileId) return;
     const action = actionEl.getAttribute('data-action');
-    if (action === 'toggle-profile-runs') {
-      currentProfiles = (currentProfiles || []).map((profile) => {
-        if (!profile || typeof profile !== 'object') return profile;
-        const sameProfile = getProfileKey(profile) === getProfileKey(profileId);
-        return {
-          ...profile,
-          _quickRunOpen: sameProfile ? !profile._quickRunOpen : false,
-        };
-      });
-      renderMain();
-      return;
-    }
-    if (action === 'run-profile-10d' || action === 'run-profile-30d-skims' || action === 'run-profile-30d-standard') {
-      const profile = findCurrentProfile(profileId);
-      if (!profile) return;
-      if (!window.SubscriptionsManager || typeof window.SubscriptionsManager.runProfileQuickFetch !== 'function') {
-        setMessage('后台管理运行器未加载，无法发起单词条抓取。', '#c00');
-        return;
-      }
-      if (action === 'run-profile-10d') {
-        window.SubscriptionsManager.runProfileQuickFetch(profile.tag || '', 10);
-        return;
-      }
-      if (action === 'run-profile-30d-skims') {
-        window.SubscriptionsManager.runProfileQuickFetch(profile.tag || '', 30, { fetchMode: 'skims' });
-        return;
-      }
-      window.SubscriptionsManager.runProfileQuickFetch(profile.tag || '', 30, { fetchMode: 'standard' });
-      return;
-    }
     if (action === 'edit-profile') {
       openEditModal(profileId);
       return;
@@ -2481,9 +2524,11 @@ window.SubscriptionsSmartQuery = (function () {
       const normalizedProfileId = getProfileId(profileId);
       if (normalizedProfileId) {
         pendingDeletedProfileIds.add(normalizedProfileId);
+        selectedProfileKeys.delete(normalizedProfileId);
       }
       currentProfiles = currentProfiles.filter((item) => getProfileKey(item) !== normalizedProfileId);
       renderMain();
+      notifySelectionChange();
 
       window.SubscriptionsManager.updateDraftConfig((cfg) => {
         const next = cfg || {};
@@ -2503,6 +2548,7 @@ window.SubscriptionsSmartQuery = (function () {
     displayListEl = context.displayListEl || null;
     createBtn = context.createBtn || null;
     openChatBtn = context.openChatBtn || null;
+    const openTemporaryBtn = context.openTemporaryBtn || null;
     tagInputEl = context.tagInputEl || null;
     descInputEl = context.descInputEl || null;
     msgEl = context.msgEl || null;
@@ -2516,6 +2562,12 @@ window.SubscriptionsSmartQuery = (function () {
     if (openChatBtn && !openChatBtn._bound) {
       openChatBtn._bound = true;
       openChatBtn.addEventListener('click', openChatModal);
+    }
+    if (openTemporaryBtn && !openTemporaryBtn._bound) {
+      openTemporaryBtn._bound = true;
+      openTemporaryBtn.addEventListener('click', () => {
+        openChatModal({ temporaryProfile: true });
+      });
     }
 
     const autoResizeDesc = () => {
@@ -2548,13 +2600,40 @@ window.SubscriptionsSmartQuery = (function () {
   const render = (profiles) => {
     const normalizedProfiles = Array.isArray(profiles) ? deepClone(profiles) : [];
     currentProfiles = filterDeletedProfiles(normalizedProfiles);
+    const liveKeys = new Set(currentProfiles.map((profile) => getProfileKey(profile)).filter(Boolean));
+    Array.from(selectedProfileKeys).forEach((key) => {
+      if (!liveKeys.has(key)) selectedProfileKeys.delete(key);
+    });
     renderMain();
+  };
+  const setRunSelectionMode = (mode, onSelectionChange) => {
+    const nextMode = mode === 'conference' || mode === 'daily' ? mode : '';
+    if (runSelectionMode !== nextMode) {
+      selectedProfileKeys.clear();
+    }
+    runSelectionMode = nextMode;
+    selectionChangeHandler = typeof onSelectionChange === 'function' ? onSelectionChange : null;
+    renderMain();
+    notifySelectionChange();
+  };
+  const getSelectedProfileTags = () =>
+    (currentProfiles || [])
+      .filter((profile) => selectedProfileKeys.has(getProfileKey(profile)))
+      .map((profile) => normalizeText(profile && profile.tag))
+      .filter(Boolean);
+  const clearRunSelection = () => {
+    selectedProfileKeys.clear();
+    renderMain();
+    notifySelectionChange();
   };
 
   return {
     attach,
     render,
     clearPendingDeletedProfileIds,
+    setRunSelectionMode,
+    getSelectedProfileTags,
+    clearRunSelection,
     __test: {
       buildPromptFromTemplate,
       defaultPromptTemplate,
