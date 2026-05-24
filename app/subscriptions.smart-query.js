@@ -7,6 +7,7 @@
 window.SubscriptionsSmartQuery = (function () {
   const MAX_KEYWORDS_PER_PROFILE = 6;
   const MAX_INTENT_QUERIES_PER_PROFILE = 4;
+  const MAX_PROFILE_TAG_CHARS = 12;
   let displayListEl = null;
   let createBtn = null;
   let openChatBtn = null;
@@ -63,10 +64,11 @@ window.SubscriptionsSmartQuery = (function () {
     '8) Do not output extra fields like must_have / optional / exclude / rewrite_for_embedding.',
     '9) Return pure JSON only, no explanations.',
     '10) intent_queries should be concise, timeless, and must not include years or year-like tokens.',
-    '11) Tag suggestion should be concise and descriptive. No fixed length limit.',
+    '11) Tag suggestion must be concise: at most 12 characters total, counting hyphens.',
     '12) Tag suggestion must NOT include any year. Do not append or embed years (including digits like 2026/2025/2024 etc.) in tag.',
     '13) Tag suggestion must be English words or an English acronym only. Never output Chinese in tag.',
     '14) Tag suggestion must use hyphen-separated words when multiple words are needed, for example "reinforcement-learning". Do not use spaces or underscores in tag.',
+    '15) If the descriptive tag would exceed 12 characters, output an English acronym or a shorter hyphenated label.',
   ].join('\n');
 
   const normalizeText = (v) => String(v || '').trim();
@@ -202,13 +204,25 @@ window.SubscriptionsSmartQuery = (function () {
     tag = tag
       .replace(/\+/g, '-')
       .replace(/[\s_]+/g, '-')
-      .replace(/[^A-Za-z0-9-]+/g, '')
+      .replace(/[^A-Za-z-]+/g, '')
       .replace(/-+/g, '-')
       .replace(/-+$/g, '')
       .replace(/^-+/g, '')
       .trim();
     if (!/[A-Za-z]/.test(tag)) return '';
-    return tag;
+    if (tag.length <= MAX_PROFILE_TAG_CHARS) return tag;
+    const words = tag.split('-').filter(Boolean);
+    if (words.length > 1) {
+      const acronym = words
+        .map((word) => word[0] || '')
+        .join('')
+        .replace(/[^A-Za-z]/g, '');
+      if (acronym.length >= 2 && acronym.length <= MAX_PROFILE_TAG_CHARS) {
+        const allCapsSource = words.every((word) => word === word.toUpperCase());
+        return allCapsSource ? acronym.toUpperCase() : acronym.toLowerCase();
+      }
+    }
+    return tag.slice(0, MAX_PROFILE_TAG_CHARS).replace(/-+$/g, '');
   };
   const deriveTagFromCandidates = (candidates, fallbacks = []) => {
     const values = [];
@@ -1431,6 +1445,120 @@ window.SubscriptionsSmartQuery = (function () {
     `;
   };
 
+  const renderChoiceField = (value, placeholder, isPrimary = false) => {
+    const text = normalizeText(value);
+    const classes = ['dpr-inline-field', 'dpr-choice-field'];
+    if (!text) classes.push('is-empty');
+    if (isPrimary) classes.push('is-primary');
+    return `
+      <span class="${classes.join(' ')}">
+        <span class="dpr-inline-text">${escapeHtml(escapeValueForRender(value, placeholder))}</span>
+      </span>
+    `;
+  };
+
+  const getCandidateItem = (kind, index, state = modalState) => {
+    const realKind = normalizeCandidateKind(kind);
+    const list = getCandidatesByKindForState(state, realKind);
+    if (!Array.isArray(list) || index < 0 || index >= list.length) {
+      return { realKind, list: null, item: null };
+    }
+    return { realKind, list, item: list[index] || null };
+  };
+
+  const getCandidateEditDraft = (item, primaryField, secondaryField, fallbackDesc) => {
+    const draft = item && item._editDraft && typeof item._editDraft === 'object'
+      ? item._editDraft
+      : {};
+    return {
+      primary: normalizeText(draft.primary ?? item?.[primaryField] ?? ''),
+      secondary: normalizeText(draft.secondary ?? item?.[secondaryField] ?? fallbackDesc ?? ''),
+    };
+  };
+
+  const startCandidateEdit = (kind, index, fields) => {
+    const { item } = getCandidateItem(kind, index);
+    if (!item || isDraftSlot(item)) return;
+    const primaryField = fields.primary || '';
+    const secondaryField = fields.secondary || '';
+    item._editing = true;
+    item._editDraft = {
+      primary: normalizeText(item[primaryField] || ''),
+      secondary: normalizeText(item[secondaryField] || item[fields.fallback] || ''),
+    };
+    renderChatModal();
+  };
+
+  const cancelCandidateEdit = (kind, index) => {
+    const { item } = getCandidateItem(kind, index);
+    if (!item) return;
+    delete item._editing;
+    delete item._editDraft;
+    renderChatModal();
+  };
+
+  const saveCandidateEdit = (kind, index, fields) => {
+    const { item, realKind } = getCandidateItem(kind, index);
+    if (!item) return;
+    const primaryField = fields.primary || '';
+    const secondaryField = fields.secondary || '';
+    const draft = getCandidateEditDraft(item, primaryField, secondaryField, item[fields.fallback]);
+    applyDraftSlotValue(realKind, index, primaryField, draft.primary, modalState);
+    applyDraftSlotValue(realKind, index, secondaryField, draft.secondary, modalState);
+    delete item._editing;
+    delete item._editDraft;
+    renderChatModal();
+  };
+
+  const updateCandidateEditDraft = (target) => {
+    if (!target || !modalState) return;
+    const kind = target.getAttribute('data-kind') || '';
+    const index = Number(target.getAttribute('data-index'));
+    const draftField = target.getAttribute('data-candidate-edit-field') || '';
+    const { item } = getCandidateItem(kind, index);
+    if (!item || !item._editing) return;
+    if (!item._editDraft || typeof item._editDraft !== 'object') {
+      item._editDraft = {};
+    }
+    if (draftField === 'primary' || draftField === 'secondary') {
+      item._editDraft[draftField] = target.value;
+    }
+  };
+
+  const renderCandidateEditCard = (kind, idx, item, fields, selected, disabled) => {
+    const primaryField = fields.primary || '';
+    const secondaryField = fields.secondary || '';
+    const draft = getCandidateEditDraft(item, primaryField, secondaryField, item[fields.fallback]);
+    return `
+      <div class="dpr-cloud-item dpr-cloud-item-editing ${selected ? 'selected' : ''} ${disabled ? 'dpr-choice-disabled' : ''}" data-kind="${kind}" data-index="${idx}" data-disabled="${disabled ? '1' : '0'}" aria-disabled="${disabled ? 'true' : 'false'}">
+        <span class="dpr-cloud-item-body dpr-cloud-edit-body">
+          <input
+            type="text"
+            class="dpr-candidate-edit-input"
+            data-kind="${escapeHtml(kind)}"
+            data-index="${idx}"
+            data-candidate-edit-field="primary"
+            value="${escapeHtml(draft.primary)}"
+            placeholder="${escapeHtml(fields.primaryPlaceholder || '英文检索文本')}"
+          />
+          <input
+            type="text"
+            class="dpr-candidate-edit-input"
+            data-kind="${escapeHtml(kind)}"
+            data-index="${idx}"
+            data-candidate-edit-field="secondary"
+            value="${escapeHtml(draft.secondary)}"
+            placeholder="${escapeHtml(fields.secondaryPlaceholder || '中文说明')}"
+          />
+        </span>
+        <span class="dpr-cloud-edit-actions">
+          <button type="button" class="arxiv-tool-btn dpr-cloud-edit-save" data-action="save-candidate-edit" data-kind="${escapeHtml(kind)}" data-index="${idx}" data-primary-field="${escapeHtml(primaryField)}" data-secondary-field="${escapeHtml(secondaryField)}" data-fallback-field="${escapeHtml(fields.fallback || '')}" title="保存修改">✓</button>
+          <button type="button" class="arxiv-tool-btn dpr-cloud-edit-cancel" data-action="cancel-candidate-edit" data-kind="${escapeHtml(kind)}" data-index="${idx}" title="取消修改">×</button>
+        </span>
+      </div>
+    `;
+  };
+
   const renderDraftInputField = (kind, idx, field, value, placeholder) => {
     return `
       <input
@@ -1620,35 +1748,42 @@ window.SubscriptionsSmartQuery = (function () {
         const selected = !!item._selected;
         const checked = selected ? 'checked' : '';
         const disabled = isCandidateDisabled(items, item, realKind);
+        const fieldMeta = {
+          primary: textField,
+          secondary: descField,
+          fallback: descFallbackField,
+          primaryPlaceholder: options.defaultPrimaryPlaceholder || '英文检索文本',
+          secondaryPlaceholder: defaultDesc || '中文说明',
+        };
+        if (item._editing) {
+          return renderCandidateEditCard(realKind, idx, item, fieldMeta, selected, disabled);
+        }
         return `
-        <label class="dpr-cloud-item ${selected ? 'selected' : ''} ${disabled ? 'dpr-choice-disabled' : ''}" data-kind="${kind}" data-index="${idx}" data-disabled="${disabled ? '1' : '0'}" aria-disabled="${disabled ? 'true' : 'false'}">
+        <div class="dpr-cloud-item ${selected ? 'selected' : ''} ${disabled ? 'dpr-choice-disabled' : ''}" data-action="toggle-chat-choice-card" data-kind="${realKind}" data-index="${idx}" data-disabled="${disabled ? '1' : '0'}" aria-disabled="${disabled ? 'true' : 'false'}">
           <input
             type="checkbox"
             data-action="toggle-chat-choice"
-            data-kind="${kind}"
+            data-kind="${realKind}"
             data-index="${idx}"
             ${checked}
             ${disabled ? 'disabled' : ''}
           />
           <span class="dpr-cloud-item-body">
-            ${renderEditableField(
-              kind,
-              idx,
-              textField,
-              text,
-              options.defaultPrimaryPlaceholder || '（英文）',
-              true,
-            )}
-            ${renderEditableField(
-              kind,
-              idx,
-              descField,
-              desc || item[descFallbackField] || item.source || '',
-              defaultDesc || '（无说明）',
-              false,
-            )}
+            ${renderChoiceField(text, options.defaultPrimaryPlaceholder || '（英文）', true)}
+            ${renderChoiceField(desc || item[descFallbackField] || item.source || '', defaultDesc || '（无说明）', false)}
           </span>
-        </label>
+          <button
+            type="button"
+            class="arxiv-tool-btn dpr-cloud-edit-trigger"
+            data-action="edit-candidate-choice"
+            data-kind="${realKind}"
+            data-index="${idx}"
+            data-primary-field="${escapeHtml(textField)}"
+            data-secondary-field="${escapeHtml(descField)}"
+            data-fallback-field="${escapeHtml(descFallbackField)}"
+            title="修改英文与中文说明"
+          >✎</button>
+        </div>
       `;
       })
       .join('');
@@ -1675,6 +1810,28 @@ window.SubscriptionsSmartQuery = (function () {
     btn.classList.remove('dpr-btn-loading');
     const label = btn.querySelector('.dpr-chat-send-label');
     if (label) label.textContent = '生成候选';
+  };
+
+  const toggleChatChoice = (kind, index, nextSelected = null) => {
+    if (!modalState || modalState.type !== 'chat') return;
+    const realKind = normalizeCandidateKind(kind);
+    const list = realKind === 'intent' ? modalState.intent_queries : modalState.keywords;
+    if (
+      !Array.isArray(list) ||
+      index < 0 ||
+      index >= list.length ||
+      isDraftSlot(list[index]) ||
+      list[index]._editing
+    ) {
+      return;
+    }
+    const selected = typeof nextSelected === 'boolean' ? nextSelected : !list[index]._selected;
+    if (!canSelectMoreCandidates(list, selected, realKind)) {
+      setMessage(`${getKindLabel(realKind)} 最多只能选择 ${getSelectionLimit(realKind)} 条。`, '#c00');
+      return;
+    }
+    list[index]._selected = selected;
+    renderChatModal();
   };
 
   const ensureModal = () => {
@@ -2250,6 +2407,42 @@ window.SubscriptionsSmartQuery = (function () {
       }
       return;
     }
+    if (modalState && modalState.type === 'chat') {
+      if (action === 'toggle-chat-choice-card') {
+        e.preventDefault();
+        e.stopPropagation();
+        const kind = actionEl.getAttribute('data-kind') || '';
+        const idx = Number(actionEl.getAttribute('data-index'));
+        toggleChatChoice(kind, idx);
+        return;
+      }
+      if (action === 'edit-candidate-choice') {
+        e.preventDefault();
+        e.stopPropagation();
+        startCandidateEdit(actionEl.getAttribute('data-kind') || '', Number(actionEl.getAttribute('data-index')), {
+          primary: actionEl.getAttribute('data-primary-field') || '',
+          secondary: actionEl.getAttribute('data-secondary-field') || '',
+          fallback: actionEl.getAttribute('data-fallback-field') || '',
+        });
+        return;
+      }
+      if (action === 'save-candidate-edit') {
+        e.preventDefault();
+        e.stopPropagation();
+        saveCandidateEdit(actionEl.getAttribute('data-kind') || '', Number(actionEl.getAttribute('data-index')), {
+          primary: actionEl.getAttribute('data-primary-field') || '',
+          secondary: actionEl.getAttribute('data-secondary-field') || '',
+          fallback: actionEl.getAttribute('data-fallback-field') || '',
+        });
+        return;
+      }
+      if (action === 'cancel-candidate-edit') {
+        e.preventDefault();
+        e.stopPropagation();
+        cancelCandidateEdit(actionEl.getAttribute('data-kind') || '', Number(actionEl.getAttribute('data-index')));
+        return;
+      }
+    }
 
     if (modalState && modalState.type === 'add') {
       if (action === 'toggle-kw-card') {
@@ -2409,6 +2602,10 @@ window.SubscriptionsSmartQuery = (function () {
   const handleModalInput = (e) => {
     const target = e.target;
     if (!target || !target.matches) return;
+    if (target.matches('input[data-candidate-edit-field]')) {
+      updateCandidateEditDraft(target);
+      return;
+    }
     if (!target.matches('input[data-draft-input="1"]')) return;
     if (!modalState) return;
     const kind = target.getAttribute('data-kind') || '';

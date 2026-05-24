@@ -76,9 +76,10 @@ window.SubscriptionsManager = (function () {
     '7) intent_queries: output 1-4 actionable intent queries. The query field MUST be English only; query_cn should be Chinese.',
     '8) Do not output extra fields like must_have / optional / exclude / rewrite_for_embedding / must_have.',
     '9) Return pure JSON only, no explanations.',
-    '10) Tag suggestion should be concise and descriptive. No fixed length limit.',
+    '10) Tag suggestion must be concise: at most 12 characters total, counting hyphens.',
     '11) Tag suggestion must be English words or an English acronym only. Never output Chinese in tag.',
     '12) Tag suggestion must use hyphen-separated words when multiple words are needed, for example "reinforcement-learning". Do not use spaces or underscores in tag.',
+    '13) If the descriptive tag would exceed 12 characters, output an English acronym or a shorter hyphenated label.',
   ].join('\n');
 
   const QUICK_RUN_CONFERENCES = [
@@ -91,6 +92,7 @@ window.SubscriptionsManager = (function () {
   ]);
 
   const normalizeText = (v) => String(v || '').trim();
+  const MAX_PROFILE_TAG_CHARS = 12;
   const sanitizeProfileTag = (value) => {
     const base = normalizeText(value);
     if (!base) return '';
@@ -102,12 +104,24 @@ window.SubscriptionsManager = (function () {
       .replace(/[\s_-]*(?:19|20)\d{2}(?:年)?[\s_-]*/g, '')
       .replace(/\+/g, '-')
       .replace(/[\s_]+/g, '-')
-      .replace(/[^A-Za-z0-9-]+/g, '')
+      .replace(/[^A-Za-z-]+/g, '')
       .replace(/-+/g, '-')
       .replace(/^-+|-+$/g, '')
       .trim();
     if (!/[A-Za-z]/.test(tag)) return '';
-    return tag;
+    if (tag.length <= MAX_PROFILE_TAG_CHARS) return tag;
+    const words = tag.split('-').filter(Boolean);
+    if (words.length > 1) {
+      const acronym = words
+        .map((word) => word[0] || '')
+        .join('')
+        .replace(/[^A-Za-z]/g, '');
+      if (acronym.length >= 2 && acronym.length <= MAX_PROFILE_TAG_CHARS) {
+        const allCapsSource = words.every((word) => word === word.toUpperCase());
+        return allCapsSource ? acronym.toUpperCase() : acronym.toLowerCase();
+      }
+    }
+    return tag.slice(0, MAX_PROFILE_TAG_CHARS).replace(/-+$/g, '');
   };
   const deriveProfileTag = (profile, fallback) => {
     const values = [profile && profile.tag];

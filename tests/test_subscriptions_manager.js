@@ -124,7 +124,7 @@ function testNormalizeSubscriptionsConvertsChineseTagToEnglishFallback() {
   ];
 
   const normalized = normalizeSubscriptions(config);
-  assert.equal(normalized.subscriptions.intent_profiles[0].tag, 'reinforcement-learning');
+  assert.equal(normalized.subscriptions.intent_profiles[0].tag, 'rl');
 }
 
 function testRunProfileQuickFetchPassesProfileTagToWorkflow() {

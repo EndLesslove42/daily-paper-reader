@@ -26,12 +26,12 @@ function testPromptRequiresEnglishRetrievalFieldsAndChineseCnFields() {
   assert.match(prompt, /The query field MUST be English only/);
   assert.match(prompt, /hyphen-separated words/);
   assert.match(prompt, /English words or an English acronym only/);
-  assert.match(prompt, /No fixed length limit/);
+  assert.match(prompt, /at most 12 characters/);
 }
 
-function testSuggestedTagUsesHyphenWithoutLengthLimit() {
-  assert.equal(sanitizeAutoTag('reinforcement learning algorithms'), 'reinforcement-learning-algorithms');
-  assert.equal(sanitizeAutoTag('RL_optimization 2026'), 'RL-optimization');
+function testSuggestedTagIsEnglishAndAtMostTwelveChars() {
+  assert.equal(sanitizeAutoTag('reinforcement learning algorithms'), 'rla');
+  assert.equal(sanitizeAutoTag('RL_optimization 2026'), 'ro');
   assert.equal(sanitizeAutoTag('强化学习'), '');
   assert.equal(sanitizeAutoTag('强化学习 RL'), 'RL');
   assert.equal(
@@ -39,8 +39,9 @@ function testSuggestedTagUsesHyphenWithoutLengthLimit() {
       tag: '强化学习',
       keywords: [{ keyword: 'reinforcement learning', query: 'reinforcement learning algorithms comparison' }],
     }),
-    'reinforcement-learning',
+    'rl',
   );
+  assert.equal(sanitizeAutoTag('verylongsingleword'), 'verylongsing');
 }
 
 function testGeneratedCandidatesKeepChineseOutOfRetrievalFields() {
@@ -100,7 +101,7 @@ function testGeneratedCandidatesKeepChineseOutOfRetrievalFields() {
 }
 
 testPromptRequiresEnglishRetrievalFieldsAndChineseCnFields();
-testSuggestedTagUsesHyphenWithoutLengthLimit();
+testSuggestedTagIsEnglishAndAtMostTwelveChars();
 testGeneratedCandidatesKeepChineseOutOfRetrievalFields();
 
 console.log('subscriptions smart query tests passed');
