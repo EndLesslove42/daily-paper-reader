@@ -1,0 +1,577 @@
+Title: Population-Aware Physics-Informed Neural Particle Flow for Bayesian Update
+
+URL Source: https://arxiv.org/pdf/2606.10959v1
+
+Published Time: Wed, 10 Jun 2026 01:25:55 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+# Population-Aware Physics-Informed Neural Particle Flow for Bayesian Update 
+
+Batu Candan 1 and Simone Servadio 2
+
+Abstract — Physics-informed neural particle flow (PINPF) learns a deterministic transport field that moves particles from a prior distribution toward a Bayesian posterior while enforcing the governing probability-evolution equation. However, the standard PINPF velocity model processes particles indepen-dently and therefore does not explicitly condition its transport decisions on the empirical particle population. This paper introduces population-aware PINPF (PA-PINPF), which aug-ments each particle update with a permutation-invariant Deep Sets representation of the full particle set. We investigate two population encoders. PA-PINPF-State summarizes the particle states, whereas PA-PINPF-Feature summarizes the complete local physics-informed feature vectors, including particle posi-tion, pseudo-time, measurement information, likelihood values, and score information. The latter allows the population context to represent not only particle-cloud geometry, but also the population-level Bayesian transport geometry. The methods retain the original unsupervised physics-informed residual ob-jective and require no ground-truth posterior samples during training. Experiments on range-measurement tasks and nonlin-ear time-difference-of-arrival posterior transport demonstrate that both population-aware variants improve over particle-wise PINPF, while feature-population encoding provides the strongest performance. These results show that population-level physics features provide useful global information for learned Bayesian particle transport. 
+
+I. I NTRODUCTION 
+
+Bayesian inference is a fundamental component of non-linear estimation, tracking, localization, and multi-sensor fusion [1]. In these problems, the objective is to represent a posterior distribution over system states after incorporating uncertain measurements. Over the past two decades, a large body of nonlinear filtering methods has been developed to approximate the Bayesian recursive relations when exact posterior updates are not tractable. Recent surveys organize these methods into several major families, including point mass filters (PMFs), particle filters (PFs), particle flow filters (PFFs), Gaussian sum or Gaussian mixture filters, hybrid Gaussian-mixture/particle filters, and high-order nonlinear filters. Among these approaches, PMFs, PFs, and PFFs are especially relevant to sample-based posterior approximation because they operate on discrete representations of the prob-ability density [2]. Particle filters provide a flexible Monte Carlo represen-tation of such distributions and are widely used when the posterior is nonlinear or non-Gaussian [3]. However, classical particle filtering methods often rely on importance weighting 
+
+> 1Batu Candan, PhD Candidate, Iowa State University, Ames, IA 50011, USA,
+> 2Dr. Simone Servadio, Assistant Professor, Iowa State University, Ames, IA 50011, USA,
+
+and resampling, which can lead to weight degeneracy, sample impoverishment, and poor efficiency when the likelihood is sharp or the state dimension increases [4]–[6]. Particle flow methods provide an alternative approach for non-linear filtering by moving particles continuously from the prior distribution to the posterior distribution [7]. Instead of assigning importance weights after a measurement update, particle flow methods construct a pseudo-time dynamics that gradually introduces the likelihood and transports particles toward high-posterior regions [8]–[10]. If the velocity field governing this transport is accurate, the resulting particles can provide an unweighted approximation of the posterior distribution [11]–[14]. Recent work has also explored neural particle-flow opera-tors for Bayesian inference [15], [16] and physics-informed uncertainty estimators [17], [18]. Particle Flow Bayes’ Rule (PFBR) formulates Bayes’ rule as a learned ODE-based operator that transports particles from the current posterior to the updated posterior after a new observation [19]. In PFBR, the update of each particle depends on the particle set, the current particle, and the new observation, and the flow velocity is parameterized using a permutation-invariant Deep Sets-style embedding of the particle population [20]– [22]. This provides an important connection between learned Bayesian updating and population-conditioned particle trans-port. However, PFBR treats the update primarily as a learned operator trained through meta-learning, rather than enforcing the analytical probability evolution residual associated with the prior-to-posterior homotopy. Physics-informed neural particle flow (PINPF), in contrast, learns a velocity field constrained by the probability evolu-tion equation associated with the Bayesian homotopy from prior to posterior [23]. This combines neural approximation with the structure of particle-flow-based Bayesian transport. However, the standard PINPF velocity model is particle-wise: the velocity of each particle is computed from that particle’s state and task information, without explicitly conditioning on the empirical particle population. This can limit the ability of the learned flow to adapt to the actual sample configuration, including its spread, skewness, multimodality, undercoverage, and sample imbalance. Motivated by PFBR’s population-conditioned operator view and PINPF’s physics-informed residual formulation, in this paper, we propose a population-aware physics-informed neural particle flow method for Bayesian posterior transport. The key idea is to condition each particle’s velocity not only on its own state and task variables, but also on a permutation-invariant representation of the full particle set. 
+
+> arXiv:2606.10959v1 [cs.LG] 9 Jun 2026
+
+This population context allows the learned velocity field to adapt to the empirical distribution represented by the particles, including its spread, imbalance, and multimodal structure, while preserving exchangeability with respect to particle ordering. The proposed architecture uses a Deep Sets-style encoder to summarize the particle-state population and provides this context to the physics-informed neural velocity model, which still receives the standard local PINPF feature vector for each particle. The main contributions of this paper are:  
+
+> •
+
+We introduce a population-aware extension of physics-informed neural particle flow that conditions every particle velocity on a permutation-invariant summary of the current particle population.  
+
+> •
+
+We formulate and compare two population representa-tions: PA-PINPF-State, which summarizes the particle states {x j}Nj=1, and PA-PINPF-Feature, which summa-rizes the complete local PINPF feature vectors {c j}Nj=1. 
+
+> •
+
+It is shown that feature-population encoding provides the transport model with population-level likelihood, score, and homotopy information that is unavailable from particle positions alone.  
+
+> •
+
+We evaluate the proposed methods on nonlinear range-measurement and TDOA posterior-transport tasks using energy distance, sliced Wasserstein distance, posterior moment errors, win rates, and inference time.  
+
+> •
+
+We demonstrate that both population-aware variants out-perform particle-wise PINPF, while PA-PINPF-Feature achieves the strongest overall posterior approximation with modest computational increase. II. B ACKGROUND 
+
+A. Bayesian Posterior Transport 
+
+Let x ∈ Rd denote the random state vector, p0(x) the prior density, and l(x) = p(y|x) the likelihood associated with a measurement y. The Bayesian posterior is given by 
+
+p1(x) = p(x|y) = p0(x)l(x) 
+
+> R
+
+p0(x)l(x)dx . (1) Classical particle filters approximate the posterior using weighted particles. Although this representation is flexible, importance weights may become highly concentrated when the likelihood is sharp or when the state dimension increases. This leads to weight degeneracy and often requires resam-pling, which can reduce particle diversity. Particle flow methods provide an alternative approach by transporting particles from the prior distribution to the posterior distribution. A common construction introduces a pseudo-time variable λ ∈ [0, 1] and defines the intermediate density 
+
+pλ (x) = p0(x)l(x)λ
+
+Zλ
+
+, Zλ =
+
+> Z
+
+p0(x)l(x)λ dx . (2) At λ = 0, pλ is the prior, and at λ = 1, pλ is the posterior. Particles are transported according to the ordinary differential equation dx λ
+
+dλ = vλ (xλ ), (3) where vλ is a velocity field chosen so that the evolving particle distribution follows the density path pλ .For deterministic transport, conservation of probability mass is governed by the continuity equation 
+
+∂ pλ
+
+∂ λ = −∇ · (pλ vλ ) . (4) Combining the log-homotopy definition of pλ with the continuity equation yields a physics-based constraint on the velocity field. This constraint forms the basis of physics-informed neural particle flow methods. 
+
+B. Physics-Informed Neural Particle Flow 
+
+In the baseline PINPF formulation, the transport velocity is evaluated independently for each particle. For particle i,the local input feature vector is 
+
+ci = [ xi, λ , y, log l(xi), ∇x log pλ (xi), ∇x log l(xi)] . (5) The components of ci have the following roles:  
+
+> •
+
+xi ∈ Rd is the current state of particle i; 
+
+> •
+
+λ ∈ [0, 1] is the pseudo-time variable controlling the progression from prior to posterior;  
+
+> •
+
+y is the current measurement or observation associated with the Bayesian update;  
+
+> •
+
+log l(xi) = log p(y|xi) is the log-likelihood evaluated at particle i; 
+
+> •
+
+∇x log pλ (xi) is the score of the intermediate homotopy density and describes the local geometry of the current target density;  
+
+> •
+
+∇x log l(xi) is the likelihood score and indicates the local direction in which the measurement increases probability. The score of the intermediate density can be computed from the unnormalized log-homotopy as 
+
+∇x log pλ (xi) = ∇x log p0(xi) + λ ∇x log l(xi), (6) because the normalizing constant Zλ does not depend on x.The baseline PINPF velocity is then predicted by a mul-tilayer perceptron, 
+
+vi = vθ (ci), (7) where vθ denotes the particle-wise velocity network with trainable parameters θ .For particle i at pseudo-time step k, the physics-informed residual is 
+
+Ri,k = log l(xki ) − 1
+
+N
+
+> N
+
+# ∑
+
+> j=1
+
+log l(xkj )
+
+−
+
+h
+
+−∇x · vθ (cki ) − vθ (cki )T ∇x log pλk (xki )
+
+i
+
+.
+
+(8) The first line is the homotopy-driven change in log-density, while the second line is the change induced by the learned transport field through compression and advection. The PINPF training objective is the mean squared residual over all particles and pseudo-time steps: 
+
+LPINPF = 1
+
+K
+
+> K
+
+# ∑
+
+> k=1
+
+1
+
+N
+
+> N
+
+# ∑
+
+> i=1
+
+R2
+
+> i,k
+
+, (9) where N is the number of particles and K is the number of discrete pseudo-time steps. The factors 1 /N and 1 /K
+
+convert the sums into averages, so that the loss scale remains approximately independent of the number of particles and integration steps. III. P OPULATION -A WARE PINPF 
+
+A. Motivation 
+
+The baseline PINPF formulation learns a local velocity rule of the form vi = vθ (ci). This is computationally efficient and preserves exchangeability across particles. However, the velocity of each particle is computed without direct access to the empirical particle distribution. As a result, two particle populations with different global structures may produce similar local features for a given particle, even though they may require different transport behavior [23]. The current particle population contains information about the empirical approximation of the intermediate density, including spread, skewness, mode coverage, and sample imbalance. This information can be important in nonlinear and multimodal posterior transport problems. For example, in a Gaussian mixture posterior, accurate inference requires not only moving particles toward high-likelihood regions, but also allocating the correct amount of probability mass to each mode. A purely particle-wise velocity model may have limited ability to adapt to such population-level structure [24], [25]. 
+
+B. Permutation-Invariant State and Feature Population En-coding 
+
+Let 
+
+Cλ = {c1, . . . , cN } (10) denote the set of local PINPF feature vectors at pseudo-time λ . We construct a fixed-dimensional representation of the particle population using a Deep Sets encoder. The encoder consists of two multilayer perceptrons: an element-wise embedding network ψ and a context network ρ. The element-wise network ψ is applied independently, with shared parameters, to every member of the set. The resulting embeddings are averaged over the population, and the pooled representation is then processed by ρ to produce the final population context. Mean pooling makes the representation invariant to particle ordering. For the state-based variant, each particle state is embedded as 
+
+rxj = ψx(x j), (11) and the state-population context is 
+
+ex 
+
+> λ
+
+= ρx
+
+1
+
+N
+
+> N
+
+# ∑
+
+> j=1
+
+rxj
+
+!
+
+= ρx
+
+1
+
+N
+
+> N
+
+# ∑
+
+> j=1
+
+ψx(x j)
+
+!
+
+. (12) Here, ψx is a shared state-embedding MLP and ρx is a context MLP that maps the pooled embedding into a fixed-dimensional vector ex 
+
+> λ
+
+∈ Rdc . The corresponding transport velocity is 
+
+vxi = vθx
+
+ [ci, ex 
+
+> λ
+
+] , (13) where [·, ·] denotes vector concatenation and vθx is the population-aware velocity MLP. This model, denoted PA-PINPF-State, summarizes the geometry of the empirical particle cloud, including its location, spread, orientation, concentration, and mode coverage. For the feature-based variant, the same Deep Sets con-struction is applied to the complete local feature vectors. Each feature vector is first embedded as 
+
+rcj = ψc(c j), (14) and the feature-population context is 
+
+ec 
+
+> λ
+
+= ρc
+
+1
+
+N
+
+> N
+
+# ∑
+
+> j=1
+
+rcj
+
+!
+
+= ρc
+
+1
+
+N
+
+> N
+
+# ∑
+
+> j=1
+
+ψc(c j)
+
+!
+
+. (15) Here, ψc is a shared feature-embedding MLP and ρc is a context MLP that maps the pooled feature embedding into 
+
+ec 
+
+> λ
+
+∈ Rdc .The feature-population-aware velocity is 
+
+vci = vθc
+
+ [ci, ec 
+
+> λ
+
+] , (16) where vθc is the corresponding velocity MLP. This model is denoted PA-PINPF-Feature. The two variants therefore use the same overall structure but differ in the set being summarized: PA-PINPF-State: ex 
+
+> λ
+
+= ρx
+
+1
+
+N
+
+> N
+
+# ∑
+
+> j=1
+
+ψx(x j)
+
+!
+
+, (17) PA-PINPF-Feature: ec 
+
+> λ
+
+= ρc
+
+1
+
+N
+
+> N
+
+# ∑
+
+> j=1
+
+ψc(c j)
+
+!
+
+. (18) The state encoder represents the empirical distribution in state space, whereas the feature encoder represents the em-pirical distribution in the physics-informed feature space. 
+
+C. Physics-Informed Training Objective 
+
+The proposed method retains the same physics-informed learning principle as the baseline PINPF [23]. The population context modifies the neural velocity parameterization, but the learning signal remains the residual of the log-homotopy continuity equation. For PA-PINPF, the residual becomes 
+
+RPA  
+
+> i,k
+
+= log l(xki ) − 1
+
+N
+
+> N
+
+# ∑
+
+> j=1
+
+log l(xkj )
+
+−
+
+h
+
+−∇ · vθ (cki , ek) − vθ (cki , ek)T ∇ log pλk (xki )
+
+i
+
+.
+
+(19) The training objective is 
+
+LPA = 1
+
+K
+
+> K
+
+# ∑
+
+> k=1
+
+1
+
+N
+
+> N
+
+# ∑
+
+> i=1
+
+ RPA 
+
+> i,k
+
+2 . (20) Thus, PA-PINPF learns a physics-informed transport field whose velocity depends on both local Bayesian geometry and the global empirical particle distribution. D. Interpretation 
+
+The population-aware architecture can be interpreted as augmenting the local PINPF transport rule with an adaptive summary of the current empirical measure ˆpλ (x) = 1
+
+N
+
+> N
+
+# ∑
+
+> i=1
+
+δ (x − xi). (21) The baseline model approximates the velocity using only local particle features, 
+
+vλ (xi) ≈ vθ (ci). (22) In contrast, the proposed PA-PINPF model approximates 
+
+vλ (xi, ˆpλ ) ≈ vθ (ci, eλ ), (23) where eλ is a learned permutation-invariant representation of the current particle states. This allows the learned flow to adapt its transport behavior based on the empirical par-ticle configuration, including the population mean, spread, orientation, concentration, and possible under-coverage of posterior regions. Thus, the population context captures the geometry of the particle cloud, while the velocity network still receives the local physics-informed feature vector ci for each particle. This design isolates the effect of state-population awareness and keeps the population encoder compact. The state-based encoder conditions the flow on an approximation of the cur-rent empirical state distribution. The feature-based encoder provides a richer representation by conditioning the flow on an empirical distribution in the local PINPF feature space. Thus, PINPF: vi = vθ (ci), (24) PA-PINPF-State: vi = vθx (ci, ex 
+
+> λ
+
+), (25) PA-PINPF-Feature: vi = vθc (ci, ec 
+
+> λ
+
+). (26) This comparison separates the benefit of population aware-ness from the benefit of representing the population in a physics-informed feature space. IV. E XPERIMENTS 
+
+We evaluate the proposed population-aware PINPF (PA-PINPF) on synthetic Bayesian posterior transport tasks de-signed to test distributional accuracy, mode coverage, and robustness under nonlinear likelihoods. The experiments are organized in increasing order of difficulty. First, we use a low-dimensional toy posterior transport problem to visualize the qualitative difference between the particle-wise baseline and the proposed population-aware model. Second, we eval-uate both methods on a nonlinear time-difference-of-arrival (TDOA) fusion problem, where the likelihood induces a curved, banana-shaped posterior. The baseline in all experiments is the original particle-wise PINPF velocity model. The proposed PA-PINPF uses the same physics-informed residual objective, pseudo-time integration scheme, optimizer, and training data as the base-line, but augments the particle-wise velocity field with a permutation-invariant population context. This ensures that any performance difference is due to the population-aware conditioning rather than changes in training budget, particle count, or inference procedure. 
+
+A. Evaluation Metrics 
+
+Let X = {xi}Ni=1 denote the set of particles generated by an inference algorithm, and let Y = {y j}Mj=1 denote reference samples drawn from the ground-truth posterior. We evaluate posterior approximation quality using energy distance (ED), sliced Wasserstein distance (SWD), posterior mean error, and posterior covariance error. The energy distance provides a global, distribution-free measure of discrepancy between two multivariate distribu-tions [26]. The squared empirical energy distance is com-puted as ED 2(X,Y ) = 2
+
+NM 
+
+> N
+
+# ∑
+
+> i=1
+> M
+
+# ∑
+
+> j=1
+
+∥xi − y j∥2
+
+− 1
+
+N2
+
+> N
+
+# ∑
+
+> i=1
+> N
+
+# ∑
+
+> j=1
+
+∥xi − x j∥2 − 1
+
+M2
+
+> M
+
+# ∑
+
+> i=1
+> M
+
+# ∑
+
+> j=1
+
+∥yi − y j∥2.
+
+(27) In our experiments, we set M = N by drawing the same number of reference posterior samples as generated particles. The sliced Wasserstein distance complements ED by com-paring one-dimensional projections of the particle clouds. Direct Wasserstein distance computation can be expensive in high dimensions, whereas the one-dimensional Wasserstein distance can be computed efficiently by sorting projected samples [27]. Let {eℓ}L 
+
+> ℓ=1
+
+be L random unit vectors sampled uniformly from the unit sphere Sd−1. For each direction eℓ,the samples are projected and sorted as 
+
+xeℓ 
+
+> 1
+
+≤ · · · ≤ xeℓ 
+
+> N
+
+, yeℓ 
+
+> 1
+
+≤ · · · ≤ yeℓ 
+
+> N
+
+.
+
+The squared empirical sliced Wasserstein distance of order two is approximated by SWD 2(X,Y ) ≈ 1
+
+L
+
+> L
+
+# ∑
+
+> ℓ=1
+
+1
+
+N
+
+> N
+
+# ∑
+
+> i=1
+
+xeℓ 
+
+> i
+
+− yeℓ
+
+> i
+> 2
+
+!
+
+. (28) We also report moment-based errors. The posterior mean error is MeanErr (X,Y ) = ∥ ˆμX − ˆμY ∥2, (29) where ˆ μX and ˆ μY are the empirical means of the generated and reference samples. The covariance error is CovErr (X,Y ) = ∥ ˆΣX − ˆΣY ∥F , (30) where ˆΣX and ˆΣY are empirical covariance matrices and 
+
+∥ · ∥ F denotes the Frobenius norm. Together, ED and SWD measure global distributional agreement, while the mean and covariance errors measure first- and second-order posterior accuracy. TABLE I HYPERPARAMETER SETTINGS FOR TRAINING AND INFERENCE OF                                     
+
+> PINPF AND PA-PINPF. Parameter Value
+> Velocity MLP Architecture
+> Hidden layers 6Hidden dimension 64 Activation function (each layer) SiLU
+> Population Encoder (PA-PINPF only)
+> Encoder type Deep Sets Element encoder ψMLP Context network ρMLP Aggregation operation Mean pooling Context dimension dc64 State-encoder input xj
+> Feature-encoder input cj
+> Training
+> Number of particles 500 Pseudo-time step Fixed, ∆λ=0.01 Optimizer AdamW Training epochs 6000 Initial learning rate 0.004 Weight decay 10 −4
+> Minimum learning rate 10 −6
+> Gradient clipping 1.0 Training tasks 1000 Batch size 64
+> Inference
+> Number of particles 1500 Pseudo-time step Adaptive, ∆L=0.5
+
+B. Comparison Protocol 
+
+For each task, baseline PINPF and PA-PINPF are trained and evaluated using identical settings. Both methods use the same training tasks, validation tasks, test tasks, number of particles, pseudo-time step, optimizer, learning rate schedule, and inference particle count. The only architectural differ-ence is that PA-PINPF receives an additional permutation-invariant population context vector. Table I summarizes the shared training and inference protocol. 
+
+C. Range-Based Posterior Transport Family 
+
+We first evaluate the methods on a family of two-dimensional nonlinear range-measurement problems. The state is a target position x ∈ R2, and the scalar measurement is 
+
+z = ∥x∥2 + ν, (31) where ν ∼ N (0, σ 2) is Gaussian measurement noise. Com-bining this likelihood with an offset and correlated Gaussian prior produces a curved, generally non-Gaussian posterior concentrated near a range contour. Rather than training and evaluating on a single fixed configuration, we generate a family of tasks by varying the prior mean, prior covariance, measurement value, and measurement-noise standard devi-ation. The training, validation, and test sets are generated using independent random seeds so that the reported re-sults measure generalization to previously unseen posterior-transport tasks. The prior mean is sampled from a bounded region around the range contour, while the covariance parameters are varied to produce different orientations, spreads, and correlations. The range observation and measurement-noise level are also randomized. This creates a collection of posterior geometries with different curvature, concentration, and asymmetry. We compare three models: the particle-wise PINPF base-line, PA-PINPF-State, and PA-PINPF-Feature. All methods use the same physics-informed residual objective, task fam-ily, optimizer, particle count, and pseudo-time integration scheme. For evaluation, reference posterior samples are obtained by importance resampling from the prior using the range likelihood. Performance is measured over test tasks and multiple evaluation seeds using energy distance, sliced Wasserstein distance, posterior mean error, posterior covariance error, and inference time. This experiment tests whether population awareness improves posterior transport across a family of nonlinear inference problems rather than only for a single posterior instance. 
+
+D. Single TDOA Fusion Task 
+
+The second benchmark is a nonlinear single time-difference-of-arrival (TDOA) fusion problem. The state is a two-dimensional target position x ∈ R2, and the measurement is the difference between the Euclidean distances from the target to two sensors SA, SB ∈ R2:
+
+z = h(x) + ν, (32) 
+
+h(x) = ∥x − SA∥2 − ∥ x − SB∥2, (33) where ν ∼ N (0, σ 2) is Gaussian measurement noise. This measurement model produces a hyperbolic likelihood. When fused with a Gaussian prior, the posterior can become highly non-Gaussian and curved, and in some cases multimodal. We use the same TDOA task family for both baseline PINPF and PA-PINPF. Each task consists of a Gaussian prior, a TDOA measurement, and a corresponding posterior reference distribution. The purpose of this experiment is to test whether population-aware conditioning helps the learned velocity field transport particles along a curved posterior geometry rather than collapsing toward a locally Gaussian approximation. V. R ESULTS AND DISCUSSION 
+
+This section compares the particle-wise PINPF baseline with two population-aware variants: PA-PINPF-State and PA-PINPF-Feature. PA-PINPF-State computes the popula-tion context from the particle states {x j}Nj=1, while PA-PINPF-Feature computes the population context from the complete local PINPF feature vectors {c j}Nj=1. Therefore, the experiments test both whether population awareness im-proves learned particle transport and whether the population should be represented in state space or in physics-informed feature space. 
+
+A. Range-Based Posterior Transport Results 
+
+Table II reports Monte Carlo results on the Range2D family over test tasks and evaluation seeds. Both population-aware models improve over the particle-wise PINPF baseline in distributional and moment-based metrics. The baseline PINPF achieves an energy distance of 0 .04109 and a sliced Wasserstein distance of 0 .17194. PA-PINPF-State reduces these values to 0 .01946 and 0 .12116, respectively, showing that even a state-based summary of the empirical particle cloud provides useful global information for transport. The feature-based population encoder gives the strongest performance. PA-PINPF-Feature achieves an energy distance of 0 .00896 and a sliced Wasserstein distance of 0 .08978, corresponding to relative reductions of approximately 78 .2% in ED and 47 .8% in SWD compared with the baseline. It also improves posterior mean error from 0 .17154 to 0 .06923 and covariance error from 0 .16649 to 0 .09898. These improve-ments indicate that feature-population awareness helps the learned flow capture both the global posterior shape and the first- and second-order posterior moments. The win-rate analysis further supports this trend. PA-PINPF-State outperforms the baseline in 88 .1% of ED comparisons and 88 .6% of SWD comparisons. PA-PINPF-Feature increases these win rates to 94 .2% and 94 .3%, respectively. Comparing the two population-aware variants directly, PA-PINPF-Feature outperforms PA-PINPF-State on 80 .9% of ED comparisons and 80 .5% of SWD comparisons. This suggests that the full local feature population contains more useful global transport information than the particle-state population alone. The runtime increase remains mod-est. PA-PINPF-Feature increases the average inference time from 0 .014989 seconds to 0 .017128 seconds per task. Thus, the additional feature-population context improves posterior accuracy without substantially increasing inference cost. 
+
+B. TDOA Results 
+
+Table III reports results on 100 Monte Carlo TDOA test tasks. This problem is more nonlinear than the Range2D family because the measurement model induces a curved hyperbolic likelihood. The baseline PINPF achieves an en-ergy distance of 0 .0533 and a sliced Wasserstein distance of 0.2732. PA-PINPF-State improves these values to 0 .0246 and 0.2103, respectively. This confirms that population-level state information helps the flow adapt to the empirical particle cloud in a curved posterior geometry. Figures 1, 2, 3, and 4 provide qualitative comparisons for representative tasks selected from the 100-task TDOA test set. The examples illustrate the particle-wise baseline and both population-aware variants under different posterior geometries and prior configurations. PA-PINPF-Feature again provides the best performance. It reduces ED to 0 .0076 and SWD to 0 .1467. Relative to the baseline, this corresponds to approximately 86% reduction in ED and 45% reduction in SWD. The posterior mean error decreases from 0 .3020 to 0 .0993, while covariance error decreases from 0 .5065 to 0 .2856. These improvements show that feature-population context improves both global distribution matching and posterior moment accuracy on nonlinear TDOA fusion tasks. The TDOA results are consistent with the Range2D re-sults: the state-population encoder improves over the particle-wise baseline, and the feature-population encoder improves   
+
+> Fig. 1. Qualitative comparison on representative TDOA test task 73.
+> Fig. 2. Qualitative comparison on representative TDOA test task 88.
+
+further. The average inference time increases from 1 .5238 s for PINPF to 1 .6667 s for PA-PINPF-Feature. This increase is small relative to the improvement in posterior approxima-tion accuracy. 
+
+C. Discussion 
+
+The results support three main conclusions. First, popu-lation awareness improves physics-informed neural particle flow. In both Range2D and TDOA experiments, PA-PINPF-State improves over PINPF, indicating that the velocity field benefits from information about the empirical particle distribution. This is expected because the particle cloud contains information about spread, orientation, concentration, and under-coverage that is not available from a single particle feature vector. For additional context, Csuzdi et al. listed TABLE II RANGE 2D FAMILY RESULTS OVER 100 M ONTE CARLO TASKS . V ALUES ARE MEAN ± STANDARD DEVIATION .Method ED ↓ SWD ↓ Mean error ↓ Covariance error ↓ Time [s] ↓
+
+PINPF 0.04109 ± 0.03062 0.17194 ± 0.05299 0.17154 ± 0.08282 0.16649 ± 0.09121 0.014989 ± 0.003349 PA-PINPF-State 0.01946 ± 0.01715 0.12116 ± 0.04064 0.11664 ± 0.06582 0.11528 ± 0.04982 0.018217 ± 0.017928 
+
+PA-PINPF-Feature 0.00896 ± 0.00551 0.08978 ± 0.02542 0.06923 ± 0.03873 0.09898 ± 0.05145 0.017128 ± 0.004614 TABLE III TDOA R ESULTS OVER 100 M ONTE CARLO TASKS . V ALUES ARE MEAN ± STANDARD DEVIATION .Method ED ↓ SWD ↓ Mean error ↓ Covariance error ↓ Time/task [s] ↓
+
+PINPF 0.0533 ± 0.1431 0.2732 ± 0.2402 0.3020 ± 0.3332 0.5065 ± 0.6135 1.5238 PA-PINPF-State 0.0246 ± 0.0543 0.2103 ± 0.1651 0.2146 ± 0.2244 0.3608 ± 0.4310 1.6670 
+
+PA-PINPF-Feature 0.0076 ± 0.0258 0.1467 ± 0.0951 0.0993 ± 0.1272 0.2856 ± 0.2567 1.6667  
+
+> Fig. 3. Qualitative comparison on representative TDOA test task 16.
+
+the performance of alternative inference methods reported for the same TDOA problem family in the original PINPF study [23]. The reported baselines include three analytical particle flows, SVGD, and annealed MCMC. PA-PINPF-Feature achieves an ED of 0 .0076 and an SWD of 0 .1467, compared with the original PINPF values of 0 .0697 and 0.3238, respectively. Its performance is also substantially better than the reported incompressible, local Gaussian exact, mean Gaussian exact, and SVGD results. The proposed model is particularly competitive with annealed MCMC. Annealed MCMC obtains the lowest reported ED of 0 .0036, whereas PA-PINPF-Feature obtains a slightly lower SWD  
+
+> Fig. 4. Qualitative comparison on representative TDOA test task 87.
+
+of 0 .1467 compared with 0 .1527 for annealed MCMC. This suggests that the population-aware neural flow approaches the distributional accuracy of a computationally intensive instance-specific sampler while retaining amortized deter-ministic inference. Second, feature-population awareness is more effective than state-population awareness. PA-PINPF-Feature consis-tently outperforms PA-PINPF-State across ED, SWD, and posterior moment errors. The state encoder summarizes only the geometry of the particle locations. In contrast, the feature encoder summarizes the empirical distribution of the local physics-informed quantities used by PINPF, including likelihood values, score directions, likelihood gradients, mea-surements, and pseudo-time. This gives the learned velocity field access to population-level Bayesian geometry, not only population-level spatial geometry. Third, the additional computational cost is modest. The Deep Sets encoder adds a global aggregation step, but this aggregation is permutation invariant and inexpensive relative to the full particle-flow integration. In the Range2D experi-ment, PA-PINPF-Feature adds approximately 14 .3% average inference-time overhead relative to PINPF. In the TDOA experiment, the increase is approximately 9 .4%. Therefore, the improved posterior approximation is obtained without sacrificing the amortized inference structure of PINPF. Overall, these experiments show that treating the particle set as an empirical population, rather than as independent particle-wise inputs, improves learned Bayesian posterior transport. VI. C ONCLUSION 
+
+This paper introduced population-aware physics-informed neural particle flow for Bayesian posterior transport. The proposed approach preserves the unsupervised probability-evolution residual of PINPF while conditioning each particle velocity on a permutation-invariant summary of the full par-ticle population. Two population representations were inves-tigated. PA-PINPF-State summarizes particle positions and therefore captures the geometry of the empirical state distri-bution. PA-PINPF-Feature instead summarizes the complete local physics-informed feature vectors, providing global in-formation about likelihood values, score directions, measure-ments, and pseudo-time. Experiments on range-measurement and TDOA task families show that both population-aware variants improve over particle-wise PINPF. The feature-based variant consistently achieves the strongest posterior approx-imation. On the Range2D family, it reduces energy distance by approximately 78% and sliced Wasserstein distance by approximately 48% relative to PINPF. On 100 TDOA test tasks, it reduces energy distance by approximately 86% and sliced Wasserstein distance by approximately 46%. These results indicate that the empirical distribution of local physics-informed features contains information that is not available from particle positions alone. Future work will investigate sequential filtering, higher-dimensional posterior families, alternative set encoders, variable particle counts, and population-aware transport for distributed sensing and multi-agent inference. REFERENCES [1] S¨ arkk¨ a S. Bayesian Filtering and Smoothing. Cambridge University Press; 2013. [2] Zanetti, R., Popov, A. A., Michaelson, K., Giraldo-Grueso, F., Durant, D., Servadio, S., & Hanebeck, U. D. (2025). A Survey of Nonlinear Estimation Filters. [3] Dhayalkar, S. R. (2025). Particle Filter Made Simple: A Step-by-Step Beginner-friendly Guide. ArXiv. https://arxiv.org/abs/2511.01281 [4] Chen, Zhe. (2003). Bayesian Filtering: From Kalman Filters to Particle Filters, and Beyond. Statistics. 182. 10.1080/02331880309257. [5] A. Doucet, N. Freitas, N. Gordon (Eds.), Sequential Monte Carlo Methods in Practice, Springer New York, New York, NY, 2001. doi: 10.1007/978-1-4757-3437-9. [6] Doucet, Arnaud & Johansen, Adam. (2009). A Tutorial on Particle Filtering and Smoothing: Fifteen Years Later. Handbook of Nonlinear Filtering. 12. [7] Khan, Muhammad Altamash Ahmed: Nonlinear Filtering based on Log-homotopy Particle Flow : Methodological Clarification and Nu-merical Evaluation. - Bonn, 2018. - Dissertation, Rheinische Friedrich-Wilhelms-Universit¨ at Bonn. Online-Ausgabe in bonndoc: https://nbn-resolving.org/urn:nbn:de:hbz:5n-52168 [8] Hu C-C, van Leeuwen PJ. A particle flow filter for high-dimensional system applications. Q J R Meteorol Soc. 2021; 147: 2352–2374. https://doi.org/10.1002/qj.4028 [9] Yunpeng Li, Lingling Zhao and M. Coates, ”Particle flow auxiliary particle filter,” 2015 IEEE 6th International Workshop on Com-putational Advances in Multi-Sensor Adaptive Processing (CAM-SAP), Cancun, Mexico, 2015, pp. 157-160, doi: 10.1109/CAM-SAP.2015.7383760. [10] Y. Li and M. Coates, ”Particle Filtering With Invertible Particle Flow,” in IEEE Transactions on Signal Processing, vol. 65, no. 15, pp. 4102-4116, 1 Aug.1, 2017, doi: 10.1109/TSP.2017.2703684. [11] Mamich, R., Michaelson, K., Popov, A. A., & Zanetti, R. (2025). Par-ticle Flow and the Kalman Filter. Journal of Advances in Information Fusion, 20. [12] M. Mallick and Sindhu B., ”Critical analysis of the particle flow filter,” 2015 International Conference on Control, Automation and Information Sciences (ICCAIS), Changshu, China, 2015, pp. 512-517, doi: 10.1109/ICCAIS.2015.7338723. [13] David F Crouse and Codie Lewis. Consideration of particle flow filter implementations and biases. Technical report, NAVAL RESEARCH LAB WASHINGTON DC, 2020. [14] S. Servadio, ”Advances in Particle Flow Filters with Taylor Expansion Series,” 2025 28th International Conference on Information Fusion (FUSION), Rio de Janeiro, Brazil, 2025, pp. 1-8, doi: 10.23919/FU-SION65864.2025.11124132. [15] Solinas, C., Haluska, R., Sychrovsky, D., Timbers, F., Bard, N., Buro, M., Schmid, M., Sturtevant, N. R., & Bowling, M. (2025). Neural Bayesian Filtering. ArXiv. https://arxiv.org/abs/2510.03614 [16] Fred Daum, Liyi Dai, Jim Huang, et al. ”Bayesian deep learn-ing with particle flow using the exponential family of probability densities”, Proc. SPIE 13479, Signal Processing, Sensor/Information Fusion, and Target Recognition XXXIV, 1347909 (28 May 2025); https://doi.org/10.1117/12.3050158 [17] Flores, P., Graf, O., Protopapas, P. & Pichara, K.. (2025). Im-proved Uncertainty Quantification in Physics-Informed Neural Net-works Using Error Bounds and Solution Bundles. Proceedings of the Forty-first Conference on Uncertainty in Artificial Intelligence¡/i¿, in ¡i¿Proceedings of Machine Learning Research. 286:1289-1336 Available from https://proceedings.mlr.press/v286/flores25a.html. [18] Ramirez, I., Alcibar, J., Pino, J., Sanz, M., Pardo, D., & Aizpurua, J. (2025). Bayesian Physics Informed Neural Networks for Reliable Transformer Prognostics. Annual Conference of the PHM Society, 17(1). https://doi.org/10.36001/phmconf.2025.v17i1.4344 [19] Chen, X., Dai, H. & Song, L.. (2019). Particle Flow Bayes’ Rule. Pro-ceedings of the 36th International Conference on Machine Learning, in Proceedings of Machine Learning Research, 97:1022-1031, Available from https://proceedings.mlr.press/v97/chen19c.html. [20] Zaheer, M., Kottur, S., Ravanbakhsh, S., Poczos, B., Salakhutdinov, R., & Smola, A. (2017). Deep Sets. https://arxiv.org/abs/1703.06114 [21] Soelch, M., Akhundov, A., & Bayer, J. (2019). On Deep Set Learning and the Choice of Aggregations. https://doi.org/10.1007/978-3-030-30487-4 35 [22] Wagstaff, E., Fuchs, F. B., Engelcke, M., Osborne, M. A., &Posner, I. (2021). Universal Approximation of Functions on Sets. https://arxiv.org/abs/2107.01959 [23] Csuzdi, D., B´ ecsi, T., & T¨ or˝ o, O. (2026). Physics-informed neural particle flow for the Bayesian update step. Knowledge-Based Systems, 346, 116209. https://doi.org/10.1016/j.knosys.2026.116209 [24] Lu, J. (2021). A survey on Bayesian inference for Gaussian mixture model. https://arxiv.org/abs/2108.11753 [25] Huang, Y. (2025). Sampling via Gaussian Mixture Approximations. https://arxiv.org/abs/2509.25232 [26] Rizzo, M.L. and Sz´ ekely, G.J. (2016), Energy distance. WIREs Com-put Stat, 8: 27-38. https://doi.org/10.1002/wics.1375 [27] Kolouri, S., Nadjahi, K., Simsekli, U., Badeau, R., & Rohde, G. K. (2019). Generalized Sliced Wasserstein Distances. ArXiv. https://arxiv.org/abs/1902.00434

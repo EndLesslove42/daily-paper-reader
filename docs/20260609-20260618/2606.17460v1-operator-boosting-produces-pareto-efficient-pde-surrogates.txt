@@ -1,0 +1,652 @@
+Title: Operator Boosting Produces Pareto-Efficient PDE Surrogates
+
+URL Source: https://arxiv.org/pdf/2606.17460v1
+
+Published Time: Wed, 17 Jun 2026 00:41:18 GMT
+
+Number of Pages: 19
+
+Markdown Content:
+# Operator Boosting Produces Pareto-Efficient PDE Surrogates 
+
+## Lennon J. Shikhman a,b ,∗
+
+> a
+
+College of Computing, Georgia Institute of Technology, Atlanta, GA, United States 
+
+> b
+
+Department of Mathematics and Systems Engineering, Florida Institute of Technology, Melbourne, FL, United States 
+
+A R T I C L E I N F O 
+
+Keywords :Neural operators PDE surrogates Operator Boosting Functional gradient boosting Parameter efficiency Scientific machine learning 
+
+A B S T R A C T 
+
+Neural operators are widely used as surrogate solution maps for partial differential equations (PDEs), but full-size models can be costly to store, deploy, and evaluate in many-query scientific workflows. This work introduces Operator Boosting , a stagewise residual-learning framework for constructing compact neural-operator surrogates directly, rather than training a large model and compressing it afterward. Starting from the empirical mean predictor in normalized output coordinates, the method trains a sequence of tiny same-family neural operators on residual fields and incorporates each correction through validation-selected shrinkage. We instantiate the framework with Fourier neural operators (FNOs), DeepONets, and convolutional neural operators (CNOs), and compare boosted tiny stacks against full-size monolithic baselines across one-, two-, and three-dimensional PDE benchmarks from PDEBench, APEBench, and The Well. Across 30 dataset–architecture pairs, 21 show positive mean accuracy gains and 17 have positive confidence intervals, while all boosted stacks reduce trainable parameter count by approximately 72–95%. Best-model comparisons show empirical Pareto improvements on 7 of 10 completed PDE benchmarks, including two-dimensional Navier–Stokes, shallow-water dynamics, Darcy flow, one-dimensional transport and reaction systems, and three-dimensional compressible Navier–Stokes. These results show that Operator Boosting often improves the empirical accuracy–parameter Pareto frontier of neural PDE surrogates, while also exposing PDE- and architecture-dependent regimes where residual boosting fails to offset compression. 
+
+## 1. Introduction 
+
+Partial differential equations (PDEs) are central to scientific computing, but repeated high-fidelity simulation can be prohibitively expensive in many-query settings such as design optimization, uncertainty quantification, inverse problems, control, digital twins, and real-time monitoring. Neural operators address this bottleneck by learning maps between function spaces, allowing a trained surrogate to approximate an entire solution operator rather than a single finite-dimensional regression map [17]. Architectures such as Fourier neural operators (FNOs), DeepONets, and convolutional neural operators (CNOs) have therefore become standard tools for PDE surrogate modeling [21, 23, 28]. As neural operators move toward deployable scientific workflows, the relevant bottleneck is not only predictive fidelity but also model size, memory footprint, throughput, and hardware availability. Full-size monolithic neural operators can be costly to store and evaluate, especially for high-resolution or three-dimensional fields. This has motivated parameter-efficient operator-learning methods based on factorization, tensorization, multigrid structure, mixed precision, pruning, quantization, and related compression mechanisms [32, 16, 33, 10, 25, 22]. These constraints are especially important for edge and low-SWaP scientific systems, where surrogates may need to run near sensors, actuators, or embedded controllers rather than on centralized GPU servers [14]. 
+
+> ∗
+
+Corresponding author. 
+
+lj@shikhman.net (L.J. Shikhman) 
+
+> ORCID
+
+(s): 0009-0008-6030-7641 (L.J. Shikhman) 
+
+L. J. Shikhman: Preprint submitted to Elsevier Page 1 of 19 
+
+> arXiv:2606.17460v1 [cs.LG] 16 Jun 2026 Operator Boosting for Pareto-Efficient PDE Surrogates
+
+This work studies a complementary route to parameter efficiency. Instead of training one large operator and then compressing it, we ask whether compact surrogates can be built directly as stagewise additive stacks of small neural operators. The idea is motivated by classical boosting, where predictors are constructed sequentially by fitting each new learner to the residual error of the current ensemble. Functional-gradient interpretations of boosting formalize this as greedy optimization in function space, and squared-loss boosting reduces naturally to residual fitting [24, 8, 4]. For PDE surrogates, this viewpoint suggests that early small operators may capture dominant coarse structure in the solution map, while later residual operators focus capacity on systematic errors left by earlier stages, such as fine-scale features, spectral errors, boundary effects [30], or architecture-specific deficiencies. Recent spectral analyses of FNOs similarly indicate that residual correction can recover information missed by an initial operator [27]. We introduce Operator Boosting , a model-family-agnostic framework for constructing parameter-efficient PDE surrogates from existing neural-operator architectures. In the experiments, the framework is applied separately within each architecture family: a full FNO is compared against a boosted stack of tiny FNOs, a full DeepONet against a boosted stack of tiny DeepONets, and a full CNO against a boosted stack of tiny CNOs. This within-family protocol isolates the effect of stagewise residual learning from the effect of changing the operator architecture. The central question is whether homogeneous boosted stacks can improve the deployment-relevant accuracy–parameter Pareto frontier relative to full-size monolithic baselines. The results should not be read as showing that residual boosting universally improves neural operators. Rather, they show that boosting is a simple wrapper that often improves the empirical accuracy–parameter tradeoff, while its failures reveal when the residual structure is poorly matched to the available tiny operator class. The contributions of this work are: 
+
+• We formulate Operator Boosting as a stagewise functional-gradient framework for PDE surrogate modeling, where tiny neural operators are trained sequentially on residual fields and added with validation-selected shrinkage. 
+
+• We instantiate the framework with FNO, DeepONet, and CNO base learners, using within-family comparisons to separate the effect of the boosting procedure from the effect of changing architecture class. 
+
+• We evaluate boosted tiny stacks against full-size monolithic baselines across one-, two-, and three-dimensional PDE benchmarks from PDEBench, APEBench, and The Well [31, 15, 26]. 
+
+• We report both predictive error and trainable parameter count, emphasizing empirical accuracy–parameter Pareto tradeoffs rather than relative 𝐿 2 error alone.   
+
+> L. J. Shikhman: Preprint submitted to Elsevier Page 2 of 19
+
+Operator Boosting for Pareto-Efficient PDE Surrogates 
+
+• We identify Pareto-improving regimes, where boosted stacks achieve comparable or lower error with substan-tially fewer parameters, and failure regimes, where residual boosting exposes PDE- or architecture-dependent compression limits. Figure 1 demonstrates the difference between a full-size monolithic neural operator and the boosted residual stack used in Operator Boosting. 
+
+input field 𝑎 full-size operator 𝐺 𝑓 
+
+> full
+
+full prediction ̂𝑢 full 
+
+monolithic baseline 
+
+input field 𝑎 stage 2 
+
+𝐻 𝑓 
+
+> 2
+
+stage 1 
+
+𝐻 𝑓 
+
+> 1
+
+stage 𝑀 𝐻 𝑓 𝑀 
+
+∑ boosted prediction ̂𝑢 boost 
+
+> 𝜂 1
+> 𝜂 2
+> 𝜂 𝑀
+
+boosted stack    
+
+> architecture family
+> 𝑓 ∈ {FNO ,DeepONet ,CNO}
+
+Figure 1: Operator Boosting replaces a full-size monolithic neural operator with an additive stack of residual operators. Here 
+
+𝑎 denotes the input field, 𝐺 0(𝑎 ) = 0 is the normalized-output mean initializer, and each stage contributes a validation-shrunk correction 𝜂 𝑚 𝐻 𝑓 𝑚 (𝑎 ) to form the boosted prediction. 
+
+## 2. Related Work 
+
+2.1. Neural operators for PDE surrogate modeling 
+
+Neural operators learn maps between function spaces and have become a standard approach for PDE surrogate modeling, where the goal is to approximate solution operators mapping coefficients, initial conditions, forcing terms, or previous states to solution fields [17]. Early graph-based formulations include graph kernel and multipole graph neural operators [1, 20]. Among widely used architectures, DeepONet represents operators through branch and trunk networks [23], while Fourier neural operators learn global spectral updates on regular grids [21] and have been extended to more general geometries through learned deformations [19]. Convolutional neural operators provide a multiscale convolutional alternative for robust PDE learning [28]. Benchmark suites such as PDEBench have further standardized empirical evaluation across PDE families [31]. In this work, FNO, DeepONet, and CNO serve as representative operator families for studying whether homogeneous stagewise residual boosting can improve the accuracy–parameter Pareto frontier of PDE surrogates under severe parameter constraints. 
+
+L. J. Shikhman: Preprint submitted to Elsevier Page 3 of 19 Operator Boosting for Pareto-Efficient PDE Surrogates 
+
+2.2. Ensembles, boosting, and residual learning 
+
+Ensemble methods have long been used to improve predictive accuracy and stability by combining multiple learned predictors. Early neural-network ensembles showed that aggregating independently trained models can reduce generalization error [11], while bagging introduced bootstrap aggregation as a general-purpose variance-reduction strategy [3]. Boosting provides a more structured form of ensembling: rather than training predictors independently, it builds an additive model stage by stage, with later learners correcting the errors of earlier ones. This idea originates in the AdaBoost literature [7] and was later interpreted as gradient descent in function space [24]. Friedman’s gradient boosting framework formalized boosting as greedy functional approximation by fitting weak learners to pseudo-residuals [8], with stochastic variants improving robustness and scalability [9]. For squared-error regression, boosting with the 𝐿 2 loss is especially close to residual fitting, since each stage is trained to approximate the remaining prediction error [4]. Modern deep learning has also made extensive use of ensemble and residual principles: deep ensembles remain a simple and effective approach for improving predictive reliability and uncertainty estimation [18], while residual networks showed that learning additive corrections can make very deep models easier to optimize [12]. Operator Boosting transfers this residual-fitting principle to neural-operator surrogate modeling, where each weak learner is itself an operator mapping input fields to output fields. 
+
+2.3. Parameter-efficient scientific machine learning 
+
+Parameter efficiency has long been central to scientific computing, where high-fidelity PDE and dynamical-system solvers are often too expensive for repeated evaluation, uncertainty quantification, control, or design optimization. Classical reduced-order modeling addresses this issue by projecting high-dimensional dynamics onto compact approximation spaces [2], while reduced-basis methods provide certified low-dimensional surrogates for parametrized PDEs and related field problems [5]. In deep learning, parameter-efficient modeling has been studied through several complementary mechanisms, including knowledge distillation from large models or ensembles into smaller students [13], pruning and quantization pipelines for compressed neural networks [10], tensor-train representations of neural-network layers [25], and sparse trainable subnetworks [6]. More recent scientific machine-learning work has adapted these ideas to neural PDE solvers and neural operators. Factorized Fourier neural operators reduce the cost of spectral operator learning by factorizing the Fourier representation [32], while multi-grid tensorized Fourier neural operators combine domain decomposition and tensorized parameter representations for high-resolution PDE surrogates [16]. Mixed-precision neural operators target memory and throughput bottlenecks in FNO-style models while preserving approximation guarantees [33], and tensor-compressed, fully quantized neural PDE solvers further illustrate the growing interest in deployment-oriented scientific machine learning [22]. The present work is complementary to these compression and efficiency strategies. Rather than compressing a trained full-size operator, changing numerical   
+
+> L. J. Shikhman: Preprint submitted to Elsevier Page 4 of 19 Operator Boosting for Pareto-Efficient PDE Surrogates
+
+precision, or imposing a low-rank parameterization on a single monolithic architecture, we study whether a stagewise additive stack of tiny neural operators can improve the empirical accuracy–parameter Pareto frontier directly. 
+
+## 3. Problem Setting 
+
+3.1. PDE surrogate modeling 
+
+Let Ω ⊂ ℝ𝑑 denote the spatial domain and let 𝑎 denote the input field specifying the instance of a PDE surrogate problem. Depending on the benchmark, 𝑎 may represent an initial condition, a previous solution state, a coefficient field, a forcing field, or a collection of such quantities. The target field is denoted by 𝑢 . The objective is to learn an operator 
+
+ ∶  →  , 𝑎 ↦ 𝑢, (1) from paired observations 
+
+ = {( 𝑎 𝑖 , 𝑢 𝑖 )} 𝑁 𝑖 =1 . (2) For static problems such as Darcy flow, 𝑎 is a coefficient or permeability field and 𝑢 is the corresponding solution field. For time-dependent problems, we construct one-step or finite-time transition pairs of the form 
+
+𝑎 𝑖 = (𝑢 (𝑡 𝑖 ), Δ𝑡 𝑖 
+
+), 𝑢 𝑖 = 𝑢 (𝑡 𝑖 + Δ 𝑡 𝑖 ), (3) so that the learned operator approximates a time-advancement map. All models are trained and evaluated on discretized fields, but the surrogate-learning objective is operator-valued: the learned map should approximate the underlying input–output relation between fields rather than a scalar response. 
+
+3.2. Full-size baseline and boosted-stack comparison 
+
+For each dataset and architecture family 𝑓 , we compare two predictors. The first is a full-size monolithic neural operator, 
+
+𝐺 𝑓  
+
+> full
+
+∶  →  , (4)   
+
+> L. J. Shikhman: Preprint submitted to Elsevier Page 5 of 19 Operator Boosting for Pareto-Efficient PDE Surrogates
+
+trained directly to predict the normalized output field. The second is a boosted stack of tiny same-family neural operators, 
+
+𝐺 𝑓  
+
+> boost
+
+(𝑎 ) = 𝐺 0(𝑎 ) + 
+
+> 𝑀
+
+∑
+
+> 𝑚 =1
+
+𝜂 𝑚 𝐻 𝑓 𝑚 (𝑎 ), (5) where each 𝐻 𝑓 𝑚 is a small neural operator from the same architecture family as the full baseline and 𝜂 𝑚 is a validation-selected shrinkage coefficient. In our experiments, 𝐺 0(𝑎 ) = 0 in normalized output coordinates, corresponding after denormalization to the empirical mean output field. Thus the boosted predictor contains no learned initialization model; its trainable parameters are entirely contained in the stagewise correction operators 𝐻 𝑓 𝑚 .This comparison is performed within each architecture family. A full FNO is compared against boosted tiny FNOs, a full DeepONet against boosted tiny DeepONets, and a full CNO against boosted tiny CNOs. This design isolates the effect of stagewise residual learning from the effect of switching model classes. The total boosted parameter count is 
+
+𝑃 𝑓  
+
+> boost
+
+=
+
+> 𝑀
+
+∑
+
+> 𝑚 =1
+
+𝑃 (𝐻 𝑓 𝑚 ), (6) and, when all stages use the same tiny architecture, 
+
+𝑃 𝑓  
+
+> boost
+
+= 𝑀𝑃 𝑓 
+
+> tiny
+
+. (7) The full-size baseline parameter count is denoted by 𝑃 𝑓 
+
+> full
+
+.
+
+3.3. Evaluation metrics and empirical Pareto dominance 
+
+The primary accuracy metric is test relative 𝐿 2 error. For a predicted field ̂𝑢 and target field 𝑢 , we compute 
+
+RelL2( ̂𝑢, 𝑢 ) = ‖̂𝑢 − 𝑢 ‖ 2
+
+‖𝑢 ‖2 + 𝜀 , (8) where 𝜀 > 0 is a small numerical stabilizer. Relative errors are computed after denormalizing predictions back to physical coordinates and are averaged over the test set. For each dataset, architecture family, and random seed, we define the performance delta 
+
+Δperf = 100 RelL2 full − RelL2 boost 
+
+RelL2 full 
+
+. (9)   
+
+> L. J. Shikhman: Preprint submitted to Elsevier Page 6 of 19
+
+Operator Boosting for Pareto-Efficient PDE Surrogates 
+
+Thus Δperf > 0 indicates that the boosted tiny stack outperforms the full-size monolithic baseline, while Δperf < 0
+
+indicates degradation. We also report the size delta 
+
+Δsize = 100 𝑃 boost − 𝑃 full 
+
+𝑃 full 
+
+, (10) so that negative values indicate parameter reduction. Equivalently, the size reduction is −Δ size .We say that a boosted stack empirically Pareto-dominates a full-size baseline when it achieves no larger mean test relative 𝐿 2 error while using fewer trainable parameters. That is, model 𝐴 dominates model 𝐵 if 
+
+RelL2( 𝐴 ) ≤ RelL2( 𝐵 ), 𝑃 𝐴 < 𝑃 𝐵 , (11) with at least one strict improvement. In finite-seed experiments, we report accuracy and parameter-count changes separately rather than collapsing them into a scalar score. This distinguishes strong Pareto improvements, where the boosted stack is both smaller and more accurate, from compression tradeoffs, where parameter count is reduced at the cost of some predictive degradation. Figure 2 illustrates this normalized accuracy–parameter Pareto plane and shows representative dominating and tradeoff cases.            
+
+> 00.10.20.30.40.50.60.70.80.911.1
+> 0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1
+> 1.2
+> best full
+> NS2D/FNO
+> shallow/CNO
+> CNS3D/FNO
+> active/FNO MHD/CNO
+> smaller and no less accurate
+
+parameter ratio 𝑃 model ∕𝑃 best full 
+
+> error ratio  RelL2 model ∕RelL2 best full
+
+Figure 2: Accuracy–parameter Pareto plane normalized by the best full-size baseline for each PDE. Points below and to the left of (1 , 1) empirically Pareto-dominate the best full-size baseline. Representative boosted stacks show both strong Pareto improvements and compression tradeoffs. L. J. Shikhman: Preprint submitted to Elsevier Page 7 of 19 Operator Boosting for Pareto-Efficient PDE Surrogates 
+
+## 4. Operator Boosting 
+
+4.1. Stagewise additive operator model 
+
+Let  denote the input function space and  the output function space. Given training data 
+
+tr = {( 𝑎 𝑖 , 𝑢 𝑖 )} 𝑁 tr 
+
+> 𝑖 =1
+
+, 𝑎 𝑖 ∈ , 𝑢 𝑖 ∈  , (12) the goal is to approximate an operator  ∶  →  . We work in normalized output coordinates. Let 𝜇 𝑦 and 𝜎 𝑦 denote the empirical mean and standard deviation of the training outputs, computed over the training split, and define ̃𝑢 𝑖 = 𝑢 𝑖 − 𝜇 𝑦 
+
+𝜎 𝑦 
+
+. (13) Operator Boosting represents the surrogate as an additive operator-valued model 
+
+𝐺 𝑀 (𝑎 ) = 𝐺 0(𝑎 ) + 
+
+> 𝑀
+
+∑
+
+> 𝑚 =1
+
+𝜂 𝑚 𝐻 𝑚 (𝑎 ), (14) where each 𝐻 𝑚 ∶  →  is a small neural operator and 𝜂 𝑚 ≥ 0 is a scalar shrinkage parameter. In this work, 
+
+𝐺 0(𝑎 ) = 0 in normalized coordinates, corresponding to the empirical mean predictor 𝜇 𝑦 after denormalization. Thus the physical prediction is ̂𝑢 𝑀 (𝑎 ) = 𝜇 𝑦 + 𝜎 𝑦 𝐺 𝑀 (𝑎 ). (15) This construction is a functional-gradient analogue of classical boosting, where an additive predictor is built by sequentially fitting weak learners to residual or pseudo-residual targets [24, 8, 4]. Here the weak learners are neural operators mapping input fields to output fields. 
+
+4.2. Residual fitting and shrinkage selection 
+
+For squared-error loss in normalized coordinates, the negative functional gradient at stage 𝑚 is the residual field 
+
+𝑟 (𝑚 ) 
+
+> 𝑖
+
+=̃𝑢 𝑖 − 𝐺 𝑚 −1 (𝑎 𝑖 ). (16) For a fixed operator family 𝑓 , the next correction is trained in the tiny model class 𝑓 , tiny :
+
+𝐻 𝑓 𝑚 ∈ arg min 
+
+> 𝐻 ∈𝑓 , tiny
+
+1
+
+𝑁 tr 
+
+> 𝑁 tr
+
+∑
+
+> 𝑖 =1
+
+‖‖‖𝐻 (𝑎 𝑖 ) − 𝑟 (𝑚 )
+
+> 𝑖
+
+‖‖‖ 
+
+> 22
+
++ 𝛽 spec 
+
+(
+
+𝐻 (𝑎 𝑖 ) − 𝑟 (𝑚 )
+
+> 𝑖
+
+)
+
+, (17) 
+
+L. J. Shikhman: Preprint submitted to Elsevier Page 8 of 19 Operator Boosting for Pareto-Efficient PDE Surrogates 
+
+where spec is an optional Fourier-weighted residual penalty. After training 𝐻 𝑓 𝑚 , the shrinkage coefficient is selected on the validation set: 
+
+𝜂 𝑚 ∈ arg min 
+
+> 𝜂 ∈Λ
+
+1
+
+𝑁 val 
+
+> 𝑁 val
+
+∑
+
+> 𝑗 =1
+
+‖‖‖𝐺 𝑚 −1 (𝑎 val  
+
+> 𝑗
+
+) + 𝜂𝐻 𝑓 𝑚 (𝑎 val  
+
+> 𝑗
+
+) − ̃𝑢 val 
+
+> 𝑗
+
+‖‖‖ 
+
+> 22
+
+, (18) where Λ is a finite candidate grid containing 𝜂 = 0 . Including 𝜂 = 0 makes each stage validation-safe: if a trained correction does not reduce validation error, it can be rejected. This validation-selected shrinkage plays a regularizing role analogous to shrinkage and early stopping in classical boosting [34]. The boosted surrogate is then updated by 
+
+𝐺 𝑚 (𝑎 ) = 𝐺 𝑚 −1 (𝑎 ) + 𝜂 𝑚 𝐻 𝑓 𝑚 (𝑎 ). (19) All primary reported results use the final 𝑀 -stage predictor rather than selecting the best test-stage post hoc. Figure 3 summarizes one residual-fitting stage of the procedure. 
+
+current stack 
+
+𝐺 𝑚 −1 
+
+compute residual 
+
+𝑟 (𝑚 ) 
+
+> 𝑖
+
+=̃𝑢 𝑖 − 𝐺 𝑚 −1 (𝑎 𝑖 )
+
+fit tiny operator 
+
+𝐻 𝑓 𝑚 (𝑎 𝑖 ) ≈ 𝑟 (𝑚 )
+
+> 𝑖
+
+validation shrinkage 
+
+𝜂 𝑚 = arg min 𝜂 ∈Λ val 
+
+update stack 
+
+𝐺 𝑚 = 𝐺 𝑚 −1 + 𝜂 𝑚 𝐻 𝑓 𝑚 
+
+next stage or final predictor  
+
+> training split
+> 0 ∈ Λ to reject bad corrections
+
+Figure 3: One stage of same-family Operator Boosting. Each stage fits the current residual field using a tiny operator from the fixed family 𝑓 , selects a scalar shrinkage coefficient on validation data, and adds the shrunken correction to the current stack. 
+
+4.3. Algorithm 
+
+Algorithm 1 summarizes the training procedure for a fixed operator family 𝑓 .
+
+4.4. Instantiation across model classes 
+
+The framework is model-family agnostic. We instantiate it with FNO, DeepONet, and CNO. Fourier neural operators use spectral convolution layers to learn global updates in Fourier space [21]; DeepONets use a branch–trunk decomposition motivated by universal approximation of nonlinear operators [23]; and convolutional neural operators use multiscale convolutional structure for operator learning on spatial fields [28]. In experiments, all 𝐻 𝑓 𝑚 within a stack use the same tiny architecture, so 
+
+𝑃 𝑓  
+
+> boost
+
+= 𝑀𝑃 𝑓 
+
+> tiny
+
+. (20) 
+
+L. J. Shikhman: Preprint submitted to Elsevier Page 9 of 19 Operator Boosting for Pareto-Efficient PDE Surrogates 
+
+Algorithm 1 Operator Boosting 
+
+Require: Training set tr , validation set val , operator family 𝑓 , number of stages 𝑀 , shrinkage grid Λ 
+
+> 1:
+
+Compute output normalization statistics 𝜇 𝑦 and 𝜎 𝑦 on tr  
+
+> 2:
+
+Normalize outputs by ̃𝑢 = ( 𝑢 − 𝜇 𝑦 )∕ 𝜎 𝑦  
+
+> 3:
+
+Initialize 𝐺 0(𝑎 ) = 0  
+
+> 4:
+
+for 𝑚 = 1 , … , 𝑀 do  
+
+> 5:
+
+Compute residual targets 𝑟 (𝑚 ) 
+
+> 𝑖
+
+=̃𝑢 𝑖 − 𝐺 𝑚 −1 (𝑎 𝑖 ) for all training samples  
+
+> 6:
+
+Train a tiny neural operator 𝐻 𝑓 𝑚 ∈ 𝑓 , tiny on {( 𝑎 𝑖 , 𝑟 (𝑚 ) 
+
+> 𝑖
+
+)} 𝑁 tr  
+
+> 𝑖 =1
+> 7:
+
+Select 
+
+𝜂 𝑚 ∈ arg min 
+
+> 𝜂 ∈Λ
+
+∑   
+
+> (𝑎 𝑗 ,̃ 𝑢 𝑗 )∈ val
+
+‖‖‖𝐺 𝑚 −1 (𝑎 𝑗 ) + 𝜂𝐻 𝑓 𝑚 (𝑎 𝑗 ) − ̃𝑢 𝑗 
+
+‖‖‖ 
+
+> 22
+> 8:
+
+Update 𝐺 𝑚 (𝑎 ) = 𝐺 𝑚 −1 (𝑎 ) + 𝜂 𝑚 𝐻 𝑓 𝑚 (𝑎 ) 
+
+> 9:
+
+end for  
+
+> 10:
+
+return Denormalized predictor ̂𝑢 𝑀 (𝑎 ) = 𝜇 𝑦 + 𝜎 𝑦 𝐺 𝑀 (𝑎 )
+
+Since 𝐺 0 is the zero predictor in normalized coordinates, it contributes no trainable parameters. 
+
+## 5. Experimental Design 
+
+5.1. Datasets 
+
+We evaluate Operator Boosting on a collection of one-, two-, and three-dimensional PDE surrogate-modeling tasks. The one-dimensional benchmarks are standardized advection, Burgers, and reaction–diffusion datasets. The two-dimensional benchmarks include Darcy flow and reaction–diffusion from PDEBench [31], incompressible Navier– Stokes from APEBench [15], shallow-water dynamics from PDEBench, and active matter from The Well [26]. The three-dimensional benchmarks are compressible Navier–Stokes from PDEBench and magnetohydrodynamics from The Well. For standardized datasets, each example is represented as a direct input–output pair (𝑎, 𝑢 ). For trajectory datasets, we construct supervised operator-learning pairs by sampling states separated by a time offset Δ𝑡 , using the earlier state and normalized time offset as input and the later state as target. All datasets are normalized using statistics computed only from the training split. The benchmark collection covers several mechanics-relevant surrogate regimes: transport-dominated dynamics in advection and Burgers problems, reaction–diffusion dynamics, elliptic porous-media-type prediction through Darcy flow, incompressible and compressible fluid dynamics through Navier–Stokes benchmarks, free-surface geophysical flow through shallow-water dynamics, and magnetohydrodynamic evolution. This range is intended to test whether the boosting mechanism is specific to simple low-dimensional PDEs or persists in higher-dimensional flow and field-evolution settings.   
+
+> L. J. Shikhman: Preprint submitted to Elsevier Page 10 of 19 Operator Boosting for Pareto-Efficient PDE Surrogates
+
+5.2. Baselines 
+
+For each PDE and architecture family, we compare a full-size monolithic neural operator against a boosted stack of tiny same-family operators. The comparisons are full FNO versus boosted tiny FNOs, full DeepONet versus boosted tiny DeepONets, and full CNO versus boosted tiny CNOs. This protocol separates the effect of the boosting procedure from the effect of changing architecture class. We also report best-model Pareto comparisons in which, for each PDE, the best full-size architecture is compared with the best boosted tiny stack among the completed runs. Parameter counts are computed directly from trainable model parameters. The present study focuses on full-size monolithic baselines because the primary question is whether stagewise stacks of tiny operators can improve the deployment-relevant accuracy–parameter frontier relative to standard full-size neural operators. Parameter-matched tiny monolithic models and independently trained tiny ensembles are natural additional baselines for future ablation. 
+
+5.3. Training protocol 
+
+All models are trained under a fixed-budget terminal-iterate protocol. Full-size baselines are trained for a prescribed number of epochs and evaluated at the final epoch. Each boosted correction stage is also trained for the same prescribed stage budget and evaluated at its final epoch. At stage 𝑚 , the current residual 𝑟 (𝑚 ) 
+
+> 𝑖
+
+=̃𝑢 𝑖 −𝐺 𝑚 −1 (𝑎 𝑖 ) is used as the target for the next tiny operator. After training the correction operator, the shrinkage coefficient 𝜂 𝑚 is selected on the validation set from a finite grid Λ containing 0. Unless otherwise stated, each boosted stack uses three stages. Full baselines are trained with mean-squared error, while boosted residual stages may include a small Fourier-weighted residual penalty to emphasize high-frequency residual structure. All reported relative errors are computed after denormalizing the predicted fields back to physical coordinates. Operator Boosting reduces deployed parameter count, but it does not necessarily reduce training cost. Each boosted stack requires training 𝑀 residual operators, whereas each full-size baseline requires training a single monolithic model. The reported parameter counts therefore characterize deployed surrogate size rather than total training compute. This distinction is important in offline surrogate construction, where additional training cost may be acceptable if the resulting model is repeatedly deployed in many-query workflows. 
+
+5.4. Statistical aggregation 
+
+Results are aggregated over random seeds using seed-level means and 95% confidence intervals. For each PDE and model family, we report the mean performance delta, confidence interval, number of wins, mean full-baseline error, mean boosted-stack error, and parameter reduction. In addition to within-family comparisons, we report best-model Pareto tables comparing the best full-size surrogate and the best boosted tiny surrogate for each PDE.   
+
+> L. J. Shikhman: Preprint submitted to Elsevier Page 11 of 19 Operator Boosting for Pareto-Efficient PDE Surrogates
+
+## 6. Results 
+
+6.1. Within-family accuracy–parameter tradeoffs 
+
+Across all completed experiments, Operator Boosting improves the mean relative error in 21 of 30 dataset– architecture pairs, with 17 pairs having confidence intervals whose lower endpoint is positive. All boosted stacks reduce trainable parameter count, with mean reductions ranging from approximately 72% to 95%. The strongest gains occur for FNO on two-dimensional Navier–Stokes, where the boosted stack reduces mean relative error by 74.8% while using 94.5% fewer parameters, and for CNO and DeepONet on shallow-water dynamics, which obtain 51.9% and 45.2% reductions in relative error with 74.3% and 88.1% fewer parameters, respectively. Three-dimensional results further support the Pareto-efficiency interpretation: DeepONet improves on compressible Navier–Stokes by 27.6% with 72.2% fewer parameters, while FNO improves on MHD by 4.4% with 95.2% fewer parameters. At the same time, the failures are not isolated numerical noise: several PDE–architecture pairs exhibit negative mean gains, including CNO on Navier–Stokes, FNO on two-dimensional reaction–diffusion, and CNO on MHD. These failures motivate reporting the full accuracy–parameter tradeoff rather than only the successful Pareto-dominating cases. Figure 4 summarizes the aggregate win counts across the completed experiments.        
+
+> 0510 15 20 25 30
+> Best-model Pareto wins
+> CI-positive pairs
+> Mean-positive pairs
+> Dataset–family pairs
+> 7
+> 17
+> 21
+> 30
+> count
+> Figure 4: Aggregate summary of the completed homogeneous Operator Boosting experiments. Across 30 dataset– family pairs, 21 have positive mean accuracy gains and 17 have completely positive confidence intervals. In best-model comparisons, boosted stacks empirically Pareto-dominate the best full-size baseline on 7 of 10 PDE benchmarks.
+
+Table 1 reports the primary within-family comparison. Positive Δperf means that the boosted tiny stack improves over the full-size baseline. 
+
+6.2. Best full baseline versus boosted stack 
+
+Table 2 selects, for each dataset, the full-size architecture with the lowest mean test relative 𝐿 2 error and compares it with the boosted stack from the same architecture family. This isolates whether boosting improves the strongest monolithic family for each PDE. The best full-size baseline is FNO for most completed datasets under the current experimental configuration, with CNO selected for three-dimensional MHD. Boosted FNOs substantially improve advection, reaction–diffusion,   
+
+> L. J. Shikhman: Preprint submitted to Elsevier Page 12 of 19
+
+Operator Boosting for Pareto-Efficient PDE Surrogates 
+
+Table 1 
+
+Within-family accuracy–parameter tradeoffs grouped by architecture family. Positive Δperf indicates lower test relative 𝐿 2
+
+error for the boosted tiny stack than for the full-size baseline. 
+
+Dataset 𝑛 Wins RelL2 full → boosted Δperf (%) 95% CI Size red. (%) 
+
+FNO 
+
+1D advection 10 10/10 0.0592 → 0.0305 44.2 [31.2, 57.2] 86.2 1D Burgers 10 4/10 0.1095 → 0.0967 -2.0 [-21.0, 17.0] 86.2 1D reaction–diffusion 10 10/10 7.580×10 −3 → 4.074×10 −3 43.3 [33.1, 53.5] 86.2 2D Navier–Stokes 10 10/10 0.0805 → 0.0188 74.8 [69.2, 80.4] 94.5 2D Darcy 10 6/10 0.1383 → 0.1334 3.2 [-2.3, 8.7] 94.5 2D reaction–diffusion 10 3/10 0.0132 → 0.0147 -20.6 [-43.4, 2.3] 94.5 2D shallow water 10 9/10 1.921×10 −3 → 1.475×10 −3 19.9 [6.6, 33.2] 94.5 2D active matter 10 1/10 0.6575 → 0.7206 -11.1 [-24.0, 1.9] 94.5 3D compressible Navier–Stokes 10 7/10 0.1790 → 0.1368 17.3 [-1.8, 36.5] 95.2 3D MHD 10 10/10 0.5104 → 0.4879 4.4 [4.1, 4.7] 95.2 
+
+DeepONet 
+
+1D advection 10 10/10 0.5009 → 0.4127 17.3 [11.9, 22.8] 87.6 1D Burgers 10 10/10 0.3620 → 0.2806 22.1 [18.3, 25.9] 87.6 1D reaction–diffusion 10 10/10 0.0942 → 0.0735 22.0 [17.9, 26.1] 87.6 2D Navier–Stokes 10 7/10 1.0366 → 0.9853 4.6 [0.1, 9.2] 84.5 2D Darcy 10 10/10 0.9133 → 0.7683 15.6 [11.0, 20.2] 84.5 2D reaction–diffusion 10 3/10 0.3087 → 0.3095 -0.3 [-0.8, 0.3] 84.5 2D shallow water 10 10/10 0.0107 → 5.787×10 −3 45.2 [39.9, 50.5] 88.1 2D active matter 10 7/10 1.1564 → 1.1396 1.3 [-7.2, 9.8] 87.9 3D compressible Navier–Stokes 10 7/10 0.3110 → 0.2102 27.6 [2.3, 52.8] 72.2 3D MHD 10 7/10 0.9452 → 0.9018 4.3 [0.4, 8.3] 72.3 
+
+CNO 
+
+1D advection 10 9/10 0.1657 → 0.1380 16.0 [6.9, 25.1] 74.5 1D Burgers 10 7/10 0.1510 → 0.1230 11.8 [-5.0, 28.5] 74.5 1D reaction–diffusion 10 10/10 0.0133 → 0.0105 21.0 [13.1, 28.9] 74.5 2D Navier–Stokes 10 0/10 0.0822 → 0.2109 -202.0 [-427.1, 23.1] 74.3 2D Darcy 10 2/10 0.2079 → 0.2260 -9.1 [-16.0, -2.1] 74.3 2D reaction–diffusion 10 8/10 0.0258 → 0.0250 2.9 [0.1, 5.7] 74.3 2D shallow water 10 10/10 2.215×10 −3 → 9.572×10 −4 51.9 [41.0, 62.9] 74.3 2D active matter 10 3/10 0.7705 → 0.7910 -6.3 [-19.3, 6.6] 74.3 3D compressible Navier–Stokes 10 4/10 0.2002 → 0.2050 -18.8 [-52.4, 14.9] 81.7 3D MHD 10 0/10 0.4034 → 0.4225 -4.8 [-6.8, -2.8] 81.7 
+
+Table 2 
+
+Best full-size baseline versus its boosted tiny stack. For each dataset, the best full-size architecture is selected by mean test relative 𝐿 2 error and compared with the boosted tiny stack from the same family. 
+
+Dataset Full family Full RelL2 Boosted RelL2 Δperf (%) Size red. (%) Wins 1D advection FNO 0.0592 0.0305 44.2 86.2 10/10 1D Burgers FNO 0.1095 0.0967 -2.0 86.2 4/10 1D reaction–diffusion FNO 7.580×10 −3 4.074×10 −3 43.3 86.2 10/10 2D Navier–Stokes FNO 0.0805 0.0188 74.8 94.5 10/10 2D Darcy FNO 0.1383 0.1334 3.2 94.5 6/10 2D reaction–diffusion FNO 0.0132 0.0147 -20.6 94.5 3/10 2D shallow water FNO 1.921×10 −3 1.475×10 −3 19.9 94.5 9/10 2D active matter FNO 0.6575 0.7206 -11.1 94.5 1/10 3D compressible Navier–Stokes FNO 0.1790 0.1368 17.3 95.2 7/10 3D MHD CNO 0.4034 0.4225 -4.8 81.7 0/10 
+
+L. J. Shikhman: Preprint submitted to Elsevier Page 13 of 19 Operator Boosting for Pareto-Efficient PDE Surrogates 
+
+Navier–Stokes, shallow water, and three-dimensional compressible Navier–Stokes, give a small positive tradeoff on Darcy flow, and underperform on Burgers, two-dimensional reaction–diffusion, active matter, and MHD when compared against the best full-size family for those cases. 
+
+6.3. Best full baseline versus best boosted stack 
+
+Table 3 allows the boosted stack family to differ from the best full-size family. This comparison measures the deployment-relevant Pareto frontier: whether the best compact boosted surrogate can outperform the best full-size monolithic surrogate for the same PDE. Operator Boosting produces empirical Pareto improvements on 7 of 10 datasets. The three failures are active matter, two-dimensional reaction–diffusion, and MHD, where compression is obtained but the best boosted stack does not match the best full-size baseline error. 
+
+Table 3 
+
+Best full-size baseline versus best boosted tiny stack. For each dataset, the best full-size baseline and best boosted tiny surrogate are selected by mean test relative 𝐿 2 error. This comparison permits architecture selection among completed boosted stacks.                                                                              
+
+> Dataset Best full family Full RelL2 Best boosted family Boosted RelL2 RelL2 red. (%) Size red. (%) Pareto status 1D advection FNO 0.0592 FNO 0.0305 48.6 86.2 Dominates 1D Burgers FNO 0.1095 FNO 0.0967 11.6 86.2 Dominates 1D reaction–diffusion FNO 7.580×10 −3 FNO 4.074×10 −3 46.3 86.2 Dominates 2D Navier–Stokes FNO 0.0805 FNO 0.0188 76.6 94.5 Dominates 2D Darcy FNO 0.1383 FNO 0.1334 3.5 94.5 Dominates 2D reaction–diffusion FNO 0.0132 FNO 0.0147 -11.1 94.5 Tradeoff 2D shallow water FNO 1.921×10 −3 CNO 9.572×10 −4 50.2 50.4 Dominates 2D active matter FNO 0.6575 FNO 0.7206 -9.6 94.5 Tradeoff 3D compressible Navier–Stokes FNO 0.1790 FNO 0.1368 23.6 95.2 Dominates 3D MHD CNO 0.4034 CNO 0.4225 -4.7 81.7 Tradeoff
+
+6.4. Failure modes 
+
+The failures in Table 1 are consistent with prior diagnostic evidence that learned PDE surrogates exhibit strongly PDE- and architecture-dependent error modes [29]. Operator Boosting is least effective when the tiny correction operators cannot represent the relevant residual structure, when the full-size baseline already captures the dominant dynamics, or when residual fitting amplifies architecture-specific weaknesses. The clearest degradations occur for CNO on two-dimensional Navier–Stokes, FNO on two-dimensional reaction–diffusion, CNO on Darcy flow, CNO on MHD, and active matter for FNO and CNO. These cases indicate that Operator Boosting should be viewed as an accuracy–parameter Pareto-improvement strategy rather than a universal replacement for full-size neural operators. Its effectiveness depends jointly on the PDE family, the architecture class, and the residual structure left by earlier stages. 
+
+L. J. Shikhman: Preprint submitted to Elsevier Page 14 of 19 Operator Boosting for Pareto-Efficient PDE Surrogates 
+
+## 7. Discussion 
+
+7.1. When does boosting help? 
+
+The results suggest that Operator Boosting helps most when the full-size monolithic baseline is not simply parameter-limited, but when small residual operators can correct systematic errors left by earlier low-capacity stages. The strongest gains occur when the full model’s error appears to contain a systematic component that remains representable by the tiny operator class. This is most evident for FNO on two-dimensional Navier–Stokes, where the boosted stack improves error by 74.8% while using 94.5% fewer parameters, and for shallow-water dynamics, where both CNO and DeepONet boosted stacks substantially improve over their full-size counterparts. These cases suggest that the stagewise residual objective is not merely acting as compression; it changes the optimization problem by allowing successive small operators to focus on the remaining error of the current surrogate. In contrast, failures such as CNO on Navier–Stokes and FNO on two-dimensional reaction–diffusion suggest that residual fitting is not sufficient when the tiny correction class poorly matches the residual geometry or when the residual is dominated by errors that require capacity absent from the tiny architecture. 
+
+7.2. Implications for resource-constrained surrogate simulation 
+
+The main deployment implication is that trainable parameter count can often be reduced by an order of magnitude without sacrificing accuracy, and in many cases while improving it. Parameter count is not identical to inference latency or peak memory, but it is a relevant proxy for storage, model transfer, and deployability. Because all correction operators receive the same input field at inference, their forward passes are independent after training and can in principle be evaluated in parallel. However, actual latency depends on hardware utilization, batching strategy, memory bandwidth, and the cost structure of the operator family. Thus the present results should be interpreted primarily as parameter-count and storage improvements rather than measured latency improvements. 
+
+7.3. Limitations and Future Work 
+
+This study focuses on trainable parameter count and relative 𝐿 2 error. These metrics capture the deployed accuracy– parameter tradeoff, but they do not fully measure deployment cost. Future evaluations should also report model size, peak activation memory, wall-clock latency, throughput, and energy use, especially because boosted stacks contain multiple forward modules even when their total parameter count is small. The experiments use fixed tiny architectures and three boosting stages. We do not optimize the number of stages, per-stage capacity, shrinkage grid, or residual loss weighting for each PDE. The results should therefore be interpreted as evidence that a simple homogeneous residual-stacking procedure can improve the empirical Pareto frontier, not as an optimized lower bound on achievable error or model size.   
+
+> L. J. Shikhman: Preprint submitted to Elsevier Page 15 of 19 Operator Boosting for Pareto-Efficient PDE Surrogates
+
+The method also remains architecture- and PDE-dependent. Some PDE–family pairs degrade when the tiny correction class cannot represent the residual structure left by earlier stages. Future work should study residual diagnostics that identify whether the remaining error is spectral, localized, low-rank, multiscale, boundary-dominated, or otherwise matched to a particular operator family. A natural extension is heterogeneous Operator Boosting, where residual stages may come from different model families: 
+
+𝐺 𝑀 (𝑎 ) = 𝐺 0(𝑎 ) + 
+
+> 𝑀
+
+∑
+
+> 𝑚 =1
+
+𝜂 𝑚 𝐻 𝑓 𝑚  
+
+> 𝑚
+
+(𝑎 ), 𝑓 𝑚 ∈ {FNO , DeepONet , CNO} .
+
+This could combine spectral, branch–trunk, and convolutional biases within one boosted surrogate, but it introduces additional stage-selection and training-cost questions. The present work isolates the homogeneous case first. Finally, future work should compare Operator Boosting against additional efficiency baselines, including pruning, quantization, distillation, tensorization, parameter-matched tiny monolithic models, and independently trained tiny ensembles. 
+
+## 8. Conclusion 
+
+This work introduced Operator Boosting, a homogeneous stagewise residual-learning framework for constructing compact neural-operator PDE surrogates. Rather than training a large monolithic operator and compressing it afterward, Operator Boosting builds the surrogate directly as an additive stack of tiny same-family operators trained on successive residual fields, with each correction added through validation-selected shrinkage. Across FNO, DeepONet, and CNO backbones, the results show that this residual construction can substantially improve the empirical accuracy–parameter tradeoff. Across 30 dataset–architecture pairs, 21 show positive mean accuracy gains, 17 have positive confidence intervals, and all boosted stacks reduce trainable parameter count by approximately 72–95%. In best-model comparisons, boosted stacks empirically Pareto-dominate the best full-size baseline on 7 of 10 completed PDE benchmarks, including transport, reaction–diffusion, Darcy flow, shallow-water dynamics, and incompressible and compressible Navier–Stokes. The experiments also show that Operator Boosting is not a universal replacement for full-size neural operators: several PDE–architecture pairs degrade despite large parameter reductions, indicating that success depends on whether the remaining residual is representable by the tiny correction class. Overall, the study demonstrates that homogeneous residual stacks can improve the deployed size–accuracy frontier of neural PDE surrogates, while motivating future work on latency, memory footprint, energy use, stronger compression baselines, and adaptive choices of residual-stage size and structure.   
+
+> L. J. Shikhman: Preprint submitted to Elsevier Page 16 of 19
+
+Operator Boosting for Pareto-Efficient PDE Surrogates 
+
+## Declaration of Competing Interest 
+
+The author declares no competing interests. 
+
+## Data and Code Availability 
+
+The code used to generate the experiments, aggregate the results, and produce the tables will be made publicly available upon publication. The benchmark datasets used in this study are publicly available through their respective sources, including PDEBench, APEBench, and The Well, together with the standardized synthetic PDE datasets used for the one-dimensional experiments. 
+
+## Acknowledgments 
+
+Reproducibility Code to reproduce all experiments, generate figures, and compute degradation metrics is available at https://github.com/lennonshikhman/boosted-neural-operator .
+
+Computational Resources The author gratefully acknowledges Dell Technologies, and in particular the Dell Pro Precision division, for providing computational resources that supported the experiments in this work. All experiments were conducted on a Dell Pro Max T2 workstation equipped with an Intel Core Ultra 9 285K processor, 128 GB of DDR5 ECC memory, and an NVIDIA RTX PRO 6000 Blackwell GPU. 
+
+Declaration of Generative AI During the preparation of this work, ChatGPT 5.5 was used to assist with creating software documentation and preparation of the GitHub repository. The author reviewed and edited the output as needed and takes full responsibility for the content of the published article. 
+
+## References              
+
+> [1] Anandkumar, A., Azizzadenesheli, K., Bhattacharya, K., Kovachki, N., Li, Z., Liu, B., Stuart, A., 2019. Neural operator: Graph kernel network for partial differential equations, in: ICLR 2020 Workshop on Integration of Deep Neural Models and Differential Equations. URL:
+> https://openreview.net/forum?id=fg2ZFmXFO3 .[2] Benner, P., Gugercin, S., Willcox, K., 2015. A survey of projection-based model reduction methods for parametric dynamical systems. SIAM Review 57, 483–531. URL: https://doi.org/10.1137/130932715 , doi: 10.1137/130932715 .[3] Breiman, L., 1996. Bagging predictors. Machine Learning 24, 123–140. URL: https://doi.org/10.1007/BF00058655 , doi: 10.1007/ BF00058655 .[4] Bühlmann, P., Yu, B., 2003. Boosting with the 𝐿 2loss: Regression and classification. Journal of the American Statistical Association 98, 324–339. URL: https://doi.org/10.1198/016214503000125 , doi: 10.1198/016214503000125 .[5] Chen, Y., Hesthaven, J.S., Maday, Y., Rodr’iguez, J., 2010. Certified reduced basis methods and output bounds for the harmonic Maxwell’s equations. SIAM Journal on Scientific Computing 32, 970–996. URL: https://doi.org/10.1137/09075250X , doi: 10.1137/ 09075250X .
+
+L. J. Shikhman: Preprint submitted to Elsevier Page 17 of 19 Operator Boosting for Pareto-Efficient PDE Surrogates 
+
+[6] Frankle, J., Carbin, M., 2019. The lottery ticket hypothesis: Finding sparse, trainable neural networks, in: International Conference on Learning Representations. URL: https://openreview.net/forum?id=rJl-b3RcF7 .[7] Freund, Y., Schapire, R.E., 1997. A decision-theoretic generalization of on-line learning and an application to boosting. Journal of Computer and System Sciences 55, 119–139. URL: https://doi.org/10.1006/jcss.1997.1504 , doi: 10.1006/jcss.1997.1504 .[8] Friedman, J.H., 2001. Greedy function approximation: A gradient boosting machine. The Annals of Statistics 29, 1189–1232. URL: 
+
+https://doi.org/10.1214/aos/1013203451 , doi: 10.1214/aos/1013203451 .[9] Friedman, J.H., 2002. Stochastic gradient boosting. Computational Statistics & Data Analysis 38, 367–378. URL: https://doi.org/10. 1016/S0167-9473(01)00065-2 , doi: 10.1016/S0167-9473(01)00065-2 .[10] Han, S., Mao, H., Dally, W.J., 2016. Deep compression: Compressing deep neural networks with pruning, trained quantization and huffman coding. URL: https://arxiv.org/abs/1510.00149 , arXiv:1510.00149 .[11] Hansen, L.K., Salamon, P., 1990. Neural network ensembles. IEEE Transactions on Pattern Analysis and Machine Intelligence 12, 993–1001. URL: https://doi.org/10.1109/34.58871 , doi: 10.1109/34.58871 .[12] He, K., Zhang, X., Ren, S., Sun, J., 2016. Deep residual learning for image recognition, in: Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition, pp. 770–778. doi: 10.1109/CVPR.2016.90 .[13] Hinton, G., Vinyals, O., Dean, J., 2015. Distilling the knowledge in a neural network. URL: https://arxiv.org/abs/1503.02531 ,
+
+arXiv:1503.02531 .[14] Howes, W., Yoo, J., Kobayashi, K., Sarkar, S., Ahmed, F., Chakraborty, S., Alam, S.B., 2026. Real-time sensing of inaccessible physical fields via an edge-deployable hardware-portable graph neural operator. URL: https://arxiv.org/abs/2604.01802 , arXiv:2604.01802 .[15] Koehler, F., Niedermayr, S., rüdiger westermann, Thuerey, N., 2024. APEBench: A benchmark for autoregressive neural emulators of PDEs, in: The Thirty-eight Conference on Neural Information Processing Systems Datasets and Benchmarks Track. URL: https://openreview. net/forum?id=iWc0qE116u .[16] Kossaifi, J., Kovachki, N.B., Azizzadenesheli, K., Anandkumar, A., 2024. Multi-grid tensorized fourier neural operator for high- resolution PDEs. Transactions on Machine Learning Research URL: https://openreview.net/forum?id=AWiDlO63bH .[17] Kovachki, N., Li, Z., Liu, B., Azizzadenesheli, K., Bhattacharya, K., Stuart, A., Anandkumar, A., 2023. Neural operator: Learning maps between function spaces with applications to pdes. Journal of Machine Learning Research 24, 1–97. URL: http://jmlr.org/papers/ v24/21-1524.html .[18] Lakshminarayanan, B., Pritzel, A., Blundell, C., 2017. Simple and scalable predictive uncertainty estimation using deep ensembles, in: Proceedings of the 31st International Conference on Neural Information Processing Systems, Curran Associates Inc.. pp. 6405–6416. [19] Li, Z., Huang, D.Z., Liu, B., Anandkumar, A., 2023. Fourier neural operator with learned deformations for pdes on general geometries. Journal of Machine Learning Research 24, 1–26. URL: http://jmlr.org/papers/v24/23-0064.html .[20] Li, Z., Kovachki, N., Azizzadenesheli, K., Liu, B., Stuart, A., Bhattacharya, K., Anandkumar, A., 2020. Multipole graph neural operator for parametric partial differential equations, in: Larochelle, H., Ranzato, M., Hadsell, R., Balcan, M., Lin, H. (Eds.), Advances in Neural Information Processing Systems, Curran Associates, Inc.. pp. 6755–6766. URL: https://proceedings.neurips.cc/paper_files/ paper/2020/file/4b21cf96d4cf612f239a6c322b10c8fe-Paper.pdf .[21] Li, Z., Kovachki, N.B., Azizzadenesheli, K., liu, B., Bhattacharya, K., Stuart, A., Anandkumar, A., 2021. Fourier neural operator for parametric partial differential equations, in: International Conference on Learning Representations. URL: https://openreview.net/forum?id= c8P9NQVtmnO .
+
+L. J. Shikhman: Preprint submitted to Elsevier Page 18 of 19 Operator Boosting for Pareto-Efficient PDE Surrogates 
+
+[22] Lu, J., Tian, J., Zhao, Y., Li, H., Zhang, Z., 2025. Tensor-compressed and fully-quantized training of neural pde solvers. URL: https: //arxiv.org/abs/2512.09202 , arXiv:2512.09202 .[23] Lu, L., Jin, P., Pang, G., Zhang, Z., Karniadakis, G.E., 2021. Learning nonlinear operators via DeepONet based on the universal approximation theorem of operators. Nature Machine Intelligence 3, 218–229. URL: https://doi.org/10.1038/s42256-021-00302-5 ,doi: 10.1038/s42256-021-00302-5 .[24] Mason, L., Baxter, J., Bartlett, P., Frean, M., 1999. Boosting algorithms as gradient descent, in: Advances in Neu-ral Information Processing Systems, MIT Press. URL: https://proceedings.neurips.cc/paper_files/paper/1999/file/ 96a93ba89a5b5c6c226e49b88973f46e-Paper.pdf .[25] Novikov, A., Podoprikhin, D., Osokin, A., Vetrov, D., 2015. Tensorizing neural networks, in: Advances in Neural Informa-tion Processing Systems, Curran Associates, Inc. URL: https://proceedings.neurips.cc/paper_files/paper/2015/file/ 6855456e2fe46a9d49d3d3af4f57443d-Paper.pdf .[26] Ohana, R., McCabe, M., Meyer, L., Morel, R., Agocs, F.J., Beneitez, M., Berger, M., Burkhart, B., Dalziel, S.B., Fielding, D.B., Fortunato, D., Goldberg, J.A., Hirashima, K., Jiang, Y.F., Kerswell, R.R., Maddu, S., Miller, J., Mukhopadhyay, P., Nixon, S.S., Shen, J., Watteaux, R., Blancard, B.R.S., Rozet, F., Parker, L., Cranmer, M., Ho, S., 2024. The well: a large-scale collection of diverse physics simulations for machine learning, in: Globerson, A., Mackey, L., Belgrave, D., Fan, A., Paquet, U., Tomczak, J., Zhang, C. (Eds.), Advances in Neural Information Pro-cessing Systems, Curran Associates, Inc.. pp. 44989–45037. URL: https://proceedings.neurips.cc/paper_files/paper/2024/ file/4f9a5acd91ac76569f2fe291b1f4772b-Paper-Datasets_and_Benchmarks_Track.pdf , doi: 10.52202/079017-1430 .[27] Qin, S., Lyu, F., Peng, W., Geng, D., Wang, J., Tang, X., Leroyer, S., Gao, N., Liu, X., Wang, L.L., 2024. Toward a better understanding of fourier neural operators from a spectral perspective. URL: https://arxiv.org/abs/2404.07200 , arXiv:2404.07200 .[28] Raonic, B., Molinaro, R., Ryck, T.D., Rohner, T., Bartolucci, F., Alaifari, R., Mishra, S., de Bezenac, E., 2023. Convolutional neural operators for robust and accurate learning of PDEs, in: Thirty-seventh Conference on Neural Information Processing Systems. URL: 
+
+https://openreview.net/forum?id=MtekhXRP4h .[29] Shikhman, L., 2026a. Diagnosing failure modes of neural operators across diverse PDE families. Transactions on Machine Learning Research URL: https://openreview.net/forum?id=0S1LWZHQYn .[30] Shikhman, L., 2026b. One operator to rule them all? on boundary-indexed operator families in neural PDE solvers, in: AI&PDE: ICLR 2026 Workshop on AI and Partial Differential Equations. URL: https://openreview.net/forum?id=lDjWQ9UxRy .[31] Takamoto, M., Praditia, T., Leiteritz, R., MacKinlay, D., Alesiani, F., Pflüger, D., Niepert, M., 2022. Pdebench: An extensive benchmark for scientific machine learning, in: Koyejo, S., Mohamed, S., Agarwal, A., Belgrave, D., Cho, K., Oh, A. (Eds.), Advances in Neural Information Processing Systems, Curran Associates, Inc.. pp. 1596–1611. URL: https://proceedings.neurips.cc/paper_files/paper/2022/ file/0a9747136d411fb83f0cf81820d44afb-Paper-Datasets_and_Benchmarks.pdf .[32] Tran, A., Mathews, A., Xie, L., Ong, C.S., 2023. Factorized fourier neural operators, in: The Eleventh International Conference on Learning Representations. URL: https://openreview.net/forum?id=tmIiMPl4IPa .[33] Tu, R., White, C., Kossaifi, J., Bonev, B., Pekhimenko, G., Azizzadenesheli, K., Anandkumar, A., 2024. Guaranteed approximation bounds for mixed-precision neural operators, in: The Twelfth International Conference on Learning Representations. URL: https://openreview. net/forum?id=QJGj07PD9C .[34] Zhang, T., Yu, B., 2005. Boosting with early stopping: Convergence and consistency. The Annals of Statistics 33, 1538–1579. URL: 
+
+https://doi.org/10.1214/009053605000000255 , doi: 10.1214/009053605000000255 .
+
+L. J. Shikhman: Preprint submitted to Elsevier Page 19 of 19

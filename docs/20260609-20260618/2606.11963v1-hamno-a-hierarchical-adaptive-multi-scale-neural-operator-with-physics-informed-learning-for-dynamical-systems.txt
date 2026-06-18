@@ -1,0 +1,930 @@
+Title: HAMNO: A Hierarchical Adaptive Multi-scale Neural Operator with Physics-Informed Learning for Dynamical Systems
+
+URL Source: https://arxiv.org/pdf/2606.11963v1
+
+Published Time: Thu, 11 Jun 2026 01:07:43 GMT
+
+Number of Pages: 34
+
+Markdown Content:
+# HAMNO: A Hierarchical Adaptive Multi-scale Neural Operator with Physics-Informed Learning for Dynamical Systems 
+
+Mostafa Bamdad 1,∗, Mohammad Sadegh Eshaghi 2, Timon Rabczuk 1,†
+
+> 1
+
+Chair of Computational Mechanics, Institute of Structural Mechanics, Bauhaus-Universit¨ at Weimar, 99423 Weimar, Germany 
+
+> 2
+
+Chair of Computational Science and Simulation Technology, Institute of Photonics, Department of Mathematics and Physics, Leibniz University Hannover, 30167 Hannover, Germany 
+
+Abstract. Neural operators provide a powerful framework for learning solution mappings of partial differential equations directly in function space. However, many existing architectures still struggle to represent nonlinear time-dependent systems that involve multi-scale structures, long-range interactions, and stable long-time evolution. In this work, we introduce the Hierarchical Adaptive Multi-scale Neural Operator (HAMNO), a neural-operator architecture that combines local convolutional representations, global spectral operators, and hierarchical encoder–decoder processing. The central component of HAMNO is a data-dependent gating mechanism that adaptively balances local and global information at each spatial location, allowing the model to resolve fine-scale features while preserving long-range dependencies. We further develop a physics-informed extension, PI-HAMNO, based on a multi-objective loss strategy that combines data fitting with strong- and weak-form physics constraints. The strong-form term penalizes the domain-integrated squared PDE residual in physical coordinates, while the weak-form term is constructed by multiplying the governing residual by finite-element test functions and evaluating the resulting element integrals using centroid-based tetrahedral quadrature. The framework is evaluated on non-periodic Allen–Cahn (AC), Cahn–Hilliard (CH), and Swift–Hohenberg (SH) equa-tions defined on cubic domains. Across long-horizon rollout, data-limited training, out-of-distribution initial-condition shifts, and random-seed variations, HAMNO improves predictive accuracy over stan-dard neural-operator baselines, while PI-HAMNO further enhances stability, physical consistency, and data efficiency. The implementation is publicly available at https://github.com/MBamdad/HAMNO .
+
+Key words: phase field dynamics; non periodic boundary conditions; neural operators; Allen–Cahn equation; Cahn–Hilliard equation; Swift–Hohenberg equation; physics informed learning 
+
+1. Introduction 
+
+Many problems in computational mechanics, materials science, and pattern-forming sys-tems are governed by nonlinear partial differential equations (PDEs) whose solutions evolve across several spatial and temporal scales. Classical numerical methods, including finite-element, finite-volume, finite-difference, and spectral schemes, remain the standard tools for solving such systems with high accuracy. However, repeated high-fidelity simulations can be-come prohibitively expensive when many trajectories, parameter values, initial conditions, or long-time predictions are required. Neural operators provide a direct route to this many-query setting by learning solution mappings in function space, allowing trained models to evaluate new input functions and discretizations at substantially lower cost [1–5]. 
+
+> ∗
+
+Corresponding author: mostafa.bamdad@uni-weimar.de. 
+
+> †
+
+Corresponding author: timon.rabczuk@uni-weimar.de. 
+
+1
+
+> arXiv:2606.11963v1 [cs.LG] 10 Jun 2026
+
+In neural-operator learning, the goal is to learn the underlying solution operator rather than a single solution instance. This distinction is essential for time-dependent and paramet-ric PDEs, where the input may represent an initial condition, coefficient field, forcing term, geometry, or previous solution history. DeepONet introduced a branch–trunk representation for nonlinear operators [1], while subsequent Fourier-, wavelet-, Laplace-, geometry-aware, and attention-based operators have broadened the range of applications to multi-scale dynamics, non-periodic signals, complex geometries, and high-dimensional solution fields [6–13]. Never-theless, accurate long-time prediction remains difficult when the dynamics contain localized interfaces, sharp transitions, non-dominant high-frequency modes, or strong coupling between local and global structures. This difficulty is particularly relevant for Fourier-type neural operators. Although spectral layers efficiently represent long-range correlations, truncating spectral modes may weaken the recovery of localized and high-frequency features [6, 14]. LOGLO-FNO addresses this limitation by enriching Fourier operators with local spectral convolutions and high-frequency propagation mechanisms [14]. However, such strategies mainly improve spectral reconstruction and do not fully resolve the broader challenge of adaptive local–global coupling, hierarchical multi-resolution representation, and physics-guided stability during long autoregressive rollout. Several extensions have been proposed to address related limitations. Factorized Fourier Neural Operators (F-FNO) [6] improve spectral efficiency and flexibility. Wavelet and mul-tiwavelet neural operators introduce localized basis representations that are more suitable for multi-scale solution fields [7, 8]. Laplace neural operators improve the treatment of tran-sient and non-periodic responses by learning in a transformed operator space [9]. In parallel, U-shaped and encoder–decoder operator architectures such as U-FNO [15], U-NO [16], and U-Net [17] enhance multi-scale feature learning through hierarchical contraction–expansion paths and skip connections, leading to improved data efficiency and coarse-to-fine representa-tion learning. However, these architectures primarily rely on fixed hierarchical feature fusion and local convolutional interactions, which can limit adaptive coupling between local and global dynamics across multiple spatial scales. Other developments focus on long-horizon temporal modeling. The Multi-Head Neural Operator (MHNO) [18] introduces step-wise pro-jection operators and temporal correction mechanisms to reduce rollout error accumulation, while recurrent neural-operator formulations have also been explored to improve long-time integration of dynamical systems [19]. Recently, hybrid operator-learning paradigms have also been explored. Neural Operator Warm Starts (NOWS) [20] combines neural operators with classical iterative solvers by gen-erating high-quality initial guesses that accelerate convergence while preserving the robust-ness of traditional numerical methods. Physics-informed and variational operator-learning approaches, including VINO [21], physics-informed wavelet neural operators [22], physics-informed latent neural operators [23], and variationally mimetic operator networks [5], in-corporate PDE structure, weak formulations, or energy-based constraints directly into the learning process to improve physical consistency and data efficiency. Hybrid frameworks such as PENCO [24] further enhance long-time stability through numerical consistency and energy-based regularization. However, many of these formulations are primarily developed for peri-odic settings, simplified benchmark problems, or spectral discretizations, which makes their extension to three-dimensional non-periodic phase-field dynamics less straightforward. Phase-field models provide a demanding setting for this class of methods because they com-bine nonlinear reaction terms, diffusion, fourth-order operators, conserved or non-conserved dynamics, and long-time morphological evolution. The AC equation describes non-conserved interfacial motion, the CH equation models conserved phase separation and coarsening, and the SH equation produces oscillatory pattern-forming structures. These systems are widely used 2in materials modeling and computational mechanics, but their accurate simulation remains computationally expensive, especially in three dimensions and under non-periodic boundary conditions [25–29]. Recent learning-based studies have begun to accelerate phase-field and mechanics-related simulations [18, 24, 30], yet stable and accurate long-horizon prediction of three-dimensional non-periodic phase-field systems remains challenging. U-FNO [15], U-NO [16], and U-Net [17] provide important but distinct multi-scale base-lines. U-FNO combines Fourier layers with embedded U-Net modules; however, the local and spectral components are fused through fixed additive interactions. U-NO extends neural op-erators with a U-shaped multi-resolution structure, yet its operator blocks remain primarily spectral and are mainly driven by global Fourier mixing. In contrast, U-Net is a purely local convolutional encoder–decoder that is effective for extracting spatial features, but it does not explicitly model global operator interactions. Consequently, these architectures have limited ability to adaptively coordinate local spatial structures and global operator dynamics across multiple scales and evolving solution regimes. To address this limitation, we introduce HAMNO, a new operator-learning framework that combines local convolutional operators and global spectral operators within a hierar-chical encoder–decoder architecture. Unlike existing multi-scale neural operators that rely on fixed feature fusion mechanisms, HAMNO introduces a data-dependent gating strategy that adaptively balances local and global information at each spatial location. The hierarchi-cal multi-scale structure further enables simultaneous learning of coarse global dynamics and fine-scale interfacial structures, improving long-horizon stability and representation capabil-ity for nonlinear time-dependent PDEs. Moreover, each HAMNO block employs a residual operator update that adds both the adaptively fused local–global feature and the subsequent channel-mixing transformation through residual connections. This design improves optimiza-tion stability and supports deeper multi-scale operator learning. To further improve physical consistency and predictive stability, we introduce a physics-informed extension referred to as PI-HAMNO. In this framework, physics-based constraints are incorporated directly into the training objective through strong-form and weak-form PDE formulations within a multi-objective regularization strategy. By combining complementary numerical representations of the governing equations, the model captures different physical characteristics of the same system more effectively, improving accuracy, stability, and data efficiency. The strong-form term minimizes the integrated squared PDE residual in physical coordinates, while the weak-form term evaluates element-wise variational residuals using finite-element test functions and centroid-based tetrahedral quadrature. The proposed framework is evaluated on three-dimensional phase-field systems with ho-mogeneous Neumann boundary conditions, including the AC, CH, and SH equations. The numerical results demonstrate improved long-horizon accuracy, stability, and data efficiency compared with existing neural operator architectures, while the physics-informed formulation further enhances physical consistency and predictive robustness. 
+
+2. Methodology 
+
+This section describes the neural operator frameworks used to model the non-periodic AC, CH, and SH dynamics. All models take a short temporal history of three-dimensional phase fields as input and learn the mapping to the next state. Denoting the input history length by 
+
+Tin , the learning task is 
+
+Gθ :  un−Tin +1 , . . . , u n−1, u n 7 → un+1  
+
+> θ
+
+, (1) 3where un denotes the solution field at the discrete time level tn, and n represents the current time-step index along the trajectory. During evaluation, the learned one-step map is applied autoregressively to reconstruct the full temporal evolution. The central challenge is to preserve the correct physical behavior while maintaining high predictive accuracy over long horizons. We first present standard neural operator backbones, including the Fourier Neural Opera-tor, the Factorized Fourier Neural Operator, DeepONet, and U-shaped neural operators. We then introduce the proposed Hierarchical Adaptive Multi-scale Neural Operator (HAMNO), followed by its physics-informed extension PI-HAMNO. 
+
+2.1. Learning setting 
+
+Let 
+
+Unin = un−Tin +1 , . . . , u n−1, u n (2) denote the input history at time level n. The backbone operator returns a one-step prediction of the next state, 
+
+un+1  
+
+> θ
+
+(x) = Gθ(Unin , x) , (3) where Gθ means the learned neural operator parameterized by θ, x = ( x, y, z ) denotes the spatial coordinate and un+1  
+
+> θ
+
+is the predicted approximation of the reference solution un+1 .The model is trained on temporal windows extracted from full trajectories and is evalu-ated by applying the learned one-step predictor autoregressively until the final time. Spatial coordinates are appended to the input so that the learned mapping is tied to the physical domain. 
+
+2.2. Fourier neural operator 
+
+The Fourier neural operator represents the evolution map through repeated global spectral mixing in the spatial coordinates. Given the input history Unin and the spatial coordinate field 
+
+x, the first step is a lifting map 
+
+v0(x) = P  Unin (x), x, (4) where P is a learned pointwise linear embedding into a latent feature space. Each operator block then updates the latent feature by combining a Fourier integral op-erator with a local channel mixing operator, 
+
+vℓ+1 (x) = σ(Kℓ(vℓ)( x) + Wℓvℓ(x)) , ℓ = 0 , . . . , L − 1, (5) where σ is a nonlinear activation. The spectral operator Kℓ is defined in Fourier space by 
+
+F Kℓ(vℓ)(ξ) = Rℓ(ξ) F(vℓ)( ξ), (6) with Rℓ(ξ) a learned complex multiplier restricted to a finite set of retained low frequency modes. The term Wℓ denotes a pointwise linear map in physical space. After L layers, the final solution is obtained by a single global projection, 
+
+un+1  
+
+> θ
+
+(x) = Q vL(x), (7) where Q is a learned output head. Hence FNO uses one global latent representation and one final projection to produce the next state. 42.3. Factorized Fourier neural operator 
+
+The factorized Fourier neural operator preserves the spectral philosophy of FNO but replaces the fully coupled three dimensional Fourier kernel by a structured decomposition. Let vℓ
+
+denote the latent feature at layer ℓ. Instead of learning one fully coupled spectral kernel, the factorized operator decomposes the update into directional and pairwise spectral components, 
+
+KF F N O ℓ (vℓ) = Kxℓ (vℓ) + Kyℓ (vℓ) + Kzℓ (vℓ) + Kxy ℓ (vℓ) + Kxz ℓ (vℓ) + Kyz ℓ (vℓ). (8) The one dimensional terms act separately along each coordinate direction, while the pair-wise terms restore cross directional couplings. In the implemented model, these components are combined with learnable gates and an additional local convolutional path, 
+
+eKF F N O ℓ (vℓ) = X
+
+> m
+
+γℓ,m Kmℓ (vℓ) + γℓ,loc Cloc (vℓ), (9) where γℓ,m are normalized learnable coefficients and Cloc is a local three dimensional convolu-tion. In practice, this local term plays a crucial role for non-periodic boundary conditions, as it complements the global spectral operator with boundary-aware local corrections, leading to significantly improved accuracy and data efficiency. The layer update is then written as 
+
+vℓ+1 = vℓ + Ψ ℓ
+
+ eKF F N O ℓ (vℓ)
+
+
+
+, (10) where Ψ ℓ is a channel mixing map realized by pointwise convolutions and nonlinear activation. This residual form improves stability. As in FNO, the final output is produced by a single global projection, 
+
+un+1  
+
+> θ
+
+(x) = Q vL(x). (11) Therefore, the main distinction from FNO is not the output mechanism, but the structured spectral factorization inside each operator layer. 
+
+2.4. DeepONet 
+
+DeepONet decomposes the learned operator into a branch component that encodes the input history and a trunk component that encodes the evaluation coordinates. In the present three dimensional setting, the branch network maps the input history field Unin to a latent feature field 
+
+b(x) = Gbr 
+
+ Unin 
+
+(x), (12) where Gbr denotes the branch encoder and b(x) is the resulting latent branch feature at location 
+
+x.The trunk network acts on the spatial coordinate and produces two modulation fields, (γ(x), η (x)) = Gtr (x), (13) where Gtr denotes the trunk map, γ(x) is a multiplicative modulation field, and η(x) is an additive modulation field. In the implementation used here, the branch network is a convolutional encoder and the trunk network is a multilayer perceptron. The two parts are combined through feature-wise 5modulation, 
+
+eb(x) = b(x) ⊙  1 + γ(x) + η(x), (14) where ⊙ denotes componentwise multiplication and eb(x) denotes the modulated latent feature after combining branch and trunk information. The final output is then produced by a projection head, 
+
+un+1  
+
+> θ
+
+(x) = Q eb(x), (15) where Q denotes the final projection operator. This architecture separates two roles clearly. The branch network captures the dependence on the input field history, while the trunk network captures the dependence on spatial location. Their combination yields an operator representation that naturally distinguishes between the input function and the evaluation coordinates. 
+
+2.5. U-shaped neural operator 
+
+Several neural operator architectures extend the original FNO framework through hierarchi-cal multi-resolution representations. These models combine encoder–decoder structures with spectral or convolutional operators in order to improve coarse-to-fine feature learning and multi-scale representation capability [15–17]. 
+
+U-FNO U-FNO augments the Fourier neural operator with embedded local U-Net pathways inside the operator blocks. Similar to FNO, the latent representation is first constructed through the lifting map in Eq. (4). The latent feature is then updated through repeated U-Fourier layers, 
+
+vℓ+1 = σ(Kℓ(vℓ) + Uℓ(vℓ) + Wℓ(vℓ)) , (16) where Kℓ denotes the global spectral integral operator, Uℓ is a U-Net-based local convolutional operator acting in physical space, and Wℓ is a learnable pointwise linear operator. The U-Net branch improves local spatial representation and recovery of fine-scale structures, while the Fourier branch captures long-range interactions. These components are combined through fixed additive fusion inside each U-Fourier layer. 
+
+U-NO U-NO extends neural operators through a hierarchical U-shaped multi-resolution architecture. Starting from the lifted representation v0, the model progressively constructs coarse latent representations through neural-operator blocks and resolution changes, 
+
+v(1) = B1(v0), v(2) = B2(↓ v(1) ), . . . (17) where each Bi denotes an operator block acting at a prescribed spatial resolution. The decoder path reconstructs the solution through upsampling and skip connections, ˆv(i) = Ri
+
+
+
+Up(ˆ v(i+1) ) ⊕ v(i)
+
+, (18) where Ri denotes the decoder/refinement operator at resolution level i, Up( ·) denotes upsam-pling, and ⊕ represents channel-wise concatenation with the corresponding encoder feature. This allows the model to combine coarse global information with high-resolution features. Un-like standard FNO, U-NO explicitly learns representations across multiple spatial resolutions, but its information flow is governed by the prescribed U-shaped operator structure rather than by an adaptive local–global fusion mechanism. 6U-Net U-Net is a purely convolutional encoder–decoder architecture that operates entirely in physical space. The encoder progressively extracts hierarchical local features through con-volution and downsampling, 
+
+v(i+1) = Ci(↓ v(i)), (19) where Ci denotes local convolutional operators and ↓ represents spatial downsampling. The decoder reconstructs the solution through upsampling and skip connections, ˆv(i) = Di
+
+
+
+Up(ˆ v(i+1) ) ⊕ v(i)
+
+, (20) where Di denotes the decoder convolutional operator at resolution level i. This structure enables efficient local multi-scale feature extraction and accurate recovery of fine spatial details. However, unlike neural operators with spectral components, U-Net does not explicitly model global operator interactions in frequency space. Although these architectures improve multi-scale representation learning through hierar-chical encoder–decoder structures, they typically rely on predefined interactions between local and global representations. This motivates the development of HAMNO, which introduces adaptive local–global operator coupling within a hierarchical neural operator framework. 
+
+2.6. Hierarchical Adaptive Multi-scale Neural Operator (HAMNO) 
+
+HAMNO is designed to represent nonlinear time-dependent dynamics by coupling local feature extraction, global spectral interaction, and hierarchical multi-scale processing within a single neural-operator architecture. A schematic overview of HAMNO and its physics-informed extension, PI-HAMNO, is shown in Figure 1. As in the neural-operator backbones described above, the input history is first lifted into a latent feature space using the coordinate-aware embedding in Eq. (4). The lifted representa-tion is then evolved through adaptive local–global operator blocks arranged in a hierarchical encoder–decoder structure. In contrast to purely spectral operators or architectures with fixed local–global fusion, HAMNO learns a data-dependent balance between nearby spatial interactions and long-range spectral information at each resolution level. 
+
+Local-global operator decomposition At the core of HAMNO is a dual-path operator block, which serves as the fundamental building unit throughout all stages of the architecture. Given a latent feature representation vℓ(x), the model first applies normalization, 
+
+h(x) = Norm( vℓ(x)) . (21) The normalized feature is then processed through two complementary operator branches. A local operator captures nearby spatial interactions, 
+
+hlocal = Klocal (h), (22) while a global operator models long-range dependencies through spectral transformation, 
+
+hglobal = Kglobal (h). (23) Instead of combining these components through fixed additive fusion as in U-FNO, HAMNO introduces a data-dependent fusion mechanism, 
+
+hf used (x) = α(x) hlocal (x) + β(x) hglobal (x), (24) 7where the weights α(x) and β(x) are learned adaptively from the input feature. This gating mechanism allows the model to dynamically balance local and global information depending on the spatial context and resolution scale. The fused feature is then transformed as 
+
+ehf used = M(hf used ), (25) where M denotes a 1 × 1 × 1 convolution used to mix feature channels after adaptive local– global fusion. This operation prepares the fused representation for the residual update. 
+
+Residual operator update The block updates the latent feature through two residual steps. First, the mixed fused feature is added to the input feature, 
+
+v′ 
+
+> ℓ
+
+= vℓ + ehf used . (26) Then a nonlinear channel mixing map is applied through a second residual update, 
+
+vℓ+1 = v′ 
+
+> ℓ
+
++ Ψ ℓ
+
+ Norm( v′
+
+> ℓ
+
+) , (27) where Ψ ℓ denotes a pointwise multilayer feature transformation. This structure improves stability and enables deeper operator learning. 
+
+Hierarchical multi-scale structure Unlike standard neural operators that operate at a single resolution, HAMNO adopts a hierarchical encoder–decoder structure to capture dy-namics across multiple spatial scales. As illustrated in Figure 1, the encoder progressively compresses the spatial resolution (zooming out) to build increasingly abstract representations, while the decoder reconstructs the solution (zooming in) by recovering fine-scale details. Starting from the lifted feature representation v(1) 0 , the model progressively constructs coarser representations through successive operator blocks and downsampling, 
+
+v(1) = B1(v(1) 0 ), v(2) = B2(↓ v(1) ), v(3) = B3(↓ v(2) ), (28) where ↓ denotes spatial downsampling and each Bi represents a stack of local–global operator blocks. This process can be interpreted as progressively zooming out to capture large-scale and long-range interactions. The representation is then reconstructed through an upsampling path with skip connec-tions that preserve fine-scale information, ˆv(2) = R2
+
+
+
+F2
+
+ Up( v(3) ) ⊕ v(2) 
+
+, ˆv(1) = R1
+
+
+
+F1
+
+ Up(ˆ v(2) ) ⊕ v(1) 
+
+, (29) where Up( ·) denotes learnable upsampling, ⊕ denotes channel-wise concatenation, F1 and F2
+
+are learned fusion operators, and R1 and R2 denote refinement stages. The skip connections transfer high-resolution features from the encoder to the decoder, enabling accurate recon-struction by recovering details that would otherwise be lost during downsampling. This stage corresponds to zooming back in, guided by both coarse global context and preserved fine-scale information. Finally, the reconstructed feature is fused with the early representation from the lifting stage, 
+
+vfinal = F0
+
+ ˆv(1) ⊕ v(1) 0
+
+, (30) where F0 is a learned fusion operator implemented by 1 × 1 × 1 convolutions followed by non-8Figure 1: Schematic overview of HAMNO and its physics-informed extension PI-HAMNO, combining multi-scale operator learning with physics-based regularization. linear activation. This hierarchical design enables the model to jointly learn global structures and fine-scale dynamics in a consistent manner. 
+
+Final prediction After multi-scale processing, the final output is obtained through a pro-jection head, 
+
+un+1  
+
+> θ
+
+(x) = Q vfinal (x). (31) This design enables HAMNO to simultaneously capture local dynamics, long-range inter-actions, and cross-scale dependencies within a unified operator framework. 
+
+2.7. Physics-informed HAMNO (PI-HAMNO) 
+
+To improve accuracy, stability, and data efficiency, we introduce a physics-informed extension of HAMNO, referred to as PI-HAMNO. In this framework, the neural operator is trained not only to fit available data, but also to satisfy numerical representations of the governing physical laws. The total training objective is written as 
+
+Ltotal = (1 − λ)Ldata + λLphys , (32) where λ ∈ [0 , 1] controls the balance between data fitting and physics-informed regularization. Rather than relying on a single PDE formulation, we adopt a multi-objective regularization 
+
+strategy in which two complementary residual formulations of the same governing equation are combined: 
+
+Lphys = Lstrong + Lweak . (33) The motivation for this construction is both physical and numerical. The strong-form residual measures the PDE defect directly in physical coordinates and therefore acts as an 9L2-type penalty on local pointwise inconsistency. Since spatial derivatives amplify small-scale errors, this term is sensitive to sharp gradients, localized interfacial motion, and high-frequency residual components. It provides a direct local constraint on the learned time update, although it may also lead to a stiffer optimization landscape when used alone. The weak-form residual introduces a complementary variational constraint. The govern-ing residual is multiplied by finite-element test functions, integrated over tetrahedral elements, and, where appropriate, integration by parts is used to transfer derivatives from the solution to the test functions. This reduces the effective derivative order, naturally incorporates homoge-neous Neumann boundary conditions, and evaluates the residual in an averaged element-wise sense rather than only through pointwise differential defects. As a result, the weak form emphasizes lower-frequency and globally consistent components of the dynamics and can be interpreted as a smoother variational measure of the PDE defect, closely related to a weaker dual norm. Combining the two residuals therefore yields a principled physics regularization rather than an empirical addition of loss terms. The strong form constrains local and high-frequency inconsistencies, while the weak form improves variational consistency, conditioning, and global physical balance. This strong–weak coupling is also consistent with the design philosophy of HAMNO, where local and global information are learned jointly across multiple spatial scales. In this way, PI-HAMNO regularizes the learned dynamics through two complementary views of the same governing law: 
+
+• The strong-form residual enforces local PDE consistency by directly evaluating the resid-ual using finite-difference approximations of spatial derivatives, followed by numerical in-tegration of the squared residual over tetrahedral elements using centroid-based quadra-ture. 
+
+• The weak-form residual enforces variational consistency by multiplying the governing residual by finite-element test functions, applying integration by parts to shift derivatives onto the test functions, and assembling element-wise residuals using shape functions, with integrals evaluated using tetrahedral quadrature. 
+
+2.7.1 Strong-form residual 
+
+Consider a PDE written abstractly as 
+
+ut = N (u), (34) where N is a spatial differential operator. Given a previous state un and a predicted state 
+
+un+1  
+
+> θ
+
+, the time derivative is approximated by the one-step finite difference 
+
+ut ≈ un+1  
+
+> θ
+
+− un
+
+∆t . (35) The strong-form residual is then defined as 
+
+RFD = un+1  
+
+> θ
+
+− un
+
+∆t − N (un+1  
+
+> θ
+
+). (36) In contrast to standard PINN formulations, where the residual is typically evaluated at sampled collocation points, we evaluate the residual on the structured grid and integrate its squared value over the physical domain. Spatial derivatives are approximated using finite 10 differences. For example, the Laplacian is computed by the standard three-dimensional stencil ∆ui,j,k ≈ ui+1 ,j,k + ui−1,j,k + ui,j +1 ,k + ui,j −1,k + ui,j,k +1 + ui,j,k −1 − 6ui,j,k 
+
+(∆ x)2 . (37) This local stencil makes the strong-form residual sensitive to pointwise differential imbalance, sharp gradients, and high-frequency errors. To obtain a domain-integrated loss, each cubic grid cell is decomposed into six tetrahedra. For a tetrahedron K, the residual value at the centroid is approximated by averaging the residual values at its four vertices, 
+
+RKc = 14
+
+> 4
+
+X
+
+> a=1
+
+RKa . (38) The strong-form loss is then written as 
+
+Lstrong ≈ X
+
+> K
+
+ RKc
+
+2 |K|, (39) where |K| = (∆ x)3/6 is the tetrahedral volume. Equivalently, this corresponds to the numer-ical approximation 
+
+Lstrong ≈
+
+Z
+
+> Ω
+
+(RFD )2 dx. (40) 
+
+2.7.2 Weak-form residual 
+
+To construct a weak-form residual, we start from the residual equation 
+
+ut − N (u) = 0 , (41) multiply it by a test function v, and integrate over the domain: 
+
+Z
+
+> Ω
+
+(ut − N (u)) v d Ω = 0 . (42) For operators containing second-order derivatives, integration by parts is applied to reduce the derivative order. This transfers derivatives from the solution field to the test functions and naturally incorporates homogeneous Neumann boundary conditions, for which the boundary contributions vanish. The domain is partitioned into tetrahedral elements. On each element K, the solution is represented by linear P1 shape functions, 
+
+ue(x) = 
+
+> 4
+
+X
+
+> a=1
+
+Na(x)uea, (43) where uea are the nodal values at the four vertices of the tetrahedron. The Galerkin choice is used for the test functions, i.e., v = Ni.To define the element interpolation, we first introduce the reference tetrahedron bK with 11 local coordinates ( ξ, η, ζ ). The P1 basis functions on bK are 
+
+bN1 = 1 − ξ − η − ζ, (44) 
+
+bN2 = ξ, (45) 
+
+bN3 = η, (46) 
+
+bN4 = ζ. (47) These functions satisfy the nodal interpolation property and form a partition of unity. Each physical tetrahedron K is obtained from bK through the affine mapping 
+
+x = x1 + JK bx, JK = [ x2 − x1, x3 − x1, x4 − x1] , (48) where bx = ( ξ, η, ζ )T and xa are the physical coordinates of the tetrahedral vertices. The physical shape functions are then obtained by composition with this mapping, so that 
+
+Na(x) = bNa(bx(x)) . (49) Since the mapping is affine and the basis functions are linear, the gradients of the shape functions are constant inside each tetrahedron. Using the chain rule, the physical gradients are computed from the reference gradients as 
+
+∇Na = J−TK b∇ bNa, a = 1 , . . . , 4. (50) For the reference P1 basis, 
+
+b∇ bN1 = ( −1, −1, −1) T , b∇ bN2 = (1 , 0, 0) T , b∇ bN3 = (0 , 1, 0) T , b∇ bN4 = (0 , 0, 1) T . (51) Therefore, the element-wise gradient of the approximate solution is 
+
+∇ue =
+
+> 4
+
+X
+
+> a=1
+
+uea∇Na. (52) The corresponding tetrahedral volume is 
+
+|K| = | det JK |
+
+6 . (53) For each tetrahedron K and local test function Ni, the weak residual has the generic form 
+
+rKi =
+
+Z
+
+> K
+
+utNi dV +
+
+Z
+
+> K
+
+(derivative terms) dV +
+
+Z
+
+> K
+
+(reaction terms) dV. (54) The exact structure of these terms depends on the governing equation. The derivative terms use the constant P1 gradients, while the time and nonlinear terms are evaluated by tetrahe-dral quadrature. In the centroid quadrature rule, the lower-order terms are evaluated at the tetrahedral centroid xc. Although the P1 shape functions vary linearly over the element, their values at the centroid are all equal to 1 /4: 
+
+Ni(xc) = 14 , i = 1 , . . . , 4. (55) 12 Therefore, terms of the form R 
+
+> K
+
+f N i dV are approximated as 
+
+Z
+
+> K
+
+f N i dV ≈ |K|
+
+4 f (xc), (56) which gives an efficient element-wise assembly of the residual vector. The weak-form loss is then defined by summing the squared residual entries over all tetra-hedra and local test functions, 
+
+Lweak = 1
+
+Ne
+
+X
+
+> K
+
+X
+
+> i
+
+ rKi
+
+2 . (57) This formulation enforces the PDE in an integral sense, reduces the effective derivative order, improves numerical conditioning, and naturally accommodates Neumann boundary conditions. 
+
+2.7.3 Specialization to the Allen–Cahn equation 
+
+For the AC equation, 
+
+ut = ∆ u − 1
+
+ε2 (u3 − u), (58) the spatial operator is 
+
+NAC (u) = ∆ u − 1
+
+ε2 (u3 − u). (59) The strong-form residual follows directly from the general formulation by evaluating the finite-difference Laplacian and nonlinear reaction term at the predicted state un+1  
+
+> θ
+
+.For the weak form, inserting the AC operator into the Galerkin formulation gives the element residual 
+
+rKi, AC =
+
+Z
+
+> K
+
+utNi dV +
+
+Z
+
+> K
+
+∇u · ∇ Ni dV + 1
+
+ε2
+
+Z
+
+> K
+
+(u3 − u)Ni dV. (60) The second term results from integration by parts of the diffusion operator, while the homo-geneous Neumann boundary contribution vanishes naturally. The corresponding weak-form loss is 
+
+LAC weak = 1
+
+Ne
+
+X
+
+> K
+
+X
+
+> i
+
+ rKi, AC 
+
+2 . (61) 
+
+2.7.4 Specialization to the Cahn–Hilliard equation 
+
+For the CH equation, the fourth-order dynamics are written in mixed second-order form as 
+
+ut = ∆ μ, μ = −ε2∆u + ( u3 − u), (62) where μ denotes the chemical potential. This mixed representation is consistent with the finite-element weak formulation described above, since it avoids direct discretization of fourth-order derivatives. The strong-form residual consists of two coupled residuals: one for the evolution equation and one for the chemical-potential relation. It is written as 
+
+LCH strong =
+
+Z
+
+> Ω
+
+ R2 
+
+> u
+
++ R2
+
+> μ
+
+ dx, (63) where Ru and Rμ denote the residuals associated with ut = ∆ μ and μ = −ε2∆u + ( u3 − u), 13 respectively. The weak formulation produces the corresponding two element residual blocks. The evo-lution equation gives 
+
+rKu,i =
+
+Z
+
+> K
+
+utNi dV +
+
+Z
+
+> K
+
+∇μ · ∇ Ni dV, (64) and the chemical-potential relation gives 
+
+rKμ,i =
+
+Z
+
+> K
+
+μN i dV − ε2
+
+Z
+
+> K
+
+∇u · ∇ Ni dV −
+
+Z
+
+> K
+
+(u3 − u)Ni dV. (65) The corresponding weak-form loss is 
+
+LCH weak = 1
+
+Ne
+
+X
+
+> K
+
+X
+
+> i
+
+h rKu,i 
+
+2 +  rKμ,i 
+
+2i
+
+. (66) Thus, the CH formulation preserves the same tetrahedral P1 element structure as AC, while introducing coupled residuals for the conserved variable u and the chemical potential μ.
+
+2.7.5 Specialization to the Swift–Hohenberg equation 
+
+For the SH equation, 
+
+ut = εu − u3 − (1 + ∆) 2u, (67) we again use a mixed second-order representation to avoid direct treatment of the fourth-order operator. Introducing 
+
+p = ∆ u, (68) the evolution equation can be written as 
+
+ut = ( ε − 1) u − u3 − 2p − ∆p. (69) The primary strong-form residual is therefore 
+
+Ru = un+1  
+
+> θ
+
+− un
+
+∆t − (ε − 1) u − u3 − 2p − ∆p . (70) Here, the right-hand side is evaluated using the predicted state, or the corresponding time-collocation state when a midpoint evaluation is used. Unlike the CH chemical potential, which is directly coupled to the evolution equation, the SH auxiliary variable p = ∆ u mainly serves to split the fourth-order operator. To make this auxiliary variable physically informative during training, we introduce an additional consis-tency condition derived from the evolution equation. Specifically, two representations of p are constructed: 
+
+paux = ∆ u, (71) (2 + ∆) pevol = ( ε − 1) u − u3 − ut. (72) The second relation follows directly from rearranging the SH evolution equation. The auxiliary residual is then defined as 
+
+Rp = paux − pevol . (73) In practice, the Helmholtz-type equation (2 + ∆) pevol = g is solved using a cosine spectral representation consistent with homogeneous Neumann boundary conditions, which provides a stable frequency-space inversion. 14 The total strong-form loss for SH is 
+
+LSH strong =
+
+Z
+
+> Ω
+
+ R2 
+
+> u
+
++ R2
+
+> p
+
+ dx. (74) The weak formulation follows the same tetrahedral P1 Galerkin framework used for AC and CH. The evolution equation gives 
+
+rKu,i =
+
+Z
+
+> K
+
+utNi dV −
+
+Z
+
+> K
+
+(ε − 1) u − u3 − 2p Ni dV −
+
+Z
+
+> K
+
+∇p · ∇ Ni dV. (75) The auxiliary relation p = ∆ u is written in weak form as 
+
+rKp,i =
+
+Z
+
+> K
+
+pN i dV +
+
+Z
+
+> K
+
+∇u · ∇ Ni dV, (76) where integration by parts has been used. The weak-form loss is therefore 
+
+LSH weak = 1
+
+Ne
+
+X
+
+> K
+
+X
+
+> i
+
+h rKu,i 
+
+2 +  rKp,i 
+
+2i
+
+. (77) Thus, the SH formulation uses the same numerical ingredients as the AC and CH cases: finite-difference strong residuals, tetrahedral P1 weak residuals, quadrature-based element integration, and strong–weak multi-objective physics regularization. 
+
+3. Training and evaluation protocol 
+
+The numerical datasets used for training and testing are generated using the DCT-based non-periodic phase-field solvers described in Appendix A. In brief, the reference trajectories correspond to the three-dimensional AC, CH, and SH benchmarks on cubic domains with homogeneous Neumann boundary conditions, for which the Laplacian is diagonalized using cosine modes. The resulting high-fidelity solution sequences are subsequently converted into temporal windows for one-step neural-operator training and long-horizon autoregressive eval-uation. Each trajectory is initialized from a Gaussian-random-field-based initial condition, pro-ducing a diverse set of phase-field morphologies with different interfacial patterns and char-acteristic length scales. The raw simulation outputs are converted into MATLAB .mat files and then arranged into temporal windows for one-step neural-operator training. In all cases, the models receive a short history of previous states and are trained to predict the next state, after which long-horizon trajectories are reconstructed by autoregressive rollout. The data-generation and learning workflows are executed on an NVIDIA A100 GPU with 40GB memory, using consistent numerical precision during preprocessing, training, and inference. To ensure a fair comparison across models and training regimes, the evaluation protocol uses a fixed held-out test set for each benchmark, so that all models are evaluated on the same trajectories. Training settings, including the number of epochs, batch size, optimizer, and learning-rate schedule, are kept consistent within each benchmark and training configuration. In the pure-physics setting ( λ = 1), the number of optimizer updates is kept independent of the nominal training-set size, preventing larger datasets from receiving additional gradient-update steps in this setting. Further implementation details are provided in [24]. 15 4. Numerical analysis 
+
+This section evaluates HAMNO and PI-HAMNO on the AC, CH, and SH benchmarks with ho-mogeneous Neumann boundary conditions, focusing on predictive accuracy, training behavior, physical consistency, out-of-distribution generalization, and seed robustness. We first report in-distribution (ID) results using the original train–test data split and the fixed random seed 42, including long-horizon rollout accuracy, training convergence, computational cost, and the effect of the physics weight λ. We then assess out-of-distribution (OOD) performance by eval-uating the saved trained models on trajectories generated from unseen initial-condition param-eter regimes. Finally, we examine robustness with respect to random initialization and data splitting by repeating selected experiments over multiple random seeds. The neural-network hyperparameters used for all models are reported in the supplementary information, Table 7. 
+
+4.1. In-distribution rollout accuracy and physical consistency 
+
+Unless otherwise stated, the results in this subsection correspond to the in-distribution test setting with fixed random seed 42. For each equation, the dataset contains 600 total trajec-tories, with training subsets of 50, 100, or 200 samples and a fixed held-out test set of 50 samples. 
+
+Evaluation metric. The main accuracy measure is the relative L2 error, Rel-L2 = ∥upred − utrue ∥L2
+
+∥utrue ∥L2
+
+. (78) This metric is reported during autoregressive rollout, where each one-step prediction is fed back as input for the next step. The global rollout trends are summarized in Figure 2. Across the AC, CH, and SH bench-marks, HAMNO consistently controls the accumulation of rollout error more effectively than the standard operator baselines, particularly at later time steps where small one-step inaccu-racies are amplified by autoregressive prediction. This behavior reflects the main architectural advantage of HAMNO: the model does not rely only on global spectral mixing, as in FNO-type architectures, or only on local hierarchical features, as in convolutional encoder–decoders; in-stead, it adaptively combines local and global information at each spatial location and across multiple resolutions. The benefit of this adaptive local–global coupling becomes more pronounced as the dy-namics become stiffer and more multi-scale. For the CH and SH equations, where interfacial motion, fourth-order operators, and pattern-forming structures make long-time prediction more sensitive to phase errors, the physics-informed version PI-HAMNO further reduces error growth by guiding the learned dynamics toward the governing PDE structure. The corre-sponding loss curves show that the strong–weak residual regularization improves physical consistency without destabilizing training, indicating that the additional physics terms act as useful constraints rather than as competing objectives. Figure 3 isolates the U-shaped baselines, namely U-FNO, U-NO, and U-Net. These ar-chitectures improve over single-resolution models by using encoder–decoder paths and skip connections, but their performance remains less uniform across the three PDEs because their 16 (a) 
+
+(b) 
+
+(c) 
+
+Figure 2: Rollout relative L2 errors for the full neural-operator comparison on the three-dimensional phase-field benchmarks: (a) AC, (b) CH, and (c) SH. The vertically stacked layout compares long-horizon predictive behavior across the governing equations while preserving readability. 17 (a) 
+
+(b) 
+
+(c) 
+
+Figure 3: Rollout relative L2 errors of the U-shaped baselines for the three-dimensional phase-field benchmarks: (a) AC, (b) CH, and (c) SH. The comparison highlights the effect of hier-archical encoder–decoder structure without adaptive local–global fusion. 18 local and global interactions are either fixed, mainly spectral, or purely convolutional. In contrast, HAMNO uses the same hierarchical principle while replacing fixed feature fusion with adaptive local–global operator selection, which explains its stronger robustness in regimes where the dominant dynamics shift between smooth bulk evolution, sharp interfaces, and long-range interactions. This comparison also clarifies why multi-scale structure alone is not sufficient. U-Net can recover local spatial details but lacks an explicit global operator mechanism; U-NO provides multi-resolution spectral learning but remains largely governed by global Fourier mixing; and U-FNO combines Fourier and U-Net components through fixed additive coupling. HAMNO strengthens this family of architectures by allowing the model to decide, from the evolving solution itself, how much local or global information should be used at each scale. The training histories in Figure 4, shown on a logarithmic scale for clarity, indicate that the epoch budgets are sufficient for comparison, with test relative L2 errors reaching the target range for rollout evaluation. The total-loss curves begin at comparable orders of magnitude, showing that the models are optimized from a similar numerical scale and that the later sepa-ration is mainly caused by the model structure and the training objective. Data-driven models often show smoother loss decay because they mainly reduce snapshot mismatch. PI-HAMNO may decrease less smoothly because the strong- and weak-form residuals continuously correct the update toward PDE-consistent dynamics, which can temporarily increase the training objective while improving the quality of the learned evolution map. The test relative L2 curves describe one-step prediction accuracy during training, whereas the previous rollout figures measure repeated self-propagation over the full time horizon. This distinction explains why PI-HAMNO is not always below models such as DeepONet during AC and CH training, although it gives the best long-time rollout accuracy. A lower or smoother epoch-wise one-step error does not necessarily imply a more stable trajectory when the pre-diction is recursively fed back into the model. PI-HAMNO learns a slightly more constrained update, guided by both the data and the governing residuals, and this produces better error control after many autoregressive steps, especially for the stiffer CH and pattern-forming SH dynamics. 
+
+(a) 
+
+(b) 
+
+Figure 4: Training histories of all compared models, showing (a) total loss and (b) test relative 
+
+L2 error during training. 19 Figure 5: Predicted phase-field solutions at t = 100 for the AC, CH, and SH benchmarks, showing reference fields, model predictions, and the HAMNO absolute error. A qualitative comparison is shown in Figure 5. The predictions are evaluated at t = 100 using 100 training samples and λ = 0 .25, where Ref. denotes the numerical solution generated by the DCT-based non-periodic solver. HAMNO accurately reconstructs the dominant mor-phology of all three phase-field systems, including diffuse interfaces in AC, phase-separated structures in CH, and oscillatory patterns in SH. The remaining discrepancies are mainly lo-calized near sharp transitions and highly oscillatory regions, where even small temporal phase shifts can produce visible pointwise errors during long rollout. The qualitative results are consistent with the quantitative trends. Methods that rely mainly on spectral representations may capture global organization but can lose localized interfacial detail under non-periodic boundary conditions, while purely local or fixed-fusion hierarchical models can miss longer-range coordination of the evolving field. HAMNO re-duces both limitations by combining boundary-sensitive local processing with global operator learning through adaptive fusion, which leads to more coherent long-time reconstructions. The physical diagnostics for the CH benchmark are reported in Figure 6. The free-energy curves show that HAMNO, DeepONet, U-FNO, F-FNO, and U-Net produce more consistent dissipative behavior, whereas FNO and U-NO deviate more clearly in the physics-informed cases. This behavior suggests that the CH energy evolution benefits from local spatial pro-cessing and flexible feature modulation, which are less explicit in FNO, with its mainly global spectral representation, and in U-NO, whose multi-resolution structure is still largely governed by Fourier-based operator blocks. In contrast, DeepONet uses coordinate-dependent modula-tion of convolutional branch features, U-FNO and F-FNO include local correction paths, U-Net relies on local encoder–decoder features, and HAMNO combines local and global operators adaptively across scales. The mass plots provide a clearer view of conservation behavior during rollout. In the purely data-driven setting, DeepONet shows very small mass drift, while several other models exhibit visible oscillations, indicating that mass preservation depends strongly on the architecture during autoregressive prediction. In the hybrid case, PI-HAMNO gives the most stable mass behavior, showing that the physics constraint effectively regularizes the learned update when combined with adaptive local–global representation. In the pure-physics setting, HAMNO remains close to the near-zero drift behavior of DeepONet, whereas some baselines still ac-20 Figure 6: Free-energy decay and mass conservation for the CH benchmark under different physics weights λ.cumulate noticeable deviations. This suggests that mass conservation is improved not only by the physics loss itself, but also by an architecture that can represent both local interfacial motion and global solution balance. 
+
+Ablation study of the physics terms. To isolate the contribution of the two physics-informed components, we perform an ablation study in the pure-physics setting, λ = 1, by training HAMNO with the strong-form residual, the weak-form residual, and their combined multi-objective formulation. The results are reported in Table 1. For all three benchmarks, the combined strong–weak formulation gives the most stable rollout accuracy, showing that the two residuals provide complementary information rather than redundant constraints. For the AC equation, the weak form alone is already effective because the variational residual naturally captures the diffusion–reaction balance and handles the Neumann boundary condition in an integral sense. The strong form alone accumulates larger errors at later times, while the combined loss improves long-time stability by using both pointwise PDE consistency and variational smoothing. For the CH equation, the strong-only formulation performs poorly, indicating that the pointwise mixed residual is not sufficient by itself for this fourth-order mass-conserving dy-namics. The weak form substantially improves the result by enforcing the coupled evolution and chemical-potential relations in an integral form, while the full formulation gives the lowest errors by combining local residual accuracy with variational consistency. For the SH equation, the weak-only case is much less accurate than the strong-only case. This is consistent with the SH formulation used here: the strong residual includes the addi-tional Helmholtz-type auxiliary consistency condition, which provides a stronger constraint for the fourth-order pattern-forming dynamics. The weak form alone enforces the split sys-tem variationally, but without this extra consistency it is less able to control the auxiliary field during long rollout. The full loss recovers the best behavior by combining the stabilizing strong-form auxiliary constraint with the weak-form elementwise regularization. 21 Table 1: Ablation study of the pure-physics HAMNO setting ( λ = 1), where all reported values are mean relative L2 errors at selected rollout times. 
+
+Benchmark Strong Weak t = 20 t = 40 t = 60 t = 80 t = 100 AC ✓ ✓ 5.7308e-02 5.4272e-02 5.5659e-02 5.7625e-02 5.9834e-02 
+
+✓ – 9.4241e-02 1.0352e-01 1.0494e-01 1.0319e-01 1.0080e-01 – ✓ 6.9575e-02 9.9848e-02 1.1880e-01 1.2869e-01 1.3403e-01 CH ✓ ✓ 3.4654e-02 4.2775e-02 4.9068e-02 5.4698e-02 5.9723e-02 
+
+✓ – 2.1360e+00 2.2747e+00 2.2382e+00 2.2091e+00 2.1870e+00 – ✓ 9.0417e-02 1.3160e-01 1.6461e-01 1.9045e-01 2.1091e-01 SH ✓ ✓ 5.7244e-02 7.4171e-02 8.2344e-02 8.5062e-02 8.7741e-02 
+
+✓ – 8.7098e-02 1.2707e-01 1.4595e-01 1.5430e-01 1.6013e-01 – ✓ 8.7905e-01 1.7914e+00 2.2084e+00 2.3312e+00 2.3398e+00 
+
+4.2. Out-of-distribution generalization 
+
+To evaluate whether the learned operators generalize beyond the training distribution, we perform OOD tests using saved models trained on the original datasets. In the ID setting, both training and testing trajectories are generated from the same initial-condition distribution. In the OOD setting, the Gaussian-random-field parameters controlling the initial conditions, denoted by α and τ , are shifted to unseen values or sampled from unseen intervals. This changes the initial length scales and correlation structures of the phase fields while keeping the governing equation, grid resolution, boundary condition, and rollout protocol unchanged. All OOD evaluations are performed without retraining or fine-tuning. The same autore-gressive rollout procedure and relative L2 metric used in the ID experiments are applied, allowing a direct comparison of how each trained model behaves under initial-condition dis-tribution shift. The corresponding results for the AC, CH, and SH benchmarks are reported in Table 2, Table 3, and Table 4, respectively. Table 2: OOD evaluation results for the 3D AC equation under three unseen initial-condition distributions controlled by α and τ .                                                                                                                                                                                                       
+
+> OOD Setting Model # Samples Rel. L2at t= 50 Rel. L2at t= 100 Mean Rel. L2Sec./Sample
+> α= 60
+> τ= 260 PI-HAMNO 100 3.3856 ×10 −23.3326 ×10 −24.0200 ×10 −21.3202 HAMNO 100 9.0570 ×10 −21.2771 ×10 −18.9824 ×10 −21.3554 FFNO 100 9.2818 ×10 −21.3605 ×10 −18.7555 ×10 −21.0646 DeepONet 100 1.0473 ×10 −11.5275 ×10 −19.8308 ×10 −23.0392 FNO 100 2.1342 ×10 −12.7254 ×10 −12.0521 ×10 −10.4712 U-NO 100 2.3693 ×10 −12.8165 ×10 −12.1744 ×10 −11.2251 U-Net 100 2.5367 ×10 −13.0182 ×10 −12.3132 ×10 −10.4106 U-FNO 100 2.4549 ×10 −13.0289 ×10 −12.3000 ×10 −11.1188
+> α∈[20 ,90]
+> τ∈[160 ,260] PI-HAMNO 100 3.2292 ×10 −23.5719 ×10 −23.8492 ×10 −21.4160 HAMNO 100 9.0278 ×10 −21.3199 ×10 −18.9339 ×10 −21.4058 FFNO 100 1.1520 ×10 −11.7759 ×10 −11.1066 ×10 −11.0856 DeepONet 100 1.2649 ×10 −12.0046 ×10 −11.1999 ×10 −13.1267 FNO 100 2.2378 ×10 −12.9095 ×10 −12.1342 ×10 −10.4884 U-NO 100 2.5067 ×10 −13.2153 ×10 −12.3519 ×10 −11.2217 U-Net 100 2.9142 ×10 −14.8693 ×10 −12.8608 ×10 −10.4109 U-FNO 100 3.0111 ×10 −15.6823 ×10 −13.0729 ×10 −10.9952
+
+22 Table 3: OOD evaluation results for the 3D CH equation under unseen initial-condition dis-tributions controlled by α and τ .
+
+OOD Setting Model # Samples Rel. L2
+
+at t = 50 Rel. L2
+
+at t = 100 
+
+Mean Rel. 
+
+L2 Mass Drift Sec./ Sample 
+
+α = 20 
+
+τ = 70 PI-HAMNO 100 3.7925 × 10 −2 5.0082 × 10 −2 3.6301 × 10 −2 4.0819 × 10 −3 1.2950 HAMNO 100 1.0045 × 10 −1 1.7529 × 10 −1 9.7471 × 10 −2 1.8430 × 10 −2 1.3500 DeepONet 100 1.1171 × 10 −1 1.9327 × 10 −1 1.0834 × 10 −1 6.3918 × 10 −3 2.2680 U-Net 100 1.5569 × 10 −1 2.4221 × 10 −1 1.4728 × 10 −1 1.0551 × 10 −2 0.3539 FFNO 100 1.6417 × 10 −1 2.8520 × 10 −1 1.6205 × 10 −1 7.5932 × 10 −3 1.1822 U-FNO 100 2.0426 × 10 −1 3.2553 × 10 −1 1.9173 × 10 −1 1.5355 × 10 −2 1.3690 U-NO 100 2.7453 × 10 −1 4.2029 × 10 −1 2.5742 × 10 −1 3.8185 × 10 −3 1.1735 FNO 100 3.1607 × 10 −1 4.3588 × 10 −1 2.9558 × 10 −1 5.8661 × 10 −3 0.5256 
+
+α ∈ [15 , 35] 
+
+τ ∈ [60 , 90] PI-HAMNO 100 4.2734 × 10 −2 5.8495 × 10 −2 4.0951 × 10 −2 5.5132 × 10 −3 1.2752 DeepONet 100 1.1379 × 10 −1 1.9408 × 10 −1 1.0965 × 10 −1 6.0847 × 10 −3 2.2811 HAMNO 100 1.1922 × 10 −1 2.0097 × 10 −1 1.1507 × 10 −1 2.1961 × 10 −2 1.2880 U-Net 100 1.5684 × 10 −1 2.4213 × 10 −1 1.4790 × 10 −1 1.1378 × 10 −2 0.3879 FFNO 100 1.6427 × 10 −1 2.7786 × 10 −1 1.6159 × 10 −1 6.9621 × 10 −3 1.0717 U-FNO 100 2.0484 × 10 −1 3.2315 × 10 −1 1.9194 × 10 −1 1.6566 × 10 −2 0.9718 U-NO 100 2.7393 × 10 −1 4.1443 × 10 −1 2.5759 × 10 −1 4.3455 × 10 −3 1.2220 FNO 100 3.1029 × 10 −1 4.2763 × 10 −1 2.9019 × 10 −1 6.5590 × 10 −3 0.4503 Table 4: OOD evaluation results for the 3D SH equation under unseen initial-condition dis-tributions controlled by α and τ .
+
+OOD Setting Model # Samples Rel. L2 at t = 50 Rel. L2 at t = 100 Mean Rel. L2 Sec./Sample 
+
+α = 220 
+
+τ = 45 PI-HAMNO 100 6.1197 × 10 −2 5.6755 × 10 −2 5.1012 × 10 −2 1.2993 HAMNO 100 1.4646 × 10 −1 1.8458 × 10 −1 1.2641 × 10 −1 1.3091 U-FNO 100 2.9764 × 10 −1 5.1954 × 10 −1 2.8013 × 10 −1 0.9420 U-Net 100 3.4900 × 10 −1 6.6067 × 10 −1 3.3556 × 10 −1 0.3874 FNO 100 4.7992 × 10 −1 7.0397 × 10 −1 4.3097 × 10 −1 0.4203 U-NO 100 6.4866 × 10 −1 1.1483 × 10 0 6.2048 × 10 −1 1.2166 FFNO 100 6.1228 × 10 −1 1.8386 × 10 0 7.0430 × 10 −1 1.3111 DeepONet 100 1.3422 × 10 0 3.3998 × 10 0 1.3687 × 10 0 2.2778 
+
+α ∈ [190 , 270] 
+
+τ ∈ [30 , 75] PI-HAMNO 100 6.2344 × 10 −2 5.8033 × 10 −2 5.2606 × 10 −2 1.2706 HAMNO 100 1.5948 × 10 −1 1.9734 × 10 −1 1.3904 × 10 −1 1.2664 U-FNO 100 2.9654 × 10 −1 5.2197 × 10 −1 2.8121 × 10 −1 0.9176 FNO 100 4.7666 × 10 −1 6.9830 × 10 −1 4.2877 × 10 −1 0.4117 U-Net 100 3.7256 × 10 −1 7.2875 × 10 −1 3.6173 × 10 −1 0.3580 U-NO 100 6.2346 × 10 −1 1.1130 × 10 0 6.0012 × 10 −1 1.1777 FFNO 100 6.8280 × 10 −1 1.9603 × 10 0 7.8436 × 10 −1 1.3092 DeepONet 100 1.2725 × 10 0 3.3256 × 10 0 1.3158 × 10 0 2.2679 The OOD results show that PI-HAMNO ( λ = 0 .25) maintains the strongest predictive accuracy under initial-condition distribution shift across the tested benchmarks. The im-provement is most visible at later rollout times, where small one-step errors accumulate and models with weaker inductive bias become less stable. These results indicate that the combi-nation of hierarchical adaptive local–global representation and physics-informed regularization improves not only in-distribution accuracy, but also robustness to unseen initial morphologies. For CH, the OOD tables also report mass drift. While some baselines can produce small mass drift, their field prediction errors remain substantially larger. This confirms that con-servation of a scalar diagnostic alone is not sufficient for accurate OOD trajectory prediction; the full phase-field morphology must also be captured reliably. 
+
+4.3. Robustness with respect to random seed 
+
+To assess whether the observed performance is stable with respect to random initialization and data splitting, we repeat selected experiments using multiple random seeds. First, we compare representative models across the AC, CH, and SH benchmarks using four seeds, 23 {0, 36 , 123 , 1024 }, with the results reported in Table 5. This experiment evaluates whether the relative ranking of the models is preserved under moderate randomness in training. We then perform a more focused robustness study for the proposed model using ten seeds, 
+
+{0, 72 , 123 , 215 , 401 , 2024 , 4001 , 8524 , 10724 , 24235 }, as summarized in Table 6. This second test isolates the variability of HAMNO/PI-HAMNO under a broader range of random initial-izations. For each setting, we report the relative L2 errors at selected rollout times together with the mean, standard deviation, and coefficient of variation across seeds. Table 5: Four-seed robustness summary for selected models on the AC, CH, and SH bench-marks, with Mean ± Std reporting seed statistics of the all-time mean relative L2 error. 
+
+Eq. Model Ntrain λ Tag t = 50 t = 100 Mean ± Std Std/Mean AC HAMNO 100 0 Pure Data 3.01 e − 1 5.36 e − 1 3.08 e − 1 ± 2.19 e − 2 0.07 100 0.25 Hybrid 5.21 e − 2 5.03 e − 2 5.29 e − 2 ± 1.17 e − 2 0.22 100 1 Pure Phys. 6.29 e − 2 7.03 e − 2 6.70 e − 2 ± 1.75 e − 2 0.26 FFNO 100 0 Pure Data 1.38 e − 1 3.21 e − 1 1.53 e − 1 ± 4.64 e − 2 0.30 100 0.25 Hybrid 4.23 e − 2 5.11 e − 2 4.60 e − 2 ± 7.34 e − 3 0.16 100 1 Pure Phys. 6.01 e − 2 7.75 e − 2 6.33 e − 2 ± 8.85 e − 3 0.14 DeepONet 100 0 Pure Data 9.71 e − 2 1.39 e − 1 9.16 e − 2 ± 4.82 e − 3 0.05 100 0.25 Hybrid 6.84 e − 2 7.47 e − 2 7.69 e − 2 ± 1.30 e − 2 0.17 100 1 Pure Phys. 8.92 e − 2 9.61 e − 2 9.58 e − 2 ± 4.89 e − 3 0.05 U-Net 100 0 Pure Data 3.37 e − 1 7.69 e − 1 3.56 e − 1 ± 1.71 e − 1 0.48 100 0.25 Hybrid 2.96 e − 1 1.28 e0 3.97 e − 1 ± 3.32 e − 1 0.84 100 1 Pure Phys. 4.88 e − 1 1.50 e0 5.77 e − 1 ± 4.35 e − 1 0.75 CH HAMNO 100 0 Pure Data 1.90 e − 1 4.53 e − 1 2.09 e − 1 ± 1.99 e − 1 0.95 100 0.25 Hybrid 6.01 e − 2 1.30 e − 1 6.42 e − 2 ± 3.12 e − 2 0.49 100 1 Pure Phys. 6.92 e − 2 1.63 e − 1 7.58 e − 2 ± 3.61 e − 2 0.48 FFNO 100 0 Pure Data 1.70 e − 1 2.93 e − 1 1.68 e − 1 ± 1.03 e − 2 0.06 100 0.25 Hybrid 2.15 e − 1 3.05 e − 1 2.04 e − 1 ± 1.03 e − 1 0.50 100 1 Pure Phys. 2.06 e − 1 2.90 e − 1 1.92 e − 1 ± 1.26 e − 1 0.65 DeepONet 100 0 Pure Data 1.21 e − 1 2.05 e − 1 1.17 e − 1 ± 7.30 e − 3 0.06 100 0.25 Hybrid 1.52 e − 1 2.24 e − 1 1.46 e − 1 ± 6.47 e − 2 0.44 100 1 Pure Phys. 1.68 e − 1 2.41 e − 1 1.60 e − 1 ± 7.15 e − 2 0.45 U-Net 100 0 Pure Data 1.82 e − 1 2.76 e − 1 1.72 e − 1 ± 6.69 e − 3 0.04 100 0.25 Hybrid 1.12 e − 1 1.69 e − 1 1.07 e − 1 ± 2.06 e − 2 0.19 100 1 Pure Phys. 1.32 e − 1 1.95 e − 1 1.25 e − 1 ± 3.12 e − 2 0.25 SH HAMNO 200 0 Pure Data 1.33 e − 1 2.13 e − 1 1.23 e − 1 ± 2.18 e − 2 0.18 200 0.25 Hybrid 5.60 e − 2 5.36 e − 2 4.76 e − 2 ± 5.60 e − 3 0.12 200 1 Pure Phys. 8.13 e − 2 8.63 e − 2 7.08 e − 2 ± 2.22 e − 2 0.31 FFNO 200 0 Pure Data 7.18 e − 1 1.52 e0 7.14 e − 1 ± 3.12 e − 1 0.44 200 0.25 Hybrid 3.24 e0 1.74 e1 4.40 e0 ± 4.19 e0 0.95 200 1 Pure Phys. 1.38 e0 2.18 e0 1.23 e0 ± 4.14 e − 1 0.34 DeepONet 200 0 Pure Data 1.16 e0 2.99 e0 1.27 e0 ± 3.21 e − 1 0.25 200 0.25 Hybrid 3.28 e0 1.34 e1 4.47 e0 ± 3.49 e0 0.78 200 1 Pure Phys. 3.46 e0 3.42 e0 2.44 e0 ± 3.41 e − 1 0.14 U-Net 200 0 Pure Data 6.82 e − 1 2.67 e0 8.57 e − 1 ± 9.59 e − 2 0.11 200 0.25 Hybrid 5.68 e − 1 6.89 e − 1 4.71 e − 1 ± 3.42 e − 1 0.73 200 1 Pure Phys. 3.63 e0 5.97 e0 3.29 e0 ± 2.44 e0 0.74 
+
+The seed-robustness results show that the proposed model retains stable long-horizon accuracy across different random seeds. Although some variation is expected due to stochastic initialization and data sampling, the error levels remain within a narrow range relative to the overall performance gap between HAMNO/PI-HAMNO and the weaker baselines. This indicates that the reported improvements are not the result of a favorable single-seed run, but are representative of the model behavior across repeated training trials. The ten-seed study further confirms that the proposed architecture is not highly sensitive to random initialization. The standard deviations remain modest relative to the mean errors, 24 supporting the reliability of the learned hierarchical local–global representation under repeated training. Table 6: Ten-seed robustness summary for HAMNO on the AC, CH, and SH benchmarks, with Mean ± Std reporting seed statistics of the all-time mean relative L2 error.                                                                                                                                                                   
+
+> Eq. Model Ntrain λTag t= 50 t= 100 Mean ±Std Std/Mean AC HAMNO 100 0Pure Data 3.24 e−15.85 e−13.36 e−1±3.98 e−20.12 100 0.25 Hybrid 5.14 e−25.25 e−25.29 e−2±8.61 e−30.16 100 1Pure Phys. 7.44 e−29.44 e−27.91 e−2±2.77 e−20.35 CH HAMNO 100 0Pure Data 2.14 e−14.30 e−12.12 e−1±2.90 e−11.37 100 0.25 Hybrid 5.31 e−21.06 e−15.58 e−2±2.52 e−20.45 100 1Pure Phys. 5.48 e−29.51 e−25.51 e−2±1.94 e−20.35 SH HAMNO 200 0Pure Data 1.25 e−12.02 e−11.16 e−1±2.52 e−20.22 200 0.25 Hybrid 6.30 e−25.99 e−25.28 e−2±1.10 e−20.21 200 1Pure Phys. 8.93 e−29.73 e−27.73 e−2±3.68 e−20.48
+
+5. Conclusion 
+
+This work presented HAMNO, a hierarchical adaptive multi-scale neural operator for non-linear time-dependent systems with non-periodic boundary conditions. By combining local convolutional processing, global spectral interaction, and encoder–decoder multi-scale repre-sentation through data-dependent gating, HAMNO adaptively selects the relevant local and global features as the solution evolves. The in-distribution experiments on the AC, CH, and SH benchmarks demonstrate im-proved long-horizon rollout accuracy over standard neural-operator baselines, particularly for sharp interfaces, fourth-order dynamics, and pattern-forming regimes. The physics-informed extension, PI-HAMNO, improves stability, physical consistency, and data efficiency by com-bining data supervision with strong- and weak-form residual constraints. The ablation study shows that this multi-objective strategy is physically meaningful, with the strong form en-forcing local PDE consistency and the weak form providing variational regularization that stabilizes the learned dynamics. The OOD experiments confirm that the trained models retain accurate predictions under unseen initial-condition distributions, indicating robust generalization beyond the training regime. The seed-robustness study further shows that the reported improvements are stable across random initializations and data splits. Together, these results establish HAMNO and PI-HAMNO as accurate, stable, and data-efficient operator-learning frameworks for non-periodic three-dimensional dynamical systems, while also motivating future extensions to complex geometries and unstructured discretizations through geometry-aware and transformer-based neural operators. 
+
+Acknowledgements 
+
+The authors gratefully acknowledge the support of the German Academic Exchange Service (DAAD) through a research scholarship awarded to Mostafa Bamdad at Bauhaus-Universit¨ at Weimar. This support contributed to the completion of the work presented in this paper. 25 Supplementary Information 
+
+Neural-operator hyperparameters 
+
+Table 7 summarizes the training and architectural hyperparameters used for all neural-operator models across the AC, CH, and SH benchmarks. Here, BS denotes the batch size, Exp. denotes the expansion factor used in the network blocks, LR is the learning rate, and WD represents the weight-decay regularization parameter. The table also reports the retained spectral modes, latent feature width, input history length Tin , and the network depth configuration used for each model. Table 7: Neural-operator hyperparameters used for the 3D phase-field benchmarks. 
+
+Problem Model Ep. BS Exp. LR WD Modes Width Wq Tin Depth 
+
+AC3D FNO 50 8 2 10 −3 5 × 10 −6 8 12 12 5 2F-FNO 50 8 2 10 −3 5 × 10 −6 12 12 12 5 4DeepONet 50 8 – 10 −3 5 × 10 −6 – 64 64 5 B4/T4 U-NO 50 8 2 10 −3 5 × 10 −6 8 12 12 5 2U-Net 50 8 – 10 −3 5 × 10 −6 – 12 – 5 4-stage U-FNO 50 8 – 10 −3 5 × 10 −6 8 12 – 5 6-block HAMNO 50 8 2 10 −2 10 −3 8 12 12 5 2CH3D FNO 100 8 2 5 × 10 −4 5 × 10 −6 8 12 12 5 2F-FNO 100 8 2 5 × 10 −4 5 × 10 −6 12 12 12 5 4DeepONet 100 8 – 5 × 10 −4 5 × 10 −6 – 64 64 5 B4/T4 U-NO 100 8 2 5 × 10 −4 5 × 10 −6 8 12 12 5 2U-Net 100 8 – 5 × 10 −4 5 × 10 −6 – 12 – 5 4-stage U-FNO 100 8 – 5 × 10 −4 5 × 10 −6 8 12 – 5 6-block HAMNO 100 8 2 5 × 10 −4 5 × 10 −6 8 12 12 5 2SH3D FNO 170 8 2 10 −3 5 × 10 −6 8 12 12 5 2F-FNO 170 8 6 10 −3 5 × 10 −6 12 24 12 5 4DeepONet 170 8 – 10 −3 5 × 10 −6 – 64 64 5 B4/T4 U-NO 170 8 2 10 −3 5 × 10 −6 8 12 12 5 2U-Net 170 8 – 10 −3 5 × 10 −6 – 12 – 5 4-stage U-FNO 170 8 – 10 −3 5 × 10 −6 8 12 – 5 6-block HAMNO 170 8 2 10 −3 5 × 10 −6 8 12 12 5 2
+
+Rollout accuracy and computational cost 
+
+Tables 8–10 quantify the trends observed in the rollout figures and show how they translate into final-time accuracy and computational cost. For AC and CH, the numerical values confirm that the visual reduction in error growth is not limited to a few selected trajectories: HAMNO remains among the most accurate models at t = 100, and the hybrid PI-HAMNO setting gives the strongest performance in the most data-limited and interfacial regimes. The SH benchmark gives a sharper test of the same behavior. Here, the gap between methods becomes larger, and the table shows that architectures that appear competitive at early times can lose accuracy rapidly as phase errors accumulate. HAMNO maintains lower long-time errors across the reported settings, while the additional cost remains the expected 26 price of using hierarchical local–global processing and physics residuals rather than a single spectral path. Table 8: Allen–Cahn (3D) rollout errors and computational cost. 
+
+Ntrain λ Tag Method Rel. L2 @ t = 50 Rel. L2 @ t = 100 Train (s) Infer (s) 50 0 Pure Data FNO 3.1537e-01 4.6435e-01 20.06 0.4304 F-FNO 1.5221e-01 2.7891e-01 52.86 1.6857 DeepONet 1.2377e-01 1.6647e-01 52.16 1.1335 
+
+HAMNO 1.3604e-01 2.4392e-01 90.48 2.4845 0.25 Hybrid FNO 2.4041e-01 2.9039e-01 34.51 0.6532 F-FNO 6.9923e-02 8.3880e-02 85.43 1.6574 DeepONet 7.7465e-02 9.2737e-02 75.54 1.7031 
+
+HAMNO 8.8918e-02 9.1278e-02 79.36 2.0526 1.0 Pure Phys. FNO 2.4293e-01 2.7478e-01 27.85 0.4426 F-FNO 6.3913e-02 7.6734e-02 69.63 1.7126 DeepONet 7.3443e-02 7.9774e-02 84.82 2.3704 
+
+HAMNO 5.4844e-02 5.9834e-02 101.72 2.0976 100 0 Pure Data FNO 2.2467e-01 2.9233e-01 33.34 0.5448 F-FNO 9.8792e-02 1.5678e-01 97.29 1.7440 DeepONet 9.6789e-02 1.3943e-01 96.43 1.1376 
+
+HAMNO 9.0660e-02 1.3176e-01 103.39 2.0185 0.25 Hybrid FNO 2.2062e-01 2.3194e-01 45.47 0.5179 F-FNO 5.6584e-02 6.4458e-02 135.82 3.0271 DeepONet 4.9329e-02 5.3365e-02 117.05 1.7608 
+
+HAMNO 4.1246e-02 4.1924e-02 133.88 2.0419 1.0 Pure Phys. FNO 2.4293e-01 2.7478e-01 26.90 0.4521 F-FNO 6.3913e-02 7.6734e-02 78.94 1.6510 DeepONet 7.3443e-02 7.9774e-02 90.32 2.0546 
+
+HAMNO 5.4844e-02 5.9834e-02 78.40 2.0248 
+
+27 Table 9: Cahn–Hilliard (3D) rollout errors and computational cost. 
+
+Ntrain λ Tag Method Rel. L2 @ t = 50 Rel. L2 @ t = 100 Train (s) Infer (s) 50 0 Pure Data FNO 3.52e-01 4.79e-01 58.28 0.3150 FFNO 1.91e-01 3.25e-01 106.21 1.5145 DeepONet 1.43e-01 2.47e-01 102.79 1.1285 
+
+HAMNO 1.91e-01 2.90e-01 113.54 1.8595 0.25 Hybrid FNO 4.13e-01 5.25e-01 192.55 0.3180 FFNO 1.30e-01 1.89e-01 342.32 1.5464 DeepONet 9.91e-02 1.31e-01 301.62 1.1260 
+
+HAMNO 4.75e-02 6.82e-02 365.31 1.9128 1.0 Pure Phys. FNO 4.21e-01 5.42e-01 197.08 0.3217 FFNO 1.30e-01 1.83e-01 348.41 1.5630 DeepONet 9.34e-02 1.18e-01 321.26 1.1630 
+
+HAMNO 4.61e-02 5.97e-02 369.44 1.8227 100 0 Pure Data FNO 3.14e-01 4.30e-01 104.67 0.3174 FFNO 1.70e-01 2.90e-01 187.05 1.5477 DeepONet 1.17e-01 2.02e-01 174.09 1.1613 
+
+HAMNO 1.04e-01 1.81e-01 198.52 1.8736 0.25 Hybrid FNO 4.16e-01 5.32e-01 332.64 0.3110 FFNO 1.60e-01 2.07e-01 615.76 1.5893 DeepONet 1.21e-01 1.71e-01 535.36 1.1646 
+
+HAMNO 3.88e-02 5.03e-02 638.14 1.9062 1.0 Pure Phys. FNO 4.21e-01 5.42e-01 194.82 0.3148 FFNO 1.30e-01 1.83e-01 346.52 1.5454 DeepONet 9.34e-02 1.18e-01 320.95 1.1623 
+
+HAMNO 4.61e-02 5.97e-02 368.67 1.8738 
+
+28 Table 10: Swift–Hohenberg (3D) rollout errors and computational cost. 
+
+Ntrain λ Tag Method Rel. L2 @ t = 50 Rel. L2 @ t = 100 Train (s) Infer (s) 50 0 Pure Data FNO 6.2610e-01 8.7438e-01 94.77 0.5440 F-FNO 4.8784e-01 8.0963e-01 186.35 1.5008 DeepONet 1.1332e+00 2.0494e+00 127.37 1.1334 
+
+HAMNO 2.1877e-01 2.8631e-01 146.58 1.8536 0.25 Hybrid FNO 5.3241e-01 6.5465e-01 203.20 0.4324 F-FNO 1.0416e+00 1.8032e+00 557.56 1.5406 DeepONet 3.1406e+00 3.9343e+00 463.44 1.2245 
+
+HAMNO 9.0603e-02 9.2687e-02 456.24 1.8790 1.0 Pure Phys. FNO 5.6998e-01 6.6208e-01 454.02 0.7903 F-FNO 9.9514e-01 2.1998e+00 592.77 1.5441 DeepONet 4.5384e+00 3.2499e+00 489.15 1.2122 
+
+HAMNO 7.9495e-02 8.7741e-02 455.62 1.8954 200 0 Pure Data FNO 4.8285e-01 7.0895e-01 355.43 0.6222 F-FNO 6.1783e-01 2.0403e+00 1078.33 1.6161 DeepONet 1.2063e+00 3.2141e+00 369.23 1.1756 
+
+HAMNO 1.4331e-01 1.9139e-01 451.69 1.8563 0.25 Hybrid FNO 1.1206e+00 1.1075e+00 645.68 0.4470 F-FNO 8.1984e+00 2.2923e+01 1815.27 1.5330 DeepONet 2.0557e+00 4.3374e+00 1770.41 1.2766 
+
+HAMNO 5.5386e-02 4.9574e-02 1408.64 1.8750 1.0 Pure Phys. FNO 5.6998e-01 6.6208e-01 230.02 0.5035 F-FNO 9.9514e-01 2.1998e+00 588.50 1.5767 DeepONet 4.5384e+00 3.2499e+00 481.34 1.4554 
+
+HAMNO 7.9495e-02 8.7741e-02 459.24 1.8982 
+
+# Appendix 
+
+A. Governing models and non-periodic dataset generation 
+
+A.1. Phase-field models and computational setting 
+
+All datasets are generated on the cubic domain Ω = 
+
+
+
+− L
+
+2 , L
+
+2
+
+3
+
+, (79) using a uniform Cartesian grid with 
+
+Nx = Ny = Nz = 32 . (80) The phase-field variable is denoted by u(x, t ), where x = ( x, y, z ) ∈ Ω. Homogeneous Neumann boundary conditions are imposed on ∂Ω, such that the normal derivative vanishes 29 at the boundary. This non-periodic setting naturally leads to cosine eigenfunctions and discrete cosine transform (DCT)-based spectral solvers. The governing equations, boundary conditions, and dataset parameters for the AC, CH, and SH systems are summarized in Table 11, where 
+
+ε denotes the model parameter controlling the interface or pattern scale, Nt is the number of time steps, and T is the final simulation time. The initial conditions are generated from Gaussian random fields parameterized by τ and α, which control the characteristic spatial correlation and morphology of the generated structures. Table 11: Summary of the governing phase-field models and dataset parameters. 
+
+Model Governing equation Boundary condi-tion Dataset parame-ters 
+
+AC Non-conserved gradient flow: 
+
+∂tu = ∆ u − 1
+
+ε2 (u3 − u) ∇u · n = 0 on ∂Ω L = 2 ,ε = 0 .1,
+
+∆t = 10 −4,Nt = 100 ,T = 0 .01 ,τ ∈ [290 , 320] ,α ∈ [90 , 120] CH Conserved phase-separation model: 
+
+∂tu = ∆ μ, μ = −ε2∆u + ( u3 − u)Equivalent form: 
+
+∂tu = ∆( u3 − u) − ε2∆2u
+
+Semi-implicit split form: 
+
+∂tu = 2∆ u − ε2∆2u + ∆( u3 − 3u)
+
+∇u · n = 0 ,
+
+∇μ · n = 0 on ∂Ω
+
+L = 2 ,ε = 0 .05 ,
+
+∆t = 10 −3,Nt = 100 ,T = 0 .1,τ = 60 ,α = 15 SH Fourth-order pattern-forming model: 
+
+∂tu = εu − u3 − (1 + ∆) 2u
+
+Expanded form: 
+
+∂tu = ( ε − 1) u − u3 − 2∆ u − ∆2u
+
+∇u · n = 0 on ∂Ω L = 15 ,ε = 0 .15 ,
+
+∆t = 0 .05 ,Nt = 100 ,T = 5 ,τ ∈ [280 , 320] ,α ∈ [80 , 120] 
+
+30 A.2. DCT-based non-periodic solvers 
+
+For homogeneous Neumann boundary conditions, the Laplacian is diagonalized by cosine modes. For mode indices p, q, r , the non-negative Laplacian symbol is 
+
+λpqr =
+
+ pπ Lx
+
+2
+
++
+
+ qπ Ly
+
+2
+
++
+
+ rπ Lz
+
+2
+
+. (81) Thus, if bu denotes the 3D DCT of u, then 
+
+c∆u = −λpqr bu. (82) This allows the linear stiff terms to be treated implicitly and the nonlinear terms explicitly. 
+
+Allen–Cahn update. For AC, the semi-implicit DCT update is 
+
+bun+1 =
+
+bun − ∆tε2 \(u3 − u) n
+
+1 + ∆ t λ pqr 
+
+. (83) 
+
+Cahn–Hilliard update. For CH, the corresponding DCT-based semi-implicit update is given by 
+
+bun+1 = bun − ∆t λ pqr \(u3 − 3u) n
+
+1 + ∆ t  2λpqr + ε2λ2
+
+> pqr
+
+ . (84) The zero-frequency mode is preserved, which is consistent with mass conservation. 
+
+Swift–Hohenberg update. For SH, the DCT-based semi-implicit update is 
+
+bun+1 = \(un/∆t) − d(u3) n
+
++ 2 λpqr bu n
+
+1/∆t + (1 − ε) + λ2
+
+> pqr
+
+. (85) 
+
+A.3. Initial conditions and stored datasets 
+
+For all three problems, initial conditions are generated from three-dimensional Gaussian ran-dom fields followed by thresholding into binary phases. For AC and SH, a random shift is applied before thresholding to enrich the initial morphology. For CH, the thresholded field is shifted to have zero discrete mean, 
+
+u0 ← u0 − 1
+
+|Ωh|
+
+X
+
+> xi∈Ωh
+
+u0(xi), (86) so that the initial mass is consistent with the conservative dynamics. Each dataset contains 600 trajectories. Every trajectory stores 101 frames, including the initial condition and 100 time steps. The raw binary files are converted into MATLAB .mat 
+
+files and then arranged in the learning pipeline as tensors of the form (Nt, N x, N y, N z ), (87) which are windowed into input histories and one-step prediction targets. The resulting datasets are then used in the learning pipeline following the numerical phase-field simulation and neural-operator training protocols described in [24, 31]. 31 References 
+
+[1] Lu Lu, Pengzhan Jin, Guofei Pang, Zhongqiang Zhang, and George Em Karni-adakis. Learning nonlinear operators via deeponet based on the universal ap-proximation theorem of operators. Nature Machine Intelligence , 3:218–229, 2021. https://doi.org/10.1038/s42256-021-00302-5. [2] Lu Lu, Xuhui Meng, Shengze Cai, Zhiping Mao, Somdatta Goswami, Zhongqiang Zhang, and George Em Karniadakis. A comprehensive and fair comparison of two neural oper-ators (with practical extensions) based on fair data. Computer Methods in Applied Me-chanics and Engineering , 393:114778, 2022. https://doi.org/10.1016/j.cma.2022.114778. [3] Nikola Kovachki, Samuel Lanthaler, and Siddhartha Mishra. The parametric complexity of operator learning. SIAM Journal on Mathematics of Data Science , 5(4):1072–1101, 2023. https://doi.org/10.1137/23M156382X. [4] Ziad Aldirany, R´ emi Cottereau, Mathieu Laforest, and Serge Prudhomme. Operator approximation of the wave equation based on deep learning of green’s function. arXiv preprint arXiv:2307.13902 , 2023. https://arxiv.org/abs/2307.13902. [5] Dhairya Patel, Deep Ray, Mohamed R. Abdelmalik, Thomas J. R. Hughes, and Assad A. Oberai. Variationally mimetic operator networks. Computer Methods in Applied Mechan-ics and Engineering , 419:116536, 2024. https://doi.org/10.1016/j.cma.2023.116536. [6] Alasdair Tran, Alexander Mathews, Lexing Xie, and Cheng Soon Ong. Factorized fourier neural operators. International Conference on Learning Representations , 2023. https://arxiv.org/abs/2111.13802. [7] Gaurav Gupta, Xiongye Xiao, and Paul Bogdan. Multiwavelet-based operator learning for differential equations. Advances in Neural Information Processing Systems , 34:24048– 24062, 2021. https://arxiv.org/abs/2109.13459. [8] Tapas Tripura and Souvik Chakraborty. Wavelet neural operator for solv-ing parametric partial differential equations in computational mechanics prob-lems. Computer Methods in Applied Mechanics and Engineering , 404:115783, 2023. https://doi.org/10.1016/j.cma.2022.115783. [9] Qianying Cao, Somdatta Goswami, and George Em Karniadakis. Laplace neural op-erator for solving differential equations. Nature Machine Intelligence , 6:631–640, 2024. https://doi.org/10.1038/s42256-024-00844-4. [10] Zongyi Li, Weiyang Huang, Burigede Liu, and Anima Anandkumar. Geometry-aware fourier neural operator for partial differential equations on complex geometries. arXiv preprint arXiv:2207.05209 , 2022. https://arxiv.org/abs/2207.05209. [11] Shuhao Cao. Choose a transformer: Fourier or galerkin. Advances in Neural Information Processing Systems , 34:24924–24940, 2021. https://arxiv.org/abs/2105.14995. [12] Zijie Li, Kazem Meidani, and Amir Barati Farimani. Transformer for partial differen-tial equations’ operator learning. Transactions on Machine Learning Research , 2023. https://arxiv.org/abs/2205.13671. [13] Katiana Kontolati, Somdatta Goswami, Michael D. Shields, and George Em Kar-niadakis. Learning nonlinear operators in latent spaces for real-time predictions 32 of complex dynamics in physical systems. Nature Communications , 15:5101, 2024. https://doi.org/10.1038/s41467-024-49411-w. [14] Marimuthu Kalimuthu, David Holzm¨ uller, and Mathias Niepert. Loglo-fno: Efficient learning of local and global features in fourier neural operators. Transactions on Machine Learning Research , 2025. https://doi.org/10.48550/arXiv.2504.04260. [15] Gege Wen, Zongyi Li, Kamyar Azizzadenesheli, Anima Anandkumar, and Sally M. Benson. U-fno: An enhanced fourier neural operator-based deep-learning model for multiphase flow. Advances in Water Resources , 163:104180, 2022. https://doi.org/10.1016/j.advwatres.2022.104180. [16] Md Ashiqur Rahman and Zachary E. Ross. U-no: U-shaped neural operators. Transac-tions on Machine Learning Research , 2022. https://arxiv.org/abs/2204.11127. [17] Olaf Ronneberger, Philipp Fischer, and Thomas Brox. U-net: Convolutional networks for biomedical image segmentation. Medical Image Computing and Computer-Assisted Intervention , pages 234–241, 2015. https://arxiv.org/abs/1505.04597. [18] Mohammad Sadegh Eshaghi, Navid Valizadeh, Cosmin Anitescu, Yizheng Wang, Xi-aoying Zhuang, and Timon Rabczuk. Multi-head neural operator for modelling in-terfacial dynamics. International Journal of Mechanical Sciences , 285:111363, 2026. https://doi.org/10.1016/j.ijmecsci.2026.111363. [19] Katarzyna Michalowska, Somdatta Goswami, George Em Karniadakis, and Signe Riemer-Sørensen. Neural operator learning for long-time integration in dynamical systems with recurrent neural networks. International Joint Conference on Neural Networks , pages 1–8, 2024. https://doi.org/10.1109/IJCNN60899.2024.10650331. [20] Mohammad Sadegh Eshaghi, Cosmin Anitescu, Navid Valizadeh, Yizheng Wang, Xiaoy-ing Zhuang, and Timon Rabczuk. Nows: Neural operator warm starts for accelerating iter-ative solvers. arXiv preprint arXiv:2511.02481 , 2025. https://arxiv.org/abs/2511.02481. [21] Mohammad Sadegh Eshaghi, Cosmin Anitescu, Manish Thombre, Yizheng Wang, Xiaoy-ing Zhuang, and Timon Rabczuk. Variational physics-informed neural operator (VINO) for solving partial differential equations. Computer Methods in Applied Mechanics and Engineering , 437:117785, 2025. https://doi.org/10.1016/j.cma.2025.117785. [22] N. Navaneeth and Souvik Chakraborty. Physics-informed wavelet neural op-erator for learning solution operators of parametric partial differential equa-tions. Computer Methods in Applied Mechanics and Engineering , 418:116546, 2024. https://doi.org/10.1016/j.cma.2023.116546. [23] Sharmila Karumuri, Lori Graham-Brady, and Somdatta Goswami. Physics-informed latent neural operator for real-time simulations of parametric pdes. arXiv preprint arXiv:2501.08428 , 2025. https://arxiv.org/abs/2501.08428. [24] Mostafa Bamdad, Mohammad Sadegh Eshaghi, Cosmin Anitescu, Navid Valizadeh, and Timon Rabczuk. Penco: A physics–energy–numerics–consistent operator for 3d phase field modeling. Computer Methods in Applied Mechanics and Engineering , 454:118862, 2026. https://doi.org/10.1016/j.cma.2026.118862. 33 [25] Qiang Du and Xiaobing Feng. The phase field method for geometric moving inter-faces and their numerical approximations. In Geometric Partial Differential Equations – Part I , volume 21 of Handbook of Numerical Analysis , pages 425–508. Elsevier, 2020. https://doi.org/10.1016/bs.hna.2019.05.001. [26] Damien Tourret, Hong Liu, and Javier Llorca. Phase-field modeling of microstructure evolution: Recent applications, perspectives and challenges. Progress in Materials Sci-ence , 123:100810, 2022. https://doi.org/10.1016/j.pmatsci.2021.100810. [27] Xiaoying Zhuang, Shuwei Zhou, G. D. Huynh, P. Areias, and Timon Rabczuk. Phase field modeling and computer implementation: A review. Engineering Fracture Mechanics ,262:108234, 2022. https://doi.org/10.1016/j.engfracmech.2022.108234. [28] David Montes de Oca Zapiain, James A. Stewart, and R´ emi Dingreville. Ac-celerating phase-field-based microstructure evolution predictions via surrogate mod-els trained by machine learning methods. npj Computational Materials , 7:3, 2021. https://doi.org/10.1038/s41524-020-00471-8. [29] Andreas Krischok, Basavesh Yaraguntappa, and Marc-Andr´ e Keip. Fast implicit up-date schemes for cahn–hilliard-type gradient flow in the context of fourier-spectral meth-ods. Computer Methods in Applied Mechanics and Engineering , 431:117220, 2024. https://doi.org/10.1016/j.cma.2024.117220. [30] Mohammad Sadegh Eshaghi, Mostafa Bamdad, Cosmin Anitescu, Yizheng Wang, Xi-aoying Zhuang, and Timon Rabczuk. Applications of scientific machine learning for the analysis of functionally graded porous beams. Neurocomputing , 619:129119, 2025. https://doi.org/10.1016/j.neucom.2024.129119. [31] Sungha Yoon, Darae Jeong, Chaeyoung Lee, Hyundong Kim, Sangkwon Kim, Hyun Geun Lee, and Junseok Kim. Fourier-spectral method for the phase-field equations. Mathemat-ics , 8(8):1385, 2020. https://doi.org/10.3390/math8081385. 34

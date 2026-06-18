@@ -1,0 +1,704 @@
+Title: PhysMetrics.Weather: An Evaluation Framework for Physical Consistency in ML Weather Models
+
+URL Source: https://arxiv.org/pdf/2606.10642v1
+
+Published Time: Wed, 10 Jun 2026 00:59:11 GMT
+
+Number of Pages: 25
+
+Markdown Content:
+# PhysMetrics.Weather: An Evaluation Framework for Physical Consistency in ML Weather Models 
+
+Emma Kasteleyn, 1,2 Timo Maier, 2,3 Axel Lauer, 2 Veronika Eyring, 2,4 Pierre Gentine 5, Ana Lucic 11 University of Amsterdam, Amsterdam, The Netherlands, 2 Deutsches Zentrum für Luft- und Raumfahrt (DLR), Institut für Physik der Atmosphäre, Oberpfaffenhofen, Germany,  
+
+> 3
+
+Technical University of Munich, Munich, Germany,  
+
+> 4
+
+University of Bremen, Institute of Environmental Physics (IUP), Bremen, Germany,  
+
+> 5
+
+Department of Earth and Environmental Engineering, Columbia University, New York, NY, USA, 
+
+## Abstract 
+
+Machine learning weather prediction (MLWP) models have achieved impressive forecasting performance at a small fraction of the computational costs required for traditional physics-based methods. However, they are primarily (1) data-driven and (2) evaluated using pixel-wide error metrics (e.g., RMSE), so there are no guarantees that their forecasts are consistent with known physical laws. We intro-duce PhysMetrics.Weather , an evaluation framework that assesses the physical realism of MLWP models across three types of metrics: conservation, spectral, and dynamical. By quantifying physical realism, this tool guides the development of physics-informed architectures and helps evaluate whether MLWP models are reliable for operational use. Our framework is available on GitHub. 
+
+## 1 Introduction 
+
+Modern weather forecasting relies heavily on established numerical weather prediction (NWP) systems like the Integrated Forecasting System (IFS) [ 1] and the Global Forecast System (GFS) [ 2]. They work by iteratively solving complex fluid dynamics equations on massive grids at short time steps, making them computationally expensive. These high costs, together with the availability of petabytes of high-quality simulation data, have driven a shift toward machine learning weather prediction (MLWP), which generates forecasts orders of magnitude faster [3–7]. To achieve this speed, MLWP approaches learn weather-relevant atmospheric processes directly from reanalysis datasets such as ERA5 [ 8], which combine observations with traditional numerical simulations. Vision transformers like FourCastNet [ 4] and Pangu-Weather [ 5], use the parallelizable nature of self-attention to efficiently process massive spatial grids. Alternatively, graph neural networks (GNNs) such as GraphCast [ 6 ] map the atmosphere onto a spherical mesh, allowing for global message passing while avoiding the polar distortions of standard latitude-longitude grids. Extending these architectures, foundation models like Aurora [ 9] pre-train on large, heterogeneous datasets to learn general-purpose representations that can be fine-tuned for specific forecasting tasks. MLWP models predict the next atmospheric state at t0 + ∆ t from the current state at t0. To generate forecasts, they auto-regressively feed their output back in as the next input. While accurate at short lead times, this iteration exposes a fundamental flaw: deterministic MLWP models progressively smooth the forecast. Standard point-wise loss functions (e.g., MSE, MAE) penalize a spatially shifted feature, like a misplaced storm, twice: once for the miss (a false negative) and again for predicting the storm where none exists (a false positive). To avoid this "double penalty" [ 10 ], MLWP models tend to predict a smoothed average of possible future states, which often erases fine-scale details and underestimates extreme weather [ 6, 11 ]. Specifically, they struggle to maintain dynamical balance, such as the required coupling between pressure and wind fields to capture cyclone intensities [ 12 ]. This smoothing also flattens fine-scale convective dynamics, erasing sharp frontal boundaries and 
+
+> Preprint.
+> arXiv:2606.10642v1 [cs.LG] 9 Jun 2026
+
+vertical wind velocities [ 13 ]. By violating conservation laws, MLWPs can yield solutions that look plausible but are physically inconsistent [14]. Current MLWP benchmarks (e.g., WeatherBench [ 15 – 17 ]) provide standardized datasets and metrics for comparing MLWP models against operational systems like the IFS [ 1]. However, they focus on evaluating predictive skill via metrics like latitude-weighted RMSE, which rewards spatial smoothing. While these benchmarks are excellent for assessing point-wise predictive accuracy, they offer limited insight into whether a model maintains physical consistency when generating forecasts. To address this gap, we introduce PhysMetrics.Weather , a framework designed to complement tradi-tional error metrics by evaluating the physical consistency of MLWP models. While MLWP models offer computational advantages, assessing their reliability for forecasting and climate science requires verifying that they respect physical laws over the entire forecast period [ 18 , 19 ]. PhysMetrics.Weather evaluates models across three physical metric types: global conservation budgets (mass and energy), spectral energy distribution (preservation of spatial variance), and multi-variable dynamical balances. PhysMetrics.Weather provides machine learning scientists with standardized insights into whether their models are physically realistic. 
+
+## 2 Related Work 
+
+Table 1: Comparison of MLWP benchmarks. PhysMetrics.Weather is the first to provide a unified evaluation of conservation budgets, spectral energy distribution, and dynamical balance (e.g., geostrophic and hydrostatic equilibria). Acronyms: ACC (Anomaly Correlation Coefficient), CRPS (Continuous Ranked Probability Score).                                                     
+
+> Benchmark Primary Focus Statistical Probabilistic Conservation Structural Dynamical
+> (RMSE/ACC) (CRPS/Spread) (Budgets) (Spectral) (Balances) WeatherBench [15] Predictive Skill ✓××××
+> WeatherBench 2 [16] Operational Standard ✓✓×××
+> WeatherBench-X [17] Modular Evaluation ✓✓×××
+> ExtremeWB [20] Rare Events ✓××××
+> ClimateLearn [21] Data Standardization ✓××××
+> ChaosBench [22] Dynamics/Chaos ✓××✓×
+> PhysMetrics.Weather (Ours) Phys. Consistency ××✓✓✓
+
+Table 1 summarizes commonly used MLWP benchmarks. WeatherBench [ 15 ] and its successors, WeatherBench 2 [ 16 ] and WeatherBench-X [ 17 ], established a widely accepted baseline for eval-uating MLWP models. They provide a common reference point for the research community by standardizing the use of metrics like latitude-weighted RMSE and spread-skill ratios [ 23 , 24 ]. While these frameworks are the standard for quantifying point-wise errors and probabilistic spread, they do not diagnose whether a model’s predicted atmospheric state remains physically consistent over time. Recent benchmarks address specific forecasting challenges. ExtremeWeatherBench [ 20 ] evaluates rare, high-impact events, while ClimateLearn [ 21 ] offers a reproducible framework by standardizing data pipelines and evaluation protocols across diverse datasets (e.g., ERA5 [ 8], CMIP6 [ 25 ]). Chaos-Bench [ 22 ], our closest precursor, shifts the focus towards atmospheric dynamics, using spectral diagnostics to test whether models reproduce a realistic energy distribution of the atmosphere. While ChaosBench takes an important step towards evaluation of physical consistency, its scope is limited to spectral properties (the distribution of energy across spatial scales). Beyond standardized benchmarks, the field has increasingly focused on enforcing physical consistency directly within the modeling pipeline, acknowledging that models can yield predictions that are statistically plausible but physically inconsistent [ 14 ]. Soft constraint approaches add loss penalties to preserve fine-scale detail [ 26 , 27 , 11 ], suppress global budget drifts [ 28 ], or enforce multivariate consistency through latent-space constraints [ 29 ]. Conversely, hard constraint approaches embed differentiable physics solvers directly into the architecture e.g., hybrid models like NeuralGCM [ 30 ]couple traditional, differentiable physics solvers with neural network sub-modules, combining NWP stability with ML computational efficiency. Alternatively, models like ClimODE [ 31 ] use neural ordinary differential equations to represent atmospheric evolution as a continuous physical process. To evaluate physically constrained MLWP designs, researchers typically rely on custom diagnostics tailored to their specific architectural objectives. For instance, to show their models overcome the smoothing effect, authors use spectral analysis to verify energy retention at fine scales [ 11 , 27 , 26 ]. To detect localized grid-cell noise, some researchers evaluate spatial gradients to ensure wind fields 2DRY AIR MASS CONSERVATION  A B C      
+
+> D
+> EG
+> F
+> SPECTRAL ENERGY DISTRIBUTION
+> GLOBAL WATER MASS CONSISTENCY TOTAL ENERGY CONSISTENCY
+> GEOSTROPHIC BALANCE
+> HYDROSTATIC BALANCE
+> THERMODYNAMIC STABILITY Large-scale (Low k)Small-scale (High k)kE( k)Model Threshold ratio Energy ERA5 Long Short waves 1.Effective Resolution
+> 2.Spectral Divergence
+> 3.Spectral Residual
+> Quantifies the physical scale where model forecasts
+> become blurry/lose energy .
+> Total air
+> Total air TCWV Top of atmosphere Surface
+
+-              
+
+> Detects unphysical creation or destruction of global
+> atmospheric matter over time.
+> Measures atmospheric over-moistening or -drying over time.
+> Measures horizontal consistency between the momentum
+> (wind) and mass (geopotential).
+> Identifies physically impossible total energy leaks or
+> gains over time.
+> Measures vertical consistency between the mass
+> (geopotential) and virtual temperature (T + q).
+> Checks vertical stability between the mass
+> (geopotential) and temperature .850hPa 500hPa +++
+> Potential energy
+> Latent heat Kinetic energy
+> Sensible heat
+> Temperature
+> Height
+> TCWV
+> Surface
+> Top
+
+Figure 1: Overview of PhysMetrics.Weather. PhysMetrics.Weather evaluates models using nine metrics across three metric types: conservation of mass and energy (blue), spectral energy distribution (beige), and adherence to dynamical balance (green). Metric definitions are detailed in Table 3. A. Dry Air Mass Conservation: tracks global dry air mass. B. Global Water Mass Consistency: tracks the atmospheric water budget. C. Total Energy Consistency: estimates the global energy budget across sensible, potential, latent, and kinetic states. D. Spectral Energy Distribution: evaluates the spectral distribution of wind energy across spatial frequencies (using three metrics). E. Geostrophic RMSE: 
+
+evaluates if models reproduce the relationship between wind speeds and pressure gradients (the Coriolis effect). F. Hydrostatic RMSE: evaluates atmospheric stability by checking the temperature of the air between two pressure levels. G. Thermodynamic Stability: evaluates the plausibility of vertical temperature gradients (lapse rates) across climate zones. maintain geostrophic balance with the atmospheric pressure gradient [ 27 , 26 ]. Similarly, other studies validate embedded hydrostatic constraints by measuring layer-wise thermodynamic imbalance [32], or calculate global budgets to show that loss penalties prevent long-term mass and energy drift [28]. However, since researchers use disparate metrics to validate their specific models, it is challenging to objectively compare physical consistency across different models. By unifying conservation, spectral, and dynamical metrics into a single framework, PhysMetrics.Weather provides a common evaluation framework to assess whether MLWP models preserve physical laws over the entire forecast period. PhysMetrics.Weather is available for download as an open-source repository on GitHub. 
+
+## 3 Methodology 
+
+Here, we detail the methodology behind PhysMetrics.Weather (Figure 1). Extending beyond standard error evaluations (Appendix C.4), our framework captures an independent axis of model performance by evaluating physical consistency metrics across three metric types: (1) conservation of mass and energy (Section 3.1), (2) spectral energy distribution (Section 3.2), and (3) dynamical balances (Section 3.3). While their relative importance varies by downstream task, monitoring all three types is important for model reliability. Our evaluation uses the publicly available prediction datasets from WeatherBench 2 [ 16 ], focusing on state-of-the-art MLWP and NWP models with evaluations available for the 2020 test set: Pangu-Weather [ 5 ], GraphCast [ 6], FuXi [ 33 ], NeuralGCM [ 30 ], and IFS HRES [ 34 ]. For a fair comparison, we evaluate the same subset of atmospheric variables available from all models: specific humidity ( q), geopotential ( Φ), air temperature ( T ), horizontal wind components ( u, v ), and surface pressure ( ps). We evaluate models using one daily initial condition (00:00 UTC) throughout the year 2020 (366 days). For each model and initial day, we track the 10-day forecast trajectory at the model’s native temporal resolution (typically 6 hours) and native vertical resolution (either 13 [ 5, 33 ] or 37 [ 6, 30 , 34 ]pressure levels). 3Our framework aggregates predictions for all grid cells into global budgets using a weighted sum, denoted as ⟨·⟩ D , over the model’s spherical grid D. This operator computes an area-weighted spatial sum, ⟨·⟩ D = P 
+
+> i,j ∈D
+
+Ai,j Xi,j , where each cell (i, j ) contributes proportionally to its true physical surface area Ai,j , preventing polar distortion (Appendix A.2). For 3D atmospheric quantities, we perform vertical column integration across the given pressure levels, using surface pressure ( ps) as the lower boundary. Depending on the model, ps is provided directly, estimated from mean sea level pressure, or otherwise taken from the reference data. We integrate across the vertical layers using a trapezoidal rule. The integration weights ( ∆p∗
+
+> n
+
+) act as a mask assigning zero weight to pressure levels below the Earth’s surface (Appendix A.3). A reference dataset serves as a proxy for the true atmospheric state. While traditionally used to measure predictive accuracy, we use references like ERA5 [ 8] and IFS HRES analysis [ 34 ] to evaluate physical consistency. Although PhysMetrics.Weather supports any atmospheric reference dataset, we use the ERA5 reanalysis [ 8] in this work. As the main training corpus for most MLWP models [5, 6, 33 , 30 ], evaluating against ERA5 explicitly tests if models preserve the physics implicit in their training data. To ensure our findings are not solely dependent on reanalysis data, we also validate our results using the IFS HRES analysis (Appendix C.1), which is a reference that operational forecasters trust and rely on its degree of physical consistency. 
+
+3.1 Metrics for Evaluating Conservation of Mass and Energy 
+
+We adopt the global mass calculation from Sha et al. [28] , and extend it by introducing a drift metric to quantify physical consistency. Using this approach, we test whether MLWP models implicitly learn and maintain the conservation of mass and energy by calculating the following three metrics: 
+
+Dry Air Mass Conservation: Over weather prediction timescales, dry air mass is conserved [ 35 ]. While reanalysis reference datasets may show minor mass fluctuations due to data assimilation, trends in predicted total air mass indicate unrealistic sources or sinks of matter. Assuming hydrostatic balance, we obtain the global dry air mass Md(t) by calculating the surface integral over the entire globe: we divide the surface pressure ( ps) by gravitational acceleration ( g) to derive total atmospheric mass, then subtract the total column water vapor (TCWV, the vertically integrated specific humidity 
+
+q) to convert to dry air. We report the relative drift rate (δd), the percentage of mass change per day. We use the the slope of the least-squares regression ( md) fit to the trajectory M pred  
+
+> d
+
+(t) over the prediction time period 
+
+T = [ t0, t eval ], and normalize the result by the initial value. A realistic change rate should be close to zero, indicating no significant sources or sinks of dry air. 
+
+Md(t) = 
+
+ ps
+
+g − TCWV 
+
+
+
+> D
+
+, δd(T ) = md(T )
+
+M pred  
+
+> d
+
+(t0) × 100 
+
+Global Water Mass Consistency: Unlike dry air, atmospheric water mass fluctuates via evaporation and precipitation. A physical model should balance these sources and sinks over longer time periods, avoiding systematic moistening or drying of the atmosphere. We define global water mass Mw(t) as TCWV integrated over the whole surface area of the globe. Since reanalysis data does not have a perfectly closed hydrological or thermodynamic budget (due to assimilation), we compute the anomaly drift rate (δw) to measure how much the predicted mass trend (mpred  
+
+> w
+
+) deviates from the reference trend ( mref  
+
+> w
+
+) over the same time period T = [ t0, t eval ]. A model’s anomaly drift rate should be close to zero, meaning trends in the total atmospheric water mass caused by evaporation and precipitation over the prediction time period match the trends of the reference dataset. 
+
+Mw(t) = ⟨TCWV pred ⟩D , δw(T ) = mpred  
+
+> w
+
+(T )
+
+M pred  
+
+> w
+
+(t0) − mref  
+
+> w
+
+(T )
+
+M ref  
+
+> w
+
+(t0)
+
+!
+
+× 100 
+
+Total Energy Consistency: The global energy budget consists of the thermal energy (sensible heat, 
+
+cpT ), gravitational energy (potential energy, Φs), moisture-related energy (latent heat, Lv q), and momentum (kinetic wind energy (KE), 12 (u2 + v2)). While energy constantly shifts between these 4forms, the global energy budget should remain balanced relative to natural fluxes; for example, wind acceleration without a corresponding temperature or pressure change implies violations of the energy conservation. We estimate the total global energy E(t) by integrating the energy sum across all grid cells and all pressure levels. The constants ( cp, L v , g ) are defined in Appendix B. Applying the same approach as for the total water content, we compute the anomaly drift rate (δE )to measure deviation from the reference data energy trend. A physically consistent model needs to preserve total energy, yielding an anomaly drift of close to zero. 
+
+E(t) = 1
+
+g
+
+Z ps
+
+> 0
+
+
+
+cpT + Φ s + Lv q + 12 (u2 + v2)
+
+
+
+dp 
+
+
+
+> D
+
+, δ E (T ) = mpred  
+
+> E
+
+(T )
+
+Epred (t0) − mref  
+
+> E
+
+(T )
+
+Eref (t0)
+
+!
+
+×100 
+
+3.2 Metrics for Evaluating Spectral Energy Distribution 
+
+To quantify the smoothing effect, we apply a spherical harmonic transform (SHT) [ 11 , 30 ] (the spherical equivalent of a 2D Fourier transform) to decompose the predicted horizontal wind fields into spatial wavenumbers ( k). Low and high wavenumbers correspond to large-scale (e.g., Rossby waves) and fine-scale (e.g., frontal boundaries) phenomena, respectively. We evaluate the kinetic energy (KE, E) spectrum of the wind field at 500 hPa. At this altitude in the mid-troposphere, there are no effects from friction at the Earth’s surface. The winds at 500 hPa are characteristic for the large-scale flow that determines the movement of extratropical cyclones, and thus, surface weather patterns (see Appendix C.3 for 850 hPa KE and humidity analyses). The KE spectrum depends on the zonal (eastward, u) and meridional (northward, v) wind components. By summing the complex SHT coefficients ( ˆuk,m and ˆvk,m ) over all zonal wavenumbers ( m) for a given total wavenumber ( k), the KE at spatial scale k is calculated as: 
+
+E(k) = 12
+
+> k
+
+X
+
+> m=−k
+
+ |ˆuk,m |2 + |ˆvk,m |2
+
+Effective Resolution ( Lef f ): This evaluates a model’s spatial resolution by measuring the retained fraction of reference KE at different spatial scales. Since deterministic MLWP models tend to smooth fine details over time, we identify the exact physical wavelength where this smoothing effect starts to decay the model’s structural variance. We calculate the spectral energy retention ratio R(k) at each wavenumber for a given lead time by comparing the predicted energy spectrum to the reference spectrum, with both spectra averaged across all evaluation dates: 
+
+R(k) = ¯Epred (k)¯Eref (k)
+
+The effective resolution (Lef f ) is the wavelength where the retention ratio drops below 50% ( R(k) <
+
+0.5) for five consecutive wavenumbers. Ideally, Lef f matches the model’s native resolution, indicating good energy retention at fine scales (see Appendix C.2 for alternative thresholds). 
+
+Spectral Residual: This measures the absolute error magnitude across the energy spectrum. Atmo-spheric energy follows a power-law cascade, meaning large-scale waves contain orders of magnitude more energy than fine-scale features [ 36 ]. A simple RMSE would underrepresent errors at fine scales. To penalize high-frequency loss equally across this cascade up to the maximum spatial wavenumber 
+
+K, we adapt the logarithmic spectral residual introduced by Nathaniel et al. [22] , computing it as the RMSE of the log-transformed spectrum. A physically realistic model should have an RMSE close to zero, demonstrating that its energy distribution accurately matches the reference data across all spatial scales. SpecRes =
+
+vuut 1
+
+K + 1 
+
+> K
+
+X
+
+> k=0
+
+(log Epred (k) − log Eref (k)) 2
+
+5Spectral Divergence: This assesses the shape of the energy cascade rather than its absolute magnitude. Disproportionate energy in low frequencies indicates smoothing, while high-frequency spikes at fine spatial scales suggest gridpoint artifacts [ 11 ]. We treat the energy spectrum as a probability distribution by normalizing the energy at each wavenumber by the total sum of the spectrum. Inspired by Nathaniel et al. [22] , we compute the spectral divergence [22 ] using the 1-Wasserstein distance ( W1) between the reference and predicted distributions. Ideally, the model should achieve a spectral divergence near zero, showing that it allocates energy proportionally across all spatial scales without excessive smoothing. 
+
+P (k) = E(k)
+
+P E(j) , SpecDiv = W1(Pref , P pred ) = 
+
+> K
+
+X
+
+> k=0
+> k
+
+X
+
+> j=0
+
+Pref (j) −
+
+> k
+
+X
+
+> j=0
+
+Ppred (j)
+
+3.3 Metrics for Evaluating Dynamical Balance 
+
+We also evaluate whether models maintain physical consistency between distinct output variables (e.g., coupling wind, temperature, and pressure fields). Because the real atmosphere naturally deviates from idealized equilibria (e.g., in storms) and exhibits diverse vertical temperature gradients [ 37 ], a realistic model must reproduce the natural variability of the reference dataset. We quantify this in two ways: for physical equilibria (geostrophic and hydrostatic balances), we compute the excess imbalance ( ∆RMSE ) between the model and reference residuals; for vertical thermodynamic stability, we evaluate the preservation of atmospheric lapse rate distributions. 
+
+Geostrophic Balance: Large-scale mid-latitude flow is governed by geostrophic balance, where Coriolis and pressure gradient forces align [ 37 ]. A physically realistic model must implicitly couple mass and momentum fields; for example, predicting a deep low-pressure system without generating corresponding cyclonic winds violates physical consistency [ 14 ]. We compute the geostrophic wind components (ug , v g ) derived from the spatial gradient of the predicted geopotential Φ, where ϕ and 
+
+λ are latitude and longitude, RE is Earth’s radius, and f is the Coriolis parameter. We evaluate how well the model couples its mass and momentum fields by computing the vector RMSE between the predicted wind ( u, v ) and the theoretical geostrophic wind. We exclude the equatorial region ( |ϕ| < 10 ◦), where geostrophic balance is invalid due to a weak Coriolis force, as well as the poles ( |ϕ| ≥ 89 .9◦) to avoid numerical singularities. Given that there are usually (small) deviations from this equilibrium (ageostrophic flow), a realistic model should not force this absolute residual to zero [ 37 ]. Instead, it should yield an excess geostrophic imbalance (∆RMSE g ) near zero, i.e. maintaining the natural ageostrophic characteristics of the reference dataset. 
+
+ug = − 1
+
+f R E
+
+∂Φ
+
+∂ϕ , vg = 1
+
+f R E cos ϕ∂Φ
+
+∂λ , ∆RMSE g = RMSE pred  
+
+> g
+
+− RMSE ref 
+
+> g
+
+Hydrostatic Balance: To a large degree, the upward pressure gradient force in the atmosphere is balanced by the downward-directed gravitational acceleration. Hydrostatic balance is generally an accurate approximation for grid-scale air columns typical of global weather forecast and reanalysis models [ 37 ]. As the vertical spatial distance (geopotential height difference) between two vertical levels is determined by the temperature and moisture of the air in-between, a model predicting e.g. a temperature spike without proportionally increasing the geopotential distance would violate this hydrostatic balance. We measure this constraint using the residual ( ϵh) of the hypsometric equation, which relates an atmospheric pressure ratio to the equivalent thickness of an atmospheric layer using the dry air gas constant ( Rd) and the layer’s mean virtual temperature, Tv = T (1 + 0 .6078 q).We assess thermodynamic consistency (hydrostatic balance) by computing the area-weighted RMSE of this hydrostatic residual. To account for natural non-hydrostatic vertical motions (e.g., thunder-storms), we report the excess hydrostatic imbalance (∆RMSE h) compared to the reference data. Note that this reference imbalance primarily stems from vertical interpolation and data assimilation artifacts, rather than explicitly resolved non-hydrostatic convection [ 8]. A model should achieve an excess imbalance of close to zero, preserving vertical thermodynamic consistency while allowing for natural, non-hydrostatic vertical dynamics. 6ϵh = (Φ 500 − Φ850 ) − Rd ¯Tv ln 
+
+ p850 
+
+p500 
+
+
+
+, ∆RMSE h = RMSE pred  
+
+> h
+
+− RMSE ref 
+
+> h
+
+Vertical Thermodynamic Stability: The atmospheric lapse rate ( Γ) is the rate at which temperature decreases with height, which is a measure for the vertical stability [ 38 ]. The lapse rate can be used to check inter-variable and inter-layer relations between temperature and geopotential. To evaluate whether models produce realistic atmospheric stability, we calculate the distribution of lapse rates between 500 hPa and 850 hPa for specific regions (in units of K/km): 
+
+Γ = −g T500 − T850 
+
+Φ500 − Φ850 
+
+× 1000 
+
+We evaluate lapse rates in the Tropics ( 30 ◦S–30 ◦N ) and both mid-latitudes ( 30 ◦–60 ◦ N/S). For each region, we compute the area-weighted 1-Wasserstein distance ( W1) between the model’s lapse rate distribution and the reference data. The simple average of these regional distances yields the mean lapse rate Wasserstein (W 1; Appendix A.6). An ideal W 1 = 0 indicates the MLWP model preserves reference atmospheric variance in lapse rates rather than collapsing predictions to a smoothed mean. 
+
+## 4 Results 
+
+We report results for Pangu-Weather [ 5 ], GraphCast [ 6], FuXi [ 33 ], NeuralGCM [ 30 ], and IFS HRES [34] on our three types of metrics below. 
+
+4.1 Conservation 
+
+We first examine whether models conserve global mass and energy over the 240-hour prediction period (Figure 2). FuXi [ 33 ] is excluded because specific humidity is unavailable in its WeatherBench 2 outputs. The near-zero relative and anomaly drift rates demonstrate the stability of NeuralGCM’s PDE solver (using ERA5 surface pressure). The figure also shows that MLWP models struggle to maintain conservation of mass and energy over extended periods. When interpreting these deviations, it is important to note that the ERA5 reference has minor budget imbalances; thus, the models are failing to match the natural variability and assimilation-driven trends of the proxy atmosphere, rather than a state of perfect conservation. GraphCast loses dry air mass while simultaneously generating water mass, whereas Pangu-Weather dries the atmosphere. Finally, the IFS HRES model shows a slight loss of both water mass and energy; this is expected, as operational NWPs are primarily optimized for short- to medium-range predictive accuracy rather than long-term climatological budget conservation. 
+
+4.2 Energy Spectra 
+
+To assess whether models preserve fine-scale atmospheric dynamics, we examine the KE spectra at 500 hPa across lead times (Figure 3). At short lead times (12h), all models align relatively well with the reference (ERA5) baseline. The IFS HRES retains even more energy at fine scales than ERA5, reflecting the difference between ERA5 reanalysis and operational IFS HRES analysis. At extended lead times (e.g., 120h and 240h), data-driven MLWP models deviate from the reference spectrum. GraphCast and Pangu-Weather suffer energy loss at fine spatial scales over time. This spatial smoothing is quantified by a decrease in their effective resolution and an increase in their 
+
+spectral residual . In contrast, FuXi generates excess fine-scale energy, maybe indicating the presence of artificial grid-point noise, a behavior penalized heavily by the spectral divergence metric. Both NeuralGCM and IFS HRES maintain stable spectral energy distributions across all lead times. 
+
+4.3 Dynamical Balance 
+
+Finally, we assess whether models maintain physically consistent relationships between their predicted wind, temperature, and pressure fields (Figure 4). Because the reference data reflects both natural atmospheric variability (e.g., ageostrophic flow) and inherent structural properties (e.g., vertical 7Figure 2: Global mass and energy conservation metrics calculated over a 240-hour prediction time period. Top: Summary of conservation metrics. Bottom Left: Relative Dry Mass drift. Bottom Middle: Anomaly Water Mass drift. Bottom Right: Anomaly Total Energy drift. Shading indicates the ±1σ over 2020. Constrained models like NeuralGCM show conservation over extended time periods, while data-driven MLWP models (e.g., GraphCast, Pangu-Weather) show deviations. 
+
+Figure 3: KE spectra at 500 hPa. Top: Spectral metrics summary. Bottom: Spectra at 12h, 120h, and 240h lead times. Native resolutions: 0.25° (111.5 km), except NeuralGCM (0.7°, 315.2 km). Over extended forecasts, data-driven MLWPs exhibit spatial smoothing or artificial noise, whereas hybrid architectures (e.g., NeuralGCM) preserve realistic energy distributions. 8interpolation artifacts), a realistic prediction model should match the ERA5 reference residual rather than minimizing the absolute error to zero. For geostrophic balance, HRES, GraphCast, and Pangu-Weather follow the reference data. However, FuXi’s excess geostrophic imbalance drifts steadily, showing a decoupling of its momentum and mass fields at extended lead times. NeuralGCM is unique in maintaining a consistently lower geostrophic RMSE than the ERA5 reference itself. For hydrostatic balance, MLWP models show a decreasing RMSE over time, dropping below the ERA5 reference. This negative excess hydrostatic imbalance suggests fine-scale smoothing, resulting in less extreme, artificially balanced states that lack natural, chaotic atmospheric variability. Low mean lapse rate Wasserstein scores indicate that all models broadly reproduce the ERA5 reference. However, MLWP models struggle with the Southern Hemisphere distribution at 240h lead times. This aligns with WeatherBench 2 findings [ 16 ], maybe reflecting the sparse observational data in this region that limits training and assimilation constraints, leading to higher forecast uncertainty. Furthermore, while Pangu-Weather and NeuralGCM appear to outperform HRES in thermodynamic stability, Appendix C.1 demonstrates this is an evaluation artifact: evaluating HRES against its own initialization (IFS HRES analysis) rather than ERA5 makes HRES outperform MLWP models. 
+
+Figure 4: Adherence to geostrophic wind balance, hydrostatic equilibrium and realistic atmo-spheric stability over a 240-hour prediction time period. Top: Summary of dynamical balance metric. Bottom Left: Excess Geostrophic Imbalance. Bottom Middle: Excess Hydrostatic Imbal-ance (for FuXi, T ≈ Tv ). Bottom Right: Lapse rate distributions for three regions at 240h lead time. Shading in time series indicates ±1 standard deviation over 2020. 
+
+## 5 Discussion and Conclusion 
+
+We introduce PhysMetrics.Weather : an open-source, unified framework for quantifying the physical consistency of MLWP models by assessing (1) conservation laws, (2) spectral energy distribution, and (3) dynamical balances. This is an important step forward for the MLWP community which has so far primarily relied on metrics for predictive skill or accuracy. Moreover, we observe that models optimized strictly for point-wise error (e.g., MSE, MAE) exhibit a tendency toward physical drift, including violations of energy and mass conservation, reductions in effective resolution (spatial smoothing), and unrealistic deviations from equilibria such as the hydrostatic balance. Consistent with prior work [ 6 , 10 , 11 ], PhysMetrics.Weather confirms and quantifies that deterministic MLWP models are prone to smoothing atmospheric features to minimize average errors over time. Furthermore, it shows the value of hybrid architectures: by coupling neural networks with classical, differentiable physics solvers, models like NeuralGCM maintain stability across all evaluated physical consistency metrics over extended prediction time periods. However, this comes at a development cost: NeuralGCM is approximately 6 times more computationally expensive to train than purely data-driven MLWPs like GraphCast or Pangu-Weather [39]. 
+
+Limitations. We acknowledge several limitations of the current version of PhysMetrics.Weather. First, its scope is limited to the variables available in the WeatherBench 2 archive. Because quantities like precipitation, evaporation, and 3D vertical velocity are not available for all MLWPs, we cannot 9evaluate the hydrological cycle or 3D momentum advection. Therefore, PhysMetrics.Weather serves as an initial, extensible baseline rather than a final product. Second, our evaluation currently relies on the ERA5 reanalysis as a proxy for the real atmospheric state. Since ERA5 assimilates observational data, it is not bias-free and may exhibit minor drifts in total atmospheric energy or mass. 
+
+Future Directions. PhysMetrics.Weather’s open-source design facilitates the easy integration of emerging variables, such as 3D vertical velocity, cloud liquid water, precipitation, and radiative fluxes. This will allow future versions to check for a closed hydrological budget, advective transport, or top-of-atmosphere energy balance, moving beyond large-scale dynamics to also test thermodynamic and climate-relevant constraints. Moreover, as the field pivots toward generative diffusion models (e.g., GenCast [ 40 ]), our evaluation must evolve. Since these models sample specific, highly detailed atmospheric states rather than a single, often smoothed deterministic average, future versions of PhysMetrics.Weather will be extended to evaluate probabilistic ensembles. By establishing this unified evaluation framework, PhysMetrics.Weather provides a set of metrics needed to determine model suitability for specific operational tasks, guide physics-informed architectures, and encourage the development of physically consistent weather forecast models. 
+
+## References 
+
+[1] ECMWF. IFS Documentation CY49R1 - Part III: Dynamics and Numerical Procedures .ECMWF, 2024. doi: 10.21957/d04fb7a27e. URL https://www.ecmwf.int/en/elibrary/ 81625-ifs-documentation-cy49r1-part-iii-dynamics-and-numerical-procedures .[2] NOAA. Global forecast system (gfs) 1.0 degree. Dataset, 2004. URL 
+
+https://www.ncdc.noaa.gov/data-access/model-data/model-datasets/ global-forecast-system-gfs . NCEI DSI 6174. [3] Martin G Schultz, Clara Betancourt, Bing Gong, Felix Kleinert, Michael Langguth, Lukas Hu-bert Leufen, Amirpasha Mozaffari, and Scarlet Stadtler. Can deep learning beat numerical weather prediction? Philosophical Transactions of the Royal Society A: Mathematical, Physical and Engineering Sciences , 379(2194), 2021. [4] Jaideep Pathak, Shashank Subramanian, Peter Harrington, Sanjeev Raja, Ashesh Chattopadhyay, Morteza Mardani, Thorsten Kurth, David Hall, Zongyi Li, Kamyar Azizzadenesheli, Pedram Hassanzadeh, Karthik Kashinath, and Animashree Anandkumar. FourCastNet: A Global Data-driven High-resolution Weather Model using Adaptive Fourier Neural Operators, February 2022. URL http://arxiv.org/abs/2202.11214 . arXiv:2202.11214 [physics]. [5] Kaifeng Bi, Lingxi Xie, Hengheng Zhang, Xin Chen, Xiaotao Gu, and Qi Tian. Pangu-Weather: A 3D High-Resolution Model for Fast and Accurate Global Weather Forecast, November 2022. URL http://arxiv.org/abs/2211.02556 . arXiv:2211.02556 [physics]. [6] Remi Lam, Alvaro Sanchez-Gonzalez, Matthew Willson, Peter Wirnsberger, Meire Fortunato, Ferran Alet, Suman Ravuri, Timo Ewalds, Zach Eaton-Rosen, Weihua Hu, Alexander Merose, Stephan Hoyer, George Holland, Oriol Vinyals, Jacklynn Stott, Alexander Pritzel, Shakir Mohamed, and Peter Battaglia. GraphCast: Learning skillful medium-range global weather forecasting, August 2023. URL http://arxiv.org/abs/2212.12794 . arXiv:2212.12794 [cs]. [7] Cristian Bodnar, Wessel P. Bruinsma, Ana Lucic, Megan Stanley, Anna Allen, Johannes Brandstetter, Patrick Garvan, Maik Riechert, Jonathan A. Weyn, Haiyu Dong, Jayesh K. Gupta, Kit Thambiratnam, Alexander T. Archibald, Chun-Chieh Wu, Elizabeth Heider, Max Welling, Richard E. Turner, and Paris Perdikaris. A foundation model for the Earth system. Nature , 641 (8065):1180–1187, May 2025. ISSN 1476-4687. doi: 10.1038/s41586-025-09005-y. URL 
+
+https://www.nature.com/articles/s41586-025-09005-y .[8] H. Hersbach, B. Bell, P. Berrisford, G. Biavati, A. Horányi, J. Muñoz Sabater, J. Nicolas, C. Peubey, R. Radu, I. Rozum, D. Schepers, A. Simmons, C. Soci, D. Dee, and J.-N. Thépaut. ERA5 hourly data on single levels from 1940 to present. Copernicus Climate Change Service (C3S) Climate Data Store (CDS), 2023. URL https://doi.org/10.24381/cds.adbb2d47 .10 [9] Cristian Bodnar, Wessel P. Bruinsma, Ana Lucic, Megan Stanley, Anna Vaughan, Johannes Brandstetter, Patrick Garvan, Maik Riechert, Jonathan A. Weyn, Haiyu Dong, Jayesh K. Gupta, Kit Thambiratnam, Alexander T. Archibald, Chun-Chieh Wu, Elizabeth Heider, Max Welling, Richard E. Turner, and Paris Perdikaris. A Foundation Model for the Earth System, November 2024. URL http://arxiv.org/abs/2405.13063 . arXiv:2405.13063 [physics]. [10] Ross N. Hoffman, Zheng Liu, Jean-Francois Louis, and Christopher Grassoti. Distortion Representation of Forecast Errors. Monthly Weather Review , 123(9):2758–2770, September 1995. ISSN 1520-0493, 0027-0644. doi: 10.1175/1520-0493(1995)123<2758:DROFE>2.0.CO; 2. URL https://journals.ametsoc.org/view/journals/mwre/123/9/1520-0493_ 1995_123_2758_drofe_2_0_co_2.xml .[11] Christopher Subich, Syed Zahid Husain, Leo Separovic, and Jing Yang. Fixing the Double Penalty in Data-Driven Weather Forecasting Through a Modified Spherical Harmonic Loss Function, May 2025. URL http://arxiv.org/abs/2501.19374 . arXiv:2501.19374 [cs]. [12] Helen F. Dacre, Andrew J. Charlton-Perez, Simon Driscoll, Sue L. Gray, Ben Harvey, Na-talie J. Harvey, Kevin I. Hodges, Kieran M. R. Hunt, and Ambrogio Volontè. Northern hemisphere midlatitude cyclone intensity biases in machine learning weather prediction models. Bulletin of the American Meteorological Society , 107(1):E208–E221, 2026. doi: 10.1175/BAMS-D-25-0129.1. URL https://journals.ametsoc.org/view/journals/ bams/107/1/BAMS-D-25-0129.1.xml .[13] Florian Pappenberger and Alan Thorpe. Machine learning and physics in weather fore-casting: a discussion between alan thorpe and florian pappenberger. ECMWF – In Fo-cus , jun 2024. URL https://www.ecmwf.int/en/about/media-centre/focus/2024/ machine-learning-and-physics-weather-forecasting-discussion-0 .[14] Massimo Bonavita. On Some Limitations of Current Machine Learning Weather Prediction Models. Geophysical Research Letters , 51(12):e2023GL107377, 2024. ISSN 1944-8007. doi: 10.1029/2023GL107377. URL https: //onlinelibrary.wiley.com/doi/abs/10.1029/2023GL107377 . _eprint: https://agupubs.onlinelibrary.wiley.com/doi/pdf/10.1029/2023GL107377. [15] Stephan Rasp, Peter D. Dueben, Sebastian Scher, Jonathan A. Weyn, Soukayna Mouatadid, and Nils Thuerey. WeatherBench: A Benchmark Data Set for Data-Driven Weather Forecasting. 
+
+Journal of Advances in Modeling Earth Systems , 12(11):e2020MS002203, November 2020. ISSN 1942-2466. doi: 10.1029/2020MS002203. URL https://agupubs.onlinelibrary. wiley.com/doi/10.1029/2020MS002203 .[16] Stephan Rasp, Stephan Hoyer, Alexander Merose, Ian Langmore, Peter Battaglia, Tyler Russel, Alvaro Sanchez-Gonzalez, Vivian Yang, Rob Carver, Shreya Agrawal, Matthew Chantry, Zied Ben Bouallegue, Peter Dueben, Carla Bromberg, Jared Sisk, Luke Barrington, Aaron Bell, and Fei Sha. WeatherBench 2: A benchmark for the next generation of data-driven global weather models, January 2024. URL http://arxiv.org/abs/2308.15560 .arXiv:2308.15560 [physics]. [17] Stephan Rasp et al. Weatherbench-x: A modular framework for evaluating weather forecasts. 
+
+https://github.com/google-research/weatherbenchX , 2025. [18] Markus Reichstein, Gustau Camps-Valls, Bjorn Stevens, Martin Jung, Joachim Denzler, Nuno Carvalhais, and Prabhat. Deep learning and process understanding for data-driven earth system science. Nature , 566(7743):195–204, 2019. doi: 10.1038/s41586-019-0912-1. [19] Tom Beucler, Michael Pritchard, Stephan Rasp, Jordan Ott, Pierre Baldi, and Pierre Gentine. Enforcing analytic constraints in neural networks emulating physical systems. Phys. Rev. Lett. ,126:098302, Mar 2021. doi: 10.1103/PhysRevLett.126.098302. URL https://link.aps. org/doi/10.1103/PhysRevLett.126.098302 .[20] Brightband. brightbandtech/ExtremeWeatherBench, January 2026. URL https://github. com/brightbandtech/ExtremeWeatherBench . original-date: 2024-08-15T15:33:50Z. 11 [21] Tung Nguyen, Jason Jewik, Hritik Bansal, Prakhar Sharma, and Aditya Grover. Climatelearn: Benchmarking machine learning for weather and climate modeling, 2023. URL https:// arxiv.org/abs/2307.01909 .[22] Juan Nathaniel, Yongquan Qu, Tung Nguyen, Sungduk Yu, Julius Busecke, Aditya Grover, and Pierre Gentine. ChaosBench: A Multi-Channel, Physics-Based Benchmark for Subseasonal-to-Seasonal Climate Prediction, November 2024. URL http://arxiv.org/abs/2402.00712 .arXiv:2402.00712 [cs]. [23] Tilmann Gneiting and Adrian E Raftery. Strictly proper scoring rules, prediction, and estimation. 
+
+Journal of the American Statistical Association , 102(477):359–378, 2007. doi: 10.1198/ 016214506000001437. [24] Vincent Fortin, Mohamed Abaza, François Anctil, and Richard Turcotte. Why should ensemble spread match the RMSE of the ensemble mean? Journal of Hydrometeorology , 15(4):1708– 1713, 2014. doi: 10.1175/JHM-D-14-0008.1. [25] Enrico Scoccimarro, Alessio Bellucci, and Daniele Peano. CMCC CMCC-CM2-VHR4 model output prepared for CMIP6 HighResMIP hist-1950. https://doi.org/10.22033/ESGF/ CMIP6.3818 , 2018. [26] Tom Dunstan, Oliver Strickson, Thusal Bennett, Jack Bowyer, Matthew Burnand, James Chap-pell, Alejandro Coca-Castro, Kirstine Ida Dale, Eric G. Daub, Noushin Eftekhari, Manvendra Janmaijaya, Jon Lillis, David Salvador-Jasin, Nathan Simpson, Ryan Sze-Yin Chan, Mohamad Elmasri, Lydia Allegranza France, Sam Madge, Levan Bokeria, Hannah Brown, Tom Dodds, Anna-Louise Ellis, David Llewellyn-Jones, Theo McCaie, Sophia Moreton, Tom Potter, James Robinson, Adam A. Scaife, Iain Stenson, David Walters, Karina Bett-Williams, Louisa van Zeeland, Peter Yatsyshin, and J. Scott Hosking. FastNet: Improving the physical consistency of machine-learning weather prediction models through loss function design, September 2025. URL http://arxiv.org/abs/2509.17601 . arXiv:2509.17601 [physics]. [27] Carlo Saccardi, Maximilian Pierzyna, Haitz Sáez de Ocáriz Borde, Simone Monaco, Cristian Meo, Pietro Liò, Rudolf Saathof, Geethu Joseph, and Justin Dauwels. Assessing the Geographic Generalization and Physical Consistency of Generative Models for Climate Downscaling, October 2025. URL http://arxiv.org/abs/2510.13722 . arXiv:2510.13722 [cs]. [28] Yingkai Sha, John S. Schreck, William Chapman, and David John Gagne. Improving AI weather prediction models using global mass and energy conservation schemes, January 2025. URL 
+
+http://arxiv.org/abs/2501.05648 . arXiv:2501.05648 [physics]. [29] Hang Fan, Yi Xiao, Yongquan Qu, Fenghua Ling, Ben Fei, Lei Bai, and Pierre Gentine. Incor-porating multivariate consistency in ml-based weather forecasting with latent-space constraints. 
+
+arXiv preprint arXiv:2510.04006 , 2025. URL https://arxiv.org/abs/2510.04006 .[30] Dmitrii Kochkov, Janni Yuval, Ian Langmore, Peter Norgaard, Jamie Smith, Griffin Mooers, Milan Klöwer, James Lottes, Stephan Rasp, Peter Düben, Sam Hatfield, Peter Battaglia, Alvaro Sanchez-Gonzalez, Matthew Willson, Michael P. Brenner, and Stephan Hoyer. Neural general circulation models for weather and climate. Nature , 632(8027):1060–1066, August 2024. ISSN 1476-4687. doi: 10.1038/s41586-024-07744-y. URL https://www.nature.com/ articles/s41586-024-07744-y .[31] Yogesh Verma, Markus Heinonen, and Vikas Garg. ClimODE: Climate and Weather Forecast-ing with Physics-informed Neural ODEs, April 2024. URL http://arxiv.org/abs/2404. 10024 . arXiv:2404.10024 [cs]. [32] Akshay Subramaniam, Dale Durran, David Pruitt, Nathaniel Cresswell-Clay, and William Yik. Imposing the Fundamental Dynamical Constraint of Hydrostatic Balance to Improve Global ML Weather Prediction, June 2025. URL http://arxiv.org/abs/2506.08285 .arXiv:2506.08285 [physics]. [33] Xiuyu Sun, Xiaohui Zhong, Xiaoze Xu, Yuanqing Huang, Hao Li, J. David Neelin, Deliang Chen, Jie Feng, Wei Han, Libo Wu, and Yuan Qi. FuXi Weather: A data-to-forecast machine learning system for global weather, November 2024. URL http://arxiv.org/abs/2408. 05472 . arXiv:2408.05472 [cs]. 12 [34] ECMWF. Atmospheric model high resolution forecast (Set I - HRES). ECMWF Forecasts Dataset Documentation, 2024. URL https://www.ecmwf.int/en/forecasts/datasets/ set-i . Accessed: 2024. [35] Kevin E Trenberth and Lesley Smith. The mass of the atmosphere: A constraint on global analyses. Journal of Climate , 18(6):864–875, 2005. [36] G. D. Nastrom and K. S. Gage. A climatology of atmospheric wavenumber spectra of wind and temperature observed by commercial aircraft. Journal of the Atmospheric Sciences , 42(9): 950–960, 1985. doi: 10.1175/1520-0469(1985)042<0950:ACOAWS>2.0.CO;2. [37] James R Holton and Gregory J Hakim. An Introduction to Dynamic Meteorology . Academic press, 5th edition, 2012. [38] Peter H. Stone and John H. Carlson. Atmospheric lapse rate regimes and their parameterization. 
+
+Journal of Atmospheric Sciences , 36(3):415 – 423, 1979. doi: 10.1175/1520-0469(1979) 036<0415:ALRRAT>2.0.CO;2. URL https://journals.ametsoc.org/view/journals/ atsc/36/3/1520-0469_1979_036_0415_alrrat_2_0_co_2.xml .[39] Guillaume Couairon, Christian Lessig, Anastase Charantonis, and Claire Monteleoni. Arch-esweather: An efficient ai weather forecasting model at 1.5° resolution, 2024. URL https: //arxiv.org/abs/2405.14527 .[40] Ilan Price, Alvaro Sanchez-Gonzalez, Ferran Alet, Tom R. Andersson, Andrew El-Kadi, Do-minic Masters, Timo Ewalds, Jacklynn Stott, Shakir Mohamed, Peter Battaglia, Remi Lam, and Matthew Willson. GenCast: Diffusion-based ensemble forecasting for medium-range weather, May 2024. URL http://arxiv.org/abs/2312.15796 . arXiv:2312.15796 [cs]. [41] NOAA, NASA, and USAF. U.S. Standard Atmosphere, 1976 . U.S. Government Printing Office, Washington, D.C., 1976. 13 A Appendix A: Granular Preprocessing and Integration Formalisms 
+
+A.1 Boundary Derivation Strategies 
+
+To compute the vertical column integrals detailed in the main text, a lower boundary (surface pressure, 
+
+ps) is required. Because MLWP models exhibit varying degrees of available output, we use a derivation strategy: 
+
+Direct output: If surface pressure is directly provided by the model (e.g., IFS HRES), it is used without modification. 
+
+Standard Atmosphere Derivation: For models providing only mean sea level pressure ( pMSL ) and no explicit surface pressure, ps is derived using the U.S. Standard Atmosphere temperature profile [ 41 ]. By converting the surface geopotential ( Φs) to geometric height ( z = Φ s/g ), the surface pressure is estimated as: 
+
+ps = pMSL ·
+
+
+
+1 − Γstd · zT0
+
+ gRdΓstd 
+
+where T0 = 288 .15 K is the standard sea-level temperature, and Γstd = 0 .0065 K/m is the standard tropospheric lapse rate. 
+
+External Surface Pressure Fallback: For models where the WeatherBench 2 archive lacks both surface pressure ( ps) and mean sea-level pressure ( pMSL ) (e.g., NeuralGCM), we substitute the reference (ERA5) surface pressure at the corresponding valid forecast time. We acknowledge that this substitution is imperfect. Because surface pressure is highly sensitive to orographic elevation, applying reference ps to a model operating at a different spatial resolution introduces structural inconsistencies due to mismatched topography. Furthermore, by supplying an external boundary condition to close the vertical integrals, the evaluation for these specific models ceases to be a strictly closed-system measurement of the model’s internal mass and energy budgets. Nevertheless, as demonstrated in our ablation study (Appendix C.5), the long-term trends in our conservation metrics remain robust regardless of the surface pressure boundary condition used. 
+
+A.2 Spatial Alignment and Grid Computations 
+
+To perform the Spherical Harmonic Transform (SHT), the prediction and reference tensors must have identical spatial dimensions. A standard 0.25 ◦ geographic grid spanning from 90 ◦N to 90 ◦Sconsists of 721 latitude points, explicitly including both poles. However, MLWP models typically output 720 latitude points to maintain even tensor dimensions for neural network padding and pooling. Consequently, the grids are identical except for a single unshared polar row. To achieve alignment, we simply drop this unshared row from the reference tensor. We strictly avoid regridding or interpolating the data, as spatial interpolation inherently acts as a low-pass filter, which would artificially alter the spectral energy distribution and corrupt the mass conservation budgets we intend to evaluate. For global aggregations, each grid cell must be weighted by its true physical surface area, Ai,j .Because explicit spatial bound arrays are not consistently provided across the WeatherBench 2 Zarr stores, we derive the exact cell boundaries from the 1D coordinate arrays. The area is obtained by integrating the spherical surface area across the exact latitudinal boundaries [ϕsouth , ϕ north ] of the cell (see Figure 5): 
+
+Ai,j = R2 
+
+> E
+
+· ∆λ · (sin( ϕnorth ) − sin( ϕsouth )) 
+
+Depending on the model, spatial grids are either node-centered (coordinate points fall exactly on the poles) or cell-centered. If a grid is node-centered, assuming a constant latitudinal width (e.g., 
+
+0.25 ◦) for every cell introduces a geometric impossibility: a cell centered exactly at 90 ◦N would theoretically extend to 90 .125 ◦N, geographically exceeding the pole. To prevent this, we calculate the exact boundaries of each cell by finding the mathematical midpoint between adjacent coordinate points, strictly clipping the outermost boundaries at +90 ◦ and −90 ◦.14 Figure 5: Geometric derivation of the grid-cell area ( Ai,j ) on a spherical Earth. Because the physical width of a cell ( RE ∆λ · cos ϕ) shrinks as it approaches the poles, a simple rectangular approximation overestimates polar areas. The true physical area is computed by integrating the differential element across the exact latitudinal bounds [ϕsouth , ϕ north ].
+
+A.3 Global and Discrete Vertical Integration 
+
+We define a discrete global integral operator, denoted by ⟨·⟩ D . While angled brackets are often used in computer science to denote expectation, here they represent the sum of all grid cells weighted by their surface area over the Earth domain D. We adapt the integrals from Sha et al. [28] into the following discrete form: 
+
+⟨X⟩D = X
+
+> i,j ∈D
+
+Ai,j Xi,j .
+
+where Xi,j is the value of the physical field at grid cell (i, j ), and Ai,j ensures each cell contributes proportionally to its surface area. For vertical integration across N +1 discrete pressure levels {pn}Nn=0 , the effective pressure thickness 
+
+∆p∗ 
+
+> n
+
+used in the trapezoidal integration scheme is defined as: 
+
+∆p∗ 
+
+> n
+
+= max (0 , min( pn+1 , p s) − min( pn, p s)) 
+
+This ensures layers entirely above the surface are counted fully, while levels extending below the surface ( pn ≥ ps) are assigned zero thickness, preventing the calculation of non-existing atmospheric mass. Column-integrated quantities are then computed as: 
+
+Z ps
+
+> 0
+
+X(p) dp ≈ X0p0 + 
+
+> N−1
+
+X
+
+> n=0
+
+Xn + Xn+1 
+
+2 ∆p∗ 
+
+> n
+
++ XN max(0 , p s − pN )
+
+Here, the first term accounts for the mass of air from the top of the atmosphere (0 hPa) down to the lowest available pressure level p0. The summation handles the interior layers via trapezoidal averaging. The final term extrapolates the lowest model level field XN down to the surface in regions where the surface pressure exceeds the lowest available pressure level. 
+
+A Note on the Hydrostatic Assumption in Mass Integration The derivation of total atmospheric mass via ps/g uses the hydrostatic approximation ( ∂p/∂z = −ρg ). If an MLWP model exhibits severe physical drift and violates the hydrostatic balance, surface pressure will no longer represent the gravitational weight of the air column above. In such cases the dry air mass metric may reflect both actual mass loss and the breakdown of the hydrostatic assumption. 15 A.4 Area-Weighted Error Metrics 
+
+To evaluate spatial fields on a spherical grid, point-wise errors must be scaled by the grid-cell surface area Ai,j . For a given residual field Ri,j evaluated over a specific domain Dvalid , the area-weighted RMSE is formulated as: RMSE =
+
+vuutP 
+
+> (i,j )∈D valid
+
+Ai,j R2
+
+> i,j
+
+P 
+
+> (i,j )∈D valid
+
+Ai,j 
+
+Geostrophic Imbalance: The residual Ri,j is the vector difference between the predicted horizontal wind (u, v ) and the derived geostrophic wind (ug , v g ), defined as Ri,j = p(u − ug )2 + ( v − vg )2.The valid domain Dvalid explicitly excludes the equatorial region ( |ϕ| < 10 ◦) and the poles ( |ϕ| ≥ 
+
+89 .9◦). 
+
+Hydrostatic Imbalance: The residual is the absolute error of the hypsometric equation, Ri,j = ϵh,evaluated globally over all grid cells. 
+
+A.5 Virtual Temperature Calculation 
+
+For hydrostatic balance evaluations, the density effect of moisture is accounted for via the mean virtual temperature Tv of the layer. Virtual temperature is the temperature at which a theoretical dry air parcel would have a total pressure and density equal to the moist parcel of air: 
+
+Tv = T (1 + 0 .6078 q)
+
+where q is the specific humidity, and the coefficient 0.6078 approximates (Rv /R d − 1) , correcting for the density difference between moist and dry air. 
+
+Missing Variable Fallback: Because models exhibit varying degrees of available output, specific humidity ( q) is not always available in WeatherBench 2 (e.g., FuXi). For these models, we evaluate the hydrostatic balance using the available air temperature ( Tv ≈ T ). To ensure a fair comparison, we apply this exact same approximation ( Tv ≈ T ) to the reference dataset when calculating its baseline residual. While this ignores the small density effects of atmospheric moisture, it allows for a first evaluation of models not providing specific humidity (see Appendix C.6 for an ablation study justifying this approximation). 
+
+A.6 Computing the Mean Lapse Rate Wasserstein Distance 
+
+In Section 3.3, we evaluate thermodynamic stability by comparing the distributions of the atmospheric lapse rate ( Γ) across different climate zones. To do this, we calculate the 1-Wasserstein distance ( W1)between the predicted and reference lapse rate distributions. Since the atmospheric data is evaluated on a spherical latitude-longitude grid, the physical size of the grid cells shrinks toward the poles. To ensure accurate representation, we use the true physical surface area of each grid cell ( Ai,j ) as a weight when calculating the regional distributions. Atmospheric stability varies across climate zones, meaning their underlying lapse rate distributions are different. To prevent distinct regional errors from canceling out in a single global distribution, the area-weighted 1-Wasserstein distance is calculated independently for three distinct regions: the Northern Hemisphere mid-latitudes ( 30 ◦N to 60 ◦N ), the Tropics ( 30 ◦S to 30 ◦N ), and the Southern Hemisphere mid-latitudes ( 60 ◦S to 30 ◦S). Finally, the Mean Lapse Rate Wasserstein (W 1) is the simple average of these three regional distances. 16 B Appendix B: Nomenclature and Metric Summaries 
+
+B.1 Physical Constants and Variables Table 2: Nomenclature of physical constants, variables, and symbols used in PhysMetrics.Weather. 
+
+Symbol Description (Value) Units 
+
+Physical Constants 
+
+g Gravitational acceleration ( 9.80665 ) m s −2
+
+RE Earth radius ( 6.371 × 10 6) m
+
+cpd Specific heat capacity of dry air ( 1004 .64 ) J kg −1 K−1
+
+cpv Specific heat capacity of water vapor ( 1810 .0) J kg −1 K−1
+
+Lv Latent heat of vaporization ( 2.501 × 10 6) J kg −1
+
+Rd Gas constant for dry air ( 287 .05 ) J kg −1 K−1
+
+Rv Gas constant for water vapor ( 461 .5) J kg −1 K−1
+
+Γstd Standard lapse rate ( 0.0065 ) K m −1
+
+Ω Earth angular velocity ( 7.2921 × 10 −5) rad s −1
+
+Grid and Domain 
+
+λ, ϕ Longitude and Latitude rad 
+
+∆λ Longitudinal grid spacing rad 
+
+Ai,j Grid-cell area m2
+
+D Global Earth domain -
+
+L Set of vertical pressure levels -
+
+p Pressure Pa 
+
+ps Surface pressure Pa 
+
+∆p∗ Effective pressure layer thickness Pa 
+
+t0 Current state time h
+
+∆t Time step h
+
+T Prediction time period h
+
+Atmospheric State Variables 
+
+u, v Zonal and Meridional wind components m s −1
+
+ug , v g Geostrophic wind components m s −1
+
+T Temperature K
+
+Tv Virtual temperature K
+
+Φ Geopotential m2 s−2
+
+q Specific humidity kg kg −1
+
+Γ Environmental lapse rate K km −1
+
+TCWV Total column water vapor kg m −2
+
+cp Specific heat capacity of moist air J kg −1 K−1
+
+Metrics and Spectral Analysis 
+
+Md, M w Global dry air mass and water mass kg 
+
+E Global total energy J
+
+δd, δ w, δ E Relative and anomalous drift rates % day −1
+
+ϵh Hydrostatic residual m2 s−2
+
+k, m Total and Zonal wavenumbers -
+
+ˆu, ˆv Spectral coefficients of wind -
+
+E(k) Kinetic energy spectrum m2 s−2
+
+R(k) Spectral energy ratio -
+
+P (k) Normalized spectral distribution -
+
+Lef f Effective resolution m
+
+f Coriolis parameter s−1
+
+W 1 Mean Lapse Rate Wasserstein -17 B.2 Summary of Evaluated Metrics Table 3: Summary of physical consistency metrics evaluated in this framework. 
+
+Category Metric What it Measures Conservation & Variability 
+
+Dry Air Mass Drift ( δd) Global dry air mass drift over time; detects unphysical sources or sinks of atmospheric matter. Anomaly Water Drift ( δw) Deviation of the model’s total water mass trend from the reference data; detects sys-tematic over-moistening or over-drying. Anomaly Energy Drift ( δE ) Discrepancy in the model’s total energy trend compared to the reference data; de-tects unphysical energy sinks or sources. 
+
+Structural (Spectral) 
+
+Effective Resolution ( Lef f ) The physical scale at which the model loses significant kinetic energy; quantifies forecast blurring. Spectral Divergence ( W1(Pref , P pred )) 1-Wasserstein distance of the kinetic en-ergy spectrum; summarizes how much the model spectrum deviates from the refer-ence spectrum across spatial scales. Spectral Residual (SpecRes) Logarithmic RMSE of the energy spec-trum; evaluates absolute magnitude of er-rors equally across low and high frequen-cies. 
+
+Dynamical Balance 
+
+Hydrostatic RMSE (RMSE h) Residual of the hydrostatic balance; mea-sures vertical physical consistency be-tween the mass (geopotential) and temper-ature. Geostrophic RMSE (RMSE g ) Residual of geostrophic balance; measures horizontal consistency between the mo-mentum (wind) and mass (geopotential). Mean Lapse Rate Wasserstein ( W 1) Measures the capability to reproduce real-istic distributions of atmospheric temper-ature lapse rates across different regions; evaluates vertical thermodynamic stability. 
+
+## C Appendix C: Extended Results and Ablation Studies 
+
+C.1 PhysMetrics.Weather with IFS as reference dataset C.1.1 Conservation 
+
+The time series presented in Figure 6 show that dry air mass, water mass, and total energy drift remain consistent with those derived using the ERA5 baseline (Figure 2). While the summary metrics exhibit minor deviations, these differences primarily occur at a 12-h lead time. These short-term discrepancies are expected: because the drift metric calculates a linear trend over the forecast period, a short 12-h window is highly sensitive to the small differences in the initial atmospheric states between the ERA5 and IFS HRES datasets. Over extended lead times (e.g., 240 hours), the long-term trend dominates. This minimizes the impact of the initial dataset differences, yielding consistent overall drift rates regardless of which reference baseline is used. 18 Figure 6: Global budgets and time series for the conservation metrics over a 240-hour forecast period with an IFS HRES analysis as reference data. Top: Summary of conservation metrics. 
+
+Bottom left: Relative Dry Mass drift. Bottom middle: Anomaly Water Mass drift. Bottom right: 
+
+Anomaly Total Energy drift. Constrained models like NeuralGCM maintain stable budgets over extended forecast periods, while MLWP models (e.g., GraphCast, Pangu-Weather) show divergence. Shading in time series indicates ±1 standard deviation over 2020. 
+
+C.1.2 Energy Spectra 
+
+Figure 7 demonstrates that the IFS HRES analysis baseline includes more fine-scale KE than the ERA5 reanalysis. Evaluated against this new baseline, the IFS HRES operational forecasts align with the reference spectrum, eliminating the fine-scale "energy creation" artifact previously observed in Figure 3. This structural alignment is confirmed by the improved spectral residual (SpecRes) and 
+
+spectral divergence (SpecDiv) scores for the HRES model. The MLWP models perform worse on spectral metrics when evaluated against the HRES baseline. Because these data-driven models are trained to replicate ERA5, they naturally reproduce the smoother energy spectrum of their training data. For instance, GraphCast now yields a higher SpecRes than FuXi because it cannot replicate the higher levels of fine-scale energy inherent to the operational HRES dataset. Despite these differences in absolute metric scores caused by switching the reference dataset, the overarching conclusion remains the same: MLWP models progressively lose effective resolution over extended forecast periods. 
+
+C.1.3 Dynamical Balance 
+
+Figure 8 evaluates dynamical and thermodynamic equilibrium against the IFS HRES analysis. While the time series follow the same general trends as the ERA5 evaluation (Figure 4), the absolute magnitudes of the residuals shift uniformly. Because the reference dataset has changed, the excess hydrostatic imbalance and excess geostrophic imbalance show constant vertical offsets relative to the ERA5 results. However, this simply reflects the structural differences between the two reference baselines and does not alter the underlying conclusions regarding how the models perform over time. The mean lapse rate Wasserstein is also sensitive to the choice of reference data. HRES and GraphCast achieve improved thermodynamic stability scores when evaluated against the HRES baseline, whereas Pangu-Weather’s performance degrades. FuXi initially demonstrates worse stability but converges to values comparable to its ERA5 evaluation by the 240-h lead time. Despite these numerical shifts in the Wasserstein distances, the overall shape, peak, and width of the lapse rate distributions (Figure 8d) strongly resemble the analysis using the ERA5 reference, confirming that the models’ broad thermodynamic characteristics remain fundamentally the same. 19 Figure 7: KE spectra at 500 hPa with an IFS HRES analysis as reference. Top: Summary of spectral metrics. Bottom: Kinetic energy spectra at 12-h, 120-h, and 240-h lead times, respectively. Native resolutions: 0.25° (111.5 km), except NeuralGCM (0.7°, 315.2 km). Over extended forecasting periods, purely data-driven MLWP models exhibit spatial smoothing (loss of fine-scale energy) or artificial noise, whereas differentiable hybrid architectures preserve a realistic energy cascade. 
+
+Figure 8: Adherence to geostrophic wind balance, hydrostatic equilibrium and realistic at-mospheric stability over a 240-hour horizon with an IFS HRES analysis as reference. Top: 
+
+Summary of dynamical balance metrics. Bottom left: Excess Geostrophic Imbalance. Bottom middle: Excess Hydrostatic Imbalance. Bottom right: Lapse rate distributions across different regions at 240-h lead time. Shading in time series indicates ±1 standard deviation over 2020. 
+
+C.2 Sensitivity of Effective Resolution Parameters 
+
+Figure 9 illustrates the sensitivity of the effective resolution of the 500 hPa KE spectrum to the chosen energy retention threshold at 12-hour, 120-hour, and 240-hour forecast lead times using ERA5 as reference. We evaluate thresholds of 0.3, 0.5, 0.7, and 0.9 to justify our threshold choice. A threshold of 0.9 disproportionately penalizes minor spectral deviations. Under this threshold, the effective resolution of NeuralGCM rapidly degrades to 2501.9 km, making it appear worse than purely data-driven MLWP models like Pangu-Weather, despite NeuralGCM’s established capacity to resolve fine-scale dynamics. While lowering the threshold to 0.7 corrects this relative ranking between NeuralGCM and Pangu-Weather, it remains overly sensitive to localized spectral noise; for example, it assigns FuXi an effective resolution of over 6000 km. In contrast, a 0.3 threshold is too lenient. It makes it difficult to tell the models apart, as it fails to clearly show which models are smoothing out fine details as the lead time increases. Therefore, we select 0.5 as the default threshold for PhysMetrics.Weather. This value provides a balanced diagnostic: 20 it is strict enough to clearly capture the decay of fine-scale variance in deterministic MLWP models, yet resilient enough to prevent minor spectral fluctuations from disproportionately skewing the metric. 
+
+Figure 9: Sensitivity of effective resolution to energy retention thresholds with ERA5 reference. 
+
+The effective resolution ( Lef f , in km) of the 500 hPa KE spectrum for various models across 12-hour, 120-hour, and 240-hour lead times using retention thresholds of 0.3, 0.5, 0.7, and 0.9. Native resolutions: 0.25° (111.5 km), except NeuralGCM (0.7°, 315.2 km). Lower values indicate better retention of fine-scale physical features. A threshold of 0.5 is selected for the main evaluation as it optimally distinguishes the smoothing behaviors of MLWP models without over-penalizing minor spectral variations. Figure 10 evaluates the metric’s sensitivity to the consecutive wavenumber requirement ( n), keeping the threshold fixed at 0.5 and using ERA5 as reference dataset. As shown, the effective resolution is robust to the choice of n. The evaluated models yield nearly identical resolutions regardless of the consecutive point requirement, with only a minor deviation observed for GraphCast at the 120-hour lead time (976.3 km for n = 1 versus 930.9 km for n > 1). This confirms that the effective resolution is generally insensitive to this hyperparameter. Therefore, we keep n = 5 as a default. 
+
+Figure 10: Sensitivity of effective resolution to the consecutive wavenumber requirement with ERA5 reference. Evaluated using a fixed retention threshold of 0.5. Native resolutions: 0.25° (111.5 km), except NeuralGCM (0.7°, 315.2 km). The metric demonstrates robustness. 
+
+C.3 850 hPa KE and q spectral analysis C.3.1 850 hPa KE spectrum 
+
+Figure 11 presents the KE spectral analysis evaluated at 850 hPa, complementing the 500 hPa analysis presented in the main text. At this lower altitude, the KE distribution features a lower secondary peak near the 10,000 km scale and a less smooth distribution of energy across spatial scales compared to the mid-troposphere, reflecting the increased influence of surface friction. The models reproduce these fine-scale variations relatively well. The effective resolution improves for Pangu-Weather and GraphCast at 850 hPa compared to 500 hPa. FuXi initially shows higher resolution at short lead times but degrades below its 500 hPa performance by the 240-hour mark. This apparent initial increase in resolution may be partially 21 attributed to the metric’s design, which requires the retention threshold to be violated for five consecutive wavenumbers. Furthermore, while all models achieve a lower (improved) spectral residual at 850 hPa, their spectral divergence generally gets worse, with the exception of the HRES analysis. This indicates that while the absolute errors decrease across the spectrum, the shape of the energy distribution diverges more significantly from the ERA5 reference. 
+
+Figure 11: KE spectra at 850 hPa with ERA5 reference. Top Evaluative summary of spectral metrics. Bottom KE spectra at 12-h, 120-h, and 240-h lead times, respectively. Native resolutions: 0.25° (111.5 km), except NeuralGCM (0.7°, 315.2 km). While all models match the ERA5 reference at short lead times, extended forecasting periods reveal spatial smoothing (loss of fine-scale energy) in deterministic MLWP models. In contrast, differentiable hybrid architectures preserve the energy cascade. 
+
+C.3.2 q spectrum analysis 
+
+Figure 12 shows the specific humidity ( q) spectrum. The spectral power of the humidity distribution is several orders of magnitude lower (ranging from 10 −12 to 10 −7) compared to KE (ranging from 10 −4
+
+to 10 1). Additionally, the reference humidity spectrum exhibits an uneven distribution of variance across spatial scales, lacking the smoother power-law shape seen in the KE spectrum. When comparing these results to the 500 hPa KE analysis, the summary metrics reveal distinct changes in model behavior. Unlike its stable results across previous physical metrics, NeuralGCM exhibits a lower effective resolution for humidity than it did for KE. Similarly, GraphCast retains less fine-scale variance for humidity compared to its KE performance, whereas Pangu-Weather’s resolution actually improves. Regarding the spectral residual , both HRES and NeuralGCM achieve lower absolute errors across the humidity spectrum than they did for KE. However, the spectral divergence scores worsen for all data-driven models compared to their KE evaluations, indicating that their predicted humidity distributions deviate further from the ERA5 reference shape. Only the HRES analysis demonstrates a closer match to the reference distribution for humidity. This highlights the unique challenge MLWP models face in reproducing the highly variable, complex nature of atmospheric moisture. 
+
+C.4 RMSE correlation 
+
+To demonstrate that PhysMetrics.Weather captures a distinct dimension of model performance, we evaluate the relationship between standard predictive skill and our physical metrics. Figure 13 presents the coefficient of determination ( R2) and Spearman’s rank correlation ( ρ) between the standard gridbox-weighted RMSE and the PhysMetrics.Weather metrics across the daily predictions for the year 2020. The consistently low R2 and ρ values reveal a weak correlation between a model’s point-wise error and its physical fidelity. This confirms that PhysMetrics.Weather introduces independent diagnostics rather than acting as a proxy for standard RMSE. 22 Figure 12: KE spectra at the 500 hPa Q spectrum with ERA5 reference. Top Evaluative summary of spectral metrics. Bottom Q spectra at 12-h, 120-h, and 240-h lead times, respectively. Native resolutions: 0.25° (111.5 km), except NeuralGCM (0.7°, 315.2 km). While all models match the ERA5 reference at short lead times, extended forecasting periods reveal spatial smoothing (loss of fine-scale energy) in deterministic MLWP models. In contrast, differentiable hybrid architectures preserve the energy cascade. 
+
+Figure 13: Coefficient of determination ( R2) and Spearman’s rank correlation ( ρ) between standard predictive error (RMSE) and physical consistency metrics. The correlations are computed using the daily predictions of Pangu-Weather over the year 2020. Results are shown for 12-h, 120-h, and 240-h forecast lead times, comparing the physical metrics against the standard RMSE for Geopotential at 500 hPa (Z500) and Temperature at 850 hPa (T850). 
+
+C.5 Ablation: Different surface pressure derivations 
+
+Figure 14 presents an ablation study evaluating the different surface pressure ( ps) derivation strategies applied to the IFS HRES model. For computational efficiency, the IFS HRES analysis is used as the reference baseline. We observe that relying on the U.S. Standard Atmosphere temperature profile introduces a visible diurnal cycle into the dry air mass time series. While this fluctuation noticeably impacts the relative drift at the 12-hour lead time, the metric averages out these variations over extended time periods, ultimately yielding a drift comparable to that of the native ps. In contrast, substituting with the 23 reference ps induces a slight diurnal cycle in the opposite direction (reducing the relative change); however, this approach also remains similar to the directly available ps.Importantly, the anomaly drift for both global water mass and total energy is largely insensitive to the choice of surface pressure derivation. This stability is expected: for these quantities, ps primarily serves as the lower boundary condition for the vertical column integration, masking out pressure levels below the Earth’s surface. In contrast, the global dry air mass calculation relies directly on ps
+
+to derive total atmospheric mass, making it more sensitive to short-term boundary fluctuations. Overall, the long-term conservation metrics remain robust across all evaluated derivation methods. Consequently, we deem the standard atmosphere derivation strategy a safe and valid substitute when native surface pressure is unavailable. 
+
+Figure 14: Ablation study of global mass and energy conservation metrics using different surface pressure derivation strategies over a 240-hour forecast period. An evaluation on IFS HRES using the IFS HRES analysis as reference dataset. Top: Summary of conservation metrics comparing the derivations. Bottom: Time series showing the relative and anomaly drifts. Using the derivation strategies yields long-term results highly similar to using the native surface pressure. Shading in time series indicates the ±1 standard deviation over 2020. 
+
+C.6 Ablation: Virtual temperature vs. dry temperature 
+
+In our balance analysis, we approximate virtual temperature with dry temperature ( T ) for FuXi, rather than using the standard formulation Tv = T (1 + 0 .6078 q). To verify that this approximation does not significantly change the evaluation, we conduct an ablation study on all other evaluated models using the IFS HRES analysis as a reference dataset. When comparing the standard virtual temperature against the ablated dry temperature formulation, we observe that the results diverge by approximately 
+
+±3 m2/s 2 across all models. Time-series analysis reveals that this difference is primarily driven by the virtual temperature being more sensitive to diurnal cycles than the dry temperature. Notably, the values in the time-series plot are nearly identical every 24 hours. Given these cyclical alignments and the relatively small magnitude of the overall divergence (up to ±3), we consider the use of dry temperature for FuXi to be a justified approximation within our framework 
+
+## D Appendix D: Broader Context and Resources 
+
+D.1 Computational Costs 
+
+All evaluations were performed on an anonymous high-performance computing cluster. For each experimental run, we used a single CPU node equipped with an AMD EPYC 7F32 (Rome) 3.7 GHz processor, specifically allocating 16 cores and 64 GB of RAM. Exact execution times for processing the 2020 dataset are detailed in Table 4. 24 Figure 15: Ablation study of hydrostatic balance using dry versus virtual temperature over a 240-hour forecast period. An evaluation of IFS HRES, Pangu, GraphCast, and NeuralGCM using the IFS HRES analysis as the reference dataset. Left: Summary of the hydrostatic balance metrics comparing virtual ( Tv ) and dry ( T ) temperature. Right: Time series showing the hydrostatic balance residuals. Using dry temperature yields results highly similar to virtual temperature, with minor divergences primarily driven by diurnal cycles. Shading in time series indicates the ±1 standard deviation over 2020. 
+
+Table 4: Execution times required for calculating each model’s physical consistency metrics over the 2020 dataset. Because evaluations were performed against two different reference datasets (ERA5 in the main text and IFS HRES analysis in Appendix C.1), processing times are reported separately for each comparison pipeline. 
+
+Model Execution Time vs. ERA5 vs. IFS HRES 
+
+Pangu-Weather 515m 16s 480m 18s 
+
+GraphCast 906m 17s 1166m 21s 
+
+FuXi 1301m 33s 1177m 18s 
+
+NeuralGCM 303m 29s 304m 25s 
+
+IFS HRES 511m 38s 466m 10s 
+
+D.2 Societal Impacts 
+
+PhysMetrics.Weather provides a framework to evaluate the physical consistency of efficient MLWP models. Positively, this can help build operational trust, guide task-specific model selection, and help with safe MLWP adoption for downstream applications, such as extreme weather early warnings and climate risk assessments. However, interpreting these results can come with risks. Because PhysMetrics.Weather focuses on global dynamics (constrained by current data availability), it does not assess all atmospheric variables or microphysical laws. High performance on our framework does not guarantee absolute physical consistency or no hallucinations. Relying solely on these metrics risks creating a false sense of security regarding a model’s operational readiness. To mitigate this, PhysMetrics.Weather must be used alongside traditional meteorological validations and expert human oversight. 
+
+D.3 Data and Code Availability Code: The code for the PhysMetrics.Weather framework, including all preprocessing, integration, and evaluation scripts, is available at GitHub under the MIT License. 
+
+Datasets and Models: This work relies on publicly available datasets and model weights provided by the WeatherBench 2 archive [ 16 ]. The WeatherBench 2 data is distributed under the Apache License 2.0. The underlying ERA5 reanalysis data [ 8] is provided by the Copernicus Climate Change Service (C3S) and is subject to the Copernicus license terms. 25

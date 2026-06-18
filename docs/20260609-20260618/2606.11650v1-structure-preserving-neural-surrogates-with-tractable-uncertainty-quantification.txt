@@ -1,0 +1,2139 @@
+Title: Structure-Preserving Neural Surrogates with Tractable Uncertainty Quantification
+
+URL Source: https://arxiv.org/pdf/2606.11650v1
+
+Published Time: Thu, 11 Jun 2026 00:37:51 GMT
+
+Number of Pages: 32
+
+Markdown Content:
+STRUCTURE-PRESERVING NEURAL SURROGATES WITH TRACTABLE UNCERTAINTY QUANTIFICATION ∗
+
+HANDI ZHANG † , ADRIENNE M. PROPP ‡ , BROOKS KINCH § , HOUMAN OWHADI ¶, 
+
+> AND
+
+NATHANIEL TRASK ∥
+
+Abstract. Recent advances in scientific machine learning provide a means of near-real-time so-lution to partial differential equations (PDEs), but lack the theoretical underpinnings of conventional simulators that support contemporary verification and validation. In this work, we construct data-driven reduced-order models that serve as structure-preserving, real-time surrogates. Remarkably, the exterior calculus that imposes physical conservation structure also exposes topological structure that we use to build a Gaussian process (GP) representation of uncertainty in state-flux relationships, ultimately yielding a Dirichlet-to-Neumann map for quantities of interest with closed-form expres-sions for posterior uncertainty. We specifically propose structure-preserving H(div)– L2 subspaces of conventional Raviart–Thomas and dgP 0 elements prescribed by a lightweight transformer. Reduced-order dynamics consistent with this subspace are learned by posing a conservation law in which a GP describes the fluxes between volumes. This work hinges on a novel interface between mixed FEM spaces and GP regression; when training is posed as the optimal recovery problem (ORP), the resulting GP regression can be written as an optimization problem with equality constraints that impose a conservation structure, amenable to a fast Schur-complement training strategy. The trained model can then be solved in real time with closed-form estimators for boundary fluxes driven by prescribed Dirichlet data. The paper includes RKHS posterior error bounds for linear functionals to support uncertainty quantification, as well as numerical experiments demonstrating the accuracy of the posterior distribution as a surrogate for error estimation. 
+
+Key words. Scientific machine learning, Whitney forms, finite element exterior calculus, optimal recovery, uncertainty quantification 
+
+MSC codes. 65N30, 81Q30, 68T07, 60G15, 90C70 
+
+1. Problem overview and relation to the literature. Neural operators and other machine learning surrogates are emerging as practical alternatives to classical simulation due to their computational efficiency and ability to generalize across prob-lem instances. However, the black-box nature of these methods remains a major im-pediment to adoption in scientific and engineering applications and creates challenges for uncertainty quantification (UQ), where errors can propagate through the learned solution operator and further affect downstream predictions without clear traceabil-ity [2, 28]. Moreover, for systems governed by partial differential equations (PDEs), the learned surrogate models should also respect underlying physical constraints, such as conservation laws and initial and boundary conditions. Motivated by this gap, we propose a surrogate framework for PDE-governed sys-
+
+> ∗
+
+Funding: This material is based upon work supported by the U.S. Department of Energy, Office of Science, Office of Advanced Scientific Computing Research, under award numbers DE-SC0024563 and DE-SC0023163. 
+
+> †
+
+Applied Mathematics and Computational Science, University of Pennsylvania, Philadelphia, PA, USA (handi@sas.upenn.edu). 
+
+> ‡
+
+Institute for Computational and Mathematical Engineering, Stanford University, Stanford, CA, USA (propp@stanford.edu). 
+
+> §
+
+Mechanical Engineering and Applied Mechanics, University of Pennsylvania, Philadelphia, PA, USA (kinch@seas.upenn.edu). 
+
+> ¶
+
+Department of Computing and Mathematical Sciences, California Institute of Technology, Pasadena, CA, USA (owhadi@caltech.edu). 
+
+> ∥
+
+Mechanical Engineering and Applied Mechanics, University of Pennsylvania, Philadelphia, PA, USA (ntrask@seas.upenn.edu). 1
+
+> arXiv:2606.11650v1 [cs.LG] 10 Jun 2026
+
+2 ZHANG ET AL. 
+
+tems that supports fast simulation while providing tractable posterior uncertainty. Consider the following abstract problem, which we later elaborate in Section 4. Let 
+
+u ∈ Q be a field on Ω ⊂ Rd (naturally, Q ⊂ L2(Ω)), assumed to satisfy an unknown conservation law ∇ · F (u) = f , where F ∈ V is a given flux function (naturally, 
+
+V ⊂ H(div; Ω)). We assume access to data consisting of sampled state and flux fields 
+
+u and F . Additionally, we allow for parametric dependence on a conditioning variable 
+
+Z, which may represent constitutive relationships, geometry, or other factors, yielding the training set 
+
+DN =
+
+n 
+
+z(n), u (n)data , F (n)data 
+
+o Nn=1 
+
+.
+
+Our goal is to identify a functional form for F that is consistent with the available data, supports tractable posterior estimation, and generalizes to boundary data not seen during training. This learning problem must be posed in an appropriate discrete setting so that the resulting surrogate preserves the structure of the underlying PDE. We assume that the flux can be decomposed in the form (1.1) F = −ϵ∇u + N [u], ∇ · F = f, 
+
+consisting of a diffusion term with ϵ > 0 for numerical stability and a nonlinear correction N that identifies a state-to-flux map from data. In previous work we demonstrated how neural operators can serve as N [21]; here we instead treat N
+
+as a Gaussian process (GP). Classical GPs are most tractable in small-data, low-dimensional settings, and a primary contribution of this work is that the reduced graph representation developed below brings the otherwise infinite-dimensional state-to-flux learning problem into precisely such a regime. 
+
+Fig. 1: Roadmap to structure-preserving surrogates with quantified uncer-tainty. The transformer learns H(div)-conforming bases and constructs a conser-vative coarse graph adapted to the conditioning Z (Boxes 1○- 3 ○). The graph edges carry GP models of the state-to-flux laws while conservation is imposed as an exact divergence constraint ( Box 4○) and the resulting reduced model serves as a Dirichlet-to-Neumann surrogate with posterior error estimates for boundary fluxes ( Box 5○). The proposed method separates the learning task into two parts: a data-driven model mapping the fine-scale space to a coarse-scale space ( P1 ), and a stochastic STRUCTURE-PRESERVING NEURAL SURROGATES WITH TRACTABLE UQ 3model for flux correction that supports uncertainty quantification ( P2 ). Because the full construction is technical, we first summarize the salient features of each. 
+
+H(grad ) H(curl ) H(div ) L2
+
+Λ0 Λ1 Λ2 Λ3
+
+V ch Qch
+
+d d d
+
+∇ ∇× ∇· 
+
+∇· 
+
+rV rQ 
+
+> H(div)– L2subcomplex
+
+Fig. 2: Construction of H(div) -conforming reduced subspace. We design a transformer that outputs a subspace of the de Rham complex appropriate for strongly imposing conservation laws. While previous work builds “bottom-up” dual Λ 0/Λ1
+
+reduced subcomplexes [3], this work provides a “top-down” primal subcomplex on Λd/Λd−1. A transformer prescribes the restriction map rQ conditioned on Z, and we provide a compatible construction of rV that defines coarsened RT 0 − dgP 0 subspaces which preserve surjectivity of the divergence. In P1 , we work with low-order Whitney forms [4] that provide conforming finite element spaces encoding the topological and cohomological properties tied to con-servation structure. Here the Raviart–Thomas and discontinuous-piecewise-constant (RT 0/dgP 0) pair is naturally conforming, with RT 0 ⊂ H(div; Ω) and dgP 0 ⊂ L2(Ω), and has the surjectivity property ∇· : RT 0 → dgP 0. Because this space interpo-lates cell-based scalar degrees of freedom and facet-based flux degrees of freedom, it provides a discrete divergence theorem, allowing the discrete div/grad matrices to be interpreted as adjacency matrices between cells and facets. This dual interpreta-tion of div/grad is the crucial ingredient for Bayesian analysis on fields: in previous work [29, 30] we showed how to use optimal recovery to learn circuit models with tractable posteriors, and this linkage lets us extend the analysis to finite element fields. The goal is to identify reduced-order spaces Qch(z; θ) ⊂ Qfh and V ch (z; θ) ⊂ V fh ,where the superscripts ·f and ·c denote fine and coarse spaces and the subscript ·h
+
+denotes discretization. To preserve exterior calculus structure in the reduced space, we require a construction in which the restrictions rQ : Qfh → Qch and rV : V fh → V ch
+
+commute with the divergence operator, so that ∇ · V ch ⊆ Qch. To achieve this, we first design a transformer that evaluates rQ by outputting a coarsening matrix W ,so that Qch = span {P 
+
+> a
+
+Wia χa}i, where the χa are the indicator functions over the cells spanning Qfh. We then design V ch by identifying coarsened degrees of freedom associated with coarse facets shared between coarse cells. This novel construction represents a “top-down” coarsening of the (Λ d/Λd−1) subcomplex, in contrast to the “bottom-up” coarsening of (Λ 0/Λ1) developed previously [3]. P1 therefore produces a reduced H(div)-conforming finite element space that can be conditioned on Z.In P2 , we pose the discrete representation of the physics as an optimal recovery problem [29]. We identify F ∈ V ch and u ∈ Qch by their basis coefficients bF and bu,4 ZHANG ET AL. 
+
+where each coarse flux degree of freedom ˆFij is associated with the coarse oriented boundary shared by the coarse cells ˆ ui and ˆ uj in the graph induced by P1 . We model the nonlinearity edgewise by a Gaussian process, N = GP (uij ), where uij 
+
+concatenates the states ˆ ui, ˆuj with the additional metric features needed to generalize the flux law across the mesh. In traditional GP regression, the posterior distribution is derived from the joint normal distribution via a Schur complement. Its mean may equivalently be obtained by solving the optimal recovery problem: given a kernel K with reproducing kernel Hilbert space (RKHS) HK and N noisy data pairs ( X, Y) = {(xi, y i)}Ni=1 with noise variance σ2 
+
+> ε
+
+, the minimizer of the RKHS norm penalized by data misfit (1.2) ˆf = arg min  
+
+> f∈H K
+
+∥f ∥2 
+
+> HK
+
++ 1
+
+σ2
+
+> εN
+
+X
+
+> i=1
+
+ f (xi) − yi
+
+2,
+
+recovers the conventional GP estimator ˆf (·) = K(·, X) K(X, X) + σ2 
+
+> ε
+
+I−1Y.Recasting the conventional GP problem in this manner allows us to incorporate equality constraints directly. In the graph interpretation of P1 , fluxes over V ch are edge currents between nodes associated with states in Qch. On each edge we cast an optimal recovery problem mapping state to flux, subject to the equality constraint that the conservation law holds at each node. The connectivity of the coarse bases imposes sparsity on this dense graph through a metric weighting, and after training we are left with a discrete boundary value problem whose boundary fluxes are encoded by GPs. Because this is a constrained optimization problem, its KKT conditions expose a saddle-point structure that we exploit to derive a fast optimizer (Subsection 4.2). In concert, P1 and P2 amount to a graph discovery problem : by concurrently training the transformer and solving the optimal recovery problem, we interpret the identification of reduced div/grad finite element spaces as the identification of a dense graph, sparsified by the connectivity of the bases, that encodes the flow of conserved quantities through the system (Figure 1). While circuit analogies are commonplace in engineering (e.g., compact models for semiconductor devices [1, 13], hydraulic cir-cuits in hydrodynamics [34, 38], or thermal circuits for heat transfer [39]), they are typically built from simplified analytic solutions and empirical curve-fitting through a slow iterative process. In contrast, our approach can be carried out autonomously to obtain rapid, uncertainty-quantified surrogates that preserve a conservative in-put/output relationship. We demonstrate this by considering two representative ex-amples. Advection-diffusion on a triangular mesh of Philadelphia’s Liberty Bell serves to illustrate how real-time surrogates with quantified uncertainty can be constructed on complex geometries; in this setting, we condition on the direction of advection as an example of how to construct parametric models. We finally construct a digi-tal twin of a semiconductor device (specifically, a p − n diode). Training data can be constructed by TCAD simulations solving the device drift-diffusion equations [27], providing examples of internal device transport and how it defines the voltage-current relationship governing the device. This problem specifically shows how the UQ de-veloped here identifies the range of inputs over which the learned surrogate can be trustworthy. 
+
+1.1. Relation to literature. The construction above brings together three goals usually pursued separately: fast reduced-order simulation, exact enforcement of physical structure, and uncertainty quantification. We review each in turn. Classi-cal discretizations such as finite element methods yield accurate, verifiable predictions STRUCTURE-PRESERVING NEURAL SURROGATES WITH TRACTABLE UQ 5but at substantial cost, motivating a large body of scientific machine learning (SciML) that trades rigor for speed. Physics-informed neural networks (PINNs) embed the gov-erning PDEs in the training loss [20, 43]; neural operators such as DeepONet [24, 40] and Fourier neural operators [23] learn maps between function spaces; and data-driven reduced-order models (ROMs) accelerate parametric simulation by working in a low-dimensional subspace [14, 18, 19]. These surrogates can be fast, but typically forfeit the structural guarantees and error control of the solvers they replace. A related line of structure-preserving model-reduction methods addresses part of this gap by seeking reduced spaces that retain conservation, stability, passivity, or compatibility proper-ties of the full-order discretization [6, 10, 32]. Our construction is close in spirit to this line of work, but learns the compatible reduced H(div) −L2 complex from data rather than selecting it through a fixed projection, and couples it to a GP optimal-recovery formulation for posterior uncertainty. Enforcing physical structure reliably is the central difficulty, particularly under limited data and complex geometry. Most physics-informed approaches impose con-servation through soft penalties on the PDE residual or boundary conditions [11, 17]; these do not guarantee exact conservation, and the resulting violations can accumu-late, amplify errors, and destabilize training on stiff or multiscale problems [8, 22]. Structure-preserving methods instead build the constraints into the function spaces themselves. The mixed finite element theory underlying Raviart-Thomas and discon-tinuous Galerkin pairs provides the classical foundation for such H(div)-conforming flux approximations and compatible L2 scalar spaces; see, for example, [7]. Finite element exterior calculus (FEEC) provides a canonical framework for this approach, choosing spaces and operators that form a discrete de Rham complex and so inherit the topological identities underlying conservation [4, 5]. Data-driven exterior calcu-lus extends this to learned, graph-based operators while preserving exact-sequence compatibility [37]. Our coarsened RT 0/dgP 0 complex is designed to inherit these guarantees by construction. Finally, trustworthy surrogates require calibrated uncertainty estimates that can be propagated to downstream quantities of interest [2, 31, 41]. UQ for neural PDE surrogates is often pursued through ensembles, Bayesian neural networks, dropout, latent-variable models, or post-hoc calibration; these approaches can be effective but usually do not yield the closed-form functional posterior bounds available in GP/RKHS optimal recovery [36, 42]. Gaussian processes provide a natural alterna-tive because conditioning a GP prior on data yields a posterior mean and covariance in closed-form. The same estimator arises from the optimal recovery problem, which characterizes the minimum-norm RKHS interpolant of noisy data [12, 29, 30] and, as we exploit below, accommodates hard linear constraints. We build most directly on the graph-based optimal recovery of Dirichlet-to-Neumann maps in [30], extending it from fixed graphs to the learned, conditioned finite element complexes produced by 
+
+P1 .
+
+1.2. Main contributions. Figure 1 summarizes the resulting framework with structure preservation and uncertainty quantification. Our specific contributions are: 
+
+• a top-down coarsening of the (Λ d/Λd−1) subcomplex, in which a lightweight transformer emits a coarsening matrix W that defines a reduced, H(div)-conforming RT 0/dgP 0 pair conditioned on the problem parameters Z, in contrast to the bottom-up (Λ 0/Λ1) coarsening of [3]; 
+
+• a structure-preserving optimal recovery formulation in which an edgewise Gaussian process models the state-to-flux law and conservation is imposed 6 ZHANG ET AL. 
+
+exactly through linear equality constraints, yielding a saddle-point KKT sys-tem with a fast Schur-complement solve; 
+
+• a joint “graph discovery” training procedure that learns the reduced complex and the flux Gaussian process concurrently, producing a sparse circuit model of the conserved dynamics that generalizes across geometries and boundary data; 
+
+• a closed-form RKHS posterior error bound for linear functionals of the flux, in particular the boundary fluxes defining the Dirichlet-to-Neumann map, validated on complex geometries and semiconductor device equations. The remainder of the paper is organized as follows. Section 2 reviews the neces-sary mathematical background for the proposed framework. Subsection 2.1 reviews the finite element exterior calculus preliminaries for the H(div)– L2 mixed setting and Subsection 2.2 specifies the finite element space with conforming RT 0/dgP 0 discretiza-tions. Subsection 2.3 explains the optimal recovery problem for Gaussian processes. 
+
+Section 3 develops the first component ( P1 ) by introducing the data-driven PoU Whitney construction (Subsection 3.1) and the induced coarse operators (Subsec-tion 3.2) for structure preservation. We show that under this construction, properties such as surjectivity and flux balance still hold in the reduced space (Subsection 3.3). In addition, we provide a graph interpretation of the learned reduced spaces (Subsec-tion 3.4), which supports the subsequent optimal recovery formulation. Section 4 
+
+develops the second component ( P2 ). We cast the GP optimal recovery formulation on the coarse spaces subject to equality constraints that guarantee the exact enforce-ment of conservation laws (Subsection 4.1). In addition to a fast Schur-complement solve for the KKT system, we propose a bilevel training procedure for efficient training with nested coarse variables and models (Subsection 4.2) and incorporate geometric embedding (Subsection 4.3). We also provide the theoretical analysis for the RKHS posterior error bound in Subsection 4.4. Section 5 reports numerical experiments on representative examples, a complex-geometry advection-diffusion problem, and a semiconductor diode example to validate the proposed framework. 
+
+2. Mathematical preliminaries. In this section we gather the necessary back-ground in both finite element exterior calculus (FEEC) and the optimal recovery formalisms. For further background, please see [4, 5, 25] and [37]. 
+
+2.1. Finite element exterior calculus (FEEC). Exterior calculus general-izes classical calculus to differential forms of higher degree on differentiable manifolds and provides a robust mathematical framework for analyzing PDEs on different ge-ometries. Finite element exterior calculus extends the exterior calculus to discrete finite element meshes using chain complexes and preserves crucial topological and geometric structures underlying the governing PDEs [21, 37]. One advantage of FEEC is that it unifies the main differential operators, i.e., grad, div, and curl, with the de Rham complex. Let Λ(Ω) denote the exterior algebra with exterior product ∧ and Ω ⊂ Rd. We then have the de Rham complex: (2.1) 0 → Λ0(Ω) d0
+
+−→ Λ1(Ω) d1
+
+−→ · · · dk−1
+
+−−−→ Λk(Ω) → 0,
+
+where d : Λ k−1(Ω) → Λk(Ω) is the exterior derivative operator. For Ω ⊂ R3, the de Rham complex becomes: (2.2) 0 → C∞(Ω) grad 
+
+−−−→ [C∞(Ω)] 3 curl 
+
+−−→ [C∞(Ω)] 3 div 
+
+−−→ C∞(Ω) → 0.STRUCTURE-PRESERVING NEURAL SURROGATES WITH TRACTABLE UQ 7If we further consider Sobolev spaces with homogeneous Dirichlet boundary condi-tions, we can derive the FEEC specialization primal and dual cochain complex: (2.3) 0 −→ H0(grad , Ω) grad 
+
+−−−−⇀↽−−−−
+
+> −grad
+
+H0(curl , Ω) curl 
+
+−−−⇀↽−−−
+
+> curl
+
+H0(div , Ω) div 
+
+−−−⇀↽−−−
+
+> −div
+
+L2(Ω) −→ 0.
+
+In this work, instead of working on “bottom-up” subcomplexes, we work on the termi-nal map H(div , Ω) ∇· 
+
+−→ L2(Ω) because this is a natural algebraic mechanism through which flux balance is imposed. This is illustrated in the commuting diagram in Fig-ure 2. 
+
+2.2. H(div) space and lowest-order Raviart–Thomas element. Since one core objective of this work is to guarantee the flux conservation law, instead of working on the entire de Rham complex, we focus on its tail, i.e., H(div , Ω) div 
+
+−−→ L2(Ω). This segment of the complex supports flux conservation in a natural way through the mixed formulation of elliptic problems. To make this connection explicit, consider the general second-order elliptic equation in a bounded domain Ω ⊂ Rd:(2.4) −∇ ·  K(x)∇u = f in Ω ,
+
+where K(x) ∈ Rd×d is a symmetric and uniformly positive definite diffusion tensor. The boundary ∂Ω is decomposed into disjoint parts ∂Ω = Γ D ∪ ΓN on which Dirichlet and Neumann boundary conditions are defined, respectively. Then by introducing the flux variable F := −K(x)∇u, the problem can be rewritten as the first-order system: (2.5) 
+
+(
+
+K(x)−1F + ∇u = 0 ,
+
+∇ · F = f, in Ω .
+
+In this setting, the natural space for the flux variable is: (2.6) H(div , Ω) := v ∈ [L2(Ω)] d ∇ · v ∈ L2(Ω) .
+
+This space ensures that the divergence operator is well-defined in a weak sense and the normal components v ·n are well-defined on element interfaces, thus naturally making it the appropriate space for modeling local flux conservation. The corresponding mixed variational formulation is to find ( F, u ) ∈ H(div , Ω) × L2(Ω) such that 
+
+Z
+
+> Ω
+
+K(x)−1F · v dx −
+
+Z
+
+> Ω
+
+u (∇ · v) dx = −
+
+Z
+
+> ΓD
+
+uD (v · n) ds, ∀ v ∈ H(div , Ω) ,
+
+Z
+
+> Ω
+
+(∇ · F) q dx =
+
+Z
+
+> Ω
+
+f q dx, ∀ q ∈ L2(Ω) .
+
+(2.7) A conforming discretization of this mixed formulation requires a finite element flux space in H(div , Ω) and a compatible scalar space in L2(Ω). In this work, we consider the Raviart–Thomas (RT) elements for the flux variable and piecewise constants for the scalar variable. Let Th be a simplicial mesh of Ω ⊂ Rd. On each element K ∈ T h,the Raviart–Thomas space of order k ≥ 0 is defined by (2.8) RT k(K) := Pk(K)d + x Pk(K),
+
+where Pk(K) denotes the space of polynomials of degree at most k on K. The global Raviart–Thomas space is defined as (2.9) RT k(Th) := {v ∈ H(div , Ω) | v|K ∈ RT k(K), ∀K ∈ T h} ,8 ZHANG ET AL. 
+
+which enforces the continuity of normal components across element interfaces. For k = 0, the lowest–order Raviart–Thomas space on K is defined as (2.10) RT 0(K) = P0(K)d + x P 0(K).
+
+Equivalently, any v ∈ RT 0(K) can be written as v(x) = a + p x with constant vector 
+
+a ∈ Rd and constant scalar p ∈ R. The degrees of freedom of this lowest-order RT 0
+
+space are defined by the normal fluxes across element faces: (2.11) 
+
+Z
+
+> e
+
+(v · n) q ds, ∀e ⊂ ∂K. 
+
+Thus the degree of freedom admits a direct interpretation in terms of cochains. In particular, the RT space ensures that the discrete divergence operator is compatible with the underlying differential complex, and the (RT 0, P0) can form a meaningful discretization of the H(div)– L2 mixed formulation. Within the FEEC framework, this construction corresponds to the final part of the de Rham complex where the scalar field is associated with d-forms and the flux corresponds to ( d − 1)-forms. The gradient and divergence operators are unified through the exterior derivative and the codifferential. The resulting compatible structure provides the algebraic foundation for conservation and motivates the learnable coarse space construction below. 
+
+2.3. Optimal recovery problem for Gaussian processes. Gaussian pro-cesses provide a probabilistic model for unknown functions. Formally, a GP is a collection of random variables such that any finite collection has a joint Gaussian distribution. Equivalently, a GP can be viewed as a distribution over functions: each draw from the process is a possible function, and for any finite set of input locations, the corresponding vector of function values is multivariate Gaussian. This makes GPs particularly useful in settings where the uncertainty quantification is important, since conditioning on observed data yields both a posterior mean prediction and a posterior covariance that quantifies uncertainty at new inputs. Given data D = ( X, Y) with X = [ x1, . . . , xN ]⊤ and corresponding output Y =[y1, . . . , y N ]⊤ generated by an underlying function yi = f (xi), a GP prior on f is fully specified by its mean function m(x) and covariance kernel K(x, x ′): 
+
+m(x) = E[f (x)] (2.12) 
+
+K(x, x′) = E[( f (x) − m(x))( f (x′) − m(x′))] (2.13) 
+
+f (x) ∼ GP (m(x), K (x, x′)) (2.14) In the noise-free scenario, for test inputs X∗ = ( x∗
+
+> 1
+
+, . . . , x∗ 
+
+> N∗
+
+)T , the joint distribution of the observed training values Y = f (X) and the unobserved test values f∗ = f (X∗)is 1
+
+(2.15) 
+
+Yf∗
+
+
+
+∼ N 
+
+
+
+0,
+
+ K(X, X) K(X, X∗)
+
+K(X∗, X) K(X∗, X∗)
+
+ 
+
+.
+
+Conditioning on this joint Gaussian distribution gives (2.16) f∗|X∗, X, Y ∼ N (μ∗, Σ∗),  
+
+> 1In (2.15), we use a zero-mean GP prior for simplicity. This is a standard convention when the data have been centered or when the GP models a residual correction around a deterministic mean model. A nonzero mean can be incorporated by applying the same formulas to the centered quantities obtained after subtracting the mean. Under this zero-mean prior, the joint distribution of the observed training outputs and the unobserved test values is also zero mean. STRUCTURE-PRESERVING NEURAL SURROGATES WITH TRACTABLE UQ
+
+9where 
+
+μ∗ = K(X∗, X)K(X, X)−1Y,(2.17) Σ∗ = K(X∗, X∗) − K(X∗, X)K(X, X)−1K(X, X∗).(2.18) In most applications, however, the data are noisy. Suppose Y = f (X) + ε, where 
+
+ε ∼ N (0 , σ 2 
+
+> ε
+
+I) is independent identically distributed (i.i.d.) Gaussian noise. Then the joint distribution in (2.15)-(2.16) becomes 
+
+Yf∗
+
+
+
+∼ N 
+
+
+
+0,
+
+K(X, X) + σ2 
+
+> ε
+
+I K(X, X∗)
+
+K(X∗, X) K(X∗, X∗)
+
+ 
+
+,(2.19) 
+
+f∗|X∗, X, Y ∼ N 
+
+
+
+K(X∗, X)( K(X, X) + σ2 
+
+> ε
+
+I)−1Y,K(X∗, X∗) − K(X∗, X)( K(X, X) + σ2 
+
+> ε
+
+I)−1K(X, X∗)
+
+
+
+.(2.20) The posterior covariance provides a meaningful probabilistic measure of uncertainty at the test points, which is useful for uncertainty-aware scientific machine learning tasks. Indeed, prior work has established that incorporating GPs within SciML frameworks provides rigorous uncertainty quantification for learning complex PDE-governed sys-tems [9, 12, 16, 35]. Given limited noisy data and some prior knowledge of the function space, the optimal recovery problem aims to learn an unknown function by minimizing the worst-case error. Mathematically, given a normed space F and an unknown function f ∈ F ,the partial knowledge of f is defined through point evaluations: 
+
+yi = ℓi(f ), i = 1 , . . . , m, (2.21) for some linear functionals ℓ1, . . . , ℓ m ∈ F ∗, where F ∗ is the dual space of F . The objective is to approximate f by some estimate bf ∈ F such that the worst-case error is minimized: 
+
+E( bf ) := inf  
+
+> bf∈F
+
+sup   
+
+> f∈Fℓi(f)= yi
+
+∥f − bf ∥∥f ∥ .
+
+Let K : X × X → R be a symmetric positive definite bivariate kernel, and HK denote its reproducing kernel Hilbert space (RKHS) with accompanying induced RKHS norm 
+
+∥ · ∥ K . Given noisy observations ( X, Y), the corresponding regularized optimal recov-ery problem is to find the function ˆf ∈ H K that minimizes the sum of the squared RKHS norm and the scaled data-misfit term: 
+
+J (X; Y) = min 
+
+> g∈H K
+
+∥g∥2 
+
+> K
+
++ 1
+
+σ2
+
+> ε
+
+∥g(X) − Y∥22.
+
+By the Representer Theorem, the minimizer ˆf has a finite-dimensional representation in terms of kernel evaluations at the training inputs. In particular, ˆf evaluated at a new point can be written as ˆf (·) = K(·, X)( K(X, X) + σ2 
+
+> ε
+
+I)−1Y.
+
+This estimator coincides with the posterior mean of Gaussian process regression with covariance kernel K and independent Gaussian observation noise of variance σ2 
+
+> ε
+
+. The corresponding minimum value of the objective J (X; Y) is 
+
+J (X; Y) = Y⊤  K(X, X) + σ2 
+
+> ε
+
+I−1 Y,
+
+proved in [30]. 10 ZHANG ET AL. 
+
+3. Method part 1: Data-driven H(div) -conforming reduced space con-struction. In this section, we construct the structure-preserving reduced spaces used by the surrogate. The goal is to learn the data-driven Whitney forms from a trainable partition of unity (PoU) conditioned on Z. The PoU functions define coarse control volumes, represented by 0-forms, while the associated 1-forms encode generalized fluxes between them ( Subsection 3.1 ). This construction yields reduced scalar and flux spaces compatible with the H(div)– L2 structure introduced above, allowing the resulting H(div)-conforming finite element spaces to adapt to the conditioning vari-able Z (Subsections 3.2 and 3.3 ). Finally, we connect the induced coarse spaces to a graph interpretation in Subsection 3.4 that will support the optimal recovery formulation. 
+
+3.1. PoU Whitney forms and coarse spaces. We construct the learnable coarse spaces from the fine-scale RT 0/dgP 0 discretization. Consider the fine-scale piecewise-constant scalar space Qfh and the corresponding fine-scale lowest-order RT 0
+
+flux space V fh defined as (3.1) Qfh := span {ϕP0 
+
+> a
+
+: a ∈ C h}, V fh := span {ϕRT e : e ∈ E h},
+
+where Ch = {1, . . . , N cell } denotes the set of fine cell indices and Eh is the set of edges for fine RT 0 flux degrees of freedom. The basis {ϕP0 
+
+> a
+
+} is chosen so that 
+
+X
+
+> a∈C h
+
+ϕP0 
+
+> a
+
+(x) = 1 .
+
+In this work, we only use the 0-form and 1-form components needed for the 
+
+H(div) − L2 tail. Furthermore, instead of directly constructing the Whitney forms using the classic barycentric interpolant, we employ neural networks to construct neural Whitney forms that still possess the desired PoU property. Let N0 denote the number of partitions. For a fixed conditioning variable, let 
+
+W = [ Wia ] ∈ RN0×Ncell be a learnable PoU weight matrix satisfying: (3.2) Wia ≥ 0,
+
+> N0
+
+X
+
+> i=1
+
+Wia = 1 for every a ∈ C h.
+
+Then the coarse 0-forms and 1-forms are constructed as follows. 
+
+Proposition 3.1 (Coarse 0-forms). For a fixed conditioning variable, let W be the learned PoU weights as in Equation (3.2) . The coarse 0-form is defined as 
+
+(3.3) ψ0 
+
+> i
+
+= X
+
+> a∈C h
+
+Wia ϕP0 
+
+> a
+
+, i = 1 , . . . , N 0,
+
+which forms a partition of unity: 
+
+(3.4) 
+
+> N0
+
+X
+
+> i=1
+
+ψ0 
+
+> i
+
+= X
+
+> a∈C h
+> N0
+
+X
+
+> i=1
+
+Wia 
+
+!
+
+ϕP0 
+
+> a
+
+= 1 .
+
+The corresponding coarse P0 space is defined as: 
+
+(3.5) Qch := W0 = span {ψ0 
+
+> i
+
+}i ⊂ Qfh.STRUCTURE-PRESERVING NEURAL SURROGATES WITH TRACTABLE UQ 11 Next, we construct the coarse 1-forms that still follow the same PoU Whitney principle with a special design of separating the interior edges and boundary edges. This separation allows us to maintain the boundary information more efficiently during the coarsening procedure, especially for scenarios where the geometry is complex or where boundary conditions are different for boundary subdomains. 
+
+Proposition 3.2 (Interior and boundary coarse 1-forms). For a fixed condi-tioning variable, let W be the learned PoU weights as in Equation (3.2) . Let e ∈ E int 
+
+denote the interior fine edges with two adjacent cells KL(e), K R(e). For each pair of coarse 0-forms (i, j ) with 1 ≤ i < j ≤ N0, the coarse interior 1-form is defined as 
+
+(3.6) ψ1,int  
+
+> ij
+
+(x) = X
+
+> e∈E int
+
+
+
+Wi,K L(e) Wj,K R(e) − Wj,K L(e) Wi,K R(e)
+
+
+
+ϕ1
+
+> e
+
+(x).
+
+Let the boundary fine edges be partitioned into disjoint groups 
+
+Ebc = E1 ∪ · · · ∪ E r , Eγ ∩ E γ′ = ∅ (γ̸ = γ′),
+
+where each group may represent a distinct boundary component or boundary type. Let 
+
+e ∈ E γ denote the boundary fine edges with one adjacent cell K(e). For γ = 1 , . . . , r 
+
+and i = 1 , . . . , N 0, the coarse boundary 1-form is defined as 
+
+(3.7) ψ1,bc  
+
+> i,γ
+
+(x) = X
+
+> e∈E γ
+
+Wi,K (e) ϕ1
+
+> e
+
+(x).
+
+Concatenating the interior and boundary 1-forms, we have: 
+
+ψ1 = [ ψ1,int ψ1,bc ],
+
+where N1 = N int  
+
+> 1
+
++ N bc  
+
+> 1
+
+=  N0
+
+> 2
+
+ + rN 0. The corresponding coarse RT 0 space is 
+
+(3.8) V ch := W1 = span {ψ1
+
+> α
+
+}N1 
+
+> α=1
+
+⊂ V fh .
+
+Remark 3.3. The classic PoU Whitney 1-form between two coarse partitions is 
+
+ψ1 
+
+> ij
+
+= λi∇λj − λj ∇λi.
+
+The dense representation applies a double sum over all oriented cell pairs: 
+
+ψ1 
+
+> ij
+
+= X
+
+> a,b
+
+Wia Wjb ϕRT 0 
+
+> ab
+
+,
+
+assuming that the oriented flux basis ϕRT 0 
+
+> ab
+
+is defined for each ordered pair ( a, b ). In the actual finite element implementation, however, RT 0 basis functions are associated only with fine mesh edges. By the definition, we have 
+
+ϕRT 0 
+
+> KL(e),K R(e)
+
+= ϕRT 0 
+
+> e
+
+, ϕRT 0 
+
+> KR(e),K L(e)
+
+= −ϕRT 0 
+
+> e
+
+.
+
+Thus Proposition 3.2 is the edge-restricted construction of the same antisymmetric principle, and the coefficient for the interior coarse 1-forms in Equation (3.6) should be considered the discrete mesh-edge analogue of the classical Whitney representation. For later propositions and proofs, we use the double sum notation. 12 ZHANG ET AL. 
+
+3.2. Coarse operators. For convenience, we hereafter denote by {ψ1
+
+> α
+
+}N1 
+
+> α=1
+
+the full set of interior and boundary coarse 1-form basis functions. With the coarse 0-forms {ψ0 
+
+> i
+
+}N0 
+
+> i=1
+
+and 1-forms {ψ1
+
+> α
+
+}N1
+
+> α=1
+
+, we can further define the corresponding coarse operators. 
+
+Proposition 3.4 (Coarse operators). For i, j = 1 , . . . , N 0, and α, β = 1 , . . . , N 1,the coarse mass matrices and divergence matrix are defined by 
+
+(M0)ij = ( ψ0 
+
+> i
+
+, ψ 0 
+
+> j
+
+)Ω, (M1)αβ = ( ψ1
+
+> α
+
+, ψ1 
+
+> β
+
+)Ω, Diα = ( ∇· ψ1
+
+> α
+
+, ψ 0 
+
+> i
+
+)Ω.
+
+The above construction for coarse bases and operators is purely algebraic and therefore remains valid for any W satisfying the property in Equation (3.2). For a conditioning variable z, the neural coarsening map gives W = Wθ (z) and the resulting conditional operators in reduced space are Qch(z; θ), V ch (z; θ), D θ (z). In practice, for N training instances, W can be a tensor of shape W ∈ RN ×N0×Ncell , where W (n) ∈ RN0×Ncell 
+
+represents the conditional neural Whitney form for sample n given a conditioning variable z(n). The choice of coarse forms may vary depending on different factors, such as the treatment of boundaries or the choices of finite element spaces, but the fundamental principle is that by introducing the trainable W , we are able to adapt the PoU flexibly with respect to certain conditioning variables. Moreover, the learned coarse spaces inherit the H(div)– L2 structure from the fine space with the coarse divergence operator as in the following diagram: (3.9) 
+
+H(div , Ω) ∇· 
+
+−−→ L2(Ω) 
+
+∪ ∪
+
+V ch (z; θ) Dθ (z)
+
+−−−−→ Qch(z; θ).
+
+The following proposition provides a sufficient condition for the full row rank of the coarse divergence matrix. This condition is a nondegeneracy condition of the learned coarse basis and can be checked from the learned PoU weights. 
+
+Proposition 3.5 (Rank condition). Let the boundary fine edges be partitioned as in Proposition 3.2 . Assume that the fine boundary basis ϕ1 
+
+> e
+
+for boundary edge 
+
+e ∈ E γ is oriented so that βγe := ( ∇· ϕ1
+
+> e
+
+, ϕ P0
+
+> K(e)
+
+)Ω > 0. Let Dγ ∈ RN0×N0 denote the block of the coarse divergence matrix D whose columns correspond to the boundary basis functions associated with Eγ . Then 
+
+(Dγ )iα = X
+
+> e∈E γ
+
+βγe Wα,K (e)Wi,K (e) = ( Wγ Bγ W ⊤ 
+
+> γ
+
+)iα ,
+
+where 
+
+(Wγ )ie = Wi,K (e), Bγ = diag {βγe : e ∈ E γ }.
+
+If Prγ=1 Wγ Bγ W ⊤ 
+
+> γ
+
+is positive definite, then the coarse divergence matrix has full row rank, rank (D) = N0.Proof. See Appendix A. 
+
+3.3. Surjectivity property under H(div) setting and flux conservation. 
+
+The divergence operator ∇· is surjective from the Raviart–Thomas space RT k(K)onto Pk(K) in the standard fine scale [7]. In particular, for RT 0/dgP 0, the divergence represents the cellwise flux conservation. Here, we extend this surjectivity property and conservation structure to coarse operators induced by the Whitney forms con-struction. STRUCTURE-PRESERVING NEURAL SURROGATES WITH TRACTABLE UQ 13 
+
+Proposition 3.6. Let W1 := span {ψ1
+
+> a
+
+}N1
+
+> a=1
+
+, W0 := span {ψ0 
+
+> i
+
+}N0 
+
+> i=1
+
+be the coarse flux and scalar spaces following Proposition 3.1 and Proposition 3.2 . Then: 
+
+(3.10) ∇· W 1 ⊆ W 0.
+
+Moreover, if the rank condition in Proposition 3.5 holds, then the coarse divergence matrix has full row rank and the coarse divergence is surjective from W1 onto W0.Proof. Recall that we have fine-scale basis functions {ϕ1} ⊂ RT 0 and {ϕ0} ⊂ P0.Given the fine-scale divergence identity for (RT 0, dgP 0), we have (3.11) ∇· ϕRT 0 
+
+> e
+
+= ϕP0 
+
+> KR(e)
+
+− ϕP0
+
+> KL(e)
+
+.
+
+For interior edge e = ( i, j ), we can derive the identity in the coarse scale by substi-tuting the definition of coarse basis functions: 
+
+∇· ψ1 
+
+> ij
+
+= ∇· 
+
+X
+
+> a,b
+
+Wia Wjb ϕRT 0
+
+> ab
+
+
+
+= X
+
+> a,b
+
+Wia Wjb ϕP0 
+
+> b
+
+− X
+
+> a,b
+
+Wia Wjb ϕP0
+
+> a
+
+= X
+
+> a
+
+Wia 
+
+!
+
+ψ0 
+
+> j
+
+− X
+
+> b
+
+Wjb 
+
+!
+
+ψ0
+
+> i
+
+= miψ0 
+
+> j
+
+− mj ψ0 
+
+> i
+
+∈ W 0.
+
+Similarly, by linearity, the boundary coarse 1-form is also a linear combination of fine 
+
+P0 basis functions and belongs to the span of the coarse scalar space. Therefore, 
+
+∇· W 1 ⊆ W 0.
+
+Next we prove the surjectivity of the coarse divergence operator. Let (3.12) v =
+
+> N1
+
+X
+
+> a=1
+
+bFaψ1 
+
+> a
+
+∈ W 1, q =
+
+> N0
+
+X
+
+> i=1
+
+bqiψ0 
+
+> i
+
+∈ W 0.
+
+By linearity, (3.13) ∇ · v =
+
+> N1
+
+X
+
+> a=1
+
+bFa∇ · ψ1 
+
+> a
+
+∈ W 0.
+
+Then testing against ψ0 
+
+> i
+
+for i = 1 , . . . , N 0 and expanding for coarse variables gives: (∇ · v, ψ 0 
+
+> i
+
+)Ω = ∇ · 
+
+> N1
+
+X
+
+> a=1
+
+bFaψ1
+
+> a
+
+!
+
+, ψ 0
+
+> i
+
+!
+
+> Ω
+
+(3.14) =
+
+> N1
+
+X
+
+> a=1
+
+bFa
+
+ ∇ · ψ1
+
+> a
+
+, ψ 0
+
+> i
+
+ 
+
+> Ω
+
+=
+
+> N1
+
+X
+
+> a=1
+
+bFaDia (3.15) (q, ψ 0
+
+> k
+
+)Ω =
+
+> N0
+
+X
+
+> i=1
+
+qi(ψ0 
+
+> i
+
+, ψ 0
+
+> k
+
+)Ω =
+
+> N0
+
+X
+
+> i=1
+
+qi(M0)ik ,(3.16) 14 ZHANG ET AL. 
+
+where D and M are as defined in Proposition 3.4. When rank( D) = N0, the map 
+
+D : RN1 → RN0 is onto and thus for arbitrary q, there exist coefficients bF ∈ RN1 such that D bF = M0q. For this choice of bF , the corresponding v ∈ W 1 satisfies (3.17) (∇· v, ψ 0
+
+> k
+
+)Ω = ( q, ψ 0
+
+> k
+
+)Ω.
+
+Thus we conclude that the coarse divergence operator is surjective. Moreover, since the coefficient in (3.6) is the discrete analogue of the classical Whitney exchange form λi∇λj −λj ∇λi, the resulting antisymmetry property ∇· ψ1 
+
+> ij
+
+=
+
+− ∇· ψ1 
+
+> ji
+
+with respect to the exchange of indices ensures by construction that the 1-forms encode equal and opposite fluxes exchanged between 0-forms. Summing over all indices cancels the internal fluxes, so that only the boundary contributions remain. This recovers a discrete conservation law consistent with the divergence theorem and shows that the learned coarse construction preserves the flux balance. 
+
+3.4. Graph calculus and circuit interpretation for FEEC. The preceding construction in Subsection 3.1 and Subsection 3.2 produces an H(div)-conforming reduced space where conservation is preserved by the coarse divergence operator. To formulate the GP optimal recovery problem in the next section, we now reinterpret the reduced subcomplexes as a graph-valued circuit model and connect coarse oper-ators with the graph calculus. This interpretation bridges the structure-preserving FEEC with the graph-based GP model used to learn the nonlinearity and perform uncertainty quantification later. The viewpoint is related to the computational graph completion (CGC) [29] problem, where the unknown functions and unobserved vari-ables can be recovered on a given graph. In contrast, the graph in this work is induced by the coarse finite element subcomplexes, which can be considered an autonomous identification of a dense graph. Let G = ( V, E) be a graph with |V| = N0 vertices and |E| = N1 edges. The coarse spaces constructed via the partition of unity Whitney forms naturally define a graph where each vertex i ∈ V corresponds to a coarse 0-form ψ0 
+
+> i
+
+and each edge e ∈ E 
+
+corresponds to a coarse 1-form ψ1 
+
+> e
+
+. We define the cochain spaces as: 
+
+C0(G) := R|V |, C1(G) := R|E| .
+
+Then the coarse variables admit the interpretation on vertices and edges, respectively: 
+
+bu ∈ C0(G), bF ∈ C1(G),
+
+where bu represents node states and bF represents oriented fluxes or currents. In order to formulate the mapping between nodal values and edge values, we introduce the edge-vertex signed incidence matrix B0 ∈ RE×V defined by (3.18) (B0)i,j =
+
+
+
+−1 if edge ei leaves vertex vj ,
+
+1 if edge ei enters vertex vj ,
+
+0 otherwise .
+
+Subsequently for an oriented edge e = ( i, j ), we can define the discrete graph gradient operator and graph divergence as: (Graph gradient ) (δ0 bu)( e) = buj − bui,
+
+(Graph divergence ) (δ⊤ 
+
+> 0
+
+bF)( v) = X
+
+> vi∼v
+
+bF (vi, v ) − X
+
+> v∼vj
+
+bF (v, v j ).STRUCTURE-PRESERVING NEURAL SURROGATES WITH TRACTABLE UQ 15 The discrete graph gradient, mapping the nodal values to edge values, captures the difference across edges. Conversely, the graph divergence, mapping edge values back to values at nodes, measures the net flux entering or leaving the node v over its adjacent edges. Let DG ∈ R|V|×|E| denote the graph divergence matrix, defined by (DG bF)i = X
+
+> e∈E
+
+Die bFe.
+
+With the construction of coarse Whitney forms in Subsection 3.2, D has the same incidence structure as the graph divergence operator, possibly weighted by the mass or basis normalization depending on the specific construction. Thus, this gives the conservation law in the reduced spaces and supplies the finite-dimensional variables on which the GP acts. 
+
+4. Method part 2: Optimal recovery of physics with quantified uncer-tainty. In this section, we develop a probabilistic representation of physical fields on the graph induced by the coarse spaces. This provides a unified framework where the physical law acts on discrete structures while uncertainty is quantified in a functionally consistent manner. 
+
+4.1. Structure-preserving Optimal Recovery Problem. We now introduce a GP optimal recovery formulation for learning the nonlinear flux correction in the coarse H(div) − L2 space, consistent with the FEEC structure established above. For each coarse edge e = ( i, j ) ∈ E , we can define the local input with different choices: ˆue := 
+
+((ˆ ui, ˆuj ) ∈ R2, (endpoint representation) ,δ0 ˆue = ˆ uj − ˆui ∈ R, (edge gradient representation) .
+
+For training instances n = 1 , . . . , N , the desired GP input features become 
+
+x(n) 
+
+> e
+
+= ( bu(n) 
+
+> e
+
+, z (n), s (n)).
+
+Here bu(n) 
+
+> e
+
+is the coarse state variable associated with edge e, z(n) denotes the condi-tioning variable, and s(n) denotes the geometric embedding. In the independent kernel construction, for a fixed edge e, we collect the training inputs as Xe = {x(n) 
+
+> e
+
+}Nn=1 and the corresponding global kernel is the block-diagonal matrix defined as (4.1) Ke := Ke(Xe, X e) ∈ RN ×N , K = diag ( K1, . . . , K N1 ) ∈ RN1N ×N1N .
+
+The GP model on edge e maps local features to the flux on the edge: (4.2) fe(Xe) 7 → bF gp  
+
+> e
+
+, bFgp = vec 
+
+h bF gp ,(n) 
+
+> e
+
+i 
+
+∈ RN1N ,
+
+where each fe belongs to a reproducing kernel Hilbert space HKe and bFgp is the vectorized global output over all edges. Instead of assigning independent GPs to each edge, we may also stack all edge samples into a global matrix (4.3) X = {x(n) 
+
+> e
+
+: e = 1 , . . . , N 1, n = 1 , . . . , N }
+
+and construct a single shared GP across all cochains: 
+
+K =
+
+h
+
+kθ
+
+
+
+x(n) 
+
+> e
+
+, x (m)
+
+> e′
+
+i 
+
+> (e,n ),(e′,m )
+
+∈ RN1N ×N1N16 ZHANG ET AL. 
+
+where kθ denotes the covariance kernel. Since both cases use a large global matrix, for simplicity we denote the global matrix as K in the following. Recall the governing equation for the physical law in Equation (1.1). By restrict-ing the PDE to data-driven Whitney spaces W0(Ω; θ) and W1(Ω; θ), the goal is to find ( u, F) ∈ W 0(Ω; θ) × W 1(Ω; θ) such that (F, v)Ω = ( u, ∇ · v)Ω + ( N [u], v)Ω − ⟨ uD , v · n⟩ΓD , v ∈ W 1(Ω; θ)(4.4) (∇ · F, q )Ω = ( f, q )Ω, q ∈ W 0(Ω; θ),(4.5) where f is the source term and ⟨uD , v · n⟩ΓD = R 
+
+> ΓD
+
+uD (v · n) ds is the weak Dirichlet boundary condition. Recall that bu denotes the coarse scalar coefficient. Let bFgp 
+
+denote the nonlinear flux correction on the coarse edge and bF denote the total coarse flux coefficient. Using the FEEC structure, the problem can be further written as 
+
+M1 bF = D⊤ bu + M1 bFgp − bgD ,(4.6) 
+
+D bF = bf ,(4.7) where bf is the coefficient vector of the source term and bgD represents the Dirichlet boundary contribution with bgD = R 
+
+> ΓD
+
+uD ψ1 · n ds . M1 and D are the discrete mass matrix and divergence operator as defined in Proposition 3.4. For simplicity, we let 
+
+θ = ( θGP , θ W ) denote the set of trainable parameters for the GP model and neural Whitney forms. Eliminating bF gives the reduced residual: (4.8) Rθ (bu, bFgp ; z) := DM−11 D⊤ bu + D bFgp − bb, with bb = bf + DM−11 bgD .
+
+Finally, we arrive at the full optimization problem, combining the GP recovery and the data-driven Whitney forms on the graph: min  
+
+> θ, bu
+
+min 
+
+> bFgp
+
+(bFgp )⊤(K(X, X ) + σ2 
+
+> ε
+
+I)−1 bFgp + log det( K(X, X ) + σ2 
+
+> ε
+
+I)+
+
+> N
+
+X
+
+> n=1
+
+u(n)data − u(n)approx 
+
+> 2
+
++
+
+> N
+
+X
+
+> n=1
+
+F(n)Γ,data − F(n)Γ,approx 
+
+> 2
+
+s.t. Rθ
+
+bu, bFgp ; z(n)
+
+= 0 ,
+
+(4.9) where uapprox , Fapprox are the reconstruction of the solution field and flux back to the original fine-scale space. The first two terms promote smoothness in the RKHS norm and penalize overly complex models to avoid overfitting. Moreover, as the recovery problem is now defined for the coarse coefficients ˆ u and bFgp , there is no guarantee that the solution and flux projected back to the original space can reconstruct the target solution udata and Fdata as desired. Thus, we introduce two additional terms consisting of the mean squared error (MSE) reconstruction loss in the fine scale. The reconstruction of the solution in (4.9) can be directly obtained by mapping the coarse 0-cochain coefficients back to the fine scale with the neural Whitney bases: (4.10) uapprox = bu⊤Ψ0.
+
+The total ground-truth flux and reconstructed flux on the target boundary Γ from the PoU Whitney form and coarse coefficient are: STRUCTURE-PRESERVING NEURAL SURROGATES WITH TRACTABLE UQ 17 (4.11) FΓ,data = X
+
+> e∈Γ
+
+Fe, FΓ,approx =
+
+> N pou
+
+X
+
+> i=1
+
+X
+
+> e∈Γ
+
+Wie bFi,
+
+where Wie denotes the corresponding weight for the i-th PoU and fine-scale edge e
+
+and bF = M−11 D⊤ ˆu + bFgp − M−11 gD .
+
+4.2. Bilevel optimization. The optimization problem is nested and strongly coupled because the GP inputs depend on the unknown coarse potentials bue. There-fore, we apply a bilevel optimization procedure to train the transformer for data-driven Whitney forms and the GP model for flux prediction simultaneously. The bilevel training algorithm is summarized in Algorithm 4.1. 
+
+Algorithm 4.1 Bilevel training for structure-preserving optimal recovery 
+
+Require: D = {(z(n), u (n)data , F (n)data )}Nn=1 ; fine operators; PoU network WθW ; GP kernel KθGP 
+
+Require: Optimizers: Adam for θGP , Shampoo for θW 
+
+> 1:
+
+Initialize bu, θW , and θGP  
+
+> 2:
+
+for epoch = 1 , . . . , T do  
+
+> 3:
+
+PoU forward: Compute W ← WθW (z) 
+
+> 4:
+
+Compute coarse bases Ψ 0, Ψ1, and operators M1, D, R Γ, bb 
+
+> 5:
+
+Form coarse GP features X = {x(n) 
+
+> e
+
+}e,n , eK = KθGP (X, X ) + σ2 
+
+> ε
+
+I 
+
+> 6:
+
+Inner problem : Fix bu, θW , θGP , solve the constrained recovery problem for bFgp ,⋆  
+
+> 7:
+
+Update bFgp ,⋆ ← SolveKKT 
+
+ eK, D, R Γ, bb, F Γ,data 
+
+ 
+
+> 8:
+
+Update θGP ← Adam ( θGP , ∇θGP Linner ) 
+
+> 9:
+
+Outer problem : Fix bFgp ,⋆ , θGP , solve for bu⋆ with least squares method  
+
+> 10:
+
+Update bu⋆ ← lstsq 
+
+
+
+DM −11 D⊤, bb − D bFgp ,⋆ 
+
+ 
+
+> 11:
+
+Update θW ← Shampoo ( θW , ∇θW Louter ) 
+
+> 12:
+
+end for  
+
+> 13: 14:
+
+return trained θ⋆W , θ ⋆
+
+> GP
+
+, bu⋆, and bF⋆.
+
+For the inner loop, we first fix bu and θW and solve for the closed-form solution bFgp 
+
+via the Karush–Kuhn–Tucker (KKT) system. Since the flux observations are defined on fine boundary edges, for simplicity, we introduce the coarse-to-fine reconstruction operator RΓ(W ) : RN1 → R that maps the coarse flux degrees of freedom ( ˆF) back to the total flux through the boundary region Γ. Substituting bFgp gives the inner optimization problem as min 
+
+> bFgp
+
+FΓ,data − RΓ(W )
+
+
+
+M−11 D⊤ bu + bFgp − M−11 gD
+
+ 22
+
+(4.12) + ( bFgp )⊤(K + σ2 
+
+> ε
+
+I)−1 bFgp + log det( K + σ2I)(4.13) s.t. D bFgp = b − DM−11 D⊤ bu.(4.14) Since the term log det( K + σ2 
+
+> ε
+
+I) does not depend on bFgp , it can be omitted when solv-ing for bFgp . Introducing the Lagrange multiplier λ, the optimality system becomes: 
+
+ ˜K−1 + R⊤ 
+
+> Γ
+
+RΓ D⊤
+
+D 0
+
+  bFgp 
+
+λ
+
+
+
+=
+
+"
+
+R⊤
+
+> Γ
+
+
+
+FΓ,data − RΓ
+
+ M−11 D⊤ bu − M−11 gD
+
+
+
+b − DM−11 D⊤ bu
+
+#
+
+.18 ZHANG ET AL. 
+
+where ˜K = K + σ2I. Solving by the Schur complement, we obtain the closed-form solution for optimal bFgp at the current stage: 
+
+λ =  D
+
+ ˜K−1 + R⊤ 
+
+> Γ
+
+RΓ
+
+−1
+
+D⊤−1 D
+
+ ˜K−1 + R⊤ 
+
+> Γ
+
+RΓ
+
+−1
+
+rt − rb
+
+,(4.15) 
+
+bFgp ,⋆ =
+
+ ˜K−1 + R⊤ 
+
+> Γ
+
+RΓ
+
+−1  rt − D⊤λ,(4.16) where rt = RΓ(W )⊤
+
+
+
+FΓ,data − RΓ
+
+ M−11 D⊤ bu − M−11 gD
+
+
+
+and rb = b − DM−11 D⊤ bu.
+
+Then with the optimal bFgp , we optimize the parameters for GP kernels and noise with the Adam optimizer. The choice of kernels varies for different cases. For example, for the independent GP, we choose the RBF kernel matrix Kij for a given edge eij ,defined as 
+
+Kij (eij ) = exp − ∥ui − uj ∥2
+
+2l2
+
+> eij
+
+!
+
+,
+
+where the length scale l and σ are the trainable parameters, i.e., θGP = {l, σ }. Specif-ically, in numerical experiments, we choose the same initialization on all edges. For the shared GP scenario, we consider the Automatic Relevance Determination (ARD) Mat´ ern kernel [33] with ν = 32 :
+
+Kν=3 /2(x, x ′) = σ2 
+
+1 + √3r
+
+
+
+exp( −√3r), r2 = X
+
+> d
+
+(xd − x′
+
+> d
+
+)2
+
+ℓ2
+
+> d
+
+.
+
+Here, ℓd > 0 is a trainable length scale associated with the d-th input feature, where a small ℓd indicates that the predicted flux varies strongly in the d-th feature direction. This ARD parameterization allows the GP to have anisotropic scaling across different physical or geometric features. For the outer loop, with bFgp and θGP fixed, we optimize over bu and θW with the Shampoo optimizer [15] by minimizing: 
+
+Louter = FΓ,data − RΓ
+
+
+
+M−11 D⊤ bu + bFgp ,⋆ − M−11 gD
+
+ 2
+
++ udata − bu⊤Ψ0
+
+> 2
+
+s.t. DM−11 D⊤ bu + D bFgp ,⋆ = ˆb.
+
+(4.17) Essentially, we cast the optimal recovery problem on the reduced space subject to the equality constraint that enforces the conservation law exactly. Under this set-ting, we have a constrained optimization problem where the KKT conditions yield a saddle-point structure that we can use to derive a fast solution with the Schur com-plement. The bilevel training is not strictly necessary, but can be useful for efficient training when variables are coupled and different model components, here the GP and transformer, are trained jointly. 
+
+4.3. Geometric embedding for H(div) coarse representations. To incor-porate geometric information about the coarse degrees of freedom into the GP, we introduce a geometric embedding based on domain integrals of the coarse Whitney basis functions. This embedding is designed to encode both the coarse variables in 0- and 1-forms in a manner consistent with the underlying FEEC structure. Because scalar P0 coefficients represent coarse cellwise quantities while H(div) coefficients rep-resent flux degrees of freedom, we use different geometric summaries for 0-forms and 1-forms. STRUCTURE-PRESERVING NEURAL SURROGATES WITH TRACTABLE UQ 19 First, we consider the coarse P0 geometric embedding 
+
+Proposition 4.1. Let {ψ0 
+
+> i
+
+}N0 
+
+> i=1
+
+denote the coarse 0-form basis functions construc-ted as in Proposition 3.1 . For i = 1 , . . . , N 0, substituting the definition of ψ0 
+
+> i
+
+gives the explicit representation for the geometric embedding on the ith PoU as 
+
+(4.18) si := 
+
+Z
+
+> Ω
+
+ψ0 
+
+> i
+
+(x) dx = X
+
+> a∈C h
+
+Wia 
+
+Z
+
+> Ω
+
+ϕP0 
+
+> a
+
+(x) dx. 
+
+This embedding defines a positive coarse area scalar that represents the effective measure of the coarse region associated with the i-th PoU component and does not encode any directional information. In terms of the GP input, si should be considered the geometric information for coarse node i.We next define the coarse RT 0 geometric embedding that accounts for both di-rection and magnitude. 
+
+Proposition 4.2. Let {ψ1
+
+> k
+
+}N1 
+
+> k=1
+
+denote the coarse RT 0 basis functions constructed as in Proposition 3.2 . We define the vector-valued geometric embedding associated with the k-th coarse flux degree of freedom as 
+
+sk := 
+
+Z
+
+> Ω
+
+ψ1
+
+> k
+
+(x) dx ∈ R2.
+
+Substituting the expansion of ψ1
+
+> k
+
+, we obtain: 
+
+sk = X
+
+> e
+
+WkK (e)
+
+Z
+
+> Ω
+
+φRT 0 
+
+> e
+
+(x) dx. 
+
+For each fine edge e shared by adjacent cells KL(e) and KR(e), the RT 0 basis function satisfies: Z
+
+> KL(e)∪KR(e)
+
+φRT 0 
+
+> e
+
+(x) dx = ce ˆne |e|,
+
+where ˆne is the unit normal vector associated with the edge orientation, |e| is the edge length, and ce depends on the reference element geometry. 
+
+From the above expression, sk is a weighted sum of edge-normal vectors ˆ ne scaled by edge lengths |e|, and it encodes both the net orientation and the effective magnitude of the coarse flux degree of freedom ψ1
+
+> k
+
+. Specifically, its direction reflects the dominant orientation of the fine-scale flux contributions aggregated into ψ1
+
+> k
+
+, while its magnitude reflects the total weighted edge measure. This provides a geometric characterization of the coarse flux degree of freedom. Therefore, the above geometric embeddings are consistent with the structure of H(div) spaces and enable the GP to incorporate geometric and directional information without relying on explicit spatial coordinates. 
+
+4.4. Posterior error bound for boundary flux functionals. The quantified uncertainty below is conditional on the learned representation from PoU Whitney forms and kernel hyperparameters. Under this conditioning, the boundary flux is a linear functional of the GP output at the coarse level and admits a closed-form posterior error bound. Previous work establishes a pointwise posterior error bound under the assumption that the GP input locations are fixed and known exactly [30]. In this work, we extend this result to weighted linear functionals of the GP posterior, which is the relevant setting for boundary flux quantities. 20 ZHANG ET AL. 
+
+Proposition 4.3. Let RΓ(W ) denote the coarse-to-fine reconstruction operator determined by W in the proposed method (4.12) . We define the flux functional on a given boundary Γ and its estimator by 
+
+FΓ := Lv (f ) := v⊤f (Z) := 
+
+> M
+
+X
+
+> m=1
+
+vm f (zm),
+
+bFΓ := v⊤ ˆf (Z),
+
+(4.19) 
+
+where the weight v⊤ is the row vector of RΓ(W ), i.e., vm = ( RΓ(W )) m, :, and the error is defined by 
+
+(4.20) e := FΓ − bFΓ.
+
+Theorem 4.4. Let X ⊆ Rp be the Gaussian process input space, let K : X × X → 
+
+R be a positive definite kernel with associated RKHS HK , and let f ∈ H K . Let 
+
+X = ( x1, . . . , x N ) ∈ X N , Z = ( z1, . . . , z M ) ∈ X M , where xi, z m ∈ Rp and assume we have noisy data D = ( X, Y ) with Y = f (X) + ε where ε ∼ N (0 , σ 2 
+
+> ε
+
+I). Let ˆf ∈ H K
+
+denote the minimizer of the optimal recovery problem: 
+
+ˆf (·) = K(·, X ) K(X, X ) + σ2 
+
+> ε
+
+I−1Y. 
+
+Define the posterior covariance on Z by 
+
+ΣZ := K(Z, Z ) − K(Z, X )
+
+
+
+K(X, X ) + σ2 
+
+> ε
+
+I
+
+−1
+
+K(X, Z ).
+
+For v ∈ RM , consider the weighted functionals FΓ, ˆFΓ as defined in Proposition 4.3 .Then we have the bounded mean-squared error satisfying: 
+
+(4.21) Eε[e2] ≤ ∥ f ∥2 
+
+> HK
+
+v⊤ΣZ v + σ2 
+
+> ε
+
+v⊤KZX A−1 22.
+
+If we consider the diagonal bound, then (4.21) can be written as 
+
+(4.22) 
+
+Eε[e2] ≤ ∥ f ∥2
+
+> HK
+> M
+
+X
+
+> m=1
+
+|vm| σ(zm)
+
+!2
+
++ σ2
+
+> ε
+> M
+
+X
+
+> m=1
+
+vmK(zm, X )( KXX + σ2 
+
+> ε
+
+I)−1
+
+> 22
+
+,
+
+where σ2(zm) := (Σ Z )mm .Proof. Let A = K(X, X ) + σ2 
+
+> ε
+
+I. For finite ordered sets Z = ( zi)Mi=1 and X =(xj )Nj=1 , define: 
+
+KZX :=  K(zi, x j ) 
+
+> i,j
+
+.
+
+Since Y = f (X) + ε, we can decompose the error as 
+
+e : = F − bF
+
+= v⊤f (Z) − v⊤KZX A−1Y
+
+= v⊤f (Z) − v⊤KZX A−1f (X)
+
+| {z }   
+
+> =: edet ,v (f)
+
+− v⊤KZX A−1ε
+
+| {z } 
+
+> =: enoise ,v
+
+.
+
+(4.23) We then evaluate the MSE: MSE( e) = Eε[e2] = Eε
+
+(edet − enoise )2
+
+(4.24) = e2det + Var( enoise ).(4.25) STRUCTURE-PRESERVING NEURAL SURROGATES WITH TRACTABLE UQ 21 For the noise part, since ε ∼ N (0 , σ 2 
+
+> ε
+
+IN ), we have: (4.26) Eε[enoise ,v ] = 0 , Var[ enoise ,v ] = σ2 
+
+> ε
+
+∥v⊤KZX A−1∥22.
+
+By the reproducing property, (4.27) f (zm) = ⟨f, K (zm, ·)⟩HK , f (xi) = ⟨f, K (xi, ·)⟩HK .
+
+Therefore, we further write the deterministic error in (4.23) as (4.28) edet ,v (f ) = 
+
+*
+
+f, 
+
+> M
+
+X
+
+> m=1
+
+vm
+
+h
+
+K(zm, ·) − K(zm, X )A−1K(X, ·)
+
+i+
+
+> HK
+
+= ⟨f, r v ⟩HK .
+
+Thus (4.29) Eε[e2] = ⟨f, r v ⟩2 
+
+> HK
+
++ σ2 
+
+> ε
+
+v⊤KZX A−1 22.
+
+By applying the Cauchy–Schwarz inequality, we have: 
+
+|⟨ f, r v ⟩HK |2 ≤ ∥ f ∥2 
+
+> HK
+
+∥rv ∥2 
+
+> HK
+
+.(4.30) We now compute ∥rv ∥2 
+
+> HK
+
+. Recall the reproducing property that for ordered sets 
+
+Z = ( zi)Mi=1 and X = ( xj )Nj=1 , and vectors a ∈ RM , b ∈ RN ,
+
+a⊤K(Z, ·), b ⊤K(X, ·) HK
+
+=
+
+> M
+
+X
+
+> i=1
+> N
+
+X
+
+> j=1
+
+aibj ⟨K(zi, ·), K (xj , ·)⟩HK
+
+(4.31) =
+
+> M
+
+X
+
+> i=1
+> N
+
+X
+
+> j=1
+
+aibj K(zi, x j ) = a⊤KZX b. (4.32) Then rv (·) can be equivalently written as (4.33) rv (·) = v⊤K(Z, ·) − α⊤K(X, ·),
+
+where 
+
+α⊤ = v⊤KZX A−1
+
+K(Z, ·) =  K(z1, ·), . . . , K (zM , ·)⊤,K(X, ·) =  K(x1, ·), . . . , K (xN , ·)⊤
+
+Applying (4.32) yields: 
+
+∥rv ∥2 
+
+> HK
+
+= v⊤K(Z, ·) − α⊤K(X, ·), v ⊤K(Z, ·) − α⊤K(X, ·) HK
+
+(4.34) = v⊤K(Z, ·), v ⊤K(Z, ·) HK
+
+− 2 v⊤K(Z, ·), α ⊤K(X, ·) HK
+
+(4.35) + α⊤K(X, ·), α ⊤K(X, ·) HK
+
+(4.36) = v⊤KZZ v − 2v⊤KZX A−1KXZ v + v⊤KZX A−1KXX A−1KXZ v(4.37) = v⊤KZZ v − v⊤KZX A−1KXZ v − σ2 
+
+> ε
+
+v⊤KZX A−2KXZ v(4.38) = v⊤ΣZ v − σ2 
+
+> ε
+
+v⊤KZX A−2KXZ v(4.39) = v⊤ΣZ v − σ2 
+
+> ε
+
+A−1KXZ v 22 ≤ v⊤ΣZ v(4.40) 22 ZHANG ET AL. 
+
+since A−1KXZ v 22 ≥ 0 for KXX ≥ 0 and symmetric positive definite A.Hence with (4.29) and (4.40), we obtain: (4.41) Eε[e2] ≤ ∥ f ∥2 
+
+> HK
+
+v⊤ΣZ v + σ2 
+
+> ε
+
+v⊤KZX A−1 22.
+
+The decomposition of error into noise and deterministic components is readily inter-pretable. The deterministic component captures how well the training data at X
+
+could reconstruct the functional v⊤f (Z) if the observations were noiseless. This error is largely controlled by the RKHS norm (or complexity) of the true function f and by the posterior covariance at evaluation points Z. The noise component, controlled by σ2 
+
+> ε
+
+∥v⊤KZX A−1∥22, captures how much the observation noise is amplified through the kernel reconstruction and through the linear functional v⊤.Finally, we derive the diagonal posterior standard deviation from the full covari-ance form. Recall that Σ Z is a positive semidefinite block matrix. We therefore have (4.42) |(Σ Z )mn | ≤ p(Σ Z )mm 
+
+p(Σ Z )nn = σ(zm)σ(zn).
+
+Thus, we have: (4.43) 
+
+v⊤ΣZ v =
+
+> M
+
+X
+
+> m,n =1
+
+vmvn(Σ Z )mn 
+
+≤
+
+> M
+
+X
+
+> m,n =1
+
+|vm|| vn|σ(zm)σ(zn)=
+
+> M
+
+X
+
+> m=1
+
+|vm|σ(zm)
+
+!2
+
+Substituting (4.43) into (4.21) gives the desired error bound in the diagonal form Equation (4.22). This bound can be interpreted as yielding large errors if the func-tional places a large weight on uncertain locations. 
+
+5. Results. In this section, we demonstrate the performance of our proposed method on various problems, including the 1D Poisson equation with analytic solu-tion (Subsection 5.1), the nonlinear diffusion equation with manufactured solution (Subsection 5.2), and the 2D advection-diffusion equation on a bell-shaped complex geometry (Subsection 5.3). We also present results for a semiconductor p − n diode problem (Subsection 5.4) to illustrate the range over which the uncertainty estimates remain reliable for the proposed method. For the training of data-driven Whitney forms, we consider a lightweight cross-attention transformer with dropout. 
+
+5.1. Toy one-dimensional linear example. Consider a toy example of the one-dimensional Poisson equation on Ω = (0 , 1): (5.1) F = −∇ u, ∇ · F = f, 
+
+with Dirichlet boundary conditions u(0) = α, u(1) = 0, and constant source term 
+
+f ≡ 1. The analytic solution is: (5.2) u(x) = − x2 
+
+> 2
+
++   12 − αx + α, F (x) = x + α − 12 .STRUCTURE-PRESERVING NEURAL SURROGATES WITH TRACTABLE UQ 23 
+
+Fig. 3: Solution reconstruction and quantified uncertainty for the toy exam-ple. Left : Solution field u with respect to different left boundary conditions α. The black solid line is the analytic solution, and the red dashed line is the reconstructed solution. Right : Inference result for the left boundary flux with respect to left bound-ary conditions α with shaded blue area as the error bound from Theorem 4.4. The goal is to learn the solution u and the associated flux F given the left boundary condition α. In particular, we use this toy example because the flux depends linearly on the left boundary condition. In the implementation, to construct the fine-scale discretization, we employ the classic Galerkin finite element with P0 elements for solution u and P1 Lagrange ele-ments for the flux. For a mesh with N cells, we have Ncell = N cell-averaged values for u and Nf ace = N + 1 nodal flux values for F . Then the sparse basis evaluations in the fine scale ϕ0 ∈ RNcell ×Nq and ϕ1 ∈ RNface ×Nq are constructed with the quadrature weight exponent 12 . In one dimension, this is analogous to the lowest-order Raviart– Thomas space RT 0 where each hat function ϕ1 
+
+> i
+
+is supported on the two cells adjacent to node i, and its derivative dϕ 1 
+
+> i
+
+/dx plays the role of ∇· ϕFi . The resulting P0–P1 pair yields the standard mixed P0–H(div) formulation in 1D. In addition, for a prescribed number of PoU, we have N0 = NPoU for the coarse 0-forms and N int 1 =  N0
+
+> 2
+
+ for the interior coarse 1-forms, respectively. For the 1D problem, we explicitly set two boundary 1-forms ψleft 1 and ψright 1 , which gives the N bc  
+
+> 1
+
+= 2 and total number of coarse 1-forms N1 =  N0
+
+> 2
+
+ + 2. Comparison of the ground truth with the prediction is shown in Fig. 3 (left). The reconstructed solution field from the coarse 0-forms can approximate the ground-truth solution with the MSE below 10 −5. Fig. 3 (right) illustrates the GP inference of the left boundary flux with respect to different values of α. For the 1D problem where the target boundary Γ is reduced to the left boundary point x = 0, the coarse-to-fine reconstruction of flux in Proposition 4.3 is simplified to use the coarse boundary 1-form for the left boundary. Furthermore, as this problem is linear, the error bound is still tight near the training range even in the small extrapolation area, with only a slight increase in the most extreme cases, α = 0 .5 and α = 3 .5. 
+
+5.2. 1D nonlinear example with manufactured solution. We next con-sider a nonlinear diffusion equation with piecewise nonlinear diffusivity and the same Dirichlet boundary conditions as in Subsection 5.1: (5.3) F = −k(u) ∇u, ∇ · F = f, 24 ZHANG ET AL. 
+
+where (5.4) k(u) = 
+
+(
+
+k0 if u ≤ u0,β (u − u0)q + k0 if u > u 0.
+
+The analytic solution is u(x) = α(1 − x), which gives F (x) = α k  α(1 − x) and 
+
+f (x) = ∇ · F (x) = 
+
+(
+
+0 if α(1 − x) ≤ u0,
+
+−βqα 2 α(1 − x) − u0
+
+q−1 if α(1 − x) > u 0.
+
+This problem features a nonlinear constitutive law k(u), a spatially varying source 
+
+f (x) that depends on the parameter α, and a kink in k at the threshold u = u0.Therefore, we have a manufactured problem where the flux is a nonlinear function of the left boundary condition α with a transition point at x = 1 − u0 
+
+> α
+
+. The visualiza-
+
+Fig. 4: Conditional coarse bases for Subsection 5.2 . Coarse shape functions 
+
+{ψ0 
+
+> i
+
+} evaluated on the fine-scale nodes can adapt to different values α = [1 , 2.1, 3]. 
+
+Fig. 5: Quantified uncertainty for the left-boundary flux in the 1D nonlinear problem. The learned surrogate predicts the boundary flux FΓ as a function of the left Dirichlet boundary value α. The growth of the uncertainty band outside the training range in α reflects reduced confidence in extrapolation. tion of coarse shape functions {ψ0 
+
+> j
+
+} in Fig. 4 demonstrates that the conditional neural STRUCTURE-PRESERVING NEURAL SURROGATES WITH TRACTABLE UQ 25 Whitney form allows an adaptive adjustment of the PoU. As α changes, the coarse basis functions reallocate their support to better accommodate the condition. One coarse basis function becomes much more dominant near the left side at larger values of α, suggesting that the solution structure there becomes more parameter-sensitive. For this example with both linear and nonlinear regions, the error bound grows more noticeably in the extrapolation range than in the previous linear example (Fig. 5). Furthermore, in the left extrapolation region where the flux is still linear in the con-ditioning variable, the GP-inferred flux deviates less from the ground-truth than in the nonlinear extrapolation region on the right. The error bound grows in both ex-trapolation directions because the distance in the GP feature space from the training samples increases regardless of whether the extrapolation is in the linear regime or the nonlinear regime. 
+
+5.3. Conditioned 2D advection-diffusion equation in complex geome-try. We extend the problem to the steady advection-diffusion equation in a complex geometry and an unstructured mesh: (5.5) −∇ · (k ∇u) + β · ∇ u = 0 in Ω ,
+
+where k is the diffusion coefficient and β = (cos θ, sin θ) is the advection direction with θ ∈ [0 , 2π). The domain is a two-dimensional “bell”-shaped domain Ω with three distinct Dirichlet boundary conditions as shown in Fig. 6. We use an unstructured triangular mesh to discretize the complex bell geometry and parameterize the problem with both θ and ucrack . Specifically, we have the top handle of the bell (Γ 1) with u = 1, the crack boundary (Γ 2) with u = ucrack , and the remaining bell-body boundary (Γ 3)with u = 0. The conditioning variable θ controls the advection direction and thus changes the transport pattern inside the domain. 
+
+Fig. 6: Complex geometry demonstration. Left figure shows the irregular trian-gular mesh and right figure shows the nonhomogeneous Dirichlet boundary conditions. Results are shown in Fig. 7. In the implementation, we first train the transformer for the Whitney forms with a dropout rate of 0.1 for 100,000 epochs and then turn off the dropout for another 20,000 epochs. Empirically, this two-stage training strategy alleviates overfitting and prevents the transformer from getting stuck in local minima 26 ZHANG ET AL. 
+
+Fig. 7: Quantified uncertainty on complex geometry. Top : The solution to the advection-diffusion equation, conditioned on the advection direction, is recovered. 
+
+Bottom: Dropout during training provides a high-quality basis; turning off at 100k epochs allows refinement of the final basis ( bottom left ). The error in the flux through the crack at the bottom of the Liberty Bell is bounded by the estimator in Equa-tion (4.22) ( bottom right ). during training. Fig. 8 visualizes the Whitney 0-forms learned by the neural PoU framework for three different values of the conditioning variables, showing that the learned partitions adapt naturally to the geometric structure. As θ and ucrack in-crease, some 0-forms tend to localize near the crack interface to capture changes near the crack boundary efficiently, while others tend to align with the flow near other boundaries or within the domain. 
+
+5.4. p − n diodes. Finally, we consider the p − n diode problem obtained from Charon TCAD simulations [26] on the rectangular device domain Ω = (0 , L x)×(0 , L y )with Lx = 1 and Ly = 0 .5. For each applied anode bias Va, the data consist of the electrostatic potential, electron and hole current densities, doping profiles, and the terminal currents at the cathode and anode. The cathode bias is fixed and the anode bias is swept over [ −1, 1] in thermal-voltage units; multiplication by V0 =2.585 × 10 −2 V gives the corresponding physical voltage scale. The two-dimensional TCAD fields are reduced to one-dimensional profiles in a way that preserves the terminal-current constraint. Let φ(x, y ; Va) denote the electrostatic potential and let jx(x, y ; Va) denote the net conventional current density in the axial direction. On the structured 100 × 10 cell grid, we define: (5.6) u(x; Va) = 1
+
+Ly
+
+Z Ly
+
+> 0
+
+φ(x, y ; Va) dy, J(x; Va) = 
+
+Z Ly
+
+> 0
+
+jx(x, y ; Va) dy. STRUCTURE-PRESERVING NEURAL SURROGATES WITH TRACTABLE UQ 27 
+
+Fig. 8: Conditioned basis adapts to advection. The three basis functions are shown conditioned on angles θ ∈ [0 .45 π, 0.75 π, 1.05 π], respectively, highlighting the ability of the basis to adapt itself to the relevant conditioning. Since the steady drift–diffusion solution satisfies charge conservation ( ∇ · j = 0) and the top and bottom boundaries are insulating, integration over the cross section gives: (5.7) ddx J(x; Va) = 0 , J(x; Va) ≃ Ia(Va).
+
+We use the same conditional Whitney–GP construction as in previous 1D exam-ples, where the neural Whitney forms are generated by the transformer conditioned on Va. Given that the current values vary over several orders of magnitude, we train the GP on the logarithm of the current magnitude and map the posterior mean back to the original scale by exponentiation, i.e., the posterior mean μ(Va) is mapped back to the original current magnitude by exp( μ(Va)). The numerical results are shown in Fig. 9 with the inference in original scale on the left and in log scale on the right. 28 ZHANG ET AL. 
+
+Fig. 9: Quantified uncertainty for the I-V response of a semiconductor component. Top: schematic of the one-dimensional p-n diode and the prescribed anode–cathode orientation. Bottom: Comparison of the ground-truth current and predicted current in original scale ( bottom left ) and log scale ( bottom right ). Despite the appearance of a relatively good current reconstruction on a linear scale ( bottom left ), on a log scale the uncertainty estimator reveals the range of voltages over which the model may be reliably applied. Despite the fairly good current reconstruction on a linear scale, the uncertainty es-timator reveals the range of voltages over which the model may be reliably applied, and flags where the uncertainty becomes large relative to the scale of the quantity of interest. This example should be considered an illustration and guideline for where the proposed model starts to become less trustworthy, i.e., the posterior uncertainty grows rapidly in the exponential regime. 
+
+6. Conclusion. In this work, we developed a structure-preserving neural sur-rogate framework for PDE-governed systems that incorporates a reduced finite el-ement space and tractable uncertainty quantification with a closed-form posterior error bound. Our method separates the problem into two coupled parts: in P1 , the trainable PoU Whitney forms generate the reduced-order H(div)– L2 spaces that pre-serve the conservation law with the induced coarse divergence operator and support the graph interpretation; in P2 , the GP learns the nonlinear state-to-flux map on the coarse graph by solving the optimal recovery problem with an equality constraint that enforces the conservation exactly. In particular, the conditional Whitney forms pro-vide an adaptive mechanism that enables generalization across different geometries, and the optimal recovery formulation yields a saddle-point KKT condition with a fast Schur-complement solve. Numerical results demonstrate that the proposed method can reconstruct accurate solution fields and fluxes and provide meaningful uncertainty quantification for boundary flux functionals. In future work, we will generalize the framework to more complex problems and real datasets for practical applications, such as large-scale deployments for climate modeling. In addition, the current structure-STRUCTURE-PRESERVING NEURAL SURROGATES WITH TRACTABLE UQ 29 preserving construction is based on the de Rham complex and is primarily designed for scalar- and vector-valued problems; extending the method to handle tensor-valued variables is an important direction for future work. 
+
+Acknowledgments. H. Zhang and Dr. Kinch acknowledge support from the United States Department of Energy under the Advanced Scientific Computing Re-search (ASCR) program (award number DE-SC0024563). Drs. Kinch, Owhadi, Propp, and Trask acknowledge funding under the ASCR-sponsored Mathematical Multifaceted Integrated Capability Centers program (award number DE-SC0023163). 
+
+REFERENCES [1] K. Aadithya, P. Kuberry, B. Paskaleva, P. Bochev, K. Leeson, A. Mar, T. Mei, and E. Keiter , Data-driven compact models for circuit design and analysis , in Proceedings of The First Mathematical and Scientific Machine Learning Conference, J. Lu and R. Ward, eds., vol. 107 of Proceedings of Machine Learning Research, PMLR, 20–24 Jul 2020, pp. 555–569, https://proceedings.mlr.press/v107/aadithya20a.html. [2] M. Abdar, F. Pourpanah, S. Hussain, D. Rezazadegan, L. Liu, M. Ghavamzadeh, P. Fieguth, X. Cao, A. Khosravi, U. R. Acharya, et al. , A review of uncertainty quantification in deep learning: Techniques, applications and challenges , Information fu-sion, 76 (2021), pp. 243–297. [3] J. A. Actor, X. Hu, A. Huang, S. A. Roberts, and N. Trask , Data-driven whitney forms for structure-preserving control volume analysis , Journal of Computational Physics, 496 (2024), p. 112520. [4] D. Arnold, R. Falk, and R. Winther , Finite element exterior calculus: from hodge theory to numerical stability , Bulletin of the American mathematical society, 47 (2010), pp. 281–354. [5] D. N. Arnold, R. S. Falk, and R. Winther , Finite element exterior calculus, homological techniques, and applications , Acta Numerica, 15 (2006), p. 1–155, https://doi.org/10.1017/ S0962492906210018. [6] P. Benner, S. Gugercin, and K. Willcox , A survey of projection-based model reduction methods for parametric dynamical systems , SIAM Review, 57 (2015), pp. 483–531, https: //doi.org/10.1137/130932715. [7] D. Boffi, F. Brezzi, and M. Fortin , Mixed Finite Element Methods and Applications , vol. 44 of Springer Series in Computational Mathematics, Springer, Berlin, Heidelberg, 2013, https: //doi.org/10.1007/978-3-642-36519-5. [8] A. Bonfanti, G. Bruno, and C. Cipriani , The challenges of the nonlinear regime for physics-informed neural networks , Advances in neural information processing systems, 37 (2024), pp. 41852–41881. [9] S. L. Brunton and J. N. Kutz , Promising directions of machine learning for partial differ-ential equations , Nature Computational Science, 4 (2024), pp. 483–494. [10] K. Carlberg, Y. Choi, and S. Sargsyan , Conservative model reduction for finite-volume models , Journal of Computational Physics, 371 (2018), pp. 280–314, https://doi.org/10. 1016/j.jcp.2018.05.019. [11] H. Chen, G. E. C. Flores, and C. Li , Physics-informed neural networks with hard linear equality constraints , Computers & Chemical Engineering, 189 (2024), p. 108764. [12] Y. Chen, B. Hosseini, H. Owhadi, and A. M. Stuart , Solving and learning nonlinear pdes with gaussian processes , Journal of Computational Physics, 447 (2021), p. 110668. [13] D. Fan, W. Li, H. Qiu, Y. Xu, S. Gao, L. Liu, T. Li, F. Huang, Y. Mao, W. Zhou, et al. ,
+
+Two-dimensional semiconductor integrated circuits operating at gigahertz frequencies , Na-ture Electronics, 6 (2023), pp. 879–887. [14] S. Fresca and A. Manzoni , Pod-dl-rom: Enhancing deep learning-based reduced order models for nonlinear parametrized pdes by proper orthogonal decomposition , Computer Methods in Applied Mechanics and Engineering, 388 (2022), p. 114181. [15] V. Gupta, T. Koren, and Y. Singer , Shampoo: Preconditioned stochastic tensor optimiza-tion , in International Conference on Machine Learning, PMLR, 2018, pp. 1842–1850. [16] M. Harkonen, M. Lange-Hegermann, and B. Raita , Gaussian process priors for systems of linear partial differential equations with constant coefficients , in International conference on machine learning, PMLR, 2023, pp. 12587–12615. [17] A. Jiao, Q. Yan, J. Harlim, and L. Lu , Solving forward and inverse pde problems on unknown manifolds via physics-informed neural operators , arXiv preprint arXiv:2407.05477, (2024). 30 ZHANG ET AL. [18] K. S. Jung, C. E. Lacey, H. Babaee, and J. H. Chen , Accelerating high-fidelity simulations of chemically reacting flows using reduced-order modeling with time-dependent bases , Com-puter Methods in Applied Mechanics and Engineering, 437 (2025), p. 117758. [19] M. G. Kapteyn, D. J. Knezevic, D. Huynh, M. Tran, and K. E. Willcox , Data-driven physics-based digital twins via a library of component-based reduced-order models , Inter-national Journal for Numerical Methods in Engineering, 123 (2022), pp. 2986–3003. [20] G. E. Karniadakis, I. G. Kevrekidis, L. Lu, P. Perdikaris, S. Wang, and L. Yang , Physics-informed machine learning , Nature Reviews Physics, 3 (2021), pp. 422–440. [21] B. Kinch, B. Shaffer, E. Armstrong, M. Meehan, J. Hewson, and N. Trask ,
+
+Structure-preserving digital twins via conditional neural whitney forms , arXiv preprint arXiv:2508.06981, (2025). [22] A. Krishnapriyan, A. Gholami, S. Zhe, R. Kirby, and M. Mahoney , Characterizing pos-sible failure modes in physics-informed neural networks , Advances in neural information processing systems, 34 (2021), pp. 26548–26560. [23] Z. Li, N. Kovachki, K. Azizzadenesheli, B. Liu, K. Bhattacharya, A. Stuart, and A. Anandkumar , Fourier neural operator for parametric partial differential equations ,arXiv preprint arXiv:2010.08895, (2020). [24] L. Lu, P. Jin, G. Pang, H. Zang, and G. Karniadakis , Learning nonlinear operators via DeepONet based on the universal approximation theorem of operators , Nature Machine Intelligence, 3 (2021), pp. 218–229, https://doi.org/10.1038/s42256-021-00302-5. [25] C. A. Micchelli and T. J. Rivlin , A survey of optimal recovery , Optimal estimation in approximation theory, (1977), pp. 1–54. [26] L. Musson, X. Gao, M. Negoita, A. Huang, and G. L. Hennigan , Charon: A radiation aware massively parallel tcad modeling code. , Sandia National Laboratories (SNL-NM), Albuquerque, NM (United States), 11 2018, https://www.osti.gov/biblio/1575982. [27] L. Musson, G. Hennigan, X. Gao, R. Humphreys, M. Negoita, and A. Huang , Charon user manual: v. 2.2 (revision1) , tech. report, Sandia National Laboratories (SNL-NM), Albuquerque, NM (United States), 2022. [28] National Academies of Sciences, Engineering, and Medicine, Division on Engineering and Physical Sciences, Board on Mathematical Sciences and Analytics, and Com-mittee on Foundation Models for Scientific Discovery and Innovation , Foundation Models for Scientific Discovery and Innovation: Opportunities Across the Department of Energy and the Scientific Enterprise , The National Academies Press, Washington, DC, 2025, https://doi.org/10.17226/29212, https://nap.nationalacademies.org/catalog/29212/ foundation-models-for-scientific-discovery-and-innovation-opportunities-across-the. [29] H. Owhadi , Computational graph completion , Research in the Mathematical Sciences, 9 (2022), p. 27. [30] A. M. Propp, J. A. Actor, E. Walker, H. Owhadi, N. Trask, and D. M. Tartakovsky ,
+
+Discovery of probabilistic dirichlet-to-neumann maps on graphs , SIAM Journal on Scientific Computing, 48 (2026), pp. C191–C215. [31] A. F. Psaros, X. Meng, Z. Zou, L. Guo, and G. E. Karniadakis , Uncertainty quantification in scientific machine learning: Methods, metrics, and comparisons , Journal of Computa-tional Physics, 477 (2023), p. 111902. [32] A. Quarteroni, A. Manzoni, and F. Negri , Reduced Basis Methods for Partial Differential Equations: An Introduction , vol. 92 of Unitext, Springer, Cham, 2016, https://doi.org/10. 1007/978-3-319-15431-2. [33] C. E. Rasmussen and C. K. I. Williams , Gaussian Processes for Machine Learning , The MIT Press, Cambridge, Mass., 2006, http://www.gaussianprocess.org/gpml/. [34] M. Ruderman, S. Kaltenbacher, and M. Horn , Pressure-flow dynamics with semi-stable limit cycles in hydraulic cylinder circuits , in 2021 IEEE International Conference on Mecha-tronics (ICM), 2021, pp. 1–6, https://doi.org/10.1109/ICM46511.2021.9385620. [35] Y. Shi, P. Wei, K. Feng, D.-C. Feng, and M. Beer , A survey on machine learning approaches for uncertainty quantification of engineering systems , Machine learning for computational science and engineering, 1 (2025), p. 11. [36] H. Song, Z. Li, M. Deng, X. Li, D. Pan, Z. Lai, and W. Wang , Structure-aware epistemic uncertainty quantification for neural operator pde surrogates , arXiv preprint arXiv:2603.11052, (2026). [37] N. Trask, A. Huang, and X. Hu , Enforcing exact physics in scientific machine learning: a data-driven exterior calculus on graphs , Journal of Computational Physics, 456 (2022), p. 110969. [38] A. Vacca and G. Franzoni , Hydraulic fluid power: Fundamentals, applications, and circuit design , John Wiley & Sons, 2021. STRUCTURE-PRESERVING NEURAL SURROGATES WITH TRACTABLE UQ 31 
+
+[39] S. Wang, A. L. Cottrill, Y. Kunai, A. R. Toland, P. Liu, W.-J. Wang, and M. S. Strano ,
+
+Microscale solid-state thermal diodes enabling ambient temperature thermal circuits for energy applications , Physical Chemistry Chemical Physics, 19 (2017), pp. 13172–13181. [40] S. Wang, H. Wang, and P. Perdikaris , Learning the solution operator of parametric par-tial differential equations with physics-informed DeepONets , Science Advances, 7 (2021), p. eabi8605, https://doi.org/10.1126/sciadv.abi8605. [41] Z. Xu, Y. Guo, and J. H. Saleh , Accurate remaining useful life prediction with uncertainty quantification: a deep learning and nonstationary gaussian process approach , IEEE Trans-actions on Reliability, 71 (2021), pp. 443–456. [42] Y. Yang and P. Perdikaris , Adversarial uncertainty quantification in physics-informed neural networks , Journal of Computational Physics, 394 (2019), pp. 136–152. [43] J. Yu, L. Lu, X. Meng, and G. E. Karniadakis , Gradient-enhanced physics-informed neural networks for forward and inverse PDE problems , Computer Methods in Applied Mechanics and Engineering, 393 (2022), p. 114823. 32 ZHANG ET AL. 
+
+Appendix A. Proof for Proposition 3.5. 
+
+Proof. For a boundary edge e ∈ E γ , the divergence ∇· ϕ1 
+
+> e
+
+is supported entirely on its unique adjacent cell K(e) and is zero everywhere else. Let βγe = ( ∇· ϕ1
+
+> e
+
+, ϕ P0
+
+> K(e)
+
+)Ω.Since the coarse 0-form and boundary 1-form are defined as 
+
+ψ0 
+
+> i
+
+= X
+
+> a∈C h
+
+Wia ϕP0 
+
+> a
+
+, ψ1,bc  
+
+> α,γ
+
+= X
+
+> e∈E γ
+
+Wα,K (e)ϕ1
+
+> e
+
+,
+
+we have (Dγ )iα = ( ∇· ψ1,bc  
+
+> α,γ
+
+, ψ 0 
+
+> i
+
+)Ω
+
+= X
+
+> e∈E γ
+
+Wα,K (e)(∇· ϕ1
+
+> e
+
+, ψ 0 
+
+> i
+
+)Ω
+
+= X
+
+> e∈E γ
+
+Wα,K (e)Wi,K (e)(∇· ϕ1
+
+> e
+
+, ϕ P0
+
+> K(e)
+
+)Ω
+
+= X
+
+> e∈E γ
+
+βγe Wα,K (e)Wi,K (e)
+
+This shows Dγ = Wγ Bγ W ⊤ 
+
+> γ
+
+, where ( Wγ )ie = Wi,K (e), B γ = diag {βγe : e ∈ E γ }.Then it remains to check the sufficient condition. Let 
+
+D∂ = [ D1 D2 · · · Dr ]denote the boundary block of the divergence matrix D, collecting the boundary groups 
+
+γ = 1 , . . . , r . Given D ∈ RN0×N1 , we have rank( D) ≤ N0.
+
+If D∂ has full row rank N0, since D∂ is the column submatrix of D corresponding to the boundary basis functions, we have rank( D) ≥ rank( D∂ ) = N0,
+
+and therefore rank( D) = N0.Let G∂ = Prγ=1 Wγ Bγ W ⊤ 
+
+> γ
+
+be positive definite. For any x ∈ RN0 such that 
+
+x⊤D∂ = 0, we have 0 = x⊤
+
+> r
+
+X
+
+> γ=1
+
+Dγ
+
+!
+
+x = x⊤G∂ x =⇒ x = 0 since G∂ ≻ 0. Hence Null( D⊤ 
+
+> ∂
+
+) = {0}, and by the rank–nullity theorem, D∂ has full row rank N0.

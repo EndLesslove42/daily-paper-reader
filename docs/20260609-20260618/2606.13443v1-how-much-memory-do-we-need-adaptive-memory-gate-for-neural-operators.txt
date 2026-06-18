@@ -1,0 +1,2322 @@
+Title: How Much Memory Do We Need? Adaptive Memory Gate for Neural Operators
+
+URL Source: https://arxiv.org/pdf/2606.13443v1
+
+Published Time: Fri, 12 Jun 2026 01:05:40 GMT
+
+Number of Pages: 28
+
+Markdown Content:
+# How Much Memory Do We Need? Adaptive Memory Gate for Neural Operators 
+
+Jihyeon Hur 1 Yongseok Kwon 1 Min-Gi Jo 1 Jeongwhan Choi 1 Noseong Park 1
+
+## Abstract 
+
+Neural operators have emerged as a powerful data-driven approach for solving time-dependent PDEs. Among recent advances, memory-augmented neu-ral operators explicitly incorporate past states and have achieved remarkable performance under low-resolution observation settings. However, existing approaches apply a fixed memory weight regard-less of observation conditions, such as resolution or physical parameters, limiting their adaptability. Our preliminary experiments reveal that optimal memory weight varies with resolution and viscos-ity, implying that a fixed memory weight cannot simultaneously optimize performance across di-verse settings. We propose AMGFNO, which dy-namically modulates memory weight through a learnable gate. On the Kuramoto-Sivashinsky and Burgers’ equations, AMGFNO achieves 55–79% nRMSE reduction over at low resolution, with the learned gate value automatically decreasing from 
+
+¯g ≈ 0.7 to near-zero as resolution increases. 
+
+## 1. Introduction 
+
+Neural operators have emerged as a powerful data-driven alternative to classical numerical solvers for partial differen-tial equations (PDEs) (Li et al., 2021; Kovachki et al., 2023a; Lu et al., 2019). Classical methods such as finite difference, finite volume, and finite element methods (LeVeque, 2007; 2002; Zienkiewicz et al., 2005) suffer from high computa-tional cost in high dimensions and sensitivity to initial con-ditions. Neural operators address these limitations by learn-ing solution operators from data, enabling fast inference after a single training phase. Among the most practically important PDE families are time-dependent PDEs, which govern physical phenomena ranging from fluid dynamics to reaction-diffusion systems (Takamoto et al., 2022). For such PDEs, neural operators commonly adopt the Markovian as-
+
+> 1
+
+KAIST, Republic of Korea. Correspondence to: Noseong Park 
+
+<noseong@kaist.ac.kr >.
+
+Proceedings of the AI4Physics Workshop at the 43 rd International Conference on Machine Learning (AI4Physics@ICML 2026) ,Seoul, South Korea. 2026. Copyright 2026 by the author(s). Method Memory Long-range Adaptive FFNO ✗ ✗ ✗
+
+Multi-Input FFNO ✓ ✗ ✗
+
+S4FFNO ✓ ✓ ✗
+
+AMGFNO (Ours) ✓ ✓ ✓
+
+Table 1. Comparison of neural operator architectures across three properties. Memory: incorporates past states beyond the current one; Long-range: spans the full trajectory rather than a fixed-length window; Adaptive: adjusts memory weight based on input condi-tions. AMGFNO is the first to achieve all three. 
+
+sumption, predicting the next state only from the current state (Tran et al., 2023; Lippe et al., 2023). The Markovian assumption, however, breaks down when PDE solutions are observed at low resolution (Buitrago Ruiz et al., 2025). As resolution decreases, the Nyquist-Shannon sampling theorem limits the number of observable Fourier modes, causing significant loss of high-frequency informa-tion. Mori-Zwanzig theory formalizes partial observation as inducing strongly non-Markovian behavior, making the memory term — accumulated information from past states — decisive for accurate prediction (Parish & Duraisamy, 2017). 
+
+Fixed memory weight cannot adapt to varying condi-tions. Explicitly modeling memory can therefore com-pensate for the information lost at low resolution. Existing memory-augmented neural operators use a fixed memory weight that controls how much memory is used, regardless of observation conditions (Buitrago Ruiz et al., 2025). How-ever, the utility of memory varies with resolution and phys-ical parameters. Section 2.2 presents a preliminary study showing that the optimal memory weight varies with resolu-tion and viscosity, and that no single fixed memory weight simultaneously optimizes performance across all settings. 
+
+Main idea. We propose AdaptiveMemoryGateFNO (AMGFNO ), a neural operator that dynamically controls memory weight via a adaptive memory gate. As summarized in Table 1, FFNO uses no memory, Multi-Input FFNO cap-tures only short-range history, and S4FFNO (Buitrago Ruiz et al., 2025) introduces long-range memory but lacks adap-tive control. AMGFNO is the first to combine all three prop-1
+
+> arXiv:2606.13443v1 [cs.LG] 11 Jun 2026
+
+How Much Memory Do We Need? Adaptive Memory Gate for Neural Operators 0.00 0.25 0.50 0.75 1.00   
+
+> Memory weight
+> 0.08
+> 0.16
+> 0.24
+> 0.32
+> Test nRMSE  = 0.075
+> = 0.10
+> = 0.125
+> *=0.8
+> *=0.5
+
+(a) f = 32 0.00 0.25 0.50 0.75 1.00     
+
+> Memory weight
+> 0.015
+> 0.030
+> 0.045
+> 0.060
+> Test nRMSE
+> *=0.2
+> *=0.5 *=0.0
+
+(b) f = 64 0.00 0.25 0.50 0.75 1.00   
+
+> Memory weight
+> 0.002
+> 0.004
+> 0.006
+> 0.008
+> 0.010
+> Test nRMSE
+> *=0.0
+
+(c) f = 128 32 64 128    
+
+> Resolution f
+> 0.075
+> 0.1
+> 0.125
+> Viscosity
+> 0.75
+> 0.75
+> 0.50
+> 0.25
+> 0.50
+> 0.00
+> 0.00
+> 0.00
+> 0.00 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> *
+
+(d) Optimal α∗
+
+Figure 1. Effect of memory weight α on nRMSE across resolutions f and viscosity ν values on the KS equation. Panels (a-c) show nRMSE as a function of α for three viscosity values ( ν ∈ { 0.075 , 0.10 , 0.125 }) at a fixed resolution, with stars indicating optimal memory weight α∗. Panel (d) summarizes the optimal memory weight α∗ across all settings. 
+
+erties: (1) using past states as memory beyond the current timestep, (2) capturing long-range temporal dependencies across the full trajectory rather than a fixed window, and (3) adaptively adjusting memory weight based on the current in-put condition rather than using a fixed weight. Throughout this paper, we use α to denote the manually-tuned mem-ory weight in our ablation study, α∗ for the optimal mem-ory weight that minimizes error per condition, and ¯g for AMGFNO’s learned mean memory gate value. The contri-butions of AMGFNO are summarized as follows: • Motivation. We empirically show that the optimal mem-ory weight α∗ varies with resolution and viscosity (Sec-tion 2.2), and theoretically show that the gain of memory can converge to zero in the high-resolution limit (Sec-tion 2.3). • Method. We propose AMGFNO (Section 3), which dy-namically modulates memory weight via an adaptive memory gate. The learned memory gate value decreases monotonically from ¯g ≈ 0.7 to near-zero as resolution increases, consistent with theoretical predictions. • Results. On the KS equation across three viscosity val-ues and three resolutions, as well as Burgers’ equation, AMGFNO achieves 55–79% nRMSE reduction over the best fixed-memory baseline (S4FFNO) at low resolution (f = 32 ) and 25–40% at high resolution ( f = 128 ), demonstrating effective memory adaptation across all ex-perimental settings (Section 4). 
+
+## 2. Preliminaries and Motivation 
+
+2.1. Time-dependent PDE Problem Definition 
+
+We consider a time-dependent partial differential equation defined on a spatial domain Ω ⊂ Rd and a time interval 
+
+[0 , T ]:
+
+∂u ∂t (t, x ) = Lρ[u]( t, x ), (t, x ) ∈ [0 , T ] × Ω. (1) The PDE is equipped with an initial condition 
+
+u(0 , x ) = u0(x), x ∈ Ω, (2) and a boundary condition 
+
+B[u|∂Ω]( t) = 0 , t ∈ [0 , T ]. (3) Here u(t, ·) : Ω → RV denotes the PDE state at time t,
+
+x is the spatial coordinate, V is the channel dimension of the input feature space, Lρ is a differential operator in x
+
+parameterized by physical parameters ρ, and B specifies the boundary condition. In our one-dimensional experiments, we use periodic boundary conditions. Let Φt denote the solution map induced by the PDE, so that 
+
+u(t, ·) = Φ t(u0).
+
+The learning problem considered in this paper is to ap-proximate the time evolution of this solution map from discretized observations of the PDE state. The resolved-state and spectral-truncation notation used in the theory is introduced in Section 2.3. Dataset-specific PDE equations, parameter values, and data-generation details are deferred to Appendix F. 
+
+2.2. Preliminary Study: How Much Memory Should Be Used? 
+
+To analyze when memory is beneficial, we conduct an ab-lation study that manually controls the memory weight in S4FFNO (Buitrago Ruiz et al., 2025). S4FFNO follows a 
+
+> FFNO
+
+–FFNO –S4– FFNO –FFNO layer structure, where the S4 memory layer is inserted at the middle position ( ℓ∗ = 3 ). Let h(ℓ∗−1)  
+
+> t
+
+∈ RN ×H denote the hidden state at the output of the second FFNO layer, and let z = M(ut) ∈ RN ×H
+
+denote the output of the S4 memory branch. We replace the original residual fusion with a convex combination that explicitly controls the relative weight of memory: 
+
+ht+1 ← α · z + (1 − α) · ht, α ∈ [0 , 1] , (4) where the updated ht+1 is passed to the third FFNO layer. Here, α is the memory weight: α = 0 corresponds 2How Much Memory Do We Need? Adaptive Memory Gate for Neural Operators 
+
+to a pure Markovian model that bypasses the memory branch, α = 1 fully replaces the residual with the mem-ory output. We sweep α ∈ { 0, 0.25 , 0.5, 0.75 , 1.0} on the Kuramoto–Sivashinsky (KS) equation across three spatial resolutions ( f ∈ { 32 , 64 , 128 }) and three viscosity values (ν ∈ { 0.075 , 0.10 , 0.125 }). Results are shown in Figure 1. The same observations hold under an additive parameteriza-tion ht+1 ← α · z + ht; see Appendix A for details. 
+
+Observation 1: Optimal memory weight varies sig-nificantly across conditions. Figure 1(a-c) shows test nRMSE as a function of α for different resolutions and vis-cosities, with stars marking the optimal memory weight α∗.At low resolution ( f = 32 ), using optimal α∗ ∈ { 0.5, 0.75 }
+
+reduces error by up to 41% compared to pure memory (α = 1 ): from 0.070 to 0.067 at ν = 0 .075 , from 0.037 to 0.028 at ν = 0 .10 , and from 0.027 to 0.016 at ν = 0 .125 .At high resolution ( f = 128 ), α∗ = 0 across all viscosities. At intermediate resolution ( f = 64 ), α∗ varies from 0 to 
+
+0.5 depending on viscosity. As the heatmap in Figure 1(d) shows, optimal α∗ spans {0.0, 0.25 , 0.5, 0.75 } across the 9 settings—no single fixed value is optimal, motivating adap-tive memory gate. This trend holds under both convex and additive fusion (Appendix A). 
+
+Observation 2: Fixed α fails to generalize across setting. 
+
+As the heatmap in Figure 1(d) shows, a fixed α optimized for one condition performs poorly in others. For instance, 
+
+α = 0 .75 works well at f = 32 (high viscosity) but de-grades performance at f = 128 , while α = 0 underex-ploits memory at low resolution. At intermediate resolution (f = 64 , Figure 1(b)), optimal α∗ varies widely—from 
+
+0 to 0.5 across viscosities—illustrating that fine-grained, condition-dependent control is necessary. 
+
+Motivation. These findings reveal that memory weight should adapt dynamically to the simulation condition. A fixed α treats memory as a static architectural choice, ignor-ing that optimal memory usage depends on the observation setting (e.g., resolution, viscosity). We propose an Adaptive Memory Gate Block in Section 3.3 that learns to modulate memory based on the current hidden state, enabling the model to automatically adjust across different observation settings without manual tuning. 
+
+2.3. Theoretical Motivation Intuition. Memory should be treated as a condition-dependent resource. At low observation resolution, un-resolved Fourier modes may still influence the next re-solved state, making the observed dynamics effectively non-Markovian and temporal history informative. As the resolution increases, this projection-induced hidden influ-ence diminishes; a fixed memory path then has decreasing approximation benefit while still contributing additional finite-sample complexity. 
+
+Setup. We formalize this mechanism under the ideal Fourier projection analyzed in Appendix G. Let mf := 
+
+⌊f / 2⌋, let Pf denote projection onto Fourier modes |n| ≤ 
+
+mf , and let Qf = I − Pf denote the unresolved tail. For a trajectory uρt+1 = Φ ρ
+
+> ∆t
+
+(uρt ) under physical condition ρ,write 
+
+uρt,f := Pf uρt , Y f,ρ t := Pf uρt+1 ,
+
+Uf,ρ t := ( uρ 
+
+> 0,f
+
+, . . . , u ρt,f ).
+
+Here uρt,f is the resolved state, Uf,ρ t is the resolved history, and Y f,ρ t is the one-step resolved target. The influence of the unresolved tail Qf uρt on the next resolved state is measured by 
+
+δt,f,ρ := Pf Φρ
+
+> ∆t
+
+(uρt ) − Pf Φρ
+
+> ∆t
+
+(Pf uρt ). (5) Under the finite-horizon regularity and local Lipschitz as-sumptions in Appendix G, 
+
+E∥δt,f,ρ ∥2 ≤ κtail ,ρ f −2β . (6) Thus, as f grows, the resolved dynamics become increas-ingly close to a Markovian system in the current resolved state. 
+
+From residual decay to memory-gain bounds. To con-nect this residual decay to neural-operator approximation, let Tf,ρ (ϕ) = Pf Φρ
+
+> ∆t
+
+(ϕ) denote the projected Markovian target, and let bf,ρ (Uf,ρ t ) denote the history-conditioned Bayes target. We write EC 
+
+> f,ρ
+
+for the approximation error of a model class C to this Bayes target, and AFf,ρ for FFNO’s ap-proximation error to the projected Markovian target. Formal definitions are given in Appendix G. The distinction between AFf,ρ and EFf,ρ is important. The assumption is imposed only on the projected Markovian target Tf,ρ through AFf,ρ ; it does not assume that FFNO can approximate the history-conditioned Bayes target. The-orem 2.1 uses the residual decay in Eq. (6) to transfer projected-target approximation into a bound on the actual Bayes-target error EFf,ρ .Define the memory gains over FFNO by 
+
+ΓS4 
+
+> f,ρ
+
+:= EFf,ρ − E S4
+
+> f,ρ
+
+, ΓAM G f,ρ (λ) := EFf,ρ − E AM G f,ρ (λ).
+
+(7) 
+
+Theorem 2.1 (Convergence of projection-induced memory gain) . Under the assumptions G.3–G.5, 
+
+EFf,ρ ≤ 2AFf,ρ + 2 κtail ,ρ f −2β . (8) 
+
+Consequently, EFf,ρ → 0 as f → ∞ . Since the memory-augmented classes contain the FFNO fallback, 
+
+0 ≤ ΓS4 
+
+> f,ρ
+
+≤ E Ff,ρ , 0 ≤ ΓAM G f,ρ (λ) ≤ E Ff,ρ (9) 3How Much Memory Do We Need? Adaptive Memory Gate for Neural Operators 
+
+for every λ ≥ 0. Hence the additional approximation gain of memory induced by spectral projection vanishes in the high-resolution limit. 
+
+The proof is given in Appendix G.4. AMGFNO is designed to track this convergence through its frequency-aware gate. For a full reference state ϕ with Fourier coefficients an(ϕ), define the unresolved spectral-energy ratio 
+
+ωf (ϕ) := 
+
+P 
+
+> |n|>m f
+
+|an(ϕ)|2
+
+P 
+
+> n∈Z
+
+|an(ϕ)|2 , (10) with value zero when the denominator is zero. For condition 
+
+(f, ρ ), define the population unresolved-energy ratio 
+
+ωpop  
+
+> f,ρ
+
+:= Eu0,t [ωf (uρt )] . (11) In experiments, ωpop  
+
+> f,ρ
+
+is replaced by the empirical training-set estimate bωf,ρ , computed from high-resolution training trajectories and held fixed for the condition (f, ρ ). This quantity is used only as a condition-level calibration con-stant; no high-resolution test information is used. The scalar frequency gate is 
+
+χf,ρ := 
+
+(σ
+
+
+
+w1 log ωpop  
+
+> f,ρ
+
++ bω
+
+
+
+, ωpop  
+
+> f,ρ
+
+> 0,
+
+0, ωpop  
+
+> f,ρ
+
+= 0 , w1 > 0.
+
+(12) Lemma G.10 shows that ωpop  
+
+> f,ρ
+
+→ 0, and therefore χf,ρ → 0.Since the content gate is bounded entrywise by one, the induced AMGFNO memory budget is bounded by 
+
+λf,ρ := χ2
+
+> f,ρ
+
+, (13) which also converges to zero. Finally, the adaptive memory gate also controls finite-sample complexity. Let Rm(L) denote the Rademacher complexity of a loss class, and let U Ff,ρ , U S4
+
+> f,ρ
+
+, and U AM G f,ρ (λ)
+
+denote the ERM upper bounds defined in Appendix G.6. 
+
+Theorem 2.2 (Adaptive high-resolution comparison) . Let 
+
+λf,ρ = χ2
+
+> f,ρ
+
+. Under the assumptions G.3–G.7 and the suffi-cient conditions of Proposition G.12, 
+
+Rm(LAM G f,ρ (λf,ρ )) − Rm(LFf,ρ ) = O(pλf,ρ ) → 0. (14) 
+
+Thus, 
+
+U AM G f,ρ (λf,ρ ; η) − U Ff,ρ (η) → 0. (15) 
+
+If fixed-fusion S4FFNO retains a positive asymptotic Rademacher-complexity gap over FFNO, then for all suffi-ciently large f ,
+
+U AM G f,ρ (λf,ρ ; η) < U S4
+
+> f,ρ
+
+(η). (16) The proof is given in Appendix G.8. The analysis isolates the memory benefit induced by projection-based loss of Fourier modes. It does not rule out persistent memory gains from other sources of partial observability, such as latent parameters, stochastic forcing, measurement noise, or temporal subsampling. The theory controls one-step resolved prediction risk, while accumu-lated autoregressive rollout error is evaluated empirically in Section 4. 
+
+## 3. Proposed Method 
+
+AMGFNO builds on the FFNO backbone by inserting an Adaptive Memory Gate (AMG) Block at the middle layer, as illustrated in Figure 2. The AMG Block consists of a memory layer and an adaptive memory gate (AMG). The AMG consists of content gate and frequency-aware gate. The input PDE state ut ∈ RS×V is first encoded into a latent representation h(0)  
+
+> t
+
+= Enc( ut, s) ∈ RS×H , where 
+
+s ∈ RS×1 is the spatial grid and H is the hidden dimension. The latent state then passes through L = 5 layers in the order FFNO –FFNO –AMG –FFNO –FFNO :
+
+h(ℓ) 
+
+> t
+
+=
+
+
+
+Fℓ
+
+
+
+h(ℓ−1) 
+
+> t
+
+
+
++ h(ℓ−1)  
+
+> t
+
+, ℓ̸ = ℓ∗
+
+gt ⊙ zt + (1 − gt) ⊙ h(ℓ−1)  
+
+> t
+
+, ℓ = ℓ∗
+
+(17) where ℓ∗ = 3 is the index of the Adaptive Memory Gate (AMG) Block and zt = M(h(ℓ∗−1) 1: t ) is the memory layer output. At ℓ̸ = ℓ∗, each layer applies an FFNO operation with a residual connection. At ℓ = ℓ∗, the AMG Block combines the memory output zt and the Markovian hidden state h(ℓ∗−1)  
+
+> t
+
+via the adaptive memory gate gt ∈ [0 , 1] S×H ,which is computed from the current feature state. The gate dynamically adjusts memory weight across different simu-lation conditions, allowing the model to modulate memory usage based on the learned representation. The final predic-tion is ˆut+1 = Dec( h(L) 
+
+> t
+
+).
+
+3.1. Factorized Fourier Neural Operator (FFNO) Layer 
+
+Each FFNO layer Fℓ operates along the spatial axis and combines a spectral path with a local linear path: 
+
+Fℓ(h) = F−1
+
+Wfreq  
+
+> ℓ
+
+· [F(h)] 1: K
+
+
+
++ Wloc  
+
+> ℓ
+
+h, (18) where F is the discrete Fourier transform along the spatial dimension, K is the number of retained Fourier modes, and 
+
+Wfreq  
+
+> ℓ
+
+, Wloc  
+
+> ℓ
+
+are learnable weight matrices. 
+
+3.2. Memory Layer 
+
+The memory output zt = M(h1: t) is computed by applying S4 (Structured State Space Model) along the temporal axis. 4How Much Memory Do We Need? Adaptive Memory Gate for Neural Operators Content gate  Frequency-aware    
+
+> gate
+> Adaptive Memory Gate (Eq. (20))
+> FFNO FFNO FFNO FFNO
+> Memory Layer
+> (Eq. (17))
+> Adaptive Memory Gate Block
+
+Figure 2. Overview of the AMGFNO architecture. The model consists of five layers with an Adaptive Memory Gate (AMG) Block at the middle layer ( ℓ = 3 ). The AMG Block combines the memory layer output zt and the Markovian state ht (output of the second FFNO layer, ℓ = 2 ) using an adaptive memory gate gt that is decomposed into two components: a content gate σ(Wz zt + Whht + b)
+
+for input-adaptive control and a frequency-aware gate σ(w1 log ωf + bω ) for conditional priors. The final output is computed as 
+
+gt ⊙ zt + (1 − gt) ⊙ ht.
+
+For each spatial position p ∈ { 1, . . . , S } independently: 
+
+v(p) 
+
+> t
+
+= A v (p) 
+
+> t−1
+
++ B h (p) 
+
+> t
+
+, z(p) 
+
+> t
+
+= C v (p) 
+
+> t
+
+, (19) where v(p) 
+
+> t
+
+∈ RN is the S4 internal state that accumulates temporal context up to time t, and A, B, C are learnable parameters initialized with HiPPO (Gu et al., 2020). The spatial dimension is treated as a batch axis, so all positions share the same SSM parameters. 
+
+3.3. Adaptive Memory Gate 
+
+As shown in Figure 2, the adaptive memory gate gt ∈
+
+(0 , 1) S×H controls how much the memory output zt con-tributes relative to the current hidden state ht. The gate consists of a content gate and a frequency-aware gate: 
+
+gt = σ(Wz zt + Wh ht + b)
+
+| {z }  
+
+> content gate ∈(0 ,1) S×H
+
+· σ(w1 log ωf + bω )
+
+| {z }  
+
+> frequency-aware gate ∈(0 ,1)
+
+.
+
+(20) 
+
+Content gate. The content gate σ(Wz zt + Whht + b) ∈
+
+(0 , 1) S×H provides input-adaptive control that varies per sample, channel, and spatial location. It takes the memory output zt and the current hidden state ht as input and learns to modulate memory weight based on their learned represen-tations. The parameters Wz , Wh, and b are initialized to zero, allowing the content gate to learn data-driven correc-tions during training while deferring to the frequency-aware prior at initialization. 
+
+Frequency-aware gate. The frequency-aware gate 
+
+σ(w1 log ωf + bω ) ∈ (0 , 1) supplies a conditional prior based on the observation condition (f, ρ ). Here ωf is the high-frequency energy ratio defined in Eq. (11) , computed as the mean over the training set and held fixed during training and inference. We found empirically that this fixed ωf estimate consistently outperforms per-batch computation by 5–20% across settings (see Appendix B), suggesting that ωf serves best as a calibration constant characterizing the observation condition rather than a dynamic per-sample feature. The parameters w1 = 2 .0
+
+and bω = 3 .8 are analytically initialized from two anchor conditions ( ω32 and ω128 ) to provide a resolution-aware prior that the content gate refines during training. 
+
+## 4. Experiments 
+
+4.1. Experimental Setup Benchmarks and observation settings. We evaluate on two 1D time-dependent PDEs with periodic boundary con-ditions. For the Kuramoto–Sivashinsky (KS) equation, we consider three viscosity values ν ∈ { 0.075 , 0.1, 0.125 } to span different spectral conditions. Lower viscosity leads to more chaotic dynamics with significant high-frequency content, while higher viscosity smooths the solution. For Burgers’ equation, we use viscosity ν = 0 .001 , which main-tains strong nonlinear advection. To assess how memory usage should adapt across observation conditions, we con-sider three spatial resolutions f ∈ { 32 , 64 , 128 }, represent-ing low-, medium-, and high-resolution, respectively. At low resolution, many high-frequency Fourier modes are un-observed; at high resolution, most spectral information is directly observable. PDE-specific parameters, final simula-tion times, and data generation procedures are detailed in Appendix F. 
+
+Training objective and procedure. All models are trained with a one-step prediction objective. Given the cur-rent resolved state uf, (i) 
+
+> j
+
+on spatial grid Sf at time tj , the 5How Much Memory Do We Need? Adaptive Memory Gate for Neural Operators                                                                                                                 
+
+> Architecture Uses memory Kuramoto–Sivashinsky Burgers’
+> f= 32 f= 64 f= 128 f= 32 f= 64 f= 128
+> ν=.075 ν=.10 ν=.125 ν=.075 ν=.10 ν=.125 ν=.075 ν=.10 ν=.125
+> Factformer (1D) ✗0.436 0.391 0.149 0.195 0.086 0.022 0.058 0.030 0.017 0.190 0.162 0.117 GKT ✗0.588 0.601 0.314 0.401 0.120 0.016 0.028 0.013 0.007 0.356 0.349 0.307 U-Net ✗0.542 0.511 0.249 0.147 0.062 0.022 0.033 0.027 0.014 0.188 0.171 0.112 FFNO ✗0.500 0.446 0.187 0.107 0.033 0.004 0.006 0.004 0.002 0.207 0.146 0.099 Multi Input FFNO ✓0.364 0.308 0.092 0.108 0.046 0.005 0.057 0.052 0.023 0.099 0.054 0.028 S4FFNO ✓0.139 0.108 0.031 0.036 0.011 0.004 0.008 0.005 0.003 0.053 0.037 0.030
+> AMGFNO (Ours) ✓0.062 0.023 0.014 0.021 0.007 0.003 0.006 0.003 0.002 0.024 0.018 0.020
+
+Table 2. nRMSE values at different resolutions for KS and Burgers’ equations. AMGFNO consistently outperforms all baselines across resolutions, achieving up to 79% nRMSE reduction over S4FFNO at f = 32 while suppressing memory at f = 128 to match or surpass FFNO. 
+
+Table 3. Converged mean gate value ¯g (mean of last 20 epochs) for AMGFNO across different resolution and viscosity settings. Dataset ν ¯g by Resolution ff = 32 f = 64 f = 128 
+
+KS 0.075 0.6915 0.4720 0.0030 0.10 0.7036 0.2150 0.0008 0.125 0.6976 0.0721 0.0002 Burgers’ 0.001 0.0267 0.0165 0.0020 
+
+model predicts the next state uf, (i) 
+
+> j+1
+
+at time tj+1 . During training, we employ teacher forcing: each step receives the ground-truth state as input rather than the model’s own prediction from the previous step. For memory-augmented models, the internal memory state is updated using the same teacher-forced sequence. The training loss is the mean squared error averaged over mini-batches B and all timesteps within each trajectory: 
+
+Ltrain (θ) = 1
+
+|B| J
+
+X
+
+> i∈B
+> J−1
+
+X
+
+> j=0
+
+Gθ (uf, (i) 
+
+> j
+
+, g f ) − uf, (i)
+
+> j+1
+> 22
+
+,
+
+(21) where Gθ is the neural operator, gf is the grid encoding, and 
+
+J is the number of timesteps per trajectory. All models use the same optimizer settings and are trained for 200 epochs. 
+
+Evaluation protocol. At test time, models are evaluated via autoregressive rollout. Only the initial state uf, (i)0 is pro-vided as ground truth; subsequent predictions are generated by repeatedly feeding the model’s own output back as input: 
+
+euf, (i)0 = uf, (i)0 ,
+
+euf, (i) 
+
+> j+1
+
+= Gθ (euf, (i) 
+
+> j
+
+, g f ), j = 0 , . . . , J − 1. (22) This autoregressive evaluation measures the model’s ability to maintain accurate predictions over long rollouts, where one-step errors can accumulate. Performance is measured by the normalized root mean squared error (nRMSE), averaged over all test trajectories and rollout timesteps: 
+
+nRMSE( f ) = 1
+
+Ntest J
+
+> Ntest
+
+X
+
+> i=1
+> J
+
+X
+
+> j=1
+
+euf, (i) 
+
+> j
+
+− uf, (i) 
+
+> j2
+
+uf, (i) 
+
+> j2
+
+, (23) where Ntest is the number of test trajectories. Lower nRMSE indicates more accurate trajectory prediction. 
+
+Baseline comparisons. We compare AMGFNO against two categories of baselines. Markovian neural opera-tors use only the current state without temporal mem-ory: Factformer (Li et al., 2023b), Galerkin Trans-former(GKT) (Cao, 2021), U-Net (Gupta & Brandstetter, 2023),and FFNO (Tran et al., 2023). Memory-augmented operators incorporate information from past states: Multi-Input FFNO (Buitrago Ruiz et al., 2025), which con-catenates the previous four timesteps as input, and S4FFNO (Buitrago Ruiz et al., 2025), which uses a state-space memory layer with fixed fusion. All baselines use comparable model capacity and are trained with identical hyperparameters for fair comparison. Architectural details and implementation specifics are provided in Appendix F. 
+
+4.2. Main Result 
+
+Table 2 shows nRMSE results for the KS equation across three viscosity values and three resolutions, as well as for Burgers’ equation. AMGFNO consistently outperforms all baselines across all resolutions and viscosities, with the largest performance gap at low resolution and the smallest at high resolution. 
+
+Low resolution ( f = 32 ). AMGFNO significantly out-performs all baselines across all viscosities at resolution 32. Compared to the previous best-performing model S4FFNO, nRMSE on KS decreases from 0.139 to 0.062 at ν = 0 .075 ,from 0.108 to 0.023 at ν = 0 .1, and from 0.031 to 0.014 at 
+
+ν = 0 .125 . On Burgers’, nRMSE decreases from 0.053 to 0.024 compared to S4FFNO. AMGFNO improves over baselines by adaptively adjusting 6How Much Memory Do We Need? Adaptive Memory Gate for Neural Operators 
+
+the blend between the current state and temporal memory. At low resolution, the gate increases memory weight to compensate for unobserved high-frequency modes, whereas S4FFNO uses a fixed blend ratio regardless of the observa-tion condition. As shown in Table 3 at resolution 32, the ¯g
+
+values are larger compared to resolutions 64 and 128. Since 
+
+¯g represents the degree of memory usage via the adaptive memory gate, this confirms that the gate adjusts to increase memory usage at low resolution. For KS, ¯g ≈ 0.70 , and for Burgers’, ¯g = 0 .0267 , which is larger than the 0.0165 observed at resolution 64. 
+
+Medium resolution ( f = 64 ). AMGFNO outperforms all baselines across all viscosities at resolution 64. Compared to the previous best, S4FFNO, nRMSE on KS decreases from 0.036 to 0.021 at ν = 0 .075 , from 0.011 to 0.007 at ν = 0 .1,and from 0.004 to 0.003 at ν = 0 .125 . On Burgers’, nRMSE decreases from 0.037 to 0.018 compared to S4FFNO. At res-olution 64, the adaptive memory gate ¯g varies substantially with viscosity, adjusting memory usage appropriately. At 
+
+ν = 0 .075 , ¯g = 0 .4720 , meaning approximately 47% of the memory path and 53% of the Markovian path are utilized as shown in Figure 2. At ν = 0 .125 , ¯g = 0 .0721 , meaning the memory path contributes only about 7% while the Marko-vian path contributes about 93%; that is, at ν = 0 .125 the adaptive memory gate partially closes with a low ¯g value. This is consistent with the finding in Section 2.2 that optimal memory weight depends on viscosity: Table 3 shows that the adaptive memory gate ¯g modulates accordingly across different ν values. 
+
+High resolution ( f = 128 ). At high resolution, the adaptive memory gate value is nearly closed—0.003 at 
+
+ν = 0 .075 , 0.0008 at ν = 0 .1, and 0.0002 at ν = 0 .125 —effectively guiding AMGFNO into the Markovian condition. S4FFNO uses fixed memory and at resolution 128 actu-ally performs slightly worse than FFNO: at ν = 0 .075 ,S4FFNO’s nRMSE increases from 0.006 to 0.008 compared to FFNO, indicating that memory usage is harmful at high resolution. AMGFNO addresses this limitation by incor-porating an adaptive memory gate to regulate memory us-age, achieving performance comparable to or better than FFNO across all viscosities on KS. On Burgers’, AMGFNO achieves the lowest nRMSE of 0.020, compared to 0.099 for FFNO, 0.028 for Multi Input FFNO, and 0.030 for S4FFNO. 
+
+4.3. Additional Analysis Resolution and viscosity-dependent adaptation. As shown in Table 3, the learned gate values adapt to both resolution and viscosity. For KS, the gate actively leverages memory at f = 32 with ¯g ≈ 0.70 , then nearly closes at 
+
+f = 128 with ¯g ≤ 0.003 . At medium resolution ( f = 64 ), viscosity-dependent variation is pronounced: ¯g = 0 .472 at 0 50 100 150 200    
+
+> Epoch
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Mean Gate Value  g
+> f= 32
+> = 0.075
+> f= 64
+> = 0.1
+> f= 128
+> = 0.125
+
+(a) KS 0 50 100 150 200       
+
+> Epoch
+> 0.00
+> 0.01
+> 0.02
+> 0.03
+> 0.04
+> 0.05
+> Mean Gate Value  g
+> f= 32 f= 64 f= 128
+
+(b) Burgers ( ν = 0 .001 )
+
+Figure 3. Adaptive memory gate behavior. Mean gate value ¯g
+
+during training across resolutions f .
+
+ν = 0 .075 versus ¯g = 0 .072 at ν = 0 .125 , demonstrat-ing that the gate selectively opens in low-viscosity settings where high-frequency components remain significant and closes when the solution is well captured at the observation resolution. For Burgers’, gate values are relatively small across all resolutions ( ¯g ≤ 0.027 ), reflecting the PDE’s in-trinsic characteristic where the viscous term νu xx acts as a low-pass filter that monotonically attenuates high-frequency components. 
+
+Gate evolution during training. Figure 3 shows gate value evolution over epochs. For the KS equation (left panel), the gate values are initialized differently by reso-lution and viscosity, showing distinct patterns from epoch 0. At low resolution ( f = 32 ), the gates start large ( ¯g ≈ 0.60 –
+
+0.70 ) across all viscosities. At medium resolution ( f = 64 ), viscosity-dependent initialization emerges: ¯g ≈ 0.47 for 
+
+ν = 0 .075 , ¯g ≈ 0.21 for ν = 0 .1, and ¯g ≈ 0.07 for 
+
+ν = 0 .125 . At high resolution ( f = 128 ), the gates are initialized near zero regardless of viscosity. During training, these initial values are fine-tuned incrementally. The right panel shows gate evolution for Burgers’ equa-tion at ν = 0 .001 . At epoch 0, all gate values start near zero regardless of resolution. As training progresses, the gate values separate by resolution: the low-resolution gate increases substantially, while the high-resolution gate re-mains near zero. This confirms that gate values are auto-matically learned without manual tuning per condition. Ap-pendix E shows the co-evolution of gate values and training loss across all conditions. 
+
+Role of the frequency-aware gate. In our implemen-tation, we optionally include a frequency-aware gate 
+
+σ(w1 log ωf +bω ) in addition to the content gate, which pro-vides a conditional prior at initialization. While the content gate alone can learn adaptive memory modulation across most settings, an ablation study (Appendix C) shows that the frequency-aware gate is most beneficial at high resolution in KS, where ωf → 0 and it correctly suppresses unnecessary memory usage. 7How Much Memory Do We Need? Adaptive Memory Gate for Neural Operators = 0.075 = 0.10 = 0.125              
+
+> 10 2
+> 10 1
+> nRMSE  (log scale)
+> 0.021
+> 0.007
+> 0.003
+> *=0.25
+> g=0.47
+> *=0.50
+> g=0.21
+> *=0.00
+> g=0.07
+> f= 64
+> FFNO
+> Multi-Input FFNO
+> S4FFNO
+> Optimal *
+> AMGFNO (ours)
+> Figure 4. Performance comparison on the Kuramoto-Sivashinsky (KS) equation at resolution 64. FFNO, Multi-Input FFNO, S4FFNO baselines and optimal memory weight ( α∗) are com-pared to the proposed AMGFNO across different viscosities (ν∈ { 0.075 ,0.1,0.125 }). ¯gdenotes the adaptive memory gate value learned by AMGFNO.
+
+Comparison with Optimal Fixed Scaling Figure 4 demonstrates the necessity of adaptive gating by compar-ing against the optimal fixed memory weight α∗ from Sec-tion 2.2 at resolution f = 64 on the Kuramoto-Sivashinsky (KS) equation. The optimal α∗ varies across KS viscosities: 
+
+α∗ = 0 .25 at ν = 0 .075 , α∗ = 0 .50 at ν = 0 .10 , and 
+
+α∗ = 0 .00 at ν = 0 .125 , confirming that no single fixed value works across conditions. AMGFNO’s learned gate values ¯g = 0 .47 , 0.21 , and 0.07 also adapt across these viscosity conditions, achieving nRMSE of 0.021, 0.007, and 0.003 that closely matches the performance of the manually-tuned optimal at each condition. Crucially, while finding α∗
+
+requires exhaustive search per condition, AMGFNO discov-ers the appropriate memory weight automatically through training on the KS dataset. Results for resolutions 32 and 128 are in Appendix C. 
+
+## 5. Related Work 
+
+Neural operators for PDEs. The Fourier Neural Operator (FNO) (Li et al., 2021) and its factorized variant FFNO (Tran et al., 2023) have become standard Markovian baselines for PDE operator learning. Other Markovian operators explore alternative inductive biases, including multi-scale spatial structure (Gupta & Brandstetter, 2023), kernel-based atten-tion (Cao, 2021), and transformer-style architectures with factorized or axial attention (Li et al., 2023a;b). Despite their architectural diversity, these models share the Markovian assumption, predicting the next state from the current one alone — a design that becomes inadequate when the current state does not fully resolve the underlying dynamics. 
+
+Memory in PDE models. Memory-augmented neural operators incorporate past states as additional input to relax the Markovian assumption. The earliest such vari-ant, Multi-Input FFNO, simply concatenates a short fixed-length window of past states as additional input chan-nels, providing only short-range, uncompressed memory. MemNO (Buitrago Ruiz et al., 2025) extends this idea by re-placing the input window with an S4 layer (Gu et al., 2022) that compresses the entire past trajectory along the time axis, and provides theoretical and empirical evidence that such long-range memory is beneficial under partial observa-tion. Concretely, MemNO inserts a single S4 layer between Markovian FFNO layers and adds the resulting temporal-memory representation back via a residual connection. In both designs, however, the memory weight is fixed regard-less of the input — yet, as we show, the optimal memory weight depends on observation conditions. 
+
+Gating mechanisms. The variation in optimal memory weight points to a need for input-dependent control of mem-ory usage. Such control is well established in sequence mod-eling, where multiplicative gates have a long history — from LSTM (Hochreiter & Schmidhuber, 1997) and GRU (Cho et al., 2014) to Highway Networks (Srivastava et al., 2015) and selective state-space models such as Mamba (Gu & Dao, 2024); in all cases, gates regulate information flow as a function of the input. In neural operators, by contrast, memory has been integrated by a fixed, input-independent addition (Buitrago Ruiz et al., 2025). 
+
+Position of our work. AMGFNO bridges these two lines of work. We inherit the temporal-memory architecture of MemNO but replace its fixed fusion with an adaptive gate that combines a content gate and frequency-aware gate. Un-like prior memory-augmented neural operators, AMGFNO modulates modulates memory weight through a learnable gate. 
+
+## 6. Conclusion and Future Work 
+
+We demonstrate the necessity of adaptive memory control in neural operators for time-dependent PDEs. Preliminary studies reveal that optimal memory weight varies across observation conditions. AMGFNO incorporates an adap-tive memory gate that learns to modulate memory usage based on the current condition. At low resolution where un-observed high-frequency modes are significant, AMGFNO achieves up to 2–5 × error reduction compared to S4FFNO. At high resolution, where most spectral information is ob-servable, the gate reduces memory usage, matching or ex-ceeding purely Markovian models. The gate adapts without manual tuning, with learned values adjusting according to resolution and spectral characteristics through training. Future work includes extending AMGFNO to higher-dimensional PDEs, exploring alternative condition descrip-tors beyond spectral energy ratios, and evaluating robustness under observational noise and distribution shift. 8How Much Memory Do We Need? Adaptive Memory Gate for Neural Operators 
+
+## Acknowlegments 
+
+This work was partly supported by the Institute for Informa-tion & Communications Technology Planning & Evaluation (IITP) grants funded by the Korean government (MSIT) (No. RS-2026-25526850, High-Efficiency Neural Networks for Artificial General Intelligence (HERMES-Net)), Samsung Electronics Co., Ltd. (No. G01240136, KAIST Semiconduc-tor Research Fund (2nd)) and the Korea Advanced Institute of Science and Technology (KAIST) grant funded by the Ko-rea government (MSIT) (No. G04240001, Physics-inspired Deep Learning). J. Choi was additionally supported by the KAIST Jang Young Sil Fellow Program. 
+
+## References 
+
+Amann, H. Existence and regularity for semilinear parabolic evolution equations. Annali della Scuola Normale Supe-riore di Pisa, Classe di Scienze , 11(4):593–676, 1984. Bach, F. Learning Theory from First Principles . Adap-tive Computation and Machine Learning. The MIT Press, 2024. ISBN 9780262049443. Brandstetter, J., Welling, M., and Worrall, D. E. Lie point symmetry data augmentation for neural pde solvers. In 
+
+International Conference on Machine Learning , pp. 2241– 2256. PMLR, 2022. Buitrago Ruiz, R., Marwah, T., Gu, A., and Risteski, A. On the benefits of memory for modeling time-dependent PDEs. In International Conference on Learning Repre-sentations , 2025. Cao, S. Choose a transformer: Fourier or galerkin. Ad-vances in neural information processing systems , 34: 24924–24940, 2021. Cho, K., van Merri ¨enboer, B., Gulcehre, C., Bahdanau, D., Bougares, F., Schwenk, H., and Bengio, Y. Learning phrase representations using RNN encoder–decoder for statistical machine translation. In Proceedings of the 2014 Conference on Empirical Methods in Natural Language Processing (EMNLP) , pp. 1724–1734, 2014. Cooley, J. W., Lewis, P. A. W., and Welch, P. D. The fi-nite fourier transform. IEEE Transactions on Audio and Electroacoustics , 17(2):77–85, 1969. Gu, A. and Dao, T. Mamba: Linear-time sequence modeling with selective state spaces. In Conference on Language Modeling (COLM) , 2024. Gu, A., Dao, T., Ermon, S., Rudra, A., and R ´e, C. HiPPO: Recurrent memory with optimal polynomial projections. In Advances in Neural Information Processing Systems (NeurIPS) , 2020. Gu, A., Goel, K., and R ´e, C. Efficiently modeling long sequences with structured state spaces. In International Conference on Learning Representations , 2022. Gupta, J. K. and Brandstetter, J. Towards multi-spatiotemporal-scale generalized PDE modeling. Trans-actions on Machine Learning Research , 2023. ISSN 2835-8856. Hairer, E. and Wanner, G. Solving Ordinary Differential Equations II: Stiff and Differential-Algebraic Problems .Springer-Verlag, 1996. Henry, D. Geometric Theory of Semilinear Parabolic Equations , volume 840 of Lecture Notes in Mathematics .Springer, 1981. Hochreiter, S. and Schmidhuber, J. Long short-term memory. 
+
+Neural Computation , 9(8):1735–1780, 1997. Kovachki, N., Li, Z., Liu, B., Azizzadenesheli, K., Bhat-tacharya, K., Stuart, A., and Anandkumar, A. Neural operator: Learning maps between function spaces with applications to pdes. Journal of Machine Learning Re-search , 24(89):1–97, 2023a. Kovachki, N., Li, Z., Liu, B., Azizzadenesheli, K., Bhat-tacharya, K., Stuart, A., and Anandkumar, A. Neural operator: Learning maps between function spaces. Jour-nal of Machine Learning Research , 24(89):1–97, 2023b. LeVeque, R. J. Finite volume methods for hyperbolic prob-lems , volume 31. Cambridge university press, 2002. LeVeque, R. J. Finite difference methods for ordinary and partial differential equations: steady-state and time-dependent problems . SIAM, 2007. Li, Z., Kovachki, N., Azizzadenesheli, K., Liu, B., Bhat-tacharya, K., Stuart, A., and Anandkumar, A. Fourier neural operator for parametric partial differential equa-tions. In International Conference on Learning Represen-tations , 2021. Li, Z., Meidani, K., and Farimani, A. B. Transformer for partial differential equations’ operator learning. Transac-tions on Machine Learning Research , 2023a. Li, Z., Shu, D., and Farimani, A. B. Scalable transformer for PDE surrogate modeling. In Advances in Neural Information Processing Systems (NeurIPS) , 2023b. Lippe, P., Veeling, B., Perdikaris, P., Turner, R., and Brand-stetter, J. Pde-refiner: Achieving accurate long rollouts with neural pde solvers. Advances in Neural Information Processing Systems , 36:67398–67433, 2023. 9How Much Memory Do We Need? Adaptive Memory Gate for Neural Operators 
+
+Loshchilov, I. and Hutter, F. SGDR: Stochastic gradient descent with warm restarts. In International Conference on Learning Representations , 2017. Lu, L., Jin, P., and Karniadakis, G. E. Deeponet: Learning nonlinear operators for identifying differential equations based on the universal approximation theorem of opera-tors. arXiv preprint arXiv:1910.03193 , 2019. Nicolaenko, B., Scheurer, B., and Temam, R. Some global dynamical properties of the kuramoto–sivashinsky equa-tions: Nonlinear stability and attractors. Physica D: Non-linear Phenomena , 16(2):155–183, 1985. Parish, E. J. and Duraisamy, K. Non-markovian closure models for large eddy simulations using the mori-zwanzig formalism. Physical Review Fluids , 2(1):014604, 2017. Pazy, A. Semigroups of Linear Operators and Applications to Partial Differential Equations , volume 44 of Applied Mathematical Sciences . Springer, 1983. Robinson, J. C. Infinite-Dimensional Dynamical Systems: An Introduction to Dissipative Parabolic PDEs and the Theory of Global Attractors . Cambridge Texts in Applied Mathematics. Cambridge University Press, 2001. Schiesser, W. E. The Numerical Method of Lines . Academic Press, 1991. Shannon, C. E. Communication in the presence of noise. 
+
+Proceedings of the Institute of Radio Engineers , 37(1): 10–21, 1949. Srivastava, R. K., Greff, K., and Schmidhuber, J. Training very deep networks. In Advances in Neural Information Processing Systems (NeurIPS) , volume 28, 2015. Tadmor, E. The well-posedness of the kuramoto– sivashinsky equation. SIAM Journal on Mathematical Analysis , 17(4):884–893, 1986. Takamoto, M., Praditia, T., Leiteritz, R., MacKinlay, D., Alesiani, F., Pfl ¨uger, D., and Niepert, M. PDEBench: An extensive benchmark for scientific machine learning. In Advances in Neural Information Processing Systems ,volume 35, 2022. Temam, R. Infinite-Dimensional Dynamical Systems in Me-chanics and Physics , volume 68 of Applied Mathematical Sciences . Springer, 2 edition, 1997. Tran, A., Mathews, A., Xie, L., and Ong, C. S. Factorized fourier neural operators. In The Eleventh International Conference on Learning Representations , 2023. Tu, S., Frostig, R., and Soltanolkotabi, M. Learning from many trajectories. Journal of Machine Learning Research ,25(216):1–109, 2024. Virtanen, P., Gommers, R., Oliphant, T. E., Haberland, M., Reddy, T., Cournapeau, D., Burovski, E., Peterson, P., Weckesser, W., Bright, J., et al. SciPy 1.0: Fundamental algorithms for scientific computing in python. Nature Methods , 17:261–272, 2020. Zienkiewicz, O. C., Taylor, R. L., and Zhu, J. Z. The Finite Element Method: Its Basis and Fundamentals . Elsevier Butterworth-Heinemann, 6 edition, 2005. 10 How Much Memory Do We Need? Adaptive Memory Gate for Neural Operators 
+
+## A. Preliminaries Study: Memory Ablation under Additive Fusion 0.0 0.5 1.0 1.5 2.0  
+
+> Memory weight
+> 0.08
+> 0.16
+> 0.24
+> 0.32
+> Test nRMSE  = 0.075
+> = 0.10
+> = 0.125
+> *=2.0
+
+(a) f = 32 0.0 0.5 1.0 1.5 2.0     
+
+> Memory weight
+> 0.015
+> 0.030
+> 0.045
+> 0.060
+> Test nRMSE
+> *=2.0
+> *=1.0 *=0.0
+
+(b) f = 64 0.0 0.5 1.0 1.5 2.0   
+
+> Memory weight
+> 0.002
+> 0.004
+> 0.006
+> 0.008
+> 0.010
+> Test nRMSE
+> *=0.0
+
+(c) f = 128 32 64 128    
+
+> Resolution f
+> 0.075
+> 0.1
+> 0.125
+> Viscosity
+> 2.00
+> 2.00
+> 2.00
+> 2.00
+> 1.00
+> 0.00
+> 0.00
+> 0.00
+> 0.00 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> *
+
+(d) Optimal α∗
+
+Figure 5. Effect of memory weight α on nRMSE across resolutions and viscosity values on the KS equation. Each panel shows nRMSE as a function of α for three viscosity values ( ν ∈ { 0.075 , 0.10 , 0.125 }). The rightmost heatmap summarizes optimal memory weight α∗ per setting. 
+
+The motivation analysis in Section 2.2 parameterizes the memory weight via a convex blend, which is form-consistent with the adaptive memory gate of our main method. For completeness, we also report the same ablation under an additive parameterization that more directly mirrors the original residual fusion of S4FFNO (Buitrago Ruiz et al., 2025). Using the same notation as in Section 2.2, let ht ∈ RN ×H be the hidden state at the output of the second FFNO layer and 
+
+zt = M(h(ℓ∗−1) 1: t ) the output of the S4 memory branch. We replace the convex blend with the additive update 
+
+ht+1 ← α · zt + ht, (24) which preserves the residual path in full and scales the memory weight by α. Under this parameterization, S4FFNO is recovered exactly at α = 1 , and α = 0 again corresponds to a pure Markovian model that bypasses the memory branch. Allowing α > 1 amplifies memory beyond its default contribution. We sweep α ∈ { 0.0, 0.5, 1.0, 1.5, 2.0} on the Kuramoto–Sivashinsky equation under the same setting as Section 2.2 (f ∈ { 32 , 64 , 128 }, ν ∈ { 0.075 , 0.1, 0.125 }). 
+
+Observation 1: More memory is beneficial at low resolution. At f = 32 , α∗ = 2 .0 across all three viscosity values, and larger α consistently reduces nRMSE. 
+
+Observation 2: Memory isn’t useful at high resolution. At f = 128 , α∗ = 0 .0 for all viscosity values, and larger α
+
+monotonically degrades performance. 
+
+Observation 3: The optimal memory weight α∗ depends jointly on resolution and viscosity. At f = 64 , α∗ varies across viscosity values: α∗ = 2 .0 at ν = 0 .075 , α∗ = 1 .0 at ν = 0 .1, and α∗ = 0 .0 at ν = 0 .125 . Higher viscosity reduces the high-frequency content of the PDE solution, diminishing the practical benefit of memory. 
+
+Implications. The same three qualitative conclusions emerge under both the convex (Section 2.2) and additive parameteri-zations: memory helps most at low resolution, hurts at high resolution, and its optimal weight depends jointly on resolution and viscosity. The robustness of these observations to the choice of fusion form supports our main motivation that no single fixed memory weight is appropriate across operating conditions, and that the gate must be learned and conditioned on the high-frequency structure of the input. 
+
+## B. Choice of ωf Computation: Fixed vs. Per-Batch 
+
+We compare two strategies for obtaining ωf : (i) the proposed fixed variant, which estimates ωf once as the training-set mean and holds it constant; and (ii) a per-batch variant that recomputes ωf from each training and inference batch on the fly. Both variants share the same gate architecture, initialization, and training schedule. Table 4 reports final test nRMSE on the KS equation across all nine (f, ν ) settings. The fixed variant consistently outperforms per-batch recomputation, with performance degradation ranging from 5.8% to 20 .1% when ωf is recomputed per batch. This supports our design choice in Section 3.3 to use a fixed, training-set-averaged ωf rather than dynamic per-batch estimation. 11 How Much Memory Do We Need? Adaptive Memory Gate for Neural Operators                                                                                               
+
+> Table 4. Final test nRMSE on KS for fixed vs. per-batch ωf. The fixed variant outperforms per-batch recomputation in all 9 (f, ν )settings, with degradation ranging from 5.8% to 20 .1% , supporting our design choice in Section 3.3.
+> fνfixed per-batch ∆%
+> 32 0.075 0.0616 0.0651 +5 .8
+> 32 0.10 0.0226 0.0249 +10 .1
+> 32 0.125 0.0142 0.0168 +18 .2
+> 64 0.075 0.0208 0.0250 +20 .1
+> 64 0.10 0.0069 0.0077 +11 .9
+> 64 0.125 0.0033 0.0039 +17 .2
+> 128 0.075 0.0058 0.0068 +18 .5
+> 128 0.10 0.0030 0.0033 +11 .1
+> 128 0.125 0.0019 0.0020 +5 .8
+> Table 5. Ablation of the frequency-aware gate in AMGFNO. Bold indicates best performance per setting. Kuramoto–Sivashinsky Burgers
+> f= 32 f= 64 f= 128
+> Method ν=.075 ν=.10 ν=.125 ν=.075 ν=.10 ν=.125 ν=.075 ν=.10 ν=.125 f=32 f=64 f=128
+> AMGFNO 0.0616 0.0226 0.0142 0.0208 0.0069 0.0033 0.0058 0.0030 0.0019 0.0244 0.0179 0.0202 w/o frequency-aware 0.0573 0.0231 0.0151 0.0185 0.0058 0.0033 0.0066 0.0041 0.0027 0.0253 0.0140 0.0122
+
+We hypothesize that per-batch ωf introduces noisy, sample-dependent signals that destabilize gate learning. In contrast, the fixed variant provides a stable global measure of spectral complexity tied to the resolution–viscosity condition, allowing the gate to learn consistent memory modulation patterns. The fixed approach also reduces computational overhead by eliminating redundant FFT operations at each forward pass. 
+
+## C. Ablation: Effect of the Frequency-Aware Gate 
+
+Table 5 reports the effect of removing the frequency-aware gate from AMGFNO, retaining only the content gate g(c) 
+
+> t
+
+. The frequency-aware gate σ(ωf · w1 + bω ) provides a spectral prior that modulates the baseline gate budget based on the fraction of unobserved high-frequency modes. We evaluate whether this prior offers a consistent advantage or whether the content gate alone can learn appropriate memory modulation from data. 
+
+KS: Frequency-aware gate helps at high resolution. On KS, ωf varies dramatically across resolutions: ω32 = 0 .584 ,
+
+ω64 = 0 .083 , ω128 = 0 .0003 . At high resolution ( f = 128 ), AMGFNO consistently outperforms w/o frequency-aware across all three viscosity settings. This aligns with Theorem 2.2: when ωf → 0 (minimal high-frequency loss), the frequency-aware gate correctly drives the gate budget toward zero, suppressing unnecessary memory usage and avoiding the complexity cost of maintaining memory when it provides no benefit. At low and mid resolution ( f ∈ { 32 , 64 }), results are mixed, with w/o frequency-aware winning in 4 out of 6 settings. However, AMGFNO still outperforms at the most challenging low-viscosity setting ( ν = 0 .075 , f = 32 ), where unobserved high-frequency modes are most prevalent and memory is essential. 
+
+Burgers: Frequency-aware gate has limited impact. On Burgers’, ωf is uniformly small across all resolutions: ω32 =0.0062 , ω64 = 0 .0012 , ω128 = 0 .0002 . Here, w/o frequency-aware matches or outperforms AMGFNO at mid and high resolutions ( f ∈ { 64 , 128 }). When ωf provides little differentiation across conditions, the frequency-aware gate offers minimal additional signal beyond what the content gate learns from data. 
+
+Implications. The frequency-aware gate is most valuable when ωf varies meaningfully across observation conditions, as demonstrated at high resolution on KS where it consistently improves performance. When ωf is uniformly small (as in Burgers’), the content gate alone suffices. This suggests a direction for future work: PDE-adaptive initialization of w1
+
+and bω based on the dataset’s ωf distribution could improve robustness across diverse PDE families. For instance, setting 
+
+w1 ∝ max f ωf − min f ωf would amplify the frequency-aware gate’s influence when spectral variation is high and suppress it when variation is negligible. 12 How Much Memory Do We Need? Adaptive Memory Gate for Neural Operators = 0.075 = 0.10 = 0.125        
+
+> 10 2
+> 10 1
+> 10 0
+> nRMSE  (log scale)
+> 0.062
+> 0.023
+> 0.014
+> *=0.75
+> g=0.67
+> *=0.75
+> g=0.69
+> *=0.50
+> g=0.69
+> f= 32
+> FFNO
+> Multi-Input FFNO
+> S4FFNO
+> Optimal *
+> AMGFNO (ours)
+
+(a) KS f = 32 = 0.075 = 0.10 = 0.125         
+
+> 10 2
+> 10 1
+> nRMSE  (log scale)
+> 0.021
+> 0.007
+> 0.003
+> *=0.25
+> g=0.47
+> *=0.50
+> g=0.21
+> *=0.00
+> g=0.07
+> f= 64
+> FFNO
+> Multi-Input FFNO
+> S4FFNO
+> Optimal *
+> AMGFNO (ours)
+
+(b) KS f = 64 = 0.075 = 0.10 = 0.125         
+
+> 10 2
+> 10 1
+> nRMSE  (log scale)
+> 0.006
+> 0.003
+> 0.002
+> *=0.00
+> g=0.00
+> *=0.00
+> g=0.00
+> *=0.00
+> g=0.00
+> f= 128
+> FFNO
+> Multi-Input FFNO
+> S4FFNO
+> Optimal *
+> AMGFNO (ours)
+
+(c) KS f = 128 
+
+Figure 6. Performance comparison on KS across resolutions f ∈ { 32 , 64 , 128 } and viscosities ν ∈ { 0.075 , 0.10 , 0.125 }. Optimal α∗
+
+denotes a model trained with the manually tuned memory weight α∗ that achieves best performance per setting. 
+
+## D. Performance Comparison Across Resolutions 
+
+Figure 6 extends Section 4.3 across all three resolutions. Optimal α∗ represents an oracle baseline where the memory weight is manually tuned for each (f, ν ) condition, providing an upper bound on what can be achieved with a fixed memory weight. AMGFNO achieves performance comparable to Optimal α∗ across all conditions by learning adaptive memory gate values through training. At f = 32 , where substantial high-frequency content is unobserved, AMGFNO learns gate values 
+
+¯g = 0 .67 –0.69 and achieves nRMSE of 0.062, 0.023, and 0.014 across the three viscosities, closely matching the oracle performance. At f = 64 , the learned gate values adapt across viscosities ( ¯g = 0 .47 , 0.21 , 0.07 ), achieving nRMSE of 0.021, 0.007, and 0.003. At f = 128 , where minimal high-frequency information is lost, AMGFNO learns ¯g ≈ 0.00 and achieves nRMSE of 0.006, 0.003, and 0.002. These results demonstrate that AMGFNO automatically learns condition-appropriate memory usage without requiring the exhaustive hyperparameter search needed to obtain Optimal α∗. The learned gate behavior is consistent with the Mori-Zwanzig principle: opening when unobserved high-frequency modes are prevalent and closing when the Markovian assumption suffices. 
+
+## E. Relationship Between Gate Value and Training Loss 
+
+Figure 7 shows the co-evolution of test loss and adaptive memory gate value ¯g over 200 training epochs. Test loss decreases monotonically while the gate converges to a stable level, with gate convergence typically preceding final loss convergence. The converged gate values reflect the need for memory. For KS, ¯g stratifies by resolution and viscosity: at f = 32 , ¯g ≈ 0.67 –
+
+0.70 across all viscosities; at f = 64 , ¯g ranges from 0.47 (low viscosity) to 0.07 (high viscosity); at f = 128 , ¯g ≈ 0 for all conditions. For Burgers’, the gate converges to small values ( ¯g ≈ 0.027 at f = 32 , decreasing to ≈ 0.001 at f = 128 ), consistent with uniformly small ωf values. These dynamics confirm that the adaptive memory gate discovers appropriate memory usage purely through training. 
+
+## F. Experimental Details 
+
+This appendix provides the experimental details omitted from Section 4.1, including PDE equations, dataset construction, resolution processing, baseline architectures, training hyperparameters, evaluation protocol, and the computation of the spectral ratio used by AMGFNO. Unless otherwise stated, our experimental setup follows S4FFNO (Buitrago Ruiz et al., 2025). In particular, the Kuramoto–Sivashinsky datasets follow the low-viscosity benchmark generated in S4FFNO, which is based on the PDE-Refiner/LPSDA generation pipeline (Lippe et al., 2023; Brandstetter et al., 2022). The Burgers’ dataset is taken from the public PDEBench benchmark (Takamoto et al., 2022). 
+
+F.1. PDE Datasets and Parameters Kuramoto–Sivashinsky equation. The Kuramoto–Sivashinsky equation is given by 
+
+ut(t, x ) + u(t, x )ux(t, x ) + uxx (t, x ) + νu xxxx (t, x ) = 0 , (t, x ) ∈ [0 , T ] × [0 , L ], (25) 13 How Much Memory Do We Need? Adaptive Memory Gate for Neural Operators 0 25 50 75 100 125 150 175 200  
+
+> Epoch
+> 10 1
+> 10 0
+> Test loss (log)
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Gate  g
+
+(a) f = 32 0 25 50 75 100 125 150 175 200    
+
+> Epoch
+> 10 2
+> 10 1
+> 10 0
+> Test loss (log)
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Gate  g
+
+(b) f = 64 0 25 50 75 100 125 150 175 200    
+
+> Epoch
+> 10 2
+> 10 1
+> 10 0
+> Test loss (log)
+> viscosity
+> = 0.075
+> = 0.1
+> = 0.125
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Gate  g
+
+(c) f = 128 0 25 50 75 100 125 150 175 200  
+
+> Epoch
+> 10 1
+> Test loss (log)
+> 0.00
+> 0.01
+> 0.02
+> 0.03
+> 0.04
+> 0.05
+> Gate  g
+
+(d) f = 32 0 25 50 75 100 125 150 175 200   
+
+> Epoch
+> 10 1
+> 10 0
+> Test loss (log)
+> 0.00
+> 0.01
+> 0.02
+> 0.03
+> 0.04
+> 0.05
+> Gate  g
+
+(e) f = 64 0 25 50 75 100 125 150 175 200   
+
+> Epoch
+> 10 1
+> 10 0
+> Test loss (log)
+> 0.00
+> 0.01
+> 0.02
+> 0.03
+> 0.04
+> 0.05
+> Gate  g
+
+(f) f = 128 
+
+Figure 7. Evolution of test loss (blue, left axis, log scale) and adaptive memory gate value ¯g (orange, right axis) over training epochs for AMGFNO. (a, b, c) KS equation at resolutions f ∈ { 32 , 64 , 128 } for viscosities ν ∈ { 0.075 , 0.10 , 0.125 } (solid, dashed, and dotted lines, respectively). (d, e, f) Burgers’ equation at resolutions f ∈ { 32 , 64 , 128 } with ν = 0 .001 .
+
+with periodic boundary conditions. Following S4FFNO, we use low-viscosity KS datasets because low viscosity produces solutions with substantial high-frequency Fourier components. We use 
+
+ν ∈ { 0.075 , 0.10 , 0.125 }. (26) The spatial domain length is 
+
+L = 64 , (27) and the final rollout time used in our experiments is 
+
+T = 2 .5. (28) Each trajectory is observed at 26 equispaced time points, giving 25 prediction timesteps with 
+
+∆t = 0 .1. (29) The high-resolution reference trajectories are generated at spatial resolution 512. We use 2048 training trajectories and 256 held-out evaluation trajectories, following the S4FFNO setup. The initial condition is a superposition of sinusoidal waves: 
+
+u0(x) = 
+
+20 X
+
+i=0 
+
+Ai sin 
+
+ 2πk i
+
+L x + ϕi
+
+
+
+, (30) where, for each trajectory, 
+
+Ai ∼ Unif[ −0.5, 0.5] , ki ∼ Unif {1, . . . , 8}, ϕi ∼ Unif[0 , 2π]. (31) The data generation follows the method of lines (Schiesser, 1991). Spatial derivatives are computed pseudospectrally using Fast Fourier transforms (Cooley et al., 1969), and the resulting ODE system is solved with an implicit Runge–Kutta method of the Radau IIA family of order 5 (Hairer & Wanner, 1996), implemented through the SciPy numerical stack (Virtanen et al., 2020). 14 How Much Memory Do We Need? Adaptive Memory Gate for Neural Operators                
+
+> Table 6. Dataset and rollout summary. Dataset νhigh-res. grid train rollout steps KS {0.075 ,0.10 ,0.125 }512 2048 25 Burgers’ 0.001 1024 2048 20
+
+Burgers’ equation. The viscous Burgers’ equation is given by 
+
+ut(t, x ) + u(t, x )ux(t, x ) = νu xx (t, x ), (t, x ) ∈ [0 , T ] × [0 , L ], (32) with periodic boundary conditions. We use the public PDEBench Burgers’ dataset (Takamoto et al., 2022) with viscosity 
+
+ν = 0 .001 . (33) The highest available spatial resolution is 1024. Following S4FFNO, we use 2048 samples for training and reserve 10% of the full dataset for testing. We evaluate the first 20 prediction timesteps because after this period the diffusion term attenuates most high-frequency components and the solution changes slowly. The final time is 
+
+T = 1 .4, (34) and the rollout horizon contains 20 prediction timesteps. 
+
+F.2. Resolution Construction 
+
+For both PDEs, we evaluate all models at 
+
+f ∈ { 32 , 64 , 128 }. (35) For a domain of length L, the equispaced grid at resolution f is 
+
+Sf := 
+
+
+
+xr = rL f : r = 0 , . . . , f − 1
+
+
+
+. (36) The high-resolution reference trajectories are first generated or loaded, and lower-resolution observations are constructed from the highest-resolution trajectory. For one-dimensional datasets, S4FFNO constructs lower-resolution trajectories by cubic interpolation from the highest-resolution grid. We follow the same procedure. Thus, for each resolution f , every model is trained and tested on the corresponding grid Sf .For trajectory i and timestep j, the resolved state is 
+
+uf, (i) 
+
+> j
+
+:= If
+
+h
+
+u(i)(tj , ·)
+
+i
+
+∈ Rf ×V , (37) where If denotes cubic interpolation from the highest-resolution reference grid to Sf , and V is the number of physical channels. All models use the same resolved states uf, (i) 
+
+> j
+
+and the same grid encoding. 
+
+Relation to the theory. Appendix G analyzes an ideal Fourier projection Pf in order to isolate the unresolved spectral-tail mechanism. The experiments follow the S4FFNO data protocol and construct lower-resolution inputs by cubic interpolation for comparability with prior work. The empirical quantity ωf is nevertheless computed from high-resolution training trajectories using Fourier coefficients, as described in Appendix F.3. 
+
+F.3. Computation of the Spectral Ratio 
+
+By the Nyquist–Shannon sampling theorem (Shannon, 1949), an observation at spatial resolution f can resolve Fourier modes only up to approximately ⌊f / 2⌋. For a full reference state ϕ, define the unresolved-mode ratio 
+
+ωf (ϕ) := 
+
+P 
+
+> |n|>⌊f / 2⌋
+
+|an(ϕ)|2
+
+P 
+
+> n∈Z
+
+|an(ϕ)|2 , (38) 15 How Much Memory Do We Need? Adaptive Memory Gate for Neural Operators 
+
+where an(ϕ) denotes the Fourier coefficient of ϕ. For vector-valued states, the squared magnitude is summed over physical channels. In practice, the continuous Fourier coefficients are approximated using the discrete Fourier transform of the highest-resolution trajectory available in the dataset (Cooley et al., 1969). For KS, the highest resolution is 512; for Burgers’, it is 1024. For each condition (f, ρ ), we compute the empirical training-set estimate 
+
+bωf,ρ := 1
+
+Ntrain Tobs 
+
+> Ntrain
+
+X
+
+> i=1
+> Tobs −1
+
+X
+
+> j=0
+
+ωf
+
+
+
+uhigh ,(i)
+
+> j
+
+
+
+, (39) where uhigh ,(i) 
+
+> j
+
+is the high-resolution training reference state. This provides a condition-level estimate of how much spectral energy is lost at each observation resolution. It is computed only from training trajectories and is held fixed during evaluation; no high-resolution test information is used. The scalar frequency-aware gate in AMGFNO uses 
+
+σ (w1 log( bωf,ρ + εnum ) + bω ) , (40) where εnum > 0 is a small numerical constant used only for finite-precision stability. The asymptotic theory in Appendix G uses the corresponding zero-tail convention. 
+
+Note on observability. The condition-level estimate bωf,ρ is computed from high-resolution training references and held fixed during training and evaluation. Thus, it is a calibration constant for the observation condition (f, ρ ) rather than a per-sample test-time feature, and no high-resolution test information is used. For deployment to new conditions without high-resolution training references, this scalar could be replaced by observable proxies, such as condition-level summaries of the resolved high-band spectrum, or by metadata-based gates conditioned on f and available physical parameters ρ. We leave the systematic study of such proxies to future work. 
+
+F.4. Compared Methods and Implementation Details 
+
+We compare AMGFNO against both Markovian and memory-augmented neural operators. The baseline implementations and hyperparameters follow S4FFNO whenever possible. 
+
+Shared input and output processing. All models use a spatial grid encoding. In one dimension, for a grid of resolution f
+
+on [0 , L ], we use the normalized coordinate 
+
+gr := xr
+
+L , xr = rL f . (41) The encoder maps the concatenation of the PDE state and grid coordinate to the hidden dimension, and the decoder maps the final hidden representation back to the PDE state. 
+
+FFNO. FFNO is based on the Factorized Fourier Neural Operator (Tran et al., 2023), which builds on the original Fourier Neural Operator (Li et al., 2021). The FFNO layer combines a spectral convolution path with a pointwise feed-forward path. The hidden dimension is 128 and the expanded hidden dimension in the FFNO MLP is 4 · 128 . We use all resolvable Fourier modes by setting 
+
+kmax =
+
+ f
+
+2
+
+
+
+. (42) 
+
+S4FFNO. S4FFNO instantiates the Memory Neural Operator framework by combining FFNO layers with an S4 memory layer (Buitrago Ruiz et al., 2025; Gu et al., 2022). All layers except the memory layer are the same as FFNO. The S4 layer uses state dimension 64 and the diagonal S4D kernel. Following the S4FFNO implementation, the memory layer operates along the temporal history dimension and is applied independently at each spatial location. The layer configuration is FFNO –FFNO –S4– FFNO –FFNO .16 How Much Memory Do We Need? Adaptive Memory Gate for Neural Operators                
+
+> Table 7. Training hyperparameters used in the one-dimensional experiments. Hyperparameter KS Burgers’ Epochs 200 200 Initial learning rate 10 −310 −3
+> Scheduler cosine annealing cosine annealing Batch size 32 64 Training samples 2048 2048 Rollout steps 25 20
+
+Multi-Input FFNO. Multi-Input FFNO uses the last K = 4 timesteps of the solution as input to predict the next timestep, following the multi-step input setting of FNO and S4FFNO (Li et al., 2021; Buitrago Ruiz et al., 2025). The number of FFNO layers and hidden dimensions are the same as FFNO. The only architectural change is the input lifting layer, which receives a concatenation of four previous states. 
+
+Factformer. Factformer is a transformer-based neural operator baseline (Li et al., 2023b). We use the one-dimensional adaptation described in S4FFNO. The model uses four linear attention layers over the spatial sequence. The hidden dimension is 64, with four heads and hidden dimension 128 in each attention layer. 
+
+Galerkin Transformer. The Galerkin Transformer baseline follows Cao (2021). It uses four linear attention layers over the spatial sequence, concatenates positional information into the attention inputs, and uses two FNO layers as a spectral regressor. The hidden dimension is 32. 
+
+U-Net. The U-Net neural operator baseline follows the U-Net style architecture used for PDE surrogate modeling (Gupta & Brandstetter, 2023). It consists of four downsample convolution blocks, a middle convolution block, and four upsample convolution blocks with skip connections. The channel multipliers are [1 , 2, 2, 2] , and no time embeddings are used. 
+
+AMGFNO. AMGFNO uses the same FFNO backbone and S4 memory branch as S4FFNO, but replaces the fixed memory weight with the adaptive memory gate defined in Section 3.3. The gate combines a content-dependent component with the condition-level spectral scale derived from bωf,ρ . We do not redefine the gate here to avoid duplicating Section 3.3; this appendix specifies the shared experimental protocol. 
+
+F.5. Training Details 
+
+All one-dimensional experiments are trained with teacher forcing, following FFNO and S4FFNO (Tran et al., 2023; Buitrago Ruiz et al., 2025). During training, the input for predicting timestep j + 1 is the ground-truth resolved state at timestep j, rather than the model’s previous prediction. For model Gθ , the one-step prediction is 
+
+euf, (i) 
+
+> j+1
+
+= Gθ
+
+
+
+uf, (i) 
+
+> j
+
+, g f
+
+
+
+, (43) where gf denotes the spatial grid encoding. The mini-batch training loss is 
+
+Ltrain (θ) = 1
+
+|B| Tpred 
+
+X
+
+> i∈B
+> Tpred −1
+
+X
+
+> j=0
+
+Gθ
+
+
+
+uf, (i) 
+
+> j
+
+, g f
+
+
+
+− uf, (i)
+
+> j+1
+> 22
+
+. (44) All models are trained for 200 epochs with initial learning rate 
+
+10 −3, (45) using cosine annealing learning-rate scheduling (Loshchilov & Hutter, 2017). The batch size is 32 for KS and 64 for Burgers’. Both KS and Burgers’ experiments use 2048 training samples. The maximum memory length is the full trajectory length used in the rollout: 25 prediction timesteps for KS and 20 prediction timesteps for Burgers’. We ran our experiments on NVIDIA A6000 GPUs. The one-dimensional experiments require less than 10GB of GPU memory and take approximately 1–2 hours per run, depending on the resolution, following the computational condition reported by S4FFNO. 17 How Much Memory Do We Need? Adaptive Memory Gate for Neural Operators 
+
+F.6. Evaluation 
+
+At test time, all models are evaluated autoregressively from the first observed state. The rollout is initialized by 
+
+euf, (i)0 = uf, (i)0 , (46) and predictions are fed back into the model: 
+
+euf, (i) 
+
+> j+1
+
+= Gθ
+
+euf, (i) 
+
+> j
+
+, g f
+
+
+
+, j = 0 , . . . , T pred − 1. (47) Thus, the reported metric evaluates accumulated rollout error rather than one-step prediction error. The main evaluation metric is normalized root mean squared error, nRMSE. For trajectory i and timestep j, define 
+
+nRMSE (i) 
+
+> j
+
+(f ) = 
+
+euf, (i) 
+
+> j
+
+− uf, (i) 
+
+> j2
+
+uf, (i) 
+
+> j2
+
+. (48) The final reported score is averaged over test trajectories and rollout timesteps: 
+
+nRMSE( f ) = 1
+
+Ntest Tpred 
+
+> Ntest
+
+X
+
+> i=1
+> Tpred
+
+X
+
+> j=1
+
+nRMSE (i) 
+
+> j
+
+(f ). (49) The values in Table 2 are computed using this rollout nRMSE. For AMGFNO, we additionally measure the mean gate value during rollout. For a test trajectory, let g(i) 
+
+> j
+
+∈ (0 , 1) f ×H denote the adaptive memory gate at timestep j. We define 
+
+g(f, ρ ) = 1
+
+Ntest Tpred f H 
+
+> Ntest
+
+X
+
+> i=1
+> Tpred −1
+
+X
+
+> j=0
+
+g(i) 
+
+> j1
+
+. (50) This value quantifies how strongly AMGFNO uses the memory path under a given resolution and physical condition. The values reported in Table 3 are computed as the mean gate value over the last 20 epochs. 
+
+## G. Detailed Theory and Proofs for AMGFNO 
+
+This appendix provides the formal details behind the theoretical motivation in Section 2.3. The main text keeps the high-level argument and the frequency-gate quantities ωf , ωpop  
+
+> f,ρ
+
+, bωf,ρ , χf,ρ , and λf,ρ explicit, while deferring the full prediction-target, hypothesis-class, approximation-error, and finite-sample definitions to this appendix. The comparison treats FFNO, S4FFNO, and AMGFNO as functions of the same resolved history. FFNO is the restricted subclass that uses only the current resolved state, S4FFNO uses a fixed residual memory fusion, and AMGFNO uses the same S4 memory branch with an adaptive memory gate. This shared-history view separates two effects: the approximation benefit of memory and the finite-sample complexity cost of maintaining a memory branch. The notation is aligned with the AMGFNO gate in Section 3.3. We use ut for the PDE state, ht for the Markovian hidden feature at the AMG insertion point, zt for the S4 memory output, and gt for the adaptive memory gate. The symbol F
+
+is reserved for the Fourier transform in FFNO layers, so predictor classes are denoted by C and loss classes by L. The architectural setting follows FFNO-style neural operators and S4-based temporal memory models (Gu et al., 2020; Tran et al., 2023; Gu et al., 2022; Buitrago Ruiz et al., 2025). All architecture classes below are identified with their L2 closures under the population distribution induced by the data-generating process. This convention lets us use limiting cases such as zero memory output and zero gate in approximation arguments, even though sigmoid gates take values in (0 , 1) before closure. 
+
+Proof roadmap. Appendix G.4 proves Theorem 2.1. The proof first bounds the influence of the unresolved Fourier tail, then transfers approximation of the projected Markovian target to approximation of the history-conditioned Bayes target. Appendix G.8 proves Theorem 2.2. The proof combines spectral gate convergence, finite-sample Rademacher bounds, and a sufficient condition under which the AMGFNO complexity gap closes as its gate budget shrinks. 18 How Much Memory Do We Need? Adaptive Memory Gate for Neural Operators 
+
+G.1. Setup and Common Bayes Target 
+
+We state the argument on the one-dimensional periodic domain T. The same notation applies to [0 , L ] after replacing einξ by 
+
+ei2πnξ/L . Let 
+
+H := L2(T; RV ).
+
+For a physical condition ρ, let 
+
+uρt+1 = Φ ρ
+
+> ∆t
+
+(uρt ), uρ 
+
+> 0
+
+∼ μρ, (51) where Φρ 
+
+> ∆t
+
+is the time-∆t solution map. For ϕ ∈ H , write 
+
+ϕ(ξ) = X
+
+> n∈Z
+
+an(ϕ)einξ . (52) For vector-valued states, an(ϕ) ∈ CV and |an(ϕ)|2 denotes the squared Euclidean norm over channels. Let mf := ⌊f / 2⌋. The ideal spectral observation at resolution f is 
+
+Pf ϕ := X
+
+> |n|≤ mf
+
+an(ϕ)einξ , Qf := I − Pf , Vf := Pf H. (53) Thus Qf ϕ is the unresolved Fourier tail. The cutoff |n| > m f follows the Nyquist–Shannon interpretation of which Fourier modes are unavailable at resolution f (Shannon, 1949). The theory uses this idealized spectral projection to isolate the unresolved-tail mechanism. The resolved state, resolved history, and one-step resolved target are 
+
+uρt,f := Pf uρt , Uf,ρ t := ( uρ 
+
+> 0,f
+
+, . . . , u ρt,f ), Y f,ρ t := Pf uρt+1 . (54) For clarity, the statements below are written for a fixed finite time index t. If t is sampled uniformly from a finite prediction horizon, all expectations are replaced by finite averages over t, and the arguments are unchanged. For a measurable predictor ψ : Uf,ρ t 7 → V f , define the population risk 
+
+Rf,ρ (ψ) := E Y f,ρ t − ψ(Uf,ρ t ) 2
+
+> Vf
+
+. (55) The projected Markovian target is 
+
+Tf,ρ (ϕ) := Pf Φρ
+
+> ∆t
+
+(ϕ), ϕ ∈ V f . (56) The resolved target decomposes as 
+
+Y f,ρ t = Tf,ρ (uρt,f ) + δt,f,ρ , (57) where 
+
+δt,f,ρ := Pf Φρ
+
+> ∆t
+
+(uρt ) − Pf Φρ
+
+> ∆t
+
+(Pf uρt ). (58) The residual δt,f,ρ is the effect of the unresolved tail Qf uρt on the next resolved state. 
+
+Proposition G.1 (Bayes decomposition) . Define the history-conditioned Bayes target 
+
+bf,ρ (Uf,ρ t ) := E
+
+h
+
+Y f,ρ t | U f,ρ t
+
+i
+
+(59) 
+
+and the irreducible error 
+
+ε2 
+
+> f,ρ
+
+:= E Y f,ρ t − bf,ρ (Uf,ρ t ) 2
+
+> Vf
+
+. (60) 
+
+For every square-integrable predictor ψ,
+
+Rf,ρ (ψ) = ε2 
+
+> f,ρ
+
++ E bf,ρ (Uf,ρ t ) − ψ(Uf,ρ t ) 2
+
+> Vf
+
+. (61) 19 How Much Memory Do We Need? Adaptive Memory Gate for Neural Operators 
+
+Proof. Write U = Uf,ρ t , Y = Y f,ρ t , and b(U ) = E[Y | U ]. Then 
+
+Y − ψ(U ) =  Y − b(U ) +  b(U ) − ψ(U ).
+
+Expanding the squared norm gives 
+
+E∥Y − ψ(U )∥2 
+
+> Vf
+
+= E∥Y − b(U )∥2 
+
+> Vf
+
++ E∥b(U ) − ψ(U )∥2
+
+> Vf
+
++ 2 E ⟨Y − b(U ), b (U ) − ψ(U )⟩Vf . (62) The cross term is zero because b(U ) − ψ(U ) is σ(U )-measurable and 
+
+E[Y − b(U ) | U ] = E[Y | U ] − b(U ) = 0 .
+
+This proves the decomposition. 
+
+G.2. Architecture Classes and Approximation Gains 
+
+Let 
+
+hk,θ := h(ℓ∗−1)  
+
+> k
+
+∈ RS×H
+
+be the hidden feature produced from uρk,f by the encoder and the FFNO layers before the AMG insertion point. Let 
+
+zt,θ := Mθ (h0,θ , . . . , h t,θ ) ∈ RS×H (63) be the S4 memory output. The S4 branch applies a state-space recurrence along the temporal axis at each spatial position, treating the spatial dimension as a batch axis. Let Dec θ denote the remaining FFNO layers and output decoder. The FFNO class is 
+
+CFf,ρ := 
+
+n
+
+ψθ (Uf,ρ t ) = Dec θ (ht,θ )
+
+o
+
+. (64) This class is formally defined on the resolved history but ignores all states except the current one. The fixed-fusion S4FFNO class is 
+
+CS4 
+
+> f,ρ
+
+:= 
+
+n
+
+ψθ (Uf,ρ t ) = Dec θ (ht,θ + zt,θ )
+
+o
+
+. (65) For the content-gated ablation without the frequency-aware gate, define 
+
+CCG f,ρ := 
+
+n
+
+ψθ (Uf,ρ t ) = Dec θ
+
+ (1 − gcont  
+
+> t,θ
+
+) ⊙ ht,θ + gcont  
+
+> t,θ
+
+⊙ zt,θ 
+
+o
+
+, (66) where 
+
+gcont  
+
+> t,θ
+
+:= σ(Wz zt,θ + Whht,θ + b) ∈ (0 , 1) S×H . (67) For a full reference state ϕ ∈ H , define the unresolved spectral-energy ratio 
+
+ωf (ϕ) := 
+
+P 
+
+> |n|>m f
+
+|an(ϕ)|2
+
+P 
+
+> n∈Z
+
+|an(ϕ)|2 , (68) with value zero when the denominator is zero. For condition (f, ρ ), define 
+
+ωpop  
+
+> f,ρ
+
+:= Eu0,t [ωf (uρt )] . (69) In implementation, ωpop  
+
+> f,ρ
+
+is replaced by the empirical training-set estimate bωf,ρ computed from high-resolution training trajectories, with Fourier coefficients approximated by the discrete Fourier transform (Cooley et al., 1969). The notation ωf
+
+in Section 3.3 denotes this condition-level scalar when (f, ρ ) is fixed. It is not computed from unresolved test-time modes. Define the scalar frequency gate by 
+
+χf,ρ := 
+
+(σ
+
+
+
+w1 log ωpop  
+
+> f,ρ
+
++ bω
+
+
+
+, ωpop  
+
+> f,ρ
+
+> 0,
+
+0, ωpop  
+
+> f,ρ
+
+= 0 , w1 > 0. (70) 20 How Much Memory Do We Need? Adaptive Memory Gate for Neural Operators 
+
+The numerical implementation evaluates log( bωf,ρ + εnum ) for finite-precision stability. The asymptotic analysis uses the zero-tail convention in (70). The AMGFNO gate and predictor are 
+
+gt,θ := χf,ρ gcont  
+
+> t,θ
+
+, (71) and 
+
+ψθ (Uf,ρ t ) = Dec θ ((1 − gt,θ ) ⊙ ht,θ + gt,θ ⊙ zt,θ ) . (72) The corresponding AMGFNO class is denoted by CAM G f,ρ .For ψ ∈ C AM G f,ρ , define the normalized gate budget 
+
+Λf,ρ (ψ) := E
+
+ 1
+
+SH ∥gt,θ ∥2
+
+> F
+
+
+
+. (73) For λ ≥ 0, define 
+
+CAM G f,ρ (λ) := ψ ∈ C AM G f,ρ : Λ f,ρ (ψ) ≤ λ . (74) Since 0 ≤ gcont  
+
+> t,θ
+
+≤ 1 entrywise, 
+
+Λf,ρ (ψ) ≤ χ2
+
+> f,ρ
+
+. (75) We write 
+
+λf,ρ := χ2
+
+> f,ρ
+
+. (76) 
+
+Proposition G.2 (Markovian fallback) . Assume the S4 parameterization contains a zero-output realization, for example by setting its readout to zero. Under the L2-closure convention, 
+
+CFf,ρ ⊂ C S4
+
+> f,ρ
+
+, CFf,ρ ⊂ C CG f,ρ , CFf,ρ ⊂ C AM G f,ρ (λ) (77) 
+
+for every λ ≥ 0.Proof. For S4FFNO, choose the S4 readout so that zt,θ = 0 for every history. Then 
+
+Dec θ (ht,θ + zt,θ ) = Dec θ (ht,θ ),
+
+which is an FFNO predictor. For the gated classes, take a sequence of gate biases tending to −∞ , so that the gate converges to zero in L2. The fused feature converges to 
+
+(1 − gt,θ ) ⊙ ht,θ + gt,θ ⊙ zt,θ → ht,θ .
+
+The resulting predictor is Dec θ (ht,θ ), and the gate budget is zero. Hence the FFNO predictor belongs to the gated classes in closure. Define the approximation errors to the common Bayes target: 
+
+EFf,ρ := inf 
+
+> ψ∈C Ff,ρ
+
+E bf,ρ (Uf,ρ t ) − ψ(Uf,ρ t ) 2
+
+> Vf
+
+, (78) 
+
+ES4 
+
+> f,ρ
+
+:= inf 
+
+> ψ∈C S4
+> f,ρ
+
+E bf,ρ (Uf,ρ t ) − ψ(Uf,ρ t ) 2
+
+> Vf
+
+, (79) 
+
+ECG f,ρ := inf 
+
+> ψ∈C CG f,ρ
+
+E bf,ρ (Uf,ρ t ) − ψ(Uf,ρ t ) 2
+
+> Vf
+
+, (80) 
+
+EAM G f,ρ (λ) := inf  
+
+> ψ∈C AM G f,ρ (λ)
+
+E bf,ρ (Uf,ρ t ) − ψ(Uf,ρ t ) 2
+
+> Vf
+
+. (81) 21 How Much Memory Do We Need? Adaptive Memory Gate for Neural Operators 
+
+The approximation gains over FFNO are 
+
+ΓS4 
+
+> f,ρ
+
+:= EFf,ρ − E S4
+
+> f,ρ
+
+, (82) 
+
+ΓCG f,ρ := EFf,ρ − E CG f,ρ , (83) 
+
+ΓAM G f,ρ (λ) := EFf,ρ − E AM G f,ρ (λ). (84) By Proposition G.2, these gains are nonnegative. Finally, define the FFNO approximation error to the projected Markovian target: 
+
+AFf,ρ := inf 
+
+> ψ∈C Ff,ρ
+
+E Tf,ρ (uρt,f ) − ψ(Uf,ρ t ) 2
+
+> Vf
+
+. (85) 
+
+Why distinguish AFf,ρ and EFf,ρ ? The distinction is central to the argument. AFf,ρ measures how well FFNO can ap-proximate the ideal projected Markovian target Tf,ρ (uρt,f ), which depends only on the current resolved state. This is the approximation quantity appearing in Assumption G.5. In contrast, EFf,ρ measures FFNO’s approximation error to the history-conditioned Bayes target bf,ρ (Uf,ρ t ), which is the actual partially observed prediction target and may depend on the entire resolved history. Therefore, the theory does not assume that FFNO already approximates the history-conditioned Bayes target. Instead, Lemma G.9 uses the unresolved-tail residual bound to transfer approximation of the projected Markovian target into a bound on the Bayes-target error. 
+
+G.3. Assumptions Assumption G.3 (Finite-horizon well-posedness and Sobolev bound) . For μρ-almost every initial condition, the PDE admits a unique solution over the finite prediction horizon. For some r ≥ 0 and β > 0, there exists Rρ,β < ∞ such that 
+
+sup 
+
+> 0≤t≤Tpred
+
+∥uρt ∥Hr+β (T) ≤ Rρ,β almost surely . (86) For dissipative long-time settings, this may be replaced by an absorbing-ball bound in Hr+β . Such well-posedness, finite-horizon regularity, and dissipativity assumptions are standard for semilinear parabolic and dissipative PDEs (Henry, 1981; Pazy, 1983; Amann, 1984; Temam, 1997; Robinson, 2001). For the Kuramoto–Sivashinsky equation, they are supported by the KS well-posedness and attractor literature (Nicolaenko et al., 1985; Tadmor, 1986). 
+
+Assumption G.4 (Local Lipschitz continuity of the solution map) . For every R > 0, there exists Lρ,R < ∞ such that 
+
+∥Φρ
+
+> ∆t
+
+(ϕ) − Φρ
+
+> ∆t
+
+(ψ)∥L2(T) ≤ Lρ,R ∥ϕ − ψ∥Hr (T) (87) whenever ∥ϕ∥Hr ≤ R and ∥ψ∥Hr ≤ R. This is the finite-time continuous-dependence property used in semigroup treatments of semilinear parabolic equations (Henry, 1981; Pazy, 1983; Amann, 1984). 
+
+Assumption G.5 (FFNO approximation of the projected Markovian target) . The projected-target approximation error satisfies 
+
+AFf,ρ → 0 as f → ∞ . (88) This assumption concerns only the ideal projected Markovian target Tf,ρ , not the history-conditioned Bayes target bf,ρ .Thus it is not an assumption that FFNO can already solve the partially observed prediction problem. Rather, it states that, as the resolved space becomes richer, the FFNO class can approximate the Markovian solution map restricted to the resolved variables. This is consistent with neural-operator approximation results for continuous solution operators on compact sets (Li et al., 2021; Tran et al., 2023; Kovachki et al., 2023b). 
+
+Assumption G.6 (Bounded or sub-Gaussian losses) . For the finite-sample bounds, assume squared losses are uniformly bounded by ℓ∞. Equivalently, one may replace this by a standard sub-Gaussian condition and obtain corresponding high-probability concentration terms. The bounded-loss form is used only to keep the comparison concise (Bach, 2024). 
+
+Assumption G.7 (Trajectory-level sampling) . Training trajectories are independent. Multiple timesteps from the same trajectory may be dependent. The finite-sample statements treat each trajectory as one independent sample and define the empirical loss as the average over the finite prediction horizon. This follows the standard multi-trajectory learning setup, where trajectories are independent but covariates within a trajectory need not be independent (Tu et al., 2024). 22 How Much Memory Do We Need? Adaptive Memory Gate for Neural Operators 
+
+G.4. Residual Decay and Proof of Theorem 2.1 Lemma G.8 (Residual decay) . Under Assumptions G.3 and G.4, there exists a constant κtail ,ρ > 0, independent of f , such that 
+
+E∥δt,f,ρ ∥2 
+
+> Vf
+
+≤ κtail ,ρ f −2β . (89) 
+
+Proof. Since Pf is an orthogonal projection in L2,
+
+∥δt,f,ρ ∥Vf = ∥Pf (Φ ρ
+
+> ∆t
+
+(uρt ) − Φρ
+
+> ∆t
+
+(Pf uρt )) ∥L2
+
+≤ ∥ Φρ
+
+> ∆t
+
+(uρt ) − Φρ
+
+> ∆t
+
+(Pf uρt )∥L2 . (90) By Assumption G.3, ∥uρt ∥Hr+β ≤ Rρ,β almost surely. Since Pf is nonexpansive in Sobolev norms, 
+
+∥Pf uρt ∥Hr ≤ ∥ uρt ∥Hr ≤ ∥ uρt ∥Hr+β ≤ Rρ,β .
+
+Thus both uρt and Pf uρt lie in the same Hr ball. Applying Assumption G.4 gives 
+
+∥δt,f,ρ ∥Vf ≤ Lρ,R ρ,β ∥uρt − Pf uρt ∥Hr = Lρ,R ρ,β ∥Qf uρt ∥Hr . (91) Using the Fourier definition of the Hr norm, 
+
+∥Qf uρt ∥2 
+
+> Hr
+
+= X
+
+> |n|>m f
+
+(1 + |n|2)r |an(uρt )|2
+
+= X
+
+> |n|>m f
+
+(1 + |n|2)r+β (1 + |n|2)−β |an(uρt )|2. (92) For |n| > m f , there exists Cβ independent of f such that 
+
+(1 + |n|2)−β ≤ (1 + m2 
+
+> f
+
+)−β ≤ Cβ f −2β .
+
+Therefore 
+
+∥Qf uρt ∥2 
+
+> Hr
+
+≤ Cβ f −2β ∥uρt ∥2 
+
+> Hr+β
+
+≤ Cβ f −2β R2 
+
+> ρ,β
+
+. (93) Combining this with (91) and taking expectations proves the claim with 
+
+κtail ,ρ := Cβ L2 
+
+> ρ,R ρ,β
+
+R2 
+
+> ρ,β
+
+.
+
+Lemma G.9 (From projected-target approximation to Bayes-target approximation) . Under Assumptions G.3 and G.4, 
+
+EFf,ρ ≤ 2AFf,ρ + 2 κtail ,ρ f −2β . (94) 
+
+If Assumption G.5 also holds, then EFf,ρ → 0 as f → ∞ .Proof. The proof transfers approximation of the projected Markovian target to approximation of the true history-conditioned Bayes target. From (57), 
+
+Y f,ρ t = Tf,ρ (uρt,f ) + δt,f,ρ .
+
+Taking conditional expectation with respect to Uf,ρ t gives 
+
+bf,ρ (Uf,ρ t ) = Tf,ρ (uρt,f ) + ct,f,ρ (Uf,ρ t ), (95) where 
+
+ct,f,ρ (Uf,ρ t ) := E
+
+h
+
+δt,f,ρ | U f,ρ t
+
+i
+
+.
+
+The term Tf,ρ (uρt,f ) is σ(Uf,ρ t )-measurable. 23 How Much Memory Do We Need? Adaptive Memory Gate for Neural Operators 
+
+For any ψ ∈ C Ff,ρ ,
+
+E bf,ρ (Uf,ρ t ) − ψ(Uf,ρ t ) 2
+
+> Vf
+
+≤ 2E Tf,ρ (uρt,f ) − ψ(Uf,ρ t ) 2
+
+> Vf
+
++ 2 E ct,f,ρ (Uf,ρ t ) 2
+
+> Vf
+
+. (96) By Jensen’s inequality for conditional expectation, 
+
+E ct,f,ρ (Uf,ρ t ) 2
+
+> Vf
+
+= E E[δt,f,ρ | U f,ρ t ] 2
+
+> Vf
+
+≤ E∥δt,f,ρ ∥2 
+
+> Vf
+
+. (97) Taking the infimum over ψ ∈ C Ff,ρ in (96) and applying Lemma G.8 proves (94) . If AFf,ρ → 0, the right-hand side converges to zero. 
+
+Proof of Theorem 2.1. Lemma G.9 gives 
+
+EFf,ρ ≤ 2AFf,ρ + 2 κtail ,ρ f −2β . (98) Under Assumption G.5, AFf,ρ → 0. Since f −2β → 0, this implies 
+
+EFf,ρ → 0.
+
+Importantly, the convergence of EFf,ρ is a conclusion of the residual-transfer bound, not an assumption. By Proposition G.2, each memory-augmented class contains the FFNO fallback in closure. Hence 
+
+ES4 
+
+> f,ρ
+
+≤ E Ff,ρ , EAM G f,ρ (λ) ≤ E Ff,ρ 
+
+for every λ ≥ 0. Therefore the corresponding memory gains satisfy 
+
+0 ≤ ΓS4 
+
+> f,ρ
+
+= EFf,ρ − E S4 
+
+> f,ρ
+
+≤ E Ff,ρ ,
+
+and 
+
+0 ≤ ΓAM G f,ρ (λ) = EFf,ρ − E AM G f,ρ (λ) ≤ E Ff,ρ .
+
+Since EFf,ρ → 0, both gains converge to zero by squeezing. This proves Theorem 2.1. 
+
+G.5. Spectral Gate Convergence Lemma G.10 (Condition-level spectral gate convergence) . Let ωf (ϕ), ωpop  
+
+> f,ρ
+
+, χf,ρ , and λf,ρ be defined by (68) –(76) . Then 
+
+ωpop  
+
+> f,ρ
+
+→ 0, χf,ρ → 0, λf,ρ = χ2 
+
+> f,ρ
+
+→ 0 as f → ∞ . (99) 
+
+Moreover, every ψ ∈ C AM G f,ρ satisfies 
+
+Λf,ρ (ψ) ≤ λf,ρ . (100) 
+
+Proof. Fix any uρt ∈ L2(T; RV ). Its Fourier coefficients are square summable: 
+
+X
+
+> n∈Z
+
+|an(uρt )|2 < ∞.
+
+Therefore X
+
+> |n|>m f
+
+|an(uρt )|2 → 0 as f → ∞ .
+
+If the denominator in (68) is positive, this implies ωf (uρt ) → 0. If the denominator is zero, then ωf (uρt ) = 0 for every f by convention. Hence ωf (uρt ) → 0 almost surely. 24 How Much Memory Do We Need? Adaptive Memory Gate for Neural Operators 
+
+Since 0 ≤ ωf (·) ≤ 1, dominated convergence gives 
+
+ωpop  
+
+> f,ρ
+
+= Eu0,t [ωf (uρt )] → 0.
+
+Because w1 > 0, the quantity w1 log ωpop  
+
+> f,ρ
+
++ bω tends to −∞ whenever ωpop  
+
+> f,ρ
+
+> 0 along the sequence, while the zero-tail convention covers the case ωpop  
+
+> f,ρ
+
+= 0 . Thus χf,ρ → 0, and λf,ρ → 0.Finally, gt,θ = χf,ρ gcont  
+
+> t,θ
+
+and 0 ≤ gcont  
+
+> t,θ
+
+≤ 1 entrywise. Hence 
+
+1
+
+SH ∥gt,θ ∥2 
+
+> F
+
+≤ χ2 
+
+> f,ρ
+
+= λf,ρ .
+
+Taking expectations proves the budget bound. 
+
+G.6. Finite-sample Bounds 
+
+Following Assumption G.7, the independent sample unit is a trajectory. Let Zi denote the i-th resolved trajectory, including histories and targets over the finite prediction horizon. For display, write a single-time loss; the finite-horizon average can be absorbed into the definition of ℓψ .For a predictor ψ, define 
+
+ℓψ (Z) := Y f,ρ t − ψ(Uf,ρ t ) 2
+
+> Vf
+
+. (101) For a predictor class Θ, define the induced loss class 
+
+L(Θ) := {Z 7 → ℓψ (Z) : ψ ∈ Θ}. (102) We write 
+
+LFf,ρ := L(CFf,ρ ), LS4 
+
+> f,ρ
+
+:= L(CS4
+
+> f,ρ
+
+), (103) 
+
+LCG f,ρ := L(CCG f,ρ ), LAM G f,ρ (λ) := L(CAM G f,ρ (λ)) . (104) Let Rm(L) denote the population Rademacher complexity of a real-valued loss class L with sample size m:
+
+Rm(L) := EZ1: m,ϵ 
+
+"
+
+sup 
+
+> ℓ∈L
+
+1
+
+m
+
+> m
+
+X
+
+> i=1
+
+ϵiℓ(Zi)
+
+#
+
+, (105) where ϵi are independent Rademacher random variables. Under Assumption G.6, a standard Rademacher ERM bound implies that, with probability at least 1 − η, the empirical risk minimizer over any class Θ satisfies (Bach, 2024) 
+
+Rf,ρ ( bψΘ) ≤ inf  
+
+> ψ∈Θ
+
+Rf,ρ (ψ) + 4 Rm(L(Θ)) + 2 ℓ∞
+
+r log(2 /η )2m . (106) Applying this bound to the relevant classes and using Proposition G.1, define 
+
+U Ff,ρ (η) := ε2 
+
+> f,ρ
+
++ EFf,ρ + 4 Rm(LFf,ρ ) + 2 ℓ∞
+
+r log(8 /η )2m , (107) 
+
+U S4
+
+> f,ρ
+
+(η) := ε2 
+
+> f,ρ
+
++ ES4 
+
+> f,ρ
+
++ 4 Rm(LS4
+
+> f,ρ
+
+) + 2 ℓ∞
+
+r log(8 /η )2m , (108) 
+
+U CG f,ρ (η) := ε2 
+
+> f,ρ
+
++ ECG f,ρ + 4 Rm(LCG f,ρ ) + 2 ℓ∞
+
+r log(8 /η )2m , (109) 
+
+U AM G f,ρ (λ; η) := ε2 
+
+> f,ρ
+
++ EAM G f,ρ (λ) + 4 Rm(LAM G f,ρ (λ)) + 2 ℓ∞
+
+r log(8 /η )2m . (110) 25 How Much Memory Do We Need? Adaptive Memory Gate for Neural Operators 
+
+The common irreducible Bayes error and concentration terms cancel when subtracting the FFNO bound: 
+
+U S4
+
+> f,ρ
+
+(η) − U Ff,ρ (η) = −ΓS4 
+
+> f,ρ
+
++ 4  Rm(LS4
+
+> f,ρ
+
+) − Rm(LFf,ρ ) , (111) 
+
+U CG f,ρ (η) − U Ff,ρ (η) = −ΓCG f,ρ + 4  Rm(LCG f,ρ ) − Rm(LFf,ρ ) , (112) 
+
+U AM G f,ρ (λ; η) − U Ff,ρ (η) = −ΓAM G f,ρ (λ) + 4  Rm(LAM G f,ρ (λ)) − Rm(LFf,ρ ) . (113) These identities separate the approximation gain of memory from its effective finite-sample complexity cost. 
+
+Theorem G.11 (Low-resolution preference condition) . At any fixed resolution f , a memory class has a smaller upper bound than FFNO whenever its approximation gain exceeds four times its Rademacher-complexity gap. In particular, S4FFNO satisfies U S4
+
+> f,ρ
+
+(η) < U Ff,ρ (η) if 
+
+ΓS4 
+
+> f,ρ
+
+> 4  Rm(LS4
+
+> f,ρ
+
+) − Rm(LFf,ρ ) , (114) 
+
+and AMGFNO satisfies U AM G f,ρ (λ; η) < U Ff,ρ (η) if 
+
+ΓAM G f,ρ (λ) > 4  Rm(LAM G f,ρ (λ)) − Rm(LFf,ρ ) . (115) 
+
+Proof. Both statements follow directly from (111) and (113) . If the gain is larger than four times the complexity gap, the corresponding upper-bound difference is negative. 
+
+G.7. A Sufficient Condition for AMGFNO Complexity Convergence 
+
+This subsection gives a sufficient condition under which the AMGFNO loss-class complexity returns to the FFNO loss-class complexity as the spectral gate closes. The condition is not necessary; it makes the conditional finite-sample comparison explicit. Use the normalized feature norm 
+
+∥A∥2 
+
+> S,H
+
+:= 1
+
+SH ∥A∥2 
+
+> F
+
+. (116) 
+
+Proposition G.12 (AMGFNO complexity convergence under a closing gate) . Suppose there exist constants 
+
+LDec , B h, B z , B o < ∞, independent of f , such that for all considered parameters and samples, 
+
+∥Dec θ (a) − Dec θ (b)∥Vf ≤ LDec ∥a − b∥S,H , (117) 
+
+∥ht,θ ∥S,H ≤ Bh, ∥zt,θ ∥S,H ≤ Bz , (118) 
+
+∥Y f,ρ t ∥Vf ≤ Bo, ∥ψ(Uf,ρ t )∥Vf ≤ Bo for all predictors considered . (119) 
+
+Then, for λf,ρ = χ2
+
+> f,ρ
+
+,
+
+0 ≤ Rm(LAM G f,ρ (λf,ρ )) − Rm(LFf,ρ ) ≤ Ccomp 
+
+pλf,ρ , (120) 
+
+where Ccomp is independent of f . Consequently, this complexity gap converges to zero as f → ∞ .Proof. The lower bound follows from monotonicity of Rademacher complexity because Proposition G.2 gives CFf,ρ ⊂CAM G f,ρ (λf,ρ ) in closure, and therefore LFf,ρ ⊂ LAM G f,ρ (λf,ρ ) in closure. For the upper bound, take any ψAM G θ ∈ C AM G f,ρ (λf,ρ ) and define its FFNO fallback with the same encoder, pre-AMG layers, and decoder: 
+
+ψFθ (Uf,ρ t ) := Dec θ (ht,θ ). (121) The AMGFNO fused feature differs from this fallback feature by 
+
+(1 − gt,θ ) ⊙ ht,θ + gt,θ ⊙ zt,θ − ht,θ 
+
+= gt,θ ⊙ (zt,θ − ht,θ ). (122) Since gt,θ = χf,ρ gcont  
+
+> t,θ
+
+and 0 ≤ gcont  
+
+> t,θ
+
+≤ 1 entrywise, 
+
+∥gt,θ ∥∞ ≤ χf,ρ = pλf,ρ .
+
+26 How Much Memory Do We Need? Adaptive Memory Gate for Neural Operators 
+
+Therefore, using (118), 
+
+∥gt,θ ⊙ (zt,θ − ht,θ )∥S,H ≤ pλf,ρ ∥zt,θ − ht,θ ∥S,H 
+
+≤ pλf,ρ (Bh + Bz ). (123) By the decoder Lipschitz condition (117), 
+
+ψAM G θ (Uf,ρ t ) − ψFθ (Uf,ρ t ) Vf
+
+≤ LDec (Bh + Bz )pλf,ρ . (124) For any target y and predictions p, q with norms bounded by Bo,
+
+∥y − p∥2 − ∥ y − q∥2 = |⟨ q − p, 2y − p − q⟩| ≤ ∥ p − q∥ (2 ∥y∥ + ∥p∥ + ∥q∥)
+
+≤ 4Bo∥p − q∥, (125) where the last step uses (119). Combining this with (124), there exists 
+
+Closs := 4 BoLDec (Bh + Bz )
+
+such that 
+
+ℓψAM G θ (Z) − ℓψFθ (Z) ≤ Closs 
+
+pλf,ρ (126) for every sample Z.Define the difference class 
+
+Df,ρ := 
+
+n
+
+Z 7 → ℓψAM G θ (Z) − ℓψFθ (Z) : ψAM G θ ∈ C AM G f,ρ (λf,ρ )
+
+o
+
+. (127) By (126), every function in Df,ρ has supremum norm at most Closs 
+
+pλf,ρ , so 
+
+Rm(Df,ρ ) ≤ Closs 
+
+pλf,ρ .
+
+Each AMGFNO loss can be written as an FFNO fallback loss plus a function in Df,ρ . By subadditivity of Rademacher complexity, 
+
+Rm(LAM G f,ρ (λf,ρ )) ≤ Rm(LFf,ρ ) + Rm(Df,ρ )
+
+≤ Rm(LFf,ρ ) + Closs 
+
+pλf,ρ . (128) Taking Ccomp = Closs proves the upper bound. Since λf,ρ → 0 by Lemma G.10, the gap converges to zero. The subadditivity and bounded-difference steps are standard Rademacher-complexity arguments (Bach, 2024). 
+
+G.8. Proof of Theorem 2.2 
+
+Proof of Theorem 2.2. By Lemma G.10, 
+
+λf,ρ = χ2 
+
+> f,ρ
+
+→ 0.
+
+By Proposition G.12, 
+
+0 ≤ Rm(LAM G f,ρ (λf,ρ )) − Rm(LFf,ρ ) ≤ Ccomp 
+
+pλf,ρ → 0. (129) From the finite-sample decomposition in (113), 
+
+U AM G f,ρ (λf,ρ ; η) − U Ff,ρ (η)= −ΓAM G f,ρ (λf,ρ ) + 4  Rm(LAM G f,ρ (λf,ρ )) − Rm(LFf,ρ ) . (130) Theorem 2.1 gives 
+
+0 ≤ ΓAM G f,ρ (λf,ρ ) ≤ E Ff,ρ → 0.
+
+27 How Much Memory Do We Need? Adaptive Memory Gate for Neural Operators 
+
+Together with (129), this proves 
+
+U AM G f,ρ (λf,ρ ; η) − U Ff,ρ (η) → 0.
+
+For fixed-fusion S4FFNO, (111) gives 
+
+U S4
+
+> f,ρ
+
+(η) − U Ff,ρ (η) = −ΓS4 
+
+> f,ρ
+
++ 4  Rm(LS4
+
+> f,ρ
+
+) − Rm(LFf,ρ ) . (131) Again, Theorem 2.1 gives 
+
+0 ≤ ΓS4 
+
+> f,ρ
+
+≤ E Ff,ρ → 0.
+
+If the fixed-fusion S4FFNO complexity gap satisfies 
+
+Rm(LS4
+
+> f,ρ
+
+) − Rm(LFf,ρ ) → ∆S4 
+
+> m,ρ
+
+> 0,
+
+then 
+
+U S4
+
+> f,ρ
+
+(η) − U Ff,ρ (η) → 4∆ S4 
+
+> m,ρ
+
+> 0.
+
+At the same time, 
+
+U AM G f,ρ (λf,ρ ; η) − U Ff,ρ (η) → 0.
+
+Therefore, for all sufficiently large f ,
+
+U AM G f,ρ (λf,ρ ; η) < U S4
+
+> f,ρ
+
+(η).
+
+G.9. Interpretation and Scope 
+
+The theory compares FFNO, S4FFNO, and AMGFNO as predictors defined on the same resolved history Uf,ρ t . FFNO is the restricted subclass that ignores history, S4FFNO uses fixed residual memory fusion, and AMGFNO uses the same S4 memory branch with the adaptive memory gate. Theorem 2.1 isolates the memory benefit induced by projection-based loss of Fourier modes. At low resolution, unresolved spatial modes can still influence the next resolved state, so the history-conditioned Bayes target may depend on temporal history. This is the condition in which the low-resolution preference condition in Theorem G.11 can favor memory models. At high resolution, under the stated projection-induced partial observation assumptions, the unresolved tail Qf uρt vanishes and the projected Markovian target becomes sufficient. The additional approximation gain attributable to this spectral-projection mechanism therefore converges to zero. Theorem 2.2 gives a conditional finite-sample comparison. Fixed-fusion S4FFNO may retain a nonvanishing effective complexity cost, while AMGFNO drives its gate budget λf,ρ to zero through the frequency-aware gate. Under the sufficient conditions of Proposition G.12, the AMGFNO Rademacher-complexity gap is O(pλf,ρ ) and therefore vanishes in the high-resolution limit. The analysis controls one-step resolved prediction risk. It does not directly bound accumulated autoregressive rollout error, which is evaluated empirically in Section 4. The analysis also isolates only the spectral projection mechanism. It does not rule out persistent memory benefits from other sources of partial observability, such as latent parameters, stochastic forcing, measurement noise, temporal subsampling, or unresolved physical variables. This is consistent with the Mori–Zwanzig viewpoint that unresolved variables can induce non-Markovian closure terms (Parish & Duraisamy, 2017). 28
