@@ -1,0 +1,773 @@
+Title: Acceleration of an algebraic multigrid pressure solver using graph neural networks
+
+URL Source: https://arxiv.org/pdf/2606.19251v1
+
+Published Time: Thu, 18 Jun 2026 01:20:41 GMT
+
+Number of Pages: 23
+
+Markdown Content:
+# Acceleration of an algebraic multigrid pressure solver using graph neural networks 
+
+## Eric Chill´ on 1, ∗
+
+## , Artur K. Lidtke 2, Nguyen Anh Khoa Doan 3, and Bernat Font 1
+
+> 1
+
+Faculty of Mechanical Engineering, Delft University of Technology, The Netherlands 
+
+> 2
+
+Maritime Research Institute Netherlands, The Netherlands 
+
+> 3
+
+Department of Aeronautics, Imperial College London, United Kingdom 
+
+June 18, 2026 
+
+Abstract 
+
+Solving the pressure-Poisson equation remains the primary computational bottleneck in incompressible unstructured flow solvers primarily due to the inherent sensitivity of traditional linear solvers to mesh irregularities. This work introduces a data-driven algebraic multigrid (AMG) smoother that uses a modified graph convolutional isomorphism network (GCIN). The graph neural network predicts optimal polynomial coefficients to construct a sparse pseudo-inverse operator across diverse grid topologies. The coefficients are optimized to reduce the residual after each V-cycle iteration. By directly capturing the algebraic structure of the system from the sparse coefficient matrix, the proposed method maintains the solver’s linearity while adapting to local anisotropies in unstructured grids. Our framework demonstrates significant performance gains by reducing the number of V-cycles required for a given tolerance and delivering wall-clock speedups from 4% to 37% across diverse benchmarks. Notably, the model exhibits robust generalization by maintaining efficiency on meshes up to 128 times larger than those seen in training, and by accelerating the solver’s convergence on unseen industry-relevant problems such as the AirfRANS dataset. 
+
+Keywords — fluid dynamics; machine learning; graph neural networks; algebraic multigrid 
+
+# 1. Introduction 
+
+Solving the pressure-Poisson equation is a major bottleneck in incompressible flow solvers. At each time step, the discretized Poisson system yields a large, sparse linear system of whose solution dominates computational cost. While momentum equations involve local stencils, the elliptic nature of the pressure-Poisson system requires information to propagate across the entire domain, leading to high communication-to-computation ratios that degrade scaling on massive parallel clusters (Bergman et al., 2008; Jha et al., 2020). Methods such as asynchronous algorithm communication by Ghosh et al. (2022), tensor-based formulations by Costa et al. (2026), or communication-reduced conjugate gradients by Bernaschi et al. (2025) aim to reduce communication overhead. Nevertheless, the overall speedup is still fundamentally constrained by the efficiency of the underlying linear solver. Among available solvers, algebraic multigrid (AMG) has become a widely adopted method due to its general applicability and near-linear computational complexity (Trottenberg et al., 2001; Baker et al., 2011). However, AMG’s performance on complex, unstructured meshes is highly sensitive to the choice of its internal components, such as coarsening strategies, interpolation operators, and smoothers. As a result, achieving robust and efficient performance across different geometries and discretizations remains challenging. Consequently, data-driven techniques have progressively been explored to accelerate computational fluid dy-namics simulations. Early efforts primarily focused on data assimilation and turbulence closures to enable faster, lower-resolution simulations (Asch et al., 2016; Wu et al., 2018; Maulik et al., 2019; Beck et al., 2019; Font et al., 2021). More recent work explores broader applications, including machine-learning-guided adaptive meshing (Jha and Mallik, 2025) and neural-network surrogates that attempt to replace numerical solvers en-tirely (Margenberg et al., 2022; Ronneberger et al., 2015; Seo, 2024; Le and Ooi, 2021). While promising, these approaches often lack the robustness and convergence guarantees required for high-fidelity simulations.  
+
+> ∗E.ChillonLizana@tudelft.nl
+> Reproducibility repository: https://github.com/ericchillon/AMG-GNN-Jacobi
+
+1
+
+> arXiv:2606.19251v1 [physics.comp-ph] 17 Jun 2026
+
+Therefore, recent studies have begun investigating machine-learning approaches that accelerate existing solvers rather than replacing them. In the context of the pressure projection step, several works propose learning-enhanced preconditioners to reduce solve times (Li et al., 2023; Millard et al., 2025). However, these approaches are typically restricted to Cartesian grids or specific geometries. Other studies focus on data-driven initial guesses, where an optimized initial guess significantly reduces the residual before the first iteration begins. For instance, Ozbay et al. (2021) uses a convolutional neural network (CNN) to predict cheap solutions of the Poisson equation that can be used as initial guesses. Further, Vigot and Cuenot (2026) uses recurrent GNNs in Poisson equations to generate an initial guess in arbitrary simulation domains. Regarding hybrid approaches, Ajuria Illarramendi et al. (2022) couples a CNN with a traditional iterative solver to ensure a user-defined accuracy level. All in all, while promising, this leaves an important gap in using machine learning to improve core AMG components for general unstructured systems encountered in practical flow simulations. Recent work on data-driven multigrid methods can broadly be categorized into two directions: (i) the opti-mization of the grid hierarchy, and (ii) the enhancement of the relaxation process. The first research direction focuses on improving coarsening and interpolation operators. For instance, restriction operators have been op-timized by learning suitable strength-of-connection parameters. Selecting appropriate strength parameters can significantly improve convergence rates, thereby reducing the number of AMG iterations. This has been done using multilayer perceptron (MLP) neural networks (Caldana, 2019), CNNs (Caldana et al., 2024), and graph neural networks (GNNs) (Zou et al., 2024), with the latter offering greater flexibility for unstructured meshes. CNNs are unsuitable for unstructured meshes because they rely on fixed kernels and assume similar spatial relationships repeat across the grid, which is not true for varying element shapes (e.g., tri-quad meshes). Other approaches construct coarsening operators using reinforcement learning agents, which can improve memory efficiency, although sometimes at the expense of slower convergence rates (Taghibakhshi et al., 2021). Similarly, several studies have explored learning prolongation operators using GNNs such as Greenfeld et al. (2019); Luz et al. (2020); Wang et al. (2023), demonstrating promising generalization properties on unseen unstructured problems. Additional approaches improve the coarse-grid correction by enhancing aggregation-based AMG with GNNs (Nytko, 2022) or generating more efficient Galerkin coarse-grid operators (Huang et al., 2024) in unstructured and structured meshes, respectively. Overall, improvements in the grid hierarchy have shown consistent benefits, with strength-parameter tuning often among the most effective strategies. The second research direction focuses on accelerating the smoothing step of multigrid methods. Although less extensively studied, improving the smoother can have a substantial impact on overall solver performance. For example, Kuznichov (2022) uses a neural network to predict optimal relaxation parameters for relaxed Jacobi and multicolor Gauss–Seidel smoothers, achieving faster convergence than conventional approaches. Huang et al. (2023) replaces the smoother entirely with a convolutional neural network that learns to reduce residual errors directly from structured matrix representations. Similarly, Weymouth (2022) proposes a Jacobi-based smoother derived from a pseudo-inverse operator with the same sparsity pattern as the Poisson matrix, demonstrating significant improvements in geometric multigrid solvers. Despite these advances, several limitations remain in current data-driven multigrid research. Most existing methods are developed and validated primarily on structured grids, often in two-dimensional settings. Fur-thermore, many studies focus on reducing iteration counts rather than demonstrating improvements in overall wall-clock solve time, which ultimately determines practical efficiency. Finally, relatively few works evaluate their methods on complex, application-relevant problems, leaving open questions regarding robustness, scala-bility, and practical applicability in industry-scale simulations. Building on this foundation, this work introduces a data-driven smoother for AMG, extending the work of Wey-mouth (2022) for unstructured grids. This framework predicts optimal polynomial coefficients for constructing a sparse pseudo-inverse smoother using a GNN. By employing a modified graph convolutional isomorphism network (GCIN) architecture (Zou et al., 2024), the model directly captures the algebraic structure of the pressure-Poisson system from the sparse coefficient matrix while preserving the solver’s underlying linearity. This framework achieves significant performance gains, reducing V-cycle iterations by up to 36% and delivering wall-clock speedups of 17% to 25% across diverse benchmark problems. Notably, the GNN learns generalized algebraic patterns that extend beyond specific flow configurations, maintaining V-cycle reduction generaliza-tion on unseen industry-relevant problems, such as the AirfRANS dataset (Bonnet et al., 2023), and on mesh resolutions up to 128 times larger than those encountered during training. The remainder of this paper is organized as follows. Section 2 establishes the mathematical foundation of the discretized pressure-Poisson equation and explores the specific impact of smoother selection and parameter sensitivity on algebraic multigrid (AMG) convergence. Section 3 introduces our data-driven enhanced smoother framework, detailing the construction of the sparse pseudo-inverse operator, the modified graph convolutional isomorphism network (GCIN) architecture, and the end-to-end residual reduction loss function used for training. 2In Section 4, we evaluate the performance, robustness, and generalization of the proposed framework across a series of numerical experiments, including synthetic problems on structured grids, canonical laminar flows on unstructured meshes, and high-fidelity aerodynamic simulations using the industry-relevant AirfRANS dataset. Finally, Section 5 provides concluding remarks, summarizes our core findings, and outlines current limitations and directions for future research. 
+
+# 2. Smoother sensitivity 
+
+## 2.1. Sparse linear system 
+
+The discretized pressure-Poisson equation, which yields a large and extremely sparse linear system during each time step of incompressible flow solvers, is defined as 
+
+Au = f , (1) where u is the unknown pressure vector, f is the source term vector, A ∈ Rn×n is the discrete matrix of the Poisson operator, and n is the number of unknowns. In the context of conservative Poisson operators, A is symmetric, has zero-sum rows and columns, is negative semi-definite, and has a single zero eigenvalue. The presence of a single zero eigenvalue corresponds to the null space of the constant vector. Physically, this reflects that the pressure in an incompressible flow is only defined up to an additive constant. Due to the scale of these systems, iterative methods are preferred over direct methods. These processes iter-atively refine the solution uk+1 by dampening the algebraic error ϵk = u − uk. In practice, the solution is updated by an error approximation ϵk:
+
+uk+1 = uk + ϵk. (2) Given the linearity of the problem, the update ϵ is determined from 
+
+Aϵk = rk ≡ f − Au k. (3) In the context of stationary iterative methods, the error approximation is often computed as ϵk = Q−1rk,where Q is an easily invertible operator that approximates A. The choice of Q is the fundamental factor in determining the convergence rate of the solver. 
+
+## 2.2. AMG algorithm 
+
+The algebraic multigrid algorithm relies on a setup and a solve phase. During the setup phase of a two-level AMG, the algorithm constructs a coarse level with associated restriction and prolongation matrices R
+
+and P based on the coefficient matrix A. The coarse-level grid depends on the specific coarsening algorithm and parameters, such as the strength threshold θ. Further, the coarse level matrix is then determined as 
+
+Ac = RAP . This construction, known as the Galerkin triple product, ensures that the coarse operator is the best representation of the fine operator within the range of the interpolation matrix P. In larger hierarchies, the algorithm is applied recursively until the coarsest level can be easily solved by a direct solver. In the solve phase, a standard multigrid cycle is performed based on the matrices generated in the setup phase. A two-level AMG algorithm involves (i) pre-smoothing, (ii) restricting residuals to the coarse level, (iii) solving the residual equations in the coarse level, (iv) interpolating the error approximation back to the fine level, and (v) post-smoothing. For hierarchies with more than two levels, the direct solve is reserved for the coarsest level. The sequence in which the algorithm traverses the grid hierarchy determines the cycle type, with the V-cycle being the most common standard. AMG performance on unstructured meshes is highly sensitive to the choice of these internal components. Much of the research in AMG has focused on the setup phase, specifically in optimizing the interpolation operator P
+
+(Greenfeld et al., 2019; Luz et al., 2020; Wang et al., 2023). However, as the system grows and is deployed on parallel architectures, the efficiency of the smoother becomes a critical bottleneck for total wall-clock time. 
+
+## 2.3. Smoother impact in convergence 
+
+The efficacy of the AMG method relies on the complementary relationship between the grid hierarchy and the relaxation process. Smoothers are specifically designed to eliminate high-frequency (oscillatory) errors that 3cannot be well-represented on coarser grids. The efficiency of this process is quantified by the smoothing factor, which represents the reduction in oscillatory error per iteration. Once these local errors are dampened, the remaining low-frequency (smooth) errors are effectively handled by the multigrid hierarchy. While basic smoothers like relaxed Jacobi or multicolor Gauss-Seidel can reduce high-frequency error, they often become a limiting factor in overall wall-clock solve time. This introduces a trade-off between the mathematical strength of the smoother and its computational efficiency. For example, while Gauss-Seidel typically provides superior error reduction per step, its sequential dependencies can hinder performance on parallel computing backends. In contrast, the relaxed Jacobi smoother, despite requiring more V-cycles, offers a lower per-iteration cost and better scalability, potentially resulting in faster overall solve times. The speed of convergence is highly sensitive to the relaxation parameter ω, which determines the weight of the iterative correction. For instance, in relaxed Jacobi 
+
+uk+1 = uk + ωQ−1rk = uk + ωϵk. (4) On complex and unstructured meshes, the performance of standard smoothers often degrades. A fixed, global ω
+
+fails to account for local algebraic variations and anisotropies inherent in unstructured discretizations, making it difficult to uniformly dampen high-frequency errors across the entire domain. This highlights the need for smoother formulations that can adapt to the local structure of the coefficient matrix at each grid level. 
+
+# 3. GNN-based smoother 
+
+## 3.1. Pseudo-inverse smoother 
+
+The enhancement of the algebraic multigrid solver centers on developing a data-driven Jacobi smoother. Rather than utilizing a standard relaxation parameter or the simple inverse of the diagonal as in classical implemen-tations, this work constructs a sparse pseudo-inverse smoother matrix, Q−1 (or ˜A−1), with the same sparsity pattern as the original coefficient matrix A.A key advantage of this formulation is that the linearity of the underlying operator A is preserved. Non-linearities are confined strictly to the construction of the smoother coefficients Q−1 via the GNN. Therefore, the convergence properties of the solver are maintained. Other methods, such as enhancing prolongation and restriction operators, also maintain the linearity. Additionally, when A is constant during the simulation, the pseudo-inverse can be computed and stored ahead of time. This incurs a marginal one-time overhead that is rapidly recovered by the reduction in V-cycle counts. The pseudo-inverse is constructed using polynomial functions whose coefficients are predicted by a GNN. Specif-ically, the smoother is defined into two parts: the diagonal and the off-diagonal. To build the smoother matrix, we follow Weymouth (2022), which is based on structured grids and geometric multigrid, but is generalizable to AMG. 
+
+q−1 
+
+> ii
+
+= fd(aii /s | θ)
+
+aii 
+
+, q−1 
+
+> ij
+
+= fo(aij /s | θ)
+
+aii + ajj 
+
+(i̸ = j). (5) Here s = max |A − D| is a scaling factor for the inputs, and fd, fo are second-degree polynomial functions. D
+
+is the diagonal of matrix A. Note that fo(0) = 0 is required to maintain the sparsity. The second-degree choice is critical. We have found that higher-order polynomials severely overfit to specific mesh topologies, leading to instabilities when generalized to unseen unstructured grids. 
+
+## 3.2. GNN architecture 
+
+To predict the optimal coefficients for the pseudo-inverse, we use a modified GCIN for feature extraction and an MLP network to predict the coefficients, as shown in Figure 1. These are determined at each hierarchy level, yielding a tailored, data-driven smoother for each level. This architecture, inspired by AutoAMG Zou et al. (2024), combines a graph convolutional network (GCN) and a graph isomorphism network (GIN). GCNs operate by taking a weighted average of their neighbors’ features, making them highly efficient at extracting structural patterns from irregular domains such as unstructured grids. On the other hand, GINs upgrade this by using a sum-aggregation mechanism, providing the mathematical expressiveness needed to distinguish complex, distinct graph topologies without washing out structural nuances. Combined, they enable the model to accurately capture localized mesh variations and anisotropies across diverse grid layouts, thanks to the 4efficiency of GCNs and the expressiveness of GINs. The GCIN is suited for unstructured meshes because it operates directly on the graph representation of the sparse matrix A, where nodes represent grid cells and edges represent their algebraic connections. The coefficient matrix is represented as a graph G, defined as a tuple ( V, E ), consisting of a set of nodes V and a set of edges E. The cardinalities |V | and |E| represent the total number of nodes and edges, respectively. Within this framework, vi ∈ V identifies the i-th node, while a directed edge from vi to vj is denoted by 
+
+eij = ( vi, v j ) ∈ E. The set of neighbors for any node vi is represented by N (vi). To account for node and edge attributes, Xv ∈ R|V |× d and Xe ∈ R|E|× c are introduced as the respective feature matrices. Here, xvi ∈ Rd
+
+corresponds to the feature vector of node vi, and xeij ∈ Rc corresponds to the feature vector of edge eij .The matrix A is mapped to a graph as follows. Each node has a two-dimensional feature vector. The stored values are the diagonal coefficient of the matrix and the node’s number of connections (or degree). Adding the node degree provides the GNN with the number of mesh cells connected to a given cell. That is, whether the cell is 2D or 3D, and the type of element. 
+
+xv (0)  
+
+> i
+
+=
+
+ aii 
+
+deg( vi)
+
+
+
+(6) The edges are assigned a scalar attribute, equal to the off-diagonal coefficient wij = aij . They represent the spatial connection between two cell nodes i and j. Further, large weights imply stronger connections between the cells. Given that we are interested in the node outputs, this is a node-based network. Therefore, the input feature dimension is equal to 2 in the first GCIN layer. A GCIN is constructed on the GCN. To add the expressiveness inherent to a GIN, normalization within the GCN is no longer performed, avoiding feature cancellation from averaging and increasing the range of values the graph network block sees. Hence, the forward pass of the GCIN for a layer l is defined as 
+
+x(l) 
+
+> vi
+
+= MLP (l)
+
+ X  
+
+> vj∈N(vi)∪vi
+
+wij x(l−1) 
+
+> vj
+
+ , (7) where wij is the weight of the edge eij . Note that the edge feature vectors are simplified to scalars in this work. Further, its matrix form is 
+
+x(l) 
+
+> v
+
+= ˆAX (l−1)  
+
+> v
+
+Θ(l). (8) Here Θ(l) is the weight matrix for the MLP (l) that is optimized during training, and ˆA is the adjacency matrix of the graph with added self-loops, so each node is connected to itself. 
+
+Figure 1: GNN-based smoother method. The architecture consists of sequential GCIN layers. By stacking multiple GCIN layers, information from farther neighbors is captured, as each GCIN pass convolves the first-hop neighbors. The outputs from the layers are globally pooled (mean, max) and concatenated before the predictive MLP, from which optimal polynomial coefficients are inferred. Therefore, the readout function for the GCIN is 
+
+x(l) 
+
+> g
+
+= CONCAT 
+
+ 1
+
+|V | 
+
+> |V|
+
+X
+
+> i=1
+
+x(l) 
+
+> vi
+
+, max  
+
+> i=1 ,..., |V|
+
+
+
+x(l)
+
+> vi
+
+ , (9) 
+
+xG = CONCAT x(l) 
+
+> g
+
+l = 0 , 1, . . . , L 
+
+!
+
+. (10) 5The GNN model comprises four sequential layers ( L = 4). The first GCIN layer input dimension is 2. The following layers present hidden and output dimensions of 64. Hence, the extracted matrix features are of size 128 due to the double global pooling. The extracted features are concatenated into an array of size 128 L,and introduced into the MLP. The latter approximates the mapping between matrix features and the optimal polynomial coefficients. The MLP consists of two layers. The input dimension is 128 L, the hidden dimension is 128, and the output dimension is 5. The latter is due to the independent off-diagonal coefficient being strictly zero ( fo(0) = 0). Hence, there are 3 coefficients for the diagonal polynomial and two for the off-diagonal. This proved to be the best network size based on a preliminary hyperparameter study (Appendix A.2). Detailed information about architectural hyperparameters is presented in Appendix A.1. 
+
+## 3.3. Optimizing residual reduction 
+
+The GNN is trained end-to-end across the entire AMG V-cycle using PyTorch’s automatic differentiation. Unlike methods that focus on the spectral radius of the error propagation matrix, which can be computationally prohibitive to evaluate for large, diverse datasets, this work employs a residual-reduction loss function. By avoiding the calculation of spectral attributes, such as the condition number or the eigenvalue distribution, the training process remains scalable to 3D systems. Optimizing for residual reduction has several practical advantages. Primarily, it directly influences the total wall-clock time. Decreasing the number of V-cycles reduces the total computational effort, provided the smoother construction cost is managed. Second, the residual is always available, unlike other metrics such as the error with respect to the unknown exact pressure solution. Hence, no true solution is necessary for training. Finally, since every step of the AMG V-cycle (including smoothing, restriction, and prolongation) consists of differentiable linear operations, the GNN can be trained end-to-end. This allows the network to learn how its smoother coefficients affect the global error reduction across the entire grid hierarchy, rather than just optimizing for a single local relaxation step. The training objective is to minimize the L2 norm of the residual after one or more V-cycles ( Nvc ). The primary loss function is defined as 
+
+L =
+
+> Nvc
+
+X
+
+> n=1
+
+log 10 
+
+ || rn|| 2
+
+|| rn−1|| 2
+
+
+
+. (11) This logarithmic formulation makes it easy to monitor performance, as a negative loss directly indicates that the learned smoother is effectively reducing the residual. To ensure the model generalizes beyond the first iteration, a multi-V-cycle (MVC) loss can be used to average reductions across multiple iterations, which can be beneficial for very specific problems. The optimal parameters of the accelerated AMG projection method are then given by the minimization ˆθ = min  
+
+> θ
+
+L(θ | T ) (12) where T = {A, f , u0} is the training dataset and θ are the learnable parameters from the GNN and the predictive MLP. During training, the model’s performance is monitored against a baseline relaxed Jacobi smoother. This relative validation metric, defined as 
+
+L = log 10 
+
+|| rn+1 || 2
+
+|| rω−Jn+1 || 2
+
+!
+
+(13) serves as an early stopping criterion, ensuring that the final model provides a measurable improvement over conventional stationary methods. 
+
+## 3.4. Training and testing procedures 
+
+The algebraic multigrid level hierarchy varies significantly depending on the coefficient matrix and, hence, the mesh. This AMG aspect becomes a limitation when handling mini-batches consisting of different problems. As a result, while parallelizable, the AMG solver does not admit batched V-cycles unless the mini-batches are constructed in such a way that the AMG hierarchies are identical. That is, the same number of levels and coarse matrix sizes, which can involve considerable data manipulation. Further, using sparse matrices makes the issue harder to handle. Therefore, we opted for a sequential training V-cycle implementation. 6The sequential approach applies to both model training and evaluation. Regarding training, following this approach slows the process, but it avoids hindering stochasticity during learning. Regarding testing, solving the Poisson systems individually is a more natural approach. This allows to smoothly evaluate setup and solve times without performance variations due to batched solving. To optimize the training, given the sequential V-cycle limitation, we use an initial batched GNN inference. Then, the predicted batch of polynomial coefficients is used to individually construct the hierarchy of pseudo-inverse smoother matrices for the V-cycle. The process is presented in Algorithm 1. Further details on training and testing can be found in Appendix B.1 and B.2, respectively. 
+
+Algorithm 1 Training and inference of the GNN-based AMG Smoother  
+
+> 1:
+
+function GNN-AMG-Solver (T = {A, f , u0}, θ) 
+
+> 2:
+
+for each mini-batch B ⊂ T do  
+
+> 3:
+
+Initialize batch graph container Gbatch ← ∅ ▷ 1. Prepare batch structures  
+
+> 4:
+
+for each problem m ∈ { 1 . . . |B|} do  
+
+> 5:
+
+{A(ℓ), R(ℓ), P(ℓ)}m ← Setup-AMG-Hierarchy  Am
+
+ ▷ 2. Construct hierarchies per problem  
+
+> 6:
+
+for each level ℓ ∈ { 0 . . . Lm − 1} do  
+
+> 7:
+
+let G(ℓ) 
+
+> m
+
+= ( V, E ) represent A(ℓ) 
+
+> m
+> 8:
+
+x(0)  
+
+> vi
+
+← (am)ii , deg( vi)T , ∀vi ∈ V ▷ 3. Initialize node features  
+
+> 9:
+
+xeij ← (am)ij , ∀(i, j ) ∈ E ▷ 4. Initialize edge attributes  
+
+> 10:
+
+Gbatch ← G batch ∪ G(ℓ) 
+
+> m
+
+▷ 5. Collect all levels into batch  
+
+> 11:
+
+end for  
+
+> 12:
+
+end for  
+
+> 13:
+
+ˆPbatch ← GNN θ (Gbatch ) ▷ 6. Batched GNN inference  
+
+> 14:
+
+LB(θ) ← 0 ▷ 7. Initialize batch loss  
+
+> 15:
+
+for each problem m ∈ { 1 . . . |B|} do  
+
+> 16:
+
+for each level ℓ ∈ { 0 . . . Lm − 1} do  
+
+> 17:
+
+(Q−1)(ℓ) 
+
+> m
+
+← AssembleSmoother  A(ℓ) 
+
+> m
+
+, ˆp(ℓ)
+
+> m
+
+ ▷ 8. Construct level-wise smoothers  
+
+> 18:
+
+end for  
+
+> 19:
+
+for n ∈ { 1 . . . N vc } do  
+
+> 20:
+
+(um)n ← V-Cycle 
+
+
+
+{un−1, A, R, P, Q−1}m
+
+
+
+▷ 9. Sequential V-cycles per problem  
+
+> 21:
+
+end for  
+
+> 22:
+
+rn ← fm − Am(um)n ▷ 10. Compute problem residual  
+
+> 23:
+
+Lm ← P log 10 
+
+ ∥rn∥2/∥rn−1∥2
+
+ ▷ 11. Calculate problem loss  
+
+> 24:
+
+LB ← LB + Lm/|B| ▷ 12. Accumulate mean batch loss  
+
+> 25:
+
+end for  
+
+> 26:
+
+θ ← Optimizer  ∇θ LB(θ) ▷ 13. Update weights  
+
+> 27:
+
+end for  
+
+> 28:
+
+return Optimized parameters θ 
+
+> 29:
+
+end function 
+
+# 4. Numerical experiments 
+
+Three sets of cases have been used to establish the effectiveness of the GNN-based AMG Jacobi solver: synthetic and unsteady flow on structured meshes, canonical flows on unstructured meshes, and airfoil flows on structured meshes (AirfRANS). The first set aims to compare the AMG with a robust, data-driven geometric multigrid (GMG) (Section 4.1). The other two sets are used to evaluate the model on more relevant and practical problems (Sections 4.2.1, 4.2.2, and Section 4.2.3). The linear equations are solved using the custom AMG with a tailored data-driven smoother for each level. The solver uses 2 pre- and post-smoothing steps ( ν1, ν2 = 2) at each level. The coarsening algorithm is the 7classical Ruge-St¨ uben, with strength parameter θ = 0 .25. An upper limit of 500 iterations is used, and the solve tolerance is δ = 10 −4 following standard RANS CFD practices. We evaluate the performance of the data-driven smoother against a relaxed Jacobi smoother with relaxation pa-rameter ω = 2 /3. This baseline smoother offers three advantages over sequential smoothers such as Gauss-Seidel or SOR. First, it is inherently parallelizable (similarly to the data-driven smoother), and the solution update is obtained by simple matrix multiplication. Second, although it is not as effective as the other iterative methods as a standalone solver, the performance as a smoother is similar. This is due to the AMG hierarchy handling the low-frequency errors. Finally, the PyTorch implementation for GPU acceleration is more straightforward for the relaxed Jacobi than for the sequential GS and SOR. In the following plots, the terms acceleration and convergence are used. The acceleration, or speedup, is the average solve time of the relaxed Jacobi AMG divided by the average solve time of the GNN-based Jacobi smoother, also called data-driven Jacobi AMG. Convergence indicates whether the solver reaches a solution. That is, no residual divergence or stagnation. 
+
+## 4.1. Structured meshes 
+
+The structured dataset consists of synthetic, unsteady flow problems that have already been used as benchmarks in Weymouth (2022). This data is generated with WaterLily, an incompressible flow solver written in Julia (Weymouth and Font, 2025). The synthetic cases aim to establish the ability of the accelerated AMG to reduce residuals at domain boundaries (static), within the fluid (dipole), and at body boundaries (sphere), in two and three dimensions. The unsteady incompressible flow cases are variations on standard unsteady flow benchmarks, such as 2D flow past a static circular cylinder, 3D flow past a static donut, and the 3D Taylor–Green vortex (TGV) case. For more information, see Weymouth (2022). The benchmark evaluation is built upon six distinct categories of synthetic flow problems. For each category, we generated 250 problem instances, each using an identical coefficient matrix A and a unique source term vector f generated via random field sampling. The name and grid dimensions for each problem category are detailed in Table 1. Table 1: Synthetic problems configurations and sizes. 
+
+Name Training grid size Testing grid size Total problems 
+
+2D-static 32 2 128 2 250 3D-static 16 3 64 3 250 2D-dipole 32 2 128 2 250 3D-dipole 16 3 64 3 250 2D-sphere 32 2 128 2 250 3D-sphere 16 3 64 3 250 Of the 250 total problem instances per category, 200 are allocated for training and 50 are reserved for testing. We utilize this data to train two distinct types of GNN models: 1. Specific models: six separate GNNs are trained, with each model restricted exclusively to the 200 training problems of a single category. 2. Union models: three broader models are trained on mixed datasets combining different problem types. The 2D-Union and 3D-Union models are each trained on 300 problems, drawing an even split of 100 problems from each corresponding dimensional category. The cross-dimensional Union model is trained on 360 problems, with an even split of 60 training problems per category. During the testing phase, each of these trained models is evaluated against the 50 reserved test problems across all six categories. All tests are computed in double precision (FP64) on meshes with a 4x higher resolution per dimension than those used in training (e.g., transitioning from 32 2 to 128 2). Figure 2 illustrates the resulting log 10 residual reduction, log 10 ∥r∥, where each data point reflects the mean reduction achieved across the 50 tested problems within that specific problem category. Looking at the residual reduction performance across different training configurations in Figure 2a, a key limitation of the AMG-GNN framework is its inability to generalize to higher-dimensional structures than 8those encountered during training. Specifically, models trained exclusively on 2D categories fail to reduce the residual when evaluated on 3D test categories, resulting in solver divergence. This behavior stems from the graph representation of the grid layout. In 3D structured grids, the GNN must convolve across 6 + 1 graph nodes (representing the center cell and its six orthogonal neighbors), whereas it is optimized for only 4+1 nodes in 2D configurations. As a result, the model applies random weights to the extra node connections, producing non-optimal polynomial coefficients. In contrast, an AMG-GNN model trained on a 3D dataset successfully generalizes to unseen 2D categories. This asymmetric generalization demonstrates that the network is truly learning the underlying algebraic patterns of the coefficient matrices rather than mesh- or dimension-specific geometry. Beyond matrix structural properties, the data-driven smoother demonstrates a secondary capability to specialize based on flow physics and the right-hand side ( f ) source terms. This effect is noticeable when the matrix A is kept constant. The 3D-dipole test category experiences a significantly larger residual reduction than the 3D-static category, highlighting that the model adjusts to specific flow features indirectly encoded within the residual loss function. Because the solver adapts to both layout matrix properties and flow variations, incorporating diverse data during the training phase yields the most robust performance. Training on the combined Union datasets consistently delivers optimal residual reduction across all evaluated test categories. Furthermore, training on smaller problem instances, such as models optimized at a 1/4-th spatial scale relative to the test domain (model Union (1/4) in Figure 2a), retains almost identical error-reduction capability, confirming strong mesh-size generalization. When comparing these trends directly to the data-driven GMG approach depicted in Figure 2b, both multigrid methodologies demonstrate remarkably similar performance profiles. Despite utilizing distinct grid hierarchies, where the GMG approach is fundamentally bounded by geometric grid restrictions and the AMG-GNN operates via completely automated algebraic coarsening, both models achieve equivalent residual reduction steps when given diverse training datasets. This indicates that the graph neural network’s localized coefficient selection matches the convergence efficiency of a tailored geometric multigrid smoother and extends the methodology to irregular, unstructured matrix layouts. Jacobi 2D-static 3D-static 2D-dipole 3D-dipole 2D-sphere 3D-sphere 2D-Union 3D-Union Union Union (1/4) Train Dataset 2D-static 3D-static 2D-dipole 3D-dipole 2D-sphere 3D-sphere Test Dataset 
+
+> Not converged -1.5 -1.0 -0.5 00.5 1.0 1.5 log10 residual reduction
+
+(a) Jacobi 2D-static 3D-static 2D-dipole 3D-dipole 2D-sphere 3D-sphere Union Train Dataset 2D-static 3D-static 2D-dipole 3D-dipole 2D-sphere 3D-sphere Test Dataset -1.5 -1.0 -0.5 00.5 1.0 1.5 log10 residual reduction (b) 
+
+Figure 2: Residual reduction after a V-cycle for (a) GNN-based smoother and (b) data-driven GMG adapted from Weymouth (2022). Having established the residual-reduction capabilities on synthetic data, we now assess the performance of the AMG-GNN model on more practical and physically complex unsteady incompressible flows. Based on our previous observations that data diversity consistently provides superior error reduction across all test cases, we again adopt a comprehensive union model approach for training. This choice is crucial for fixed-body unsteady simulations. Because the spatial discretization matrix A remains constant throughout the simulation, a category-specific model can easily overfit the constant matrix structure and the transient noise of the unsteady flow vectors f , severely hindering its ability to generalize to larger grids. To build this robust training dataset, we compile a union dataset of 900 problems, evenly distributed across 225 instances for each of the following configurations: 2D problems on 16 2 meshes, 2D problems on 32 2 meshes, 3D problems on 8 3 meshes, and 3D problems on 16 3 meshes. Then, we assess the performance of 3 trained models. An average solve time acceleration of 12% is obtained for the unsteady flow test problems, as shown in Figure 3a). We also note that all problems avoid divergence. This demonstrates that the GNN generalizes to problems considerably larger than the training dataset, across 2D and 3D grids and different types of flows. Notably, for an identical mesh size, the coefficient matrices A are equal between problems. The only mechanism to create different coefficient matrices is to increase the grid size, resulting in larger (but similar) graphs. Hence, the 9Circle TGV Donut 0.00.20.40.60.81.0Relative Solve Time (a) Circle TGV Donut 0246810 12 Relative Setup Time Time Component Setup (GNN) Setup (M) (b) 
+
+Figure 3: Mean GNN-based smoother (a) relative solve times and (b) relative setup times of 3 models normalized against the mean relaxed Jacobi solve time for 25 circle, TGV, and donut problems. Test dataset grids are 512 × 256, 64 3 and 128 × 64 2, respectively. performance of the model is mainly limited by the complexity of the RHS vector and how well the pseudo-inverse matrices are constructed on unseen coarse levels, as larger problems require deeper hierarchies. Inferring the polynomial coefficients and constructing the pseudo-inverse matrices are the practical computa-tional bottlenecks of the data-driven GNN-AMG solver. As depicted in Figure 3b, the total setup time can take up to 10.5 times the relaxed Jacobi setup time. Provided that the acceleration is adequate, the time overhead can be compensated in a reasonable number of time steps. This demonstrates practical utility, especially for unsteady simulations that require 10 3–10 6 time steps. Furthermore, in simple problems such as the structured meshes, the setup overhead can be virtually halved by using a GNN with 32 hidden dimensions, with almost no loss in performance (Appendix B.3). This demonstrates that simple meshes with regular algebraic patterns require a small learning capacity. 
+
+## 4.2. Unstructured meshes 
+
+The majority of model training and testing is conducted on canonical CFD flows, such as Poiseuille, channel, convection-diffusion, and flat plate flows. These are laminar flows generated in 6 different mesh types. For 2D, the meshes are (i) structured, (ii) triangle Delaunay, (iii) triangle-quad Delaunay, (iv) triangle advancing front, (v) triangle-quad advancing front, and (vi) triangle advancing front with orthogonal smoothing. The three-dimensional problems use (i), (ii), and (iii). The main characteristics of the dataset are summarized in Table 2 and examples of 2D grids are presented in Appendix C, Figure 10. The software ReFRESCO (MARIN Netherlands, 2025) has been used to generate the canonical flows. See more information about the dataset in Appendix C. Additionally, to test the model on problems that represent the physics of relevant aerodynamic flows, the AirfRANS dataset is considered. This dataset focuses on practical two-dimensional k−ω SST RANS simulations with different airfoil geometries. Not included in the canonical flows training dataset, the AirfRANS cases are used as a benchmark to test generalization. The grids have 280000 cells, on average. The V-cycle computational graph for automatic differentiation has a significant memory footprint. Therefore, FP32 is selected to allow for larger mini-batch sizes during training. Accordingly, models are trained and tested in FP32 except for the AirfRANS evaluation, which uses FP64 because solution stagnation occurs when solving in single precision. 
+
+4.2.1. Generalization to unseen meshes 
+
+To evaluate the generalization capabilities of the data-driven smoother on unstructured meshes, we first establish a baseline training setup using coarse grid resolutions. The training dataset consists of canonical CFD flows 10 Table 2: Summary of canonical flows, geometries, and grid configurations used for training and testing the data-driven smoother. 
+
+Dataset Dim. Flow Types Mesh Types Total Problems 
+
+Canonical CFD 2D Poiseuille, channel, convection-diffusion, flat plate Structured 400 (72 unique matrices) Triangle Delaunay Triangle-quad Delaunay Triangle advancing front Triangle-quad advancing front Triangle advancing front with or-thogonal smoothing Canonical CFD 3D Poiseuille, channel, convection-diffusion, flat plate Structured 600 (14 unique matrices) Triangle Delaunay Triangle-quad Delaunay AirfRANS 2D Aerodynamic airfoil flows (RANS with 
+
+k − ω SST) Structured meshes (including highly stretched inflation layers) 1000 (Tested in mini-batches of 100) distributed as follows: 
+
+• 2D Training dataset: 400 problems featuring 72 unique coefficient matrices, with grid sizes up to 19,702 cells. 
+
+• 3D Training dataset: 600 problems featuring 14 unique coefficient matrices, with grid sizes up to 15,313 cells. While the coefficient matrices ( A) are shared among several cases, each of the 1,000 total problems possesses a unique source term vector ( f ). All training is conducted in single precision (FP32), which halves the memory footprint while maintaining identical performance to FP64. Furthermore, to assess the robustness of our framework to training stochasticity, we train an ensemble of 10 identical models on this combined dataset, varying only the random seed used for weight initialization. During the testing phase, these 10 trained models are evaluated on unseen medium and fine-grid versions of the same canonical problems. To test the models’ upscaling capabilities, the test grids are significantly larger than the training data: medium grids contain approximately 6 times as many cells as the largest training grids, while fine grids contain up to 20 times as many cells. Because these multiples are based on the largest training grids, the actual size difference between the average training problem and the test problems is even more pronounced. The resulting average solver performance of these models is then evaluated relative to a baseline relaxed Jacobi smoother. Convergence ratios and average relative solve times per problem category are presented in Figure 4 and Table 3. The average solve time across the different models demonstrates that the data-driven smoother generalizes to larger unstructured meshes within the same problem type (Table 3). Notably, some problems display large vari-ation, such as medium Poiseuille and channel problems, reaching up to 66% acceleration (see Figure 4). Simpler problems, such as the medium 3D or the 2D ones, display, on average, adequate convergence ratios relative to relaxed Jacobi, above 96.1%. However, the most complex grids, and more specifically convection-diffusion flows, exhibit a significant decrease in convergence. On average, 67.7% convergence is achieved compared to relaxed Jacobi. Table 3: Average acceleration and convergence success ratio of 10 trained models on unstructured data. 
+
+Problems 2D (Medium) 3D (Medium) 3D (Fine) 
+
+Average acceleration (%) 25 35.3 23.5 
+
+Average convergence (%) 97.9 96.1 67.7 As previously shown on structured grids (Section 4.1, Figure 2a), data diversity (especially regarding matrix coefficients) is essential for generalization. Consistent with those findings, we observed that training on a mixed 11 Poiseuille (Medium) Channel (Medium) ConvDiff (Medium) Plate (Medium) 0.40.50.60.70.80.91.01.1
+
+> Relative Solve Time
+> 2D Cases
+> Poiseuille (Medium) Channel (Medium) ConvDiff (Medium) Plate (Medium) Poiseuille (Fine) Channel (Fine) ConvDiff (Fine) Plate (Fine)
+> 3D Cases
+> 0.580 0.640 0.700 0.760 0.820 0.880 0.940 1.000
+> GNN-based smoother vs. Relaxed Jacobi Convergence Ratio
+
+Figure 4: Relative solve time of GNN-based smoother against relaxed Jacobi for 10 models tested in canonical CFD problems. Medium problems have approximately 5-6 more cells than the training dataset, while fine 
+
+around 20 times more. The cross mark is the mean of the set, and the thick line symbolizes the interquartile range, from the first percentile to the third. dataset of two- and three-dimensional unstructured problems provided the most robust performance in terms of both acceleration and convergence compared to dimension-specific models. Furthermore, careful constraint of model complexity is required to prevent overfitting to the training graphs. As discussed in Section 3.1 regarding the polynomial degree, and detailed in the hyperparameter study in Appendix A.2 (Table 6), utilizing more complex models, such as third-degree polynomials, hidden dimensions larger than 64, or additional GNN layers, resulted in models that overfit the training data and performed considerably worse on unseen problems. The large reduction in convergence is explained by observing at which hierarchy level the data-driven V-cycle starts to diverge. Accordingly, the residuals start to diverge mostly around the 3-4 AMG levels ( ∼ 3.7 average), corresponding to meshes with ∼ 2246 cells. These mesh sizes are of the order of magnitude of the training dataset. However, the ones found during testing have considerably larger graph degrees, ∼ 33 .7 on average. For a training graph of the same size, 3 to 6 edges are attached to each node, whereas in the evaluation the GNN must infer graphs with 34 edges per node. Therefore, the model is extrapolating and failing on 1/3 of the problems, as it is trying to generate polynomial coefficients for a graph configuration well outside the training range. This, however, does not prevent the GNN from constructing optimal pseudo-inverse smoothers for large meshes. In fact, many coarse vectors f (l) lie within the training range and, although the graphs have larger degrees, the V-cycle with the data-driven smoother converges (faster than relaxed Jacobi). Hence, we observe that the main limitations of the model are: 1. Inferring polynomial coefficients from graphs of similar size to the training data, but presenting a sub-stantially higher graph degree (node connections). 2. Applying the data-driven smoother on unseen Poisson problems with more complex flows (tougher f ), 
+
+i.e. , such as complex flow patterns with a wider range of scales. One approach to reduce these effects would be to introduce polyhedral meshes into the training dataset. By introducing polyhedral elements, the graph degrees would increase significantly (up to 16 or more). Thus, this could effectively increase the range of degrees the GNN observes without increasing the size of the dataset meshes. 12 4.2.2. Generalization to new flows 
+
+The model indirectly trains using information from the f vectors in the loss function. However, it mainly learns the algebraic features of the matrix, as f is not used in the GNN inference to predict optimal coefficients. Note that adding information of fi at each node attribute vector would imply evaluating the GNN at each time step, making the approach unfeasible. Thus, to address whether the model is able to generalize to unseen flows (unseen f ), we train 10 models exclusively on 300 (3D) and 200 (2D) Poiseuille and plate problems, respectively. We selected these two problem categories from the training dataset because they represent the boundaries of the solver’s performance spectrum. Specifically, the Poiseuille cases provide a baseline for the simplest and fastest-solving flows, while the flat plate represents the slowest and most computationally demanding cases. These trained models are then assessed across all problem categories, with the relative solve times presented in Figure 5. The violin plot confirms two key aspects. First, when evaluated on channel and convection-diffusion flows, the models trained exclusively on Poiseuille and flat plate flows outperform the baseline models that have been trained on the full dataset. This demonstrates successful generalization to new flows with similar matrix structures (see Table 4). Second, restricting the training dataset exclusively to Poiseuille and flat plate flows actively reduces model overfitting. This dataset reduction discards hundreds of problem instances that simply reuse the exact same coefficient matrices ( A) with slightly different source terms ( f ). Because the total number of unique matrices remains constant (72 for 2D, 14 for 3D), removing these repetitive problems increases the ratio of unique matrices to total training samples. Since the network’s learning is driven primarily by A rather than f , this concentrated dataset provides a more structurally varied training signal, preventing the network from over-memorizing duplicate matrices. This reduction in overfitting is reflected in a decrease in solve-time variability across all tested problems. Regarding convergence, both approaches achieve similar convergence rates, though the latter yields slightly lower values on medium 3D meshes, especially for convection-diffusion flows. Table 4: Average acceleration and convergence success ratio of 10 trained models without channel and convection-diffusion on unstructured data. 
+
+Problems 2D (Medium) 3D (Medium) 3D (Fine) 
+
+Average acceleration (%) 26.3 37.4 25 
+
+Average convergence (%) 99.7 93.8 68.1 
+
+4.2.3. Performance in AirfRANS 
+
+Finally, the best model trained on the complete dataset with all case categories (Section 4.2.1) is tested on the AirfRANS dataset. The test dataset consists of 1,000 problems, evaluated in 10 mini-batches of 100 cases each. We present the results grouped by these mini-batches to preserve visibility into how performance scales across different mesh batches, while evaluating the individual setup and solve times naturally without performance variations caused by a single bulk calculation. Results for V-cycle iterations reduction are displayed in Figure 6a. The model’s performance demonstrates that it generalizes to unseen problems, including complex geometries and new flows, with 99.9% convergence rates. Furthermore, it can predict optimal pseudo-inverse matrices for problems with highly stretched inflation layers, which have never been encountered during training. The model presents an approximate 27% reduction in V-cycles. Note that the iteration reduction is the measure most closely related to the residual-reduction loss function used during training. To show the practical utility of the model, Figure 6b presents the total time corresponding to a time step solution with the pseudo-inverse prediction. The average solve time acceleration is 4%. Compared to previous datasets, the performance of the model has diminished. Even though the reduction in number of iterations is large, using a sparse smoother instead of a diagonal one adds extra cost per iteration, hindering the solve time. Nonetheless, for this dataset, the reduction in solve time can be compensated in less than 30 time steps. The results demonstrate that models trained on flows without solid walls and on canonical flow cases can generalize to meshes with complex geometries, such as airfoils, and to meshes not seen during training, such as fine, inhomogeneous structured grids with inflation layers. Therefore, achieving a net 4% acceleration opens several avenues for fine-tuning the dataset and the GNN architecture to achieve further speedups. 13 Poiseuille (Medium) Channel (Medium) ConvDiff (Medium) Plate (Medium) 0.40.50.60.70.80.91.01.1
+
+> Relative Solve Time
+
+2D Cases 
+
+> Poiseuille (Medium) Channel (Medium) ConvDiff (Medium) Plate (Medium) Poiseuille (Fine) Channel (Fine) ConvDiff (Fine) Plate (Fine)
+
+3D Cases 
+
+0.580 0.640 0.700 0.760 0.820 0.880 0.940 1.000 
+
+> GNN-based smoother vs. Relaxed Jacobi Convergence Ratio
+
+Figure 5: Relative solve time of data-driven smoother against relaxed Jacobi for 10 models tested in canonical CFD problems. Models are trained without channel and convection-diffusion problems. B0  
+
+> B1
+> B2
+> B3
+> B4
+> B5
+> B6
+> B7
+> B8
+> B9 Test Batch
+> 0
+> 20
+> 40
+> 60
+> 80 Iterations
+> GNN Smoother Relaxed Jacobi
+
+(a) B0  
+
+> B1
+> B2
+> B3
+> B4
+> B5
+> B6
+> B7
+> B8
+> B9 Test Batch
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> 0.30
+> 0.35 Average Total Time (s)
+> AMG-GNN Solve Relaxed Solve Setup (GNN) Relaxed Setup Setup ( ˜A−1)
+
+(b) 
+
+Figure 6: Performance of the best AMG-GNN model in the AirfRANS dataset versus the relaxed Jacobi baseline in terms of (a) average number of V-cycles per batch and (b) average total time per batch. Test batch size is 100. 
+
+# 5. Conclusions 
+
+This study demonstrates that graph neural networks can effectively bridge the gap between fixed-parameter linear solvers and the complexity of unstructured mesh discretization. By substituting standard relaxation parameters with a GNN-based sparse pseudo-inverse smoother ˜A−1, substantial reductions in both iteration counts and total wall-clock time were achieved while strictly maintaining the underlying linearity of the solver. The modified GCIN architecture successfully learns algebraic patterns that generalize beyond specific flow configurations, enabling models trained on small synthetic cases to generalize to complex aerodynamic flows. The numerical experiments demonstrate robust generalization across scaling factors, particularly on structured meshes where the GNN is trained on small 32 2 and 16 3 synthetic problems and successfully applied to grids up to 128 times larger. Despite this significant discrepancy between training and test resolutions, the model 14 achieves an average solve-time acceleration of 12% for unsteady flow benchmarks, such as the Taylor–Green vortex and flow past a donut. Transitioning to unstructured meshes, the framework is validated using canonical CFD flows across diverse 2D and 3D mesh topologies. Even when trained on coarse data, the enhanced smoother generalizes to fine, unstructured meshes with 20 times more cells, delivering average solve-time acceleration of 25% in 2D and 23.5% in 3D. These tests confirm that the GCIN architecture effectively extracts generalized algebraic features from varying connectivity patterns rather than overfitting to specific flow properties. The model’s practical utility is confirmed using the industry-relevant AirfRANS dataset, which introduces com-plex geometries, turbulence models, and highly stretched inflation layers never encountered during training. In this challenging benchmark, the best data-driven smoother maintains a 99.9% convergence rate while achieving a significant 27% reduction in V-cycle iterations. Although the higher per-iteration cost of a sparse smoother limits the total wall-clock speedup to 4% for this specific dataset, the results establish that the learned algebraic patterns are highly scalable and effective for practical aerodynamic simulations. Finally, there are current limitations in the present model. First, the setup phase of the data-driven smoother is non-negligible but compensated by the solve-time speed-up when several evaluations are required (e.g., unsteady flows). Also, while the proposed data-driven smoother provides a significant speedup in solve time compared to other approaches in the literature, a slight deviation in the optimal coefficients can interfere with convergence. Still, we show that adding algebraically similar linear problems to the training dataset mitigates this issue. Last, the present work uniquely assesses the model’s generalization to unseen, industry-relevant flows using unstructured meshes. 
+
+# Acknowledgments 
+
+BF acknowledges the financial support of the Dutch Research Council (NWO) Veni Talent Programme for the FastFlows project (file number 21886) under the grant ID doi.org/10.61686/TPHBS84265. 
+
+# CRediT author statement 
+
+• Eric Chill´ on: Data curation, Formal analysis, Investigation, Methodology, Software, Validation, Visu-alization, Writing – original draft, Writing – editing. 
+
+• Artur K. Lidtke: Conceptualization, Data curation, Supervision, Writing – review 
+
+• Nguyen Anh Khoa Doan: Conceptualization, Resources, Supervision, Writing – review & editing 
+
+• Bernat Font: Conceptualization, Funding acquisition, Project administration, Supervision, Writing – original draft, Writing – review 
+
+# References 
+
+Ajuria Illarramendi, E., Bauerheim, M., and Cuenot, B. (2022). Performance and accuracy assessments of an incompressible fluid solver coupled with a deep convolutional neural network. Data-Centric Engineering ,3:e2. doi:10.1017/dce.2022.2 
+
+Asch, M., Bocquet, M., and Nodet, M. (2016). Data Assimilation: Methods, Algorithms, and Applications .SIAM Baker, A. H., Falgout, R. D., Kolev, T. V., Yang, U. M., Baker, A. H., Falgout, R. D., Kolev, T. V., and Yang, U. M. (2011). Scaling Hypre’s Hultigrid Solvers to 100,000 Cores. Technical report Beck, A., Flad, D., and Munz, C.-D. (2019). Deep neural networks for data-driven LES closure models. Journal of Computational Physics , 398:108910. ISSN: 00219991 , doi:10.1016/j.jcp.2019.108910 
+
+Bergman, K., Borkar, S., Campbell, D., Carlson, W., Dally, W., Denneau, M., Franzon, P., Harrod, W., Hill, K., Hiller, J., Karp, S., Keckler, S., Klein, D., Kogge, P., Lucas, R., Richards, M., Scarpelli, A., Scott, 15 S., Sterling, T., Snavely, A., Williams, R. S., and Yelick, K. (2008). Exascale computing study: Technology challenges in achieving exascale systems. Defense Advanced Research Projects Agency Information Processing Techniques Office (DARPA IPTO), Tech. Rep , 15 Bernaschi, M., Carrozzo, M. G., Celestini, A., Piperno, G., and D’Ambra, P. (2025). Communication-reduced Conjugate Gradient Variants for GPU-accelerated Clusters. In 2025 33rd Euromicro International Conference on Parallel, Distributed, and Network-Based Processing (PDP) , pages 178–186. IEEE. ISBN: 
+
+979-8-3315-2493-7 , doi:10.1109/PDP66500.2025.00032 
+
+Bonnet, F., Mazari, A. J., Cinnella, P., and Gallinari, P. (2023). AirfRANS: High Fidelity Computational Fluid Dynamics Dataset for Approximating Reynolds-Averaged Navier-Stokes Solutions. eprint: 2212.07564 ,
+
+https://arxiv.org/abs/2212.07564 
+
+Caldana, M. (2019). Improving Efficiency of Algebraic Multigrid Methods through Artificial Neural Networks .PhD thesis, Politecnico di Milano Caldana, M., Antonietti, P. F., and Dede’, L. (2024). A deep learning algorithm to accelerate algebraic multigrid methods in finite element solvers of 3D elliptic PDEs. Computers & Mathematics with Applications , 167:217– 231. ISSN: 08981221 , doi:10.1016/j.camwa.2024.05.013 
+
+Costa, P., Palancha, D., Romero, J., Verzicco, R., and Fatica, M. (2026). A GEMM-based direct solver for finite-difference poisson problems in non-uniform grids. http://arxiv.org/abs/2603.09528 
+
+Font, B., Weymouth, G., Nguyen, V.-T., and Tutty, O. (2021). Deep learning of the spanwise-averaged Navier–Stokes equations. Journal of Computational Physics , 434:110199. ISSN: 0021-9991 ,
+
+doi:10.1016/j.jcp.2021.110199 
+
+Ghosh, S., Lu, J., Gupta, V., and Tryggvason, G. (2022). Communication-efficient algorithms for solving pressure poisson equation for multiphase flows using parallel computers. PLOS ONE , 17:e0277940. ISSN: 
+
+1932-6203 , doi:10.1371/journal.pone.0277940 
+
+Greenfeld, D., Galun, M., Basri, R., Yavneh, I., and Kimmel, R. (2019). Learning to Optimize Multigrid PDE Solvers. doi:10.48550/arXiv.1902.10248 
+
+Huang, R., Chang, K., He, H., Li, R., and Xi, Y. (2024). Reducing Operator Complexity of Galerkin Coarse-grid Operators with Machine Learning. SIAM Journal on Scientific Computing , 46:S296–S316. ISSN: 1064-8275 ,
+
+doi:10.1137/23M1583533 
+
+Huang, R., Li, R., and Xi, Y. (2023). Learning Optimal Multigrid Smoothers via Neural Networks. SIAM Journal on Scientific Computing , 45:S199–S225. ISSN: 1064-8275 , doi:10.1137/21M1430030 
+
+Jha, N. and Mallik, E. (2025). Adaptive Mesh Physics Informed Neural Networks Technique for Anoma-lous Diffusion Equation on a Thin Circular Plate. SN Computer Science , 6:94. ISSN: 2661-8907 ,
+
+doi:10.1007/s42979-024-03566-x 
+
+Jha, S., Patke, A., Brandt, J., Gentile, A., Lim, B., Showerman, M., Bauer, G., Kaplan, L., Wasser-man, H., Wright, N., Tu, K., and Shende, S. (2020). Measuring Congestion in High-Performance Datacenter Interconnects. In 17th USENIX Symposium on Networked Systems Design and Implemen-tation (NSDI 20) , pages 37–57, Santa Clara, CA. USENIX Association. ISBN: 978-1-939133-13-7 ,
+
+https://www.usenix.org/conference/nsdi20/presentation/jha 
+
+Kuznichov, D. (2022). Learning Relaxation for Multigrid. eprint: 2207.11255 ,
+
+https://arxiv.org/abs/2207.11255 
+
+Le, Q. T. and Ooi, C. (2021). Surrogate modeling of fluid dynamics with a multigrid inspired neural network architecture. Machine Learning with Applications , 6:100176. ISSN: 26668270 ,
+
+doi:10.1016/j.mlwa.2021.100176 
+
+Li, Y., Chen, P. Y., Du, T., and Matusik, W. (2023). Learning Preconditioners for Conju-gate Gradient PDE Solvers. In Proceedings of the 40th International Conference on Machine Learning , volume 202 of Proceedings of Machine Learning Research , pages 19425–19439. PMLR. 
+
+https://proceedings.mlr.press/v202/li23e.html 
+
+Luz, I., Galun, M., Maron, H., Basri, R., and Yavneh, I. (2020). Learning Algebraic Multigrid Using Graph Neural Networks. In Proceedings of the 37th International Conference on Machine Learning , ICML’20. JMLR.org 16 Margenberg, N., Hartmann, D., Lessig, C., and Richter, T. (2022). A neural network multigrid solver for the Navier-Stokes equations. Journal of Computational Physics , 460:110983. ISSN: 00219991 ,
+
+doi:10.1016/j.jcp.2022.110983 
+
+MARIN Netherlands (2025). ReFRESCO: Versatile solver, tailored for maritime challenges. https://www. marin.nl/en/about/facilities-and-tools/software/refresco . Accessed: 2025-10-10 Maulik, R., San, O., Rasheed, A., and Vedula, P. (2019). Subgrid modelling for two-dimensional turbulence using neural networks. Journal of Fluid Mechanics , 858:122–144. ISSN: 0022-1120 , doi:10.1017/jfm.2018.770 
+
+Millard, D., Carr, A., Gaudreault, S., and Baheri, A. (2025). PEARL: Preconditioner Enhancement through Actor-critic Reinforcement Learning. doi:10.48550/ARXIV.2501.10750 
+
+Nytko, N. (2022). Learning aggregates and interpolation for algebraic multigrid . PhD thesis, University of Illinois Ozbay, A. G., Hamzehloo, A., Laizet, S., Tzirakis, P., Rizos, G., and Schuller, B. (2021). Poisson CNN: Convolutional neural networks for the solution of the poisson equation on a Cartesian mesh. Data-Centric Engineering , 2. ISSN: 26326736 , doi:10.1017/dce.2021.7 
+
+Ronneberger, O., Fischer, P., and Brox, T. (2015). U-Net: Convolutional Networks for Biomedical Image Segmentation , pages 234–241. doi:10.1007/978-3-319-24574-4 28 
+
+Seo, J.-K. (2024). A reduced-form multigrid approach for ANN equivalent to classic multigrid expansion. Neural Computing and Applications , 36:20907–20926. ISSN: 0941-0643 , doi:10.1007/s00521-024-10311-1 
+
+Taghibakhshi, A., MacLachlan, S., Olson, L., and West, M. (2021). Optimization-based algebraic multigrid coarsening using reinforcement learning. In Proceedings of the 35th International Conference on Neural Information Processing Systems , NIPS ’21 Trottenberg, U., Oosterlee, C. W., and Schuller, A. (2001). Multigrid . Academic Press, London, UK. ISBN: 
+
+9780080479569 
+
+Vigot, G. and Cuenot, B. (2026). Unsupervised method to solve the Poisson equation on unstructured grid. 
+
+Journal of Electric Propulsion , 5. ISSN: 27314596 , doi:10.1007/s44205-026-00191-z 
+
+Wang, F., Gu, X., Sun, J., and Xu, Z. (2023). Learning-based local weighted least squares for algebraic multigrid method. Journal of Computational Physics , 493:112437. ISSN: 00219991 , doi:10.1016/j.jcp.2023.112437 
+
+Weymouth, G. and Font, B. (2025). WaterLily.jl: A differentiable and backend-agnostic Julia solver for incompressible viscous flow around dynamic bodies. Computer Physics Communications , 315:109748. 
+
+doi:10.1016/j.cpc.2025.109748 
+
+Weymouth, G. D. (2022). Data-driven Multi-Grid solver for accelerated pressure projection. Computers & Fluids , 246:105620. ISSN: 00457930 , doi:10.1016/j.compfluid.2022.105620 
+
+Wu, J.-L., Xiao, H., and Paterson, E. (2018). Physics-informed machine learning approach for augment-ing turbulence models: A comprehensive framework. Physical Review Fluids , 3:074602. ISSN: 2469-990X ,
+
+doi:10.1103/PhysRevFluids.3.074602 
+
+Xu, K., Li, C., Tian, Y., Sonobe, T., ichi Kawarabayashi, K., and Jegelka, S. (2018). Representation learning on graphs with jumping knowledge networks. eprint: 1806.03536 , https://arxiv.org/abs/1806.03536 
+
+Zou, H. Z. H., Xu, X. X. X., Zhang, C.-S. Z. C.-S., and Mo, Z. M. Z. (2024). AutoAMG( θ): An Auto-Tuned AMG Method Based on Deep Learning for Strong Threshold. Communications in Computational Physics ,36:200–220. ISSN: 1991-7120 , doi:10.4208/cicp.OA-2023-0072 
+
+# A. Model architecture 
+
+Here we detail the GNN architecture (Appendix A.1), which is used throughout all experiments. The archi-tecture size has been selected based on a preliminary hyperparameter study presented in Appendix A.2. Some architectural choices, such as normalization or concatenation, have been chosen based on trial and error. 17 A.1. Architectural hyperparameters 
+
+To predict the optimal coefficients for the sparse pseudo-inverse smoother, we employ a modified GCIN architec-ture. This model is designed to extract expressive features from the algebraic structure of the sparse matrix A
+
+across different hierarchy levels. The architecture consists of three primary components: feature initialization, a series of message-passing layers, and a global readout mechanism followed by a predictive MLP. The sparse coefficient matrix A is mapped to a graph G = ( V, E ), where nodes vi ∈ V represent grid cells and directed edges eij ∈ E represent their algebraic connections. Each node is initialized with a two-dimensional feature vector x(0)  
+
+> vi
+
+= [ aii , deg (vi)] T , containing the matrix diagonal coefficient and the node degree. The node degree informs the network about the mesh dimensionality (2D vs. 3D) and element types. Edges are assigned scalar attributes wij equal to the off-diagonal coefficients aij .The core of the feature extractor consists of four sequential GCIN layers. The GCIN combines the efficiency of GCNs with the expressiveness of GINs. The forward pass for a layer l is defined as 
+
+x(l) 
+
+> vi
+
+= MLP (l)
+
+ X  
+
+> vj∈N(vi)∪vi
+
+wij x(l−1) 
+
+> vj
+
+ .
+
+To handle the grid size variance between problems, the model utilizes instance normalization (InstanceNorm) after each convolution instead of standard batch normalization. This ensures the network normalizes features per-graph. Following, a ReLU activation function is applied after normalization in each layer. The architecture employs a jumping knowledge (JK)-like strategy (Xu et al., 2018) to aggregate information from all L layers, capturing both local and more distant neighborhood patterns. For each layer l, the node representations are processed through both global mean pooling and global max pooling to retain both average structural trends and extreme algebraic variations. Next, the pooled results from each layer are concatenated and passed through a linear layer. These representations are then concatenated into a final graph embedding vector of size 128 × L. This global embedding is passed through a layer normalization step and a sigmoid non-linearity before the final three-layer MLP with ReLU activations. The sigmoid proved to converge faster and perform better than other activation functions such as ReLU or tanh. Finally, the MLP maps the features to 5 output values: 3 coefficients for the diagonal polynomial fd and 2 for the off-diagonal polynomial fo (where 
+
+fo(0) = 0 is strictly enforced). The total number of trainable parameters is 55045. The following table summarizes the hyperparameter con-figuration for the GNN architecture used throughout the experiments. Table 5: Hyperparameters for the GNN model architecture. 
+
+Hyperparameter Value 
+
+Number of GCIN layers ( L) 4Input node feature dimension 2Hidden layer dimension 64 Global pooling strategy Concatenated Mean and Max Readout aggregation Jumping Knowledge (Concatenation) MLP number of layers 2MLP hidden dimension 128 Output dimension (coefficients) 5 (3 for fd, 2 for fo)Normalization (Convolution) Instance Normalization Normalization (Readout) Layer Normalization Activation function ReLU 
+
+## A.2. Hyperparameter tuning 
+
+We select an optimal GNN size based on a reduced 2D and 3D unstructured dataset during an initial assessment (up to 15000 cells). Performance is evaluated on purely 2D unstructured problems (around 80000 cells). The two hyperparameters that are evaluated are the GCIN hidden layer dimension and the number of GCIN layers. We do not test different MLP layer dimensions since we construct them based on the GCIN output. Other 18 architectural decisions have been decided based on trial and error, starting from the original architecture foundation (Zou et al., 2024). Results are presented in Table 6. Except for the reduced GCIN layer configuration for plate flows, the 4 × 64 configurations prove to be the best for unstructured problems. The range of features that the model needs to learn is better captured on a medium to large-sized GCIN. Going to larger hidden dimensions provides little to no performance and a noticeable jump in GNN inference time. Moreover, there is a limit at which obtaining information from farther neighbors (adding more GCIN layers) does not add any advantage to the network. Table 6: Relative solve times for several GCIN configurations. 
+
+Hyperparameter Value Relative solve time (%) 
+
+Poiseuille Channel Convection-Diffusion Plate 
+
+Hidden layer dimension 64 83.8 84.6 80.0 83.8 
+
+32 88.0 87.7 84.4 85.0 16 90.6 88.8 87.5 86.7 
+
+GCIN Layers 
+
+6 85.3 84.8 80.3 83.9 
+
+4 83.8 84.6 80.0 83.8 2 84.6 92.9 82.0 81.4 
+
+# B. Experiment details 
+
+In this section, we provide experiment details for structured and unstructured datasets. Firstly, we provide training details and a hyperparameter table in Appendix B.1, followed by specific testing details in Appendix B.2. Trainings and tests are carried out in an NVIDIA Quadro RTX 8000 (48GB) 
+
+## B.1. Training details 
+
+To keep the training simple, we maintain the GNN model size for structured and unstructured meshes. We adapt, however, the mini-batch size and the training epochs for each type of dataset. Training hyperparameters are presented in Table 7. We do this to adjust the training to the dataset characteristics. Regarding the mini-batch size, structured problems have a smaller memory footprint, allowing for larger mini-batch sizes without stability issues and thus faster training (unstructured datasets can sporadically fill up the 48GB of GPU memory, crashing the training). Concerning the training epochs, structured datasets contain significantly less variety in terms of A matrices. Hence, the most optimal data-driven smoother is learned extremely fast, within 2-5 epochs (Figure 7). This contrasts with the unstructured dataset, generally requiring around 80-100 epochs (Figure 8). Training for structured datasets takes approximately 30 minutes. Conversely, the process for unstructured datasets requires up to 4 hours. Despite the reduced number of training epochs, the sequential V-cycle inference is the largest performance bottleneck regarding wall-clock training times. Finally, as an early-stopping criterion, we use the best validation model. When left unattended for many epochs, the GNN overfits the training data. Storing the model that achieves the lowest validation loss provides the best generalization performance when testing on unseen datasets, especially for structured meshes. 
+
+## B.2. Testing details 
+
+The testing is carried out following the training process, but without mini-batching the datasets. The prob-lems are tested individually. By evaluating the Poisson systems one at a time, three problem-specific time measures are achieved: the GNN inference, the pseudo-inverse construction, and the solve time to reach a cer-tain tolerance. When evaluating non-trainable smoothers such as the relaxed Jacobi, only the pseudo-inverse construction and solve times are determined. Generally, when running a program for the first time, the code execution is slower than in subsequent runs. This is due to a cold start and the metrics should be removed. To this end, we perform multiple calculations for 19 Table 7: Hyperparameters for data-driven AMG smoother training 
+
+Hyperparameter Value / Configuration 
+
+ν1 (Pre-smoothing steps) 2
+
+ν2 (Post-smoothing steps) 2Max AMG hierarchy levels 10 Optimizer Adam Learning rate ( η) 10 −3
+
+Optimizer scheduler ReduceLROnPlateau Mini-batch size 10 (Structured) / 5 (Unstructured) Training epochs 30 (Structured) / 150 (Unstructured) Gradient clipping (Max norm) 1.0 1 2 3 4 5 6 7 8 9 10 
+
+> Epoch
+> −2
+> −1
+> 0
+> 1
+> 2
+> Average Loss
+> Training history
+> Train Loss Validation Loss (vs Jacobi residual)
+
+Figure 7: History of train and validation loss for the structured dataset. −0.5       
+
+> −0.4
+> −0.3
+> −0.2
+> −0.1
+> 0.0
+> Average Loss
+> Training history
+> Train Loss Validation Loss (vs Jacobi residual)
+> 020 40 60 80 100 120 140
+> Epoch
+> 1e-04
+> 1e-03
+> Learning Rate  Learning Rate
+
+Figure 8: History of train and validation loss for the unstructured dataset. The learning rate is displayed below to show the effect of the scheduler. each time metric, and we remove the initial and average the remaining ones. This also reduces the measured time uncertainty, as each run is slightly different from the others ( e.g. , caused by system noise). The speed of this testing approach largely depends on the problems that are being evaluated (size, dimension, complexity). For instance, the unsteady flow structured datasets (25 problems) take around 15 seconds for circle, 40 seconds for TGV, and 50 seconds for donut. On the other hand, the largest meshes (200 problems) on the unstructured dataset take approximately 12 minutes on average for each problem type. 20 B.3. Optimizing GNN inference 
+
+The GNN inference is a computational bottleneck, with the forward pass time being highly dependent on the GNN block size. Simpler problems, such as those based on structured meshes, allow for reduced node dimensions (GCIN hidden dimension) due to the more regular algebraic patterns. Thus, on such problems, the hidden dimension size can be halved. The outcome is near-identical performance and a significant time and memory reduction. Relative solve and setup times for unsteady flow problems (circle, TGV and donut) for three 32-hidden dimension GCIN models are presented in Figure 9. Circle TGV Donut 0.00.20.40.60.81.0Relative Solve Time  
+
+> (a) Circle TGV Donut 01234567Relative Setup Time Time Component Setup (GNN) Setup (M) (b)
+
+Figure 9: Mean GNN-based smoother (a) relative solve times and (b) relative setup times of 3 trained models normalized against the relaxed Jacobi solve time for 25 circle, TGV and donut problems. The GCIN hidden dimension is 32. Test dataset grids are 512 × 256, 64 3 and 128 × 64 2, respectively. Although the data-driven smoother is aimed at unsteady meshes, this approach is also valid for structured heterogeneous meshes. Generally, these meshes contain large stretching such as inflation layers. Therefore, the classic geometric multigrid becomes harder to implement and AMG is usually chosen. Results throughout this study demonstrate practical utility in structured heterogeneous meshes such as those in the AirfRANS dataset. Hence, an efficient low-size GNN for structured-only meshes could be a viable approach. 
+
+# C. Canonical flows details 
+
+To generate unstructured data, the ReFRESCO software is used. ReFRESCO is a multi-phase viscous flow solver focused on maritime applications under active development by the Maritime Research Institute Nether-lands (MARIN Netherlands, 2025). The main problems that comprise the unstructured dataset are Poiseuille, channel, Convection-Diffusion (ConvDiff), and plate flows. They are common CFD problems that allow for evaluating the GNN model outside synthetic benchmark problems for AMG and show performance towards a more applicable end. All problems presented in Figure 11 are generated under laminar flow conditions. The setup and boundary conditions for each case are presented in Tables 8 and 9, respectively. Additionally, some examples of 2D meshes are displayed in Figure 10. 21 Table 8: CFD setup per case. Density is ρ = 1. 
+
+Case Velocity ν Reynolds 
+
+Poiseuille umax = 1 10 Re = H
+
+10 Channel u = 1 2 × 10 −2 Re = 50 H
+
+Plate (flat plate) u = 1 10 −2 Re = 100 x
+
+ConvDiff u = 1 /√2, 
+
+v = u
+
+10 Re = H
+
+10 Table 9: Boundary conditions per case (axes as in the dataset). 
+
+Boundary Poiseuille Channel Plate ConvDiff 
+
+x− Velocity (parabolic) Velocity (1 , 0, 0) Velocity (1 , 0, 0) Inflow u = 0 .705 
+
+x+ Pressure (fixed) Pressure (outlet) Outflow (zero-gradient) Pressure (open) 
+
+y− Wall (no-slip) Wall (no-slip) Wall (no-slip) Inflow v = 0 .705 
+
+y+ Wall (no-slip) Wall (no-slip) Pressure (open) Pressure (open)    
+
+> (a) (b) (c)
+> (d) (e)
+
+Figure 10: Example of meshes used throughout the study are (a) structured, (b) triangle Delaunay, (c) quad-dominant, (d) AirfRANS far view and (e) AirfRANS zoomed view. 22 (a) (b)  
+
+> (c) (d)
+
+Figure 11: Canonical flow fields in structured meshes for (a) Poiseuille, (b) channel, (c) convection-diffusion and (d) flat plate flows. 23

@@ -1,0 +1,808 @@
+Title: Zero-shot generalization of transformer neural operators to larger domains
+
+URL Source: https://arxiv.org/pdf/2606.14597v1
+
+Published Time: Mon, 15 Jun 2026 01:14:03 GMT
+
+Number of Pages: 21
+
+Markdown Content:
+# Zero-shot generalization of transformer neural operators to larger domains 
+
+Armand de Villeroché 1 Sibo Cheng 1 Vincent Le Guen 2,3 Marc Bocquet 1
+
+Rem-Sophia Mouradi 3 Patrick Armand 4 Alban Farchi 1 Patrick Massin 11CEREA, ENPC, EDF R&D, Institut Polytechnique de Paris, Île-de-France, France 
+
+> 2
+
+SINCLAIR AI Laboratory, Saclay, Île-de-France, France 
+
+> 3
+
+EDF R&D, Île-de-France, France 
+
+> 4
+
+CEA, DAM, DIF, F-91297 Arpajon, France 
+
+armand.de-villeroche@edf.fr 
+
+# Abstract 
+
+Transformer-based neural operators have shown remarkable performance for ap-proximating solution operators of partial differential equations on complex geome-tries. However, existing approaches implicitly assume a fixed domain size, which limits their ability to generalize at inference. In this work, we investigate domain ex-tension, namely zero-shot inference on spatial domains that are significantly larger than those encountered during training. We argue that this setting fundamentally requires spatial locality and translation equivariance. We propose to implement this locality via a decomposable bias in the attention logits computation, enabling finely controllable locality while remaining fully decomposable into query–key inner products and directly compatible with optimized attention kernels. Combined with rotary positional embeddings, it enables expressive embeddings with controllable spatial support without altering the transformer architecture. We empirically show that our approach substantially improves zero-shot generalization to larger domains across two PDE benchmarks and a 3D industrial atmospheric flow application. Our code and datasets are available at https://github.com/cerea-daml/domain-extension. 
+
+# 1 Introduction 
+
+Partial differential equations (PDE) are ubiquitous in physics and engineering, but are often computa-tionally intensive to solve with traditional numerical solvers. Deep learning based neural operators 
+
+(Kovachki et al., 2023) have emerged as an attractive alternative: once trained, they offer fast infer-ence while capturing complex nonlinear behaviors in high -dimensional systems. Yet this perspective hinges on large amounts of high-fidelity training data, which can be prohibitively expensive to obtain. As computational cost of a simulation scales with the domain size, training a model on simulations over small domains while retaining accuracy over larger domains is a promising alternative. Among existing neural operator architectures, transformer -based models (Cao, 2021) have shown strong performance across a variety of benchmarks (Alkin et al., 2024; Wu et al., 2024; de Villeroché et al., 2026; Wen et al., 2025). By applying attention directly to unstructured point clouds, transformers provide flexibility for complex geometries and can scale to real-world industrial problems (Alkin et al., 2025). Despite these advances, current neural operator architectures are only trained and evaluated on domains of predefined size, which limits their applicability at inference time. 
+
+Domain extension We consider the problem of domain extension , defined as zero-shot gener-alization to a substantially larger domain than the training domain. This problem is particularly challenging: while tasks such as super - resolution or inference from partial observations correspond 
+
+> Preprint.
+> arXiv:2606.14597v1 [cs.LG] 12 Jun 2026
+
+to an interpolation problem, domain extension is fundamentally an extrapolation problem. Despite its practical importance, this setting is barely explored for neural operators with prior work limited to domain decomposition (Huang et al., 2025) or graph neural network models (Pfaff et al., 2020). 
+
+Locality vs globality To be universal, a neural operator must be non-local (Lanthaler et al., 2025; Calvello et al., 2025), i.e. point-wise predictions must depend on data over the entire domain. Yet in practice neural operators are trained on domains of finite size, and hence can only learn dependencies 
+
+up to that size . For transformer-based neural operators, non-locality is achieved via an integration operator, whose underlying integration kernel support will be implicitly bounded by the finite training domain. However, this implicit assumption breaks if the size of the domain changes at inference time. Hence, we propose to make this support be bounded explicitly . This makes the operator’s locality to the size of the training domain explicit and controllable, rather than implicit, and brings robustness to changes of the domain shape at inference, such as increasing the domain size. 
+
+Locality is hard to implement in practice Non-periodic physical fields have long been represented using localized representations such as wavelets (Daubechies, 1992), which offer a principled way to model spatially bounded interactions. However, integrating true wavelet -like or compactly supported locality into attention mechanisms remains difficult: numerically efficient attention kernels (Dao et al., 2022) assume that positional terms decompose into simple query–key inner products. Any positional structure that violates this constraint typically requires custom GPU kernels, which are challenging to generalize to multi - dimensional unstructured point clouds and become a serious barrier to scalability in large-scale neural operator applications. This tension between the need for spatial locality, expressiveness and the constraints imposed by efficient attention implementations motivates the search for positional encodings that are simulta-neously relative, localized, expressive, and fully compatible with optimized computational kernels. Ideally, such encodings should enable a tunable spatial support while preserving the efficiency of high-throughput matrix-multiplication-based attention. To address this challenge, we combine Rotary Positional Encoding (RoPE) (Su et al., 2024) with a decomposable distance bias (Wu et al., 2025) (Figure 1). This creates a highly expressive relative position embedding with a tunable localized support, while ensuring compatibility with existing efficient attention kernels. We further extend existing positional biases using hyperbolic functions, creating asymmetric biases while retaining decomposability properties. Our main contributions are: • we formulate the problem of domain extension , which is critical for scaling up to industrial-level applications, and show that it can be solved assuming a local neural operator; • we combine RoPE with decomposable distance biases to create expressive position em-beddings with localized kernel support that remains compatible with numerically efficient attention implementations. We propose formulations for both symmetric kernel support and asymmetric kernel support; • we demonstrate empirically that this approach enables inference on substantially larger domains across two 1D and 2D benchmark problems and a challenging 3D industrial use case with a complex geometry. 
+
+# 2 Local anisotropic asymmetric positional embeddings 
+
+2.1 Preliminary Notations Let Ω ⊂ Rp be a bounded domain. We adopt a neural operator view, and consider a continuous latent field u : Ω → Rd, with Rd the latent space. We write q, k, v : Ω → Rd the query, key and value fields, obtained by learnable point-wise linear projections from the latent field u, and 
+
+z : Rd × Rd × Ω × Ω → R the function used to compute the attention logits between two points. We note that the expression of z will depend on the positional embedding used. Finally, we adopt the variables ξ ∈ Ω to write the position of a key point and c ∈ Ω to write the position of a query point. 
+
+Attention as an integral operator Standard single-head scaled dot-product attention (Vaswani et al., 2017) is a Monte-Carlo approximation of the integral operator G defined as (Cao, 2021; 2Asymmetric and             
+
+> anisotropic kernel
+> Domain extension
+> Train Inference
+> RoPE :𝑧 =𝑞 𝑅 𝜃 𝑘
+> Locality -constrained model:
+> 𝑧 =𝑞 𝑅 𝜃 𝑘 −𝜙
+> Decomposable
+> locality bias
+> 𝑞 𝑘
+> RoPE
+> Bias
+> ×
+
+Figure 1: Domain upscaling. When increasing the domain size, RoPE creates "ghost" interactions for distances larger than the training domain. Our approach removes these interactions by enforcing locality via a decomposable bias term, enabling zero-shot generalization to larger domains without modification to the attention mechanism. This constraint must be fitted anisotropically and asymmet-rically to the training domain to preserve long-range interactions. Kovachki et al., 2023): 
+
+∀c ∈ Ω, G(u)( c) = 
+
+Z
+
+> Ω
+
+κ(z(q(c), k (ξ), c, ξ )) v(ξ) d ξ, (1) where the kernel κ is defined by 
+
+κ(z(q(c), k (ξ), c, ξ )) = exp( z(q(c), k (ξ), c, ξ )/√d)
+
+R 
+
+> Ω
+
+exp( z(q(c), k (ξ′), c, ξ ′)/√d) d ξ′ . (2) 
+
+2.2 Requirements Decomposability Numerical computation of the kernel κ implies a quadratic memory cost with the number of points over which u has been discretized, which is prohibitive for a large sequence of points. To reduce the memory footprint, optimized computation kernels, such as FlashAttention (Dao et al., 2022), decompose the computation using tiled matrix multiplications. While bringing considerable memory overhead reduction and computational speedup, fused GPU implementations of these algorithms have limited support for logits computation operations that are not written as a scalar product of a query and a key vector. Hence, to avoid this limitation, the logits function z must be decomposable as the scalar product of a function of (q(c), c ) and a function of (k(ξ), ξ ).
+
+Locality and translation invariance We aim at preserving the translation invariance of κ — i.e., 
+
+κ = κ(·, ·, c − ξ) depends only on relative positional differences. This property is particularly important for zero-shot generalization in large-scale physical domains. We therefore construct the new attention mechanism on top of RoPE as the backbone. Nevertheless, RoPE and its variants rely on periodic functions to encode relative distances. When a model is trained on a bounded domain Ωtrain and scaled up in a zero-shot manner to a significantly larger domain Ωtest , the periodic nature of the embedding can induce ambiguities in distance repre-sentation. As a result, large relative distances in Ωtest may be mapped to similar embeddings as for shorter distances observed during training, thereby artificially inducing attention between spatially distant points that were not encountered within Ωtrain .To enforce the locality of the integration operator, we impose a compact support on κ. In this paper, we define the locality of the attention mechanism as follows: there exists r ∈ R+ such that, for all 
+
+c, ξ ∈ (Ω train ∪ Ωtest )2, κ(·, ·, c − ξ) = 0 whenever |c − ξ| > r . As a consequence, 
+
+G(u)( c) = 
+
+Z
+
+> Ωtest
+
+κ(z(q(c), k (ξ), c − ξ)) v(ξ)d ξ =
+
+Z 
+
+> Br(c)
+
+κ(z(q(c), k (ξ), c − ξ)) v(ξ)d ξ, 
+
+3where Br (c) = {ξ | | c − ξ| < r }. Thus, at a given position c, G(u)( c) depends only on information within its neighborhood Br (c) and is therefore independent of the test domain Ωtest . Thus G remains robust under enlargements of Ωtest relative to Ωtrain , without requiring retraining. 
+
+Shape of the kernel support We can express the ensemble of all possible oriented distances present in the training domain as S = {c − ξ | (c, ξ ) ∈ Ω2train }. Ideally, the kernel κ should have a support that closely matches S, such that it is sufficiently large to capture all interactions present in Ωtrain 
+
+during training, but avoids introducing spurious long-range interactions during zero-shot domain extension. To achieve this, the support of the kernel should be able to match closely S. We highlight here two desirable properties of κ:- Anisotropy : as Ωtrain may be non-isotropic in complex geometries, the support S may reflect this structure. Consequently, κ should be anisotropically restrictable. - Asymmetry : asymmetry may arise when Ωtrain is not homogeneous and contains a sub-area Ωb 
+
+> train
+
+⊂
+
+Ωtrain which presents a specific behavior that determines the final solution. A common example is fluid-solid interactions: obstacles impacting the flow are often placed upwind in a larger simulated domain. This situation can also arise from the neural operator structure when cross-attention or perceiver attention is used to couple different parts of the simulation domain, as is done in (Alkin et al., 2025; de Villeroché et al., 2026). Under this assumption, the solution’s behavior will be determined by values of the key function within Ωb
+
+> train
+
+: consequently, relevant interactions will be dominated by Sb = {c − ξ | c ∈ Ωtrain , ξ ∈ Ωb
+
+> train
+
+}. Unlike the generic homogeneous case, Sb is 
+
+not necessarily centered around 0. To represent this, κ may need a different, asymmetric support depending on the relative position of c and ξ.
+
+2.3 Locality via a position bias 
+
+Commonly used RoPE (Su et al., 2024) embeds positions via a rotation matrix Rθ ∈ Rd×d, formally defined in Appendix A.1. This formulation corresponds to a Fourier basis decomposition on frequency basis θ with modulated coefficients constructed from q(c) and k(ξ) (see Appendix A.1). While particularly expressive and decomposable, this approach is inherently non-local.                                    
+
+> Kernel support Method Logits bias (z=q⊤R⊤
+> θk+√db )Decomp. Aniso. Asym. Window attention b=−∞ 1(∥c−ξ∥1> r )
+> ALiBi b=−m∥c−ξ∥1
+> FlashBias b=−α(u(c)) ∥c−ξ∥22*LAAPE (ours) b=−12
+> P
+> ieA1/2
+> −(c−ξ)·eie−A1/2+(c−ξ)·ei
+
+Table 1: Different bias functions. m ∈ R+, r ∈ R+ and A+, A − diagonal matrices with positive coefficients are hyperparameters associated with each method, α being a token-wise learnable weight, and {ei} an orthonormal basis of Ω. *FlashBias in its original formulation is isotropic; in this work, we extend it to the anisotropic version LASPE. To create a localized embedding that preserves the high expressiveness of RoPE, we add locality via a distance based position bias added to the logits. Unlike previous bias-based position embeddings (Press et al., 2021; Wu et al., 2025) which rely on a bias as the main position embedding methods, we view the bias purely as a geometrical term controlling locality, and retain RoPE as the position embedding backbone. Table 1 summarizes commonly used position biases in transformers. Window attention (Beltagy et al., 2020) and ALiBi (Press et al., 2021) respectively apply a sliding attention window of half-width 
+
+r ∈ R+ or a linear bias with distance with coefficient m ∈ R+. While these methods could be applied to enforce locality, they are not decomposable and hence would require significant implementation and computation overhead. We instead focus on decomposable bias functions: FlashBias (Wu et al., 2025) propose to use the L2 distance to create a decomposable distance bias. We extend this bias to anisotropic configurations and define Local Anisotropic Symmetric Positional Encoding (LASPE) as: 4zLASPE = q⊤(c)R⊤ 
+
+> θ
+
+(c − ξ)k(ξ) −√d
+
+2 (c − ξ)T A(c − ξ). (3) 
+
+where the hyperparameter A = diag( λ−21 , . . . λ −2 
+
+> p
+
+) ∈ Rp×p is diagonal matrix with positive coeffi-cients controlling anisotropy. For A = Id , the bias term of LASPE corresponds to FlashBias with a fixed coefficient α = 1 /2. As LASPE relies on a symmetric distance function (c − ξ)T A(c − ξ), it cannot be used to define an asymmetric bias. We further propose a new formulation based on the hyperbolic function cosh . This yields Local Anisotropic Asymmetric Positional Encoding (LAAPE): 
+
+zLAAPE = q⊤(c)R⊤ 
+
+> θ
+
+(c−ξ)k(ξ)−√d
+
+2
+
+X
+
+> i
+
+exp( A1/2 
+
+> −
+
+(c−ξ)·ei)+exp( A1/2+ (ξ −c)·ei). (4) where A+ = diag( λ−21,+, . . . λ −2
+
+> p, +
+
+) ∈ Rp×p and A− = diag( λ−21,−, . . . λ −2
+
+> p, −
+
+) ∈ Rp×p are two different anisotropy matrices inducing asymmetric behaviors depending on the relative position of c and ξ,and {ei} can be any orthonormal basis of Rp. We show in Appendix A.2 that both methods can be decomposed into query-key inner products. In the symmetric case A+ = A− = A, our formulation closely matches the original symmetric formulation of an L2-distance bias: indeed we show in Appendix A.2 that zLAAPE ∼ zLASPE up to an additive constant if (c − ξ) · ei ≪ λi. For (c − ξ) · ei ≫ λi, both decay to −∞ . Consequently, we consider our formulation to be a natural extension of the L2 symmetric bias for asymmetric cases. 
+
+Choosing the kernel width Selecting the width of the kernel correctly is critical in our method: a too small kernel will not model long distance interactions present in the training domain, while a too large kernel will be sensitive to an increase in domain size. However, a position bias does not enforce a strict limit of the kernel support, but instead imposes exponential decay to 0. To better build an intuition, we consider the 1D, symmetric and isotropic case with a coefficient λ ∈ R+. Then the integration kernel of LASPE reads: 
+
+fλ(c − ξ) = exp 
+
+
+
+− (c − ξ)2
+
+2λ2
+
+
+
+, κ(z(q(c), k (ξ), c, ξ )) = fλ(c − ξ)e q⊤(c)R⊤ 
+
+> θ(c−ξ)k(ξ)
+> √d
+
+R 
+
+> Ω
+
+fλ(c − ξ′)e  
+
+> q⊤(c)R⊤
+> θ(c−ξ′)k(ξ′)
+> √d
+
+dξ′
+
+.
+
+Hence, the integration kernel support is controlled via a Gaussian function of standard deviation of 
+
+λ. Under this insight, we consider the attention weights to become statistically insignificant for a distance exceeding 2λ. Consequently, λ should be chosen at most as a quarter of the training domain size to restrict the integration kernel to interactions present in the training data. The above expression can be easily extended to multiple dimensions, for which f will be a multivariate Gaussian function with separate standard deviations per axis determined by the coefficients of A.
+
+# 3 Numerical experiments 
+
+We validate our approach on 1D and 2D academic datasets and a 3D industrial use case. For each dataset, we evaluate the zero-shot robustness of the trained model on progressively larger test domains. 
+
+3.1 Academic datasets 
+
+As currently existing benchmarks do not have validation simulations over large domains, we generate our own datasets on classically-evaluated PDEs: Shallow Water equations and Gray-Scott equations. Shallow water equations model the evolution of the water height h and the velocity v of a water surface in 1D. Gray-Scott equations model the evolution of concentrations U and V in a reaction-diffusion system in 2D. For each dataset, we generate a training set of simulations over domain 
+
+Ωtrain = [0 , 1000] p in normalized units, with p the physical system dimension. We then generate large scale test datasets, with a scaling of the domain size controlled by a factor s: Ωs 
+
+> test
+
+= [0 , 1000 s]p.5Figure 2: Autoregressive prediction of V for 3 steps of the Gray-Scott PDE for sx × sy = 3 × 3.Further information on the solved PDE and datasets can be found in Appendix D, and visualization of the simulations in Appendix E. We use a generic transformer architecture, described in Appendix C. We do not use absolute position embeddings to generate initial latent features, and only embed the previous time step and a boundary indicator, making the model equivariant by translation. We compare models trained with RoPE, LASPE, and LAAPE in Table 2. For LASPE and LAAPE, we use an isotropic decay length of 
+
+λ = 250 , yielding a kernel support comparable to the training domain size. For both datasets, RoPE performance degrades significantly as the inference domain size increases, while errors for locality -constrained models remain nearly constant. LASPE shows increased error at higher scalings (s ≥ 7), which we attribute to numerical instabilities and further discuss in Appendix B. The relatively high base error for Gray–Scott is due to small average values of ∆V , which amplify the normalized 
+
+L1 metric. Figure 2 shows that LAAPE accurately predicts V autoregressively over 3 time steps for 
+
+sx × sy = 3 × 3, whereas RoPE predictions degrade immediately. 
+
+Shallow water equations (1D+time) 
+
+sx 1 2 3 7 10 
+
+∆v ∆h ∆v ∆h ∆v ∆h ∆v ∆h ∆v ∆h
+
+RoPE 1.1 1.2 1.4 1.5 2.2 2.3 7.4 7.4 11.4 10.9 LASPE 1.4 1.4 1.3 1.3 1.3 1.3 2.2 2.2 4.5 4.4 LAAPE 1.2 1.2 1.2 1.2 1.2 1.2 1.1 1.1 1.1 1.1 
+
+Gray-Scott equations (2D+time) 
+
+sx × sy 1 × 1 2 × 2 3 × 3 7 × 7 10 × 10 ∆U ∆V ∆U ∆V ∆U ∆V ∆U ∆V ∆U ∆V
+
+RoPE 30 33 234 254 308 333 609 574 417 413 LASPE 29 32 27 30 28 32 80 90 142 152 LAAPE 28 31 26 29 25 28 26 29 27 29 Table 2: L1 error [%] for different test domain size where s denotes the scaling factor of the test domain size compared to the one of training. ∆· denotes the difference between two time steps. 
+
+3.2 Microscale atmospheric flow 
+
+We further evaluate our approach on a challenging industrial use case such as microscale atmospheric flow in urban environments. We rely on the AB - SWIFT model (de Villeroché et al., 2026), a specialized model for atmospheric flow built upon AB - UPT (Alkin et al., 2025), a well - validated recent architecture for PDE learning. We use the associated RandomBuildingsDataset, which consists of 3D steady - state simulations of wind flow around randomly generated urban geometries. Beyond increased geometric and physical complexity, this task exhibits strong anisotropy due to the rectangular domain and a pronounced asymmetry, as buildings are located on the upwind side of the simulation domain. As a result, learnable interaction lengths differ substantially upstream and downstream of the building area. Moreover, predicting steady states involves long - range correlations, making this task a stringent test of locality-constrained operators. AB - SWIFT follows a multi - block architecture with encoder, processor, and decoder modules, each operating over different spatial regions. The encoder embeds geometric information localized to the building area, the processor jointly handles geometric and volumetric information over the full 6Training geometry        
+
+> 450 m
+> 100 m
+> Kernel support
+> Encoder / processor
+> Building area
+> Decoder
+> Full domain
+> Inference on a larger domain : Buildings area scaled by 5×5
+> 200 m
+
+Figure 3: Left: geometry of the industrial use case with buildings located in an off-centered, squared area upwind of the domain. To reflect this, the geometry encoder and the processor are parametrized to have a kernel support limited to the size of the buildings area, and the volume decoder has an off-centered asymmetric kernel corresponding to the size of the full volumic mesh. Right: prediction of AB-SWIFT with LAAPE or RoPE, with a scaling factor of sx × sy = 5 × 5.domain, and the decoder operates solely on volumetric data. To reflect the heterogeneous geometry and interaction patterns of each module, we use distinct kernel supports per block. We use LAAPE embeddings to allow for asymmetries, and to avoid numerical stability issues associated with LASPE (Appendix B). The encoder and processor employ an isotropic and symmetric support matched to the size of the square building region. In contrast the decoder uses an asymmetric and anisotropic support reflecting the shape of the domain and the upstream/downstream asymmetry. We compare AB - SWIFT models trained with LAAPE and RoPE on test domains with scalings of 
+
+sx × sy = 2 × 2 and 5 × 5 of the buildings sub-area. Data generation is described in Appendix D. To preserve translation equivariance, the model omits absolute positional embeddings; all other hyperparameters are identical to the original AB-SWIFT implementation. Performance is evaluated using the normalized L1 error on the velocity field, reported separately for the building and wake regions due to their scale - dependent relative sizes. Table 3 shows that the error increases with domain size when using LAAPE, albeit much less than with RoPE. Furthermore, Figure 3 shows that LAAPE embeddings preserve the overall flow structure, yielding a coherent prediction, while RoPE prediction fails catastrophically. Finally, LAAPE still captures the long-range wakes behind the buildings area, showing that it is still capable of modeling long-range correlations, up to the size of the kernel support. Consequently, we attribute the error increase for the LAAPE model metrics to new flow patterns arising from having buildings in a larger area, and which are not present in the original training data. 
+
+Microscale atmospheric flow 
+
+Buildings area Wakes area 
+
+sx × sy 1 × 1 2 × 2 5 × 5 1 × 1 2 × 2 5 × 5
+
+RoPE 4.8 26.4 34.5 1.3 6.1 7.9 LAAPE 4.4 8.5 12.8 1.1 3.3 4.2 Table 3: L1 error [%] on the velocity field for different domain scaling factors. The building area is the square region occupied by buildings, while the wake area comprises the rest of the domain. 
+
+# 4 Limitations 
+
+Sparsity An additional advantage of the proposed framework is that locality induces sparsity in the attention matrix, which has the potential to significantly reduce computational cost, ultimately enabling linear complexity in the number of points (Beltagy et al., 2020). However, in this proof-of-concept work, we do not yet exploit this structure, and our implementation retains the quadratic complexity of full self-attention. However, while windowed attention in natural language processing (NLP) yields an easily exploitable banded matrix structure, unstructured, multi-dimensional point clouds typically lead to randomly sparse attention matrices. This makes sparsity significantly harder to exploit in practice. An interesting direction for future work could be combining our work with algorithms reordering the mesh to enforce a banded structure such as space-filling curve, Cuthill-McKee mesh reordering (Cuthill and McKee, 1969) or ball tree partitioning, which have already been used for attention mechanisms (Zhdanov et al., 2025). 7Correlations longer than the training domain While we show that locality makes neural operators independent of the inference domain size, we note that the true solution operator may not be: the underlying physics may present correlations at a longer range than what is seen in the training domain, which will not be captured by our approach. However, to capture these correlations in a zero-shot generalization setting, the learned integration kernel would have to be extrapolated and generalized beyond its training support. While we note that some physics may well-behave enough to make this extrapolation possible, it is not true in general, as fundamental solution behaviors may vary depending on the scale of the problem. A more robust approach is to fine-tune a model on a few large cases, which we leave to future work. 
+
+# 5 Related work 
+
+We review related work through the lens of domain extension for neural operators. While many studies address generalization across resolutions, geometries, or partial observations, domain extension constitutes a fundamental extrapolation setting that has received comparatively little attention. 
+
+Extension in NLP via representation scaling A related problem arises in natural language processing, where transformers struggle to extrapolate beyond the context lengths seen during training. Methods such as ALiBi (Press et al., 2021) introduce distance - dependent biases into attention logits, while more recent approaches rely on position interpolation (Chen et al., 2023a; Peng et al., 2023) to rescale positional coordinates for longer contexts. Despite conceptual similarities, these approaches assume scale - invariant, one -dimensional inputs—an assumption that breaks for PDEs defined over multi-dimensional domains with physically meaningful interaction lengths. 
+
+Architectural scaling via domain decomposition Domain decomposition methods (Toselli and Widlund, 2004; Mathew, 2008) scale numerical solvers by partitioning large domains into smaller subdomains, and have recently been adapted to neural operators (Huang et al., 2025). However, these approaches operate at the application level rather than at the operator level, requiring explicit coupling mechanisms and introducing challenges when stitching subdomain interfaces. They do not directly address the behavior of a single learned operator under domain enlargement. In contrast, our work targets robustness to domain extension without explicit partitioning or retraining. 
+
+Kernel-level control through locality and positional encodings Transformer -based neural opera-tors (Cao, 2021; Alkin et al., 2024, 2025; Wu et al., 2024; Serrano et al., 2024) operate directly on unstructured point clouds and provide highly expressive non -local representations. Relative positional encodings such as RoPE (Su et al., 2024; Heo et al., 2024) are widely adopted due to their translation equivariance and compatibility with optimized attention implementations such as FlashAttention (Dao et al., 2022). However, their quasi-periodic structure can associate large relative distances with shorter ones, inducing spurious interactions under domain extension. Locality can be enforced explicitly through window attention (Beltagy et al., 2020), but strong attention masks break decomposability and limit scalability on irregular geometries. More recently, FlashBias (Wu et al., 2025) introduces a decomposable L2 distance bias compatible with efficient attention kernels, providing controlled locality but restricting the kernel support to symmetric configurations. Our work builds on these developments by introducing explicit, decomposable control over the spatial support of attention kernels. By extending distance - based biases to anisotropic and asymmetric configurations, we enforce physically meaningful locality while preserving expressiveness and compatibility with high-performance attention kernels, enabling robust zero-shot domain extension. 
+
+# 6 Conclusion and future work 
+
+In this study, we addressed the problem of domain extension for transformer-based neural operators by introducing explicit spatial locality into attention mechanisms. We have shown that an L2 bias restricts kernel support to a Gaussian-like shape, and proposed a novel decomposable bias that extends existing methods to asymmetric settings. Experiments on multiple PDE benchmarks, including a large-scale 3D industrial case, show that enforcing locality significantly improves zero-shot generalization to larger domains. 8More broadly, our results suggest that enforcing structured locality in neural operators may provide a principled route toward appropriate scaling laws in machine learning. By explicitly constraining the effective support of interactions, models can generalize to larger domains without requiring proportional increases in training data or model capacity. This points to an alternative scaling paradigm where performance gains arise not only from data and model scale, but from modulating inductive biases that reflect how information propagates across space. 
+
+# References 
+
+Alkin, B., Bleeker, M., Kurle, R., Kronlachner, T., Sonnleitner, R., Dorfer, M., and Brandstetter, J. (2025). Ab-upt: Scaling neural cfd surrogates for high-fidelity automotive aerodynamics simula-tions via anchored-branched universal physics transformers. arXiv preprint arXiv:2502.09692 .Alkin, B., Fürst, A., Schmid, S., Gruber, L., Holzleitner, M., and Brandstetter, J. (2024). Universal physics transformers. arXiv e-prints , pages arXiv–2402. Beltagy, I., Peters, M. E., and Cohan, A. (2020). Longformer: The long-document transformer. arXiv preprint arXiv:2004.05150 .Bleeker, M., Hennerbichler, M., and Kuksa, P. (2026). Noether: A pytorch-based framework for engineering ai. Equal contribution. Calvello, E., Kovachki, N. B., Levine, M. E., and Stuart, A. M. (2025). Continuum attention for neural operators. Journal of Machine Learning Research , 26(300):1–52. Cao, S. (2021). Choose a transformer: Fourier or galerkin. Advances in neural information processing systems , 34:24924–24940. Chen, S., Wong, S., Chen, L., and Tian, Y. (2023a). Extending context window of large language models via positional interpolation. arXiv preprint arXiv:2306.15595 .Chen, X., Liang, C., Huang, D., Real, E., Wang, K., Pham, H., Dong, X., Luong, T., Hsieh, C.-J., Lu, Y., et al. (2023b). Symbolic discovery of optimization algorithms. Advances in neural information processing systems , 36:49205–49233. Cuthill, E. and McKee, J. (1969). Reducing the bandwidth of sparse symmetric matrices. In 
+
+Proceedings of the 1969 24th national conference , pages 157–172. Dao, T., Fu, D., Ermon, S., Rudra, A., and Ré, C. (2022). Flashattention: Fast and memory-efficient exact attention with io-awareness. Advances in neural information processing systems ,35:16344–16359. Daubechies, I. (1992). Ten lectures on wavelets . SIAM. de Villeroché, A., Mouradi, R.-S., Guen, V. L., Cheng, S., Bocquet, M., Farchi, A., Armand, P., and Massin, P. (2026). Anchored-branched steady-state wind flow transformer (ab-swift): a metamodel for 3d atmospheric flow in urban environments. arXiv preprint arXiv:2603.25635 .Heo, B., Park, S., Han, D., and Yun, S. (2024). Rotary position embedding for vision transformer. In 
+
+European Conference on Computer Vision , pages 289–305. Springer. Huang, J., Zhang, K., Wu, Y., and Cheng, Z. (2025). Operator learning with domain decomposition for geometry generalization in pde solving. arXiv preprint arXiv:2504.00510 .Kovachki, N., Li, Z., Liu, B., Azizzadenesheli, K., Bhattacharya, K., Stuart, A., and Anandkumar, A. (2023). Neural operator: Learning maps between function spaces with applications to pdes. 
+
+Journal of Machine Learning Research , 24(89):1–97. Lanthaler, S., Li, Z., and Stuart, A. M. (2025). Nonlocality and nonlinearity implies universality in operator learning. Constructive Approximation , 62(2):261–303. Mathew, T. P. A. (2008). Domain decomposition methods for the numerical solution of partial differential equations . Springer. 9Peng, B., Quesnelle, J., Fan, H., and Shippole, E. (2023). Yarn: Efficient context window extension of large language models. arXiv preprint arXiv:2309.00071 .Pfaff, T., Fortunato, M., Sanchez-Gonzalez, A., and Battaglia, P. W. (2020). Learning mesh-based simulation with graph networks. arXiv preprint arXiv:2010.03409 .Press, O., Smith, N. A., and Lewis, M. (2021). Train short, test long: Attention with linear biases enables input length extrapolation. arXiv preprint arXiv:2108.12409 .Serrano, L., Wang, T. X., Le Naour, E., Vittaut, J.-N., and Gallinari, P. (2024). Aroma: Preserving spatial structure for latent pde modeling with local neural fields. Advances in Neural Information Processing Systems , 37:13489–13521. Su, J., Ahmed, M., Lu, Y., Pan, S., Bo, W., and Liu, Y. (2024). Roformer: Enhanced transformer with rotary position embedding. Neurocomputing , 568:127063. Toselli, A. and Widlund, O. (2004). Domain decomposition methods-algorithms and theory , vol-ume 34. Springer Science & Business Media. Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A. N., Kaiser, Ł., and Polosukhin, I. (2017). Attention is all you need. Advances in neural information processing systems , 30. Wen, S., Kumbhat, A., Lingsch, L., Mousavi, S., Chandrashekar, P., and Mishra, S. (2025). Geometry aware operator transformer as an efficient and accurate neural surrogate for pdes on arbitrary domains. arXiv preprint arXiv:2505.18781 .Wu, H., Guo, M., Ma, Y., Sun, Y., Wang, J., Matusik, W., and Long, M. (2025). Flashbias: Fast computation of attention with bias. arXiv preprint arXiv:2505.12044 .Wu, H., Luo, H., Wang, H., Wang, J., and Long, M. (2024). Transolver: A fast transformer solver for pdes on general geometries. arXiv preprint arXiv:2402.02366 .Zhdanov, M., Welling, M., and van de Meent, J.-W. (2025). Erwin: A tree-based hierarchical transformer for large-scale physical systems. arXiv preprint arXiv:2502.17019 .
+
+# A Position embeddings 
+
+This appendix presents detailed formulations and decomposed expression of all position embeddings used in this work. 
+
+Setting Let p denote the spatial dimension of the physical domain (typically 2 or 3). We consider a canonical spatial basis {e1, . . . , e p}. Let c, ξ ∈ Rp be two spatial locations, with ci = c · ei and 
+
+ξi = ξ · ei. Let q(c), k (ξ) ∈ Rd be the query and key embeddings of a given attention head. 
+
+A.1 Rotary positional embedding 
+
+Rotary positional embeddings (RoPE) were first introduced by Su et al. (2024) in the context of natural language processing, and later generalized to multi -dimensional settings by Heo et al. (2024). RoPE embeds positional information using rotation matrices. Let θ ∈ Rd/ 2×p denote a (possibly learnable) basis of frequencies. We define the block-wise rotation matrix Rθ as 
+
+Rθ (c) = 
+
+
+
+r(θ0 · c) 0
+
+r(θ1 · c)
+
+. . .
+
+0 r(θd/ 2−1 · c)
+
+ ,
+
+where 
+
+r(α) = 
+
+ cos α sin α
+
+− sin α cos α
+
+
+
+∈ R2×2
+
+10 is the rotation matrix of angle α.While θ may be learned, in this work we use the axial RoPE formulation of Heo et al. (2024), which corresponds to: 
+
+θ = M
+
+> i∈[1 ,p ]
+
+M
+
+> j∈[0 ,(d/ 2−1) /p ]
+
+
+
+10000 −2jp/d ei
+
+
+
+,
+
+RoPE embeds coordinates directly into the attention logits by separately modifying the query and key vectors: 
+
+qRoPE (c) = Rθ (c)q(c), kRoPE (ξ) = Rθ (ξ)k(ξ).
+
+Due to the properties of rotation matrices, the resulting attention logits depend only on the relative displacement c − ξ:
+
+qRoPE (c)⊤ kRoPE (ξ) = q⊤(c) R⊤ 
+
+> θ
+
+(c − ξ) k(ξ).
+
+A direct calculation shows that RoPE corresponds to a Fourier decomposition of the attention logits over the frequency basis θ, with modulated coefficients αj (q(c), k (ξ)) and βj (q(c), k (ξ)) :
+
+αj (q(c), k (ξ)) = q2j (c)k2j (ξ) + q2j+1 (c)k2j+1 (ξ),βj (q(c), k (ξ)) = q2j+1 (c)k2j (ξ) − q2j (c)k2j+1 (ξ),z(q(c), k (ξ), c − ξ) = 
+
+> d/ 2−1
+
+X
+
+> j=0
+
+αj (q(c), k (ξ)) cos( θj · (c − ξ)) + βj (q(c), k (ξ)) sin( θj · (c − ξ)) .
+
+A.2 Local positional embeddings 
+
+We build - on top of RoPE and FlashBias (Wu et al., 2025) - a localized embedding. We specifically separate the expressive relative attention term (handled by RoPE) and a purely geometrical locality potential Φ as an additive FlashBias-like term: 
+
+z(q(c), k (ξ), δ ) = q⊤(c)R⊤ 
+
+> θ
+
+(δ)k(ξ) − √dΦ( δ),
+
+where δ = c − ξ is the relative displacement. 
+
+LASPE: Anisotropic L2 locality potential A simple potential function can be written using the anisotropic L2 distance. With A = diag( λ−21 , . . . λ −2 
+
+> p
+
+), the resulting potential is defined as: 
+
+ΦLASPE  
+
+> A
+
+(δ) = 12 δ⊤Aδ = 12
+
+> p
+
+X
+
+> i=1
+
+(δ · ei)2/λ 2 
+
+> i
+
+.
+
+Each term of this potential is exactly separable with the following identity: 
+
+(ci − ξi)2 =  c2 
+
+> i
+
+−2ci 1 1
+
+ξi
+
+ξ2
+
+> i
+
+ .
+
+This lets us augment the standard RoPE-modulated embeddings by concatenating 3p additional locality channels. Hence we define LASPE query as: 
+
+qLASPE (c) = Rθ (c)q(c)
+
+> p
+
+M
+
+> i=1
+
+12
+
+ c2 
+
+> i
+
+/λ 2
+
+> i
+
+−2ci/λ i
+
+1
+
+ .
+
+and the LASPE key embedding is defined as 
+
+kLASPE (ξ) = Rθ (ξ)k(ξ)
+
+> p
+
+M
+
+> i=1
+
+ 1
+
+ξi/λ i
+
+ξ2 
+
+> i
+
+/λ 2
+
+> i
+
+ .
+
+Both embeddings lie in Rd+3 p.11 LAAPE locality potential. Let’s now define a directional and anisotropic locality potential acting on relative displacements: 
+
+ΦLAAPE  
+
+> A+,A −
+
+(δ) = 12
+
+> p
+
+X
+
+> i=1
+
+h
+
+exp 
+
+
+
+A1/2 
+
+> −
+
+δ · ei
+
+
+
++ exp 
+
+
+
+−A1/2+ δ · ei
+
+i 
+
+.
+
+This potential is a sum of direction-wise exponential functions encoding anisotropic and asymmetric interaction ranges in physical space through diagonal matrices A+ = diag( λ−21,+, . . . λ −2
+
+> p, +
+
+) and 
+
+A− = diag( λ−21,−, . . . λ −2
+
+> p, −
+
+).For each spatial direction i, the exponential terms are exactly multiplicatively separable: 
+
+exp 
+
+ ci − ξi
+
+λi, −
+
+
+
+= exp 
+
+ ci
+
+λi, −
+
+
+
+exp 
+
+
+
+− ξi
+
+λi, −
+
+
+
+,
+
+exp 
+
+
+
+− ci − ξi
+
+λi, +
+
+
+
+= exp 
+
+
+
+− ci
+
+λi, +
+
+
+
+exp 
+
+ ξi
+
+λi, +
+
+
+
+.
+
+Similarly to LASPE, this lets us augment the standard RoPE-modulated embeddings by concatenating 
+
+2p additional locality channels, corresponding to the positive and negative directions of each spatial axis. The LAAPE query embedding is defined as 
+
+qLAAPE (c) = Rθ (c)q(c)
+
+> p
+
+M
+
+> i=1
+
+−√d
+
+2 exp( −ci/λ i, +)
+
+> p
+
+M
+
+> i=1
+
+−√d
+
+2 exp(+ ci/λ i, −),
+
+and the LAAPE key embedding is defined as 
+
+kLAAPE (ξ) = Rθ (ξ)k(ξ)
+
+> p
+
+M
+
+> i=1
+
+exp(+ ξi/λ i, +)
+
+> p
+
+M
+
+> i=1
+
+exp( −ξi/λ i, −).
+
+Both embeddings lie in Rd+2 p.
+
+LAAPE is a natural extension of LASPE for asymmetric cases .Let us consider the behavior of LAAPE embeddings for a symmetric choice of interaction ranges such that A+ = A− = A.Then LAAPE’s expression simplifies with a cosh function: 
+
+ΦLAAPE  
+
+> A
+
+=
+
+> p
+
+X
+
+> i=1
+
+cosh (( δ · ei/)λi) .
+
+Assuming small values of displacements δ, for which δ · ei ≪ λi and cosh( δi/λ i) ∼ 1 + ( δi/λ i)2/2,one gets, 
+
+ΦLAAPE  
+
+> A
+
+(δ) ∼ p + 12
+
+> p
+
+X
+
+> i=1
+
+δ2
+
+> i
+
+λ2
+
+> i
+
+∼ p + Φ LASPE  
+
+> A
+
+(δ).
+
+Hence, for small displacements, both embeddings are similar up to an additive constant, which disappears under softmax normalization. Furthermore, both potentials will decay to −∞ for large values of displacements. This leaves only a difference in the transitory region: LAAPE has a slightly faster decay than LASPE (see Figure 4). Consequently, we consider LAAPE to naturally extend LASPE to asymmetric cases. 12 Figure 4: Comparison of the shape of the kernel enforced by LASPE and by LAAPE biases, not accounting for the RoPE term, and assuming a 1D symmetric case. 
+
+Figure 5: Comparative predictions of LAAPE and LASPE at t = 1 on the Gray Scott dataset for a scaling sx × sy = 7 × 7 with BFloat16 precision. LASPE exhibits strong numerical errors for larger coordinates values, while LAAPE remains stable. 
+
+# B Numerical stability 
+
+Numerical errors of LASPE We found experimentally that LASPE tends to exhibit numerical instabilities when reaching high coordinates values. Figure 5 shows this numerical error on the Gray Scott dataset for a scaling sx × sy = 7 × 7. The error of the LASPE prediction is non-homogeneous and increases with the distance to the origin. By contrast, LAAPE remains stable even for large coordinate values. To demonstrate that this error indeed comes from the numerical precision, we compare predictions using Bfloat16 and Float32 formats. A scale 7 inference is not computationally feasible with Float32. We instead perform this experiment on sx × sy = 2 × 2 and shift the input coordinates to reproduce coordinate values seen at larger scales. We present the result in Figure 6. For small coordinates, both predictions yield similar results. However, for large coordinates, prediction accuracy degrades significantly when using BFloat16 precision, while remaining stable with Float32. 13 Figure 6: Numerical stability experiment. Left: Predictions using LASPE for Bfloat16 and Float32 precisions for coordinate values near the origin. Right: Predictions for coordinate values shifted by 
+
+x/λ = 25 and y/λ = 25 , mimicking values seen at large scaling. 
+
+Numerical overflow limit of LAAPE The presented asymmetric bias relies on exponential func-tions, which introduces numerical limitations due to potential overflow and underflow. Specifically, the computation of the bias terms will overflow or underflow on positions that are too far from the domain center. Let vmin and vmax denote the smallest and largest representable positive numbers for a given precision. The maximum attainable domain size scales as 
+
+λ log vmax − log vmin 
+
+.
+
+Table 4 summarizes the resulting limits for common floating-point formats, assuming a 1D isotropic and symmetric bias controlled by a decay length λ. Commonly used Bfloat16 format presents a maximum scaling of 181 λ, which is very substantial in the context of physics simulations and covers most use cases. Precision underflow limit overflow limit max. domain size Float16 6 × 10 −8 6.5 × 10 4 27 λ
+
+Float32 / Bfloat16 6 × 10 −41 3 × 10 38 181 λ
+
+Float64 2 × 10 −308 2 × 10 308 1418 λ
+
+Table 4: Maximum attainable scaling range of LAAPE before numerical overflow or underflow. 
+
+# C Training setup and model hyperparameters 
+
+This appendix presents detailed training setup and model hyperparameters. All conducted experiments were run using the Noether framework (Bleeker et al., 2026), and associated code and datasets will be made publicly available upon publication of this paper. For all experiments, training is performed using the Lion optimizer (Chen et al., 2023b), with a 5% 
+
+linear learning - rate warmup up to 5 × 10 −5, followed by a cosine decay to 1 × 10 −6. The weight decay parameter of Lion is set to 0.05 . All models are trained using Bfloat16 precision. We train for 
+
+100 epochs with a batch size of 32 for the academic benchmarks, and for 500 epochs with a batch size of 1 for AB-SWIFT. Input and output features are standardized, and positions are normalized anisotropically to [0 , 1000] 
+
+in the training dataset. A log scale is used on the turbulence-related variables k and ϵ predicted by AB-SWIFT, following the choices of de Villeroché et al. (2026). 
+
+Academic case models We apply the same model for each dataset, only varying the positional embedding between experiments. We build a generic transformer neural operator architecture consisting of stacked transformer blocks and linear input embeddings and output projections. Each transformer block consists of a self-attention layer followed by a feedforward layer, with residual connections between each sublayer. We report the associated hyperparameters in Table 5. 
+
+AB-SWIFT We re-implement AB-SWIFT using the Noether framework, following the original implementation of de Villeroché et al. (2026). However, unlike the original implementation, we do not use absolute positional embeddings to initially encode the latent state from absolute positions, and 14 Parameter value Hidden dimension 192 Number of transformer blocks 6Number of attention heads 3Feedforward hidden layers 1Feedforward expansion factor 4Feedforward activation GeLU RoPE max frequency 10000 Table 5: Hyperparameters of the models used for all academic datasets experiments. instead rely only on geometric information when available, or generate constant initial embeddings when no geometric information are available. We report details on hyperparameters in Table 6. Description Value Model parameters Hidden dimension 192 Obstacles supernode pooling radius 1Terrain supernode pooling radius 5Number of processor blocks 3Number of decoder blocks 4Number of attention head 3Feedforward hidden layers 1Feedforward expansion factor 4Feedforward activation GeLU RoPE max frequency 10000 Training pipeline parameters Number of points describing obstacles 4096 Number of points describing the terrain 4096 Number of obstacles supernodes 1024 Number of terrain supernodes 1024 Number of volume anchor point 8192 Inference pipeline parameters All number of points are scaled proportionally to the area of the inference domain. Table 6: AB-SWIFT hyperparameters. 
+
+Training cost Training takes approximately 1 h on a A100 GPU for the shallow water dataset, and 1.5 h for the Gray-Scott and the microscale atmospheric flow dataset. Running all experiments sequentially takes approximately 13 h .
+
+# D Datasets 
+
+This appendix further describes the datasets used in this paper, summarized in Table 7. 
+
+D.1 Shallow water equations 
+
+Shallow water equations represent the movements of waves on a water surface, assuming a low water depth relative to the surface. The shallow water equations solved reads: 
+
+∂h ∂t + ∂(hv )
+
+∂x = 0 , ∂(hv )
+
+∂t + ∂(hv 2)
+
+∂x + gh ∂h ∂x = 0 ,
+
+where h and v respectively represent the water height and velocity, and g = 9 .81 m s −2 is the gravity acceleration constant. Homogeneous Neumann boundary conditions on h and v are used. 15 Dataset PDE Dim input variable predicted variable SWE 1D Shallow water 1D+time Water height h and ve-locity v ∆h, ∆v            
+
+> GrayScott Gray Scott 2D+time Concentrations Uand V∆U, ∆V
+> RandomBuildingsDataset Navier-Stokes 3D Building topography meteorological condi-tions 3D steady-state atmospheric flow variables
+
+Table 7: Datasets considered in this work. For each dataset, we generate a large number of small-scale simulations for training, and a small number of large-scale simulations for evaluations, with a per-axis scaling ranging from 1 to 10 . ∆· denote the difference between two time steps. We generate an initial dataset of 800 training, 100 test and 100 validation simulations of a domain of width 100 m , and an initial water height h0 = 1 m . We randomly place 3 crenel perturbations of the initial water height in each simulation, with widths and heights uniformly sampled respectively between 4 m to 15 m and 0.02 m to 0.08 m . We simulate the obtained system for 15 s , and save the state every 0.3 s .We then generate large scale splits for scalings s = 2 , 3, 7 and 10 , and run 50 simulations per split. We scale the domain width and the number of initial perturbations by s.Data generation takes a few seconds on an Intel i7-11850H laptop CPU. 
+
+D.2 Gray-Scott equations 
+
+The Gray-Scott equation system describes the evolution of two chemical substances U and V , with 
+
+U being consumed by V and both substances diffusing over time. The Gray-Scott equation systems reads: 
+
+∂U ∂t = Du∇2U − U V 2 + F (1 − U ), ∂V ∂t = Dv ∇2V + U V 2 − (F + k)V, 
+
+where Du = 0 .2 and Dv = 0 .1 are respectively the diffusion coefficients of U and V , k = 0 .06 is the kill rate of V and F = 0 .035 is the feed rate. We use homogeneous Neumann boundary conditions on U and V .We generate an initial dataset of 800 training 100 test and 100 validation simulations of a square domain of width 128 ×128 width grid cells of size 2×2 and, with homogeneous initial concentrations 
+
+U = 1 and V = 0 . For each simulation, we randomly place 3 initial sources of V within the simulated domain on squares of width 5 where we set U = 0 .5 and V = 0 .25 . We simulated the obtained system for 5000 steps and save the state every 500 steps. We then generate large scale splits for scalings s = 2 , 3, 7 and 10 , and run respectively 50 , 50 , 25 ,
+
+10 simulations per scaling. We scale the domain width and height by s and the number of initial perturbations by s2.Data generation takes around 20 min on an Intel i7-11850H laptop CPU. 
+
+D.3 Random buildings dataset 
+
+The random buildings datasets contain steady-state atmospheric flows around randomly generated urban geometries with varied building geometries. Readers are referred to the original work of de Villeroché et al. (2026) for the detailed CFD simulation setup. We generate large-scale validation cases by scaling the size of the buildings area width by s. For each simulation, we generate a new urban geometry on this area using the same generation method as de Villeroché et al. (2026). We generate large scale splits for scalings s = 2 and 5 and generate 10 
+
+simulations per scaling. We restrict ourselves to neutral atmospheric stratifications because buildings are placed very close to the upstream boundary in the original dataset, making boundary conditions interact strongly with the buildings in other stratifications. As this effect depends on the exact distance between the 16 buildings and the upwind boundary of the simulation domain, it could not be robustly reproduced when increasing the size of the mesh. In neutral stratification, this effect is much less pronounced. We note that this is a limit of the CFD setup and not of the proposed machine learning approach. Data generation of large scale cases takes around 11 h on 4 Intel Platinum 8260 CPUs. 
+
+# E Visualization of datasets and predictions 
+
+The appendix presents visualizations of the different datasets and predictions. 
+
+E.1 Shallow water equations 
+
+Figures 7, 8, and 9 present ground truth and models predictions for scalings s = 1 , 3 and 10 
+
+respectively. 
+
+Figure 7: Shallow water ground truth and predictions for s = 1 .
+
+Figure 8: Shallow water ground truth and predictions for s = 3 .
+
+E.2 Gray-Scott equations 
+
+Figures 10, 11, and 12 present ground truth and models predictions for scalings sx × sy = 1 × 1, 3 × 3
+
+and 10 × 10 respectively. 
+
+E.3 Microscale atmospheric flow 
+
+Figures 13, 14, and 15 presents ground truth and models predictions for scalings sx ×sy = 1 ×1, 2×2
+
+and 5 × 5 respectively. 17 Figure 9: Shallow water ground truth and predictions for s = 10 .
+
+Figure 10: Gray-Scott ground truth and predictions for sx × sy = 1 × 1.18 Figure 11: Gray-Scott ground truth and predictions for sx × sy = 3 × 3.19 Figure 12: Gray-Scott ground truth and predictions for sx × sy = 10 × 10 .
+
+Figure 13: Microscale atmospheric flow ground truth and prediction for sx × sy = 1 × 1.
+
+Figure 14: Microscale atmospheric flow ground truth and prediction for sx × sy = 2 × 2.20 Figure 15: Microscale atmospheric flow ground truth and prediction for sx × sy = 5 × 5.21
