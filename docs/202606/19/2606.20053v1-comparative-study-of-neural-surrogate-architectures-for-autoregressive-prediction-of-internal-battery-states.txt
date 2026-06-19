@@ -1,0 +1,576 @@
+Title: Comparative Study of Neural Surrogate Architectures for Autoregressive Prediction of Internal Battery States
+
+URL Source: https://arxiv.org/pdf/2606.20053v1
+
+Published Time: Fri, 19 Jun 2026 00:46:05 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+# Comparative Study of Neural Surrogate Architectures for Autoregressive Prediction of Internal Battery States 
+
+Gihyun Lee ∗† , Thorben Menne †, Simon Olma †, Jakob Hilgert †, and Sangyoung Park ∗∗Technische Universit¨ at Berlin, Berlin, Germany Email: {lee.4, sangyoung.park }@campus.tu-berlin.de 
+
+†IAV GmbH, Berlin, Germany Email: {thorben.menne, simon.olma, jakob.hilgert }@iav.de 
+
+Abstract —The Doyle-Fuller-Newman (DFN) model resolves internal electrochemical states in lithium-ion batteries with high fidelity. However, the numerical solution of its governing equa-tions is computationally prohibitive for real-time deployment, limiting scalability from individual cells to pack and fleet-scale applications. While machine learning surrogates can substan-tially reduce inference latency through GPU acceleration, most existing approaches learn solution approximations tied to specific operating conditions rather than learning generalizable state-evolution dynamics. This work presents a systematic comparison of four neural network architectures (MLP, ResNet, U-Net, FNO) formulated as autoregressive state-transition operators that predict full DFN internal states across a wide range of operating conditions. To ensure a controlled architectural comparison, all models are trained under a unified framework using multi-step unrolling and current-conditioning, isolating the impact of spatial inductive bias. Results demonstrate that the U-Net’s multi-scale feature hierarchy achieves a mean final-step nRMSE of 3% averaged across all internal state variables after 300-step autoregressive rollouts, while providing a 5.38 × speed-up over the numerical solver. These findings highlight spatial inductive bias as a critical determinant of surrogate performance, advancing the development of surrogates for internal state observability for next-generation battery management systems and digital twins. 
+
+Index Terms —lithium-ion batteries, battery management sys-tems, digital twin, electrochemical modeling, Doyle-Fuller-Newman model 
+
+I. I NTRODUCTION 
+
+Lithium-ion batteries (LIBs) are the dominant energy stor-age technology for electric vehicles (EVs) and grid-scale systems. Maximizing their performance and lifespan while ensuring safe operation requires accurate estimation of internal electrochemical states [1]. The Doyle-Fuller-Newman (DFN) model [2] provides this capability by solving equations gov-erning electrochemical transport and reaction kinetics, yielding high-fidelity internal states. However, the computational cost of numerically solving these governing equations is prohibitive for real-time deployment, a challenge that is further com-pounded when scaling from individual cells to the hundreds or thousands of cells managed by battery management systems (BMS) and monitored by fleet-scale digital twins [3]. Machine learning (ML) surrogates offer a computationally efficient alternative, exploiting GPU acceleration to substan-tially reduce per-cell inference latency. However, most data-driven battery models predict system-level quantities such as voltage, rather than complete spatiotemporal internal states [4]. Even among surrogates that target internal states, most approx-imate specific solution trajectories rather than learning gener-alizable state-transition dynamics, limiting their applicability to operating conditions seen during training and preventing prediction from arbitrary intermediate states. Motivated by these limitations, this work presents a system-atic comparison of four neural network architectures (MLP, ResNet, U-Net, FNO) formulated as autoregressive state-transition operators for emulating the full-state dynamics of the DFN model. To ensure a controlled comparison, all ar-chitectures are evaluated under a unified training framework, isolating the impact of spatial inductive bias on predictive fidelity, long-horizon stability, and computational efficiency. These findings advance the development of high-fidelity ML surrogates for internal state observability in next-generation BMS and digital twins. II. T HEORETICAL BACKGROUND 
+
+The DFN model, also known as the Pseudo-Two-Dimensional (P2D) model, is grounded in porous electrode theory and serves as the ground truth for this study [5]. As illustrated in Fig. 1, it couples macroscopic transport along the cell thickness x with microscopic diffusion along the radial coordinate r within spherical solid particles. x = 0 x = Ln x = L − Lp x = L
+
+x
+
+Negative Electrode Separator Positive Electrode 
+
+r
+
+r = Rn
+
+r
+
+r = Rp
+
+Fig. 1. Schematic of the DFN model geometry. Top: Macroscopic domain along the cell thickness ( x) spanning the electrodes and separator. Bottom: Microscopic domain along the radial coordinate ( r) within solid particles. 
+
+> arXiv:2606.20053v1 [cs.LG] 18 Jun 2026
+
+The governing dynamics of the DFN model form a system of partial differential-algebraic equations (PDAEs). The differ-ential component comprises conservation laws for mass and charge in the solid and electrolyte phases. Lithium transport within solid particles follows Fick’s second law in spherical coordinates (1a), while lithium-ion transport in the electrolyte is described by concentrated solution theory (1b). Charge conservation is enforced via Ohm’s law in the solid phase (1c) and via ionic migration and diffusion in the electrolyte (1d) [5], [6]: 
+
+∂c s,k 
+
+∂t = 1
+
+r2
+
+∂∂r 
+
+
+
+Ds,k r2 ∂c s,k 
+
+∂r 
+
+
+
+, (1a) 
+
+εk
+
+∂c e,k 
+
+∂t = ∂∂x 
+
+
+
+Deff 
+
+> e,k
+
+∂c e,k 
+
+∂x 
+
+
+
++ 1 − t+
+
+F akjk, (1b) 
+
+∂∂x 
+
+
+
+σeff 
+
+> k
+
+∂ϕ s,k 
+
+∂x 
+
+
+
+= akjk, (1c) 
+
+∂∂x 
+
+
+
+κeff 
+
+> e,k
+
+∂ϕ e,k 
+
+∂x 
+
+
+
+= ∂∂x 
+
+
+
+κeff 
+
+> e,k
+
+2RT (1 − t+)
+
+F∂ ln ce,k 
+
+∂x 
+
+
+
+− akjk. (1d) Here, subscripts s and e denote the solid and electrolyte phases, respectively, while k ∈ { n, s, p } indexes the spatial regions (negative electrode, separator, positive electrode). The state variables cs,k , ce,k , ϕs,k , and ϕe,k represent the lithium concentrations and electric potentials in each phase, with solid-phase variables defined only in the electrode regions 
+
+k ∈ { n, p }. The electrode microstructure is characterized by the porosity εk and specific interfacial area ak. Transport is governed by the solid diffusivity Ds,k , cation transference number t+, and effective transport parameters Deff 
+
+> e,k
+
+, σeff  
+
+> k
+
+, κeff 
+
+> e,k
+
+.The algebraic component couples the solid and electrolyte phases through the interfacial current density jk, governed by the Butler-Volmer equation (2a). This reaction rate depends on the local overpotential ηk (2b), defined as the deviation from the equilibrium open-circuit potential Uk, and the exchange current density i0,k (2c) [6]: 
+
+jk = i0,k sinh 
+
+ F η k
+
+2RT 
+
+
+
+, (2a) 
+
+ηk = ϕs,k − ϕe,k − Uk(csurf  
+
+> s,k
+
+), (2b) 
+
+i0,k = kk
+
+q
+
+ce,k csurf  
+
+> s,k
+
+(cmax  
+
+> s,k
+
+− csurf  
+
+> s,k
+
+), (2c) where kk is the reaction rate constant, cmax  
+
+> s,k
+
+the maximum solid-phase concentration, and csurf  
+
+> s,k
+
+the solid-phase concentration at the particle surface ( r = Rk). Together, these transport and reaction mechanisms yield a PDAE system spanning heterogeneous spatial scales, whose stiff, nonlinear dynamics necessitate computationally intensive numerical solvers, motivating the development of the surrogate modeling approach presented in this work. III. ML S URROGATES FOR THE DFN M ODEL 
+
+A. Problem Formulation 
+
+The DFN model’s spatiotemporal dynamics can be refor-mulated as a discrete-time state-transition system. At each timestep t, the electrochemical state is represented by the state vector st:
+
+st = ce(x), c s,k (x, r ), ϕ e(x), ϕ s,k (x)⊤, k ∈ { n, p }. (3) Since st fully characterizes the electrochemical system at time t, its future evolution is determined by the current state and the applied current It. The DFN dynamics are thus expressed as a nonlinear state-transition function f :
+
+st+1 = f (st, I t). (4) The learning task is to approximate this mapping using a parametric function fθ with learnable parameters θ such that: 
+
+ˆst+1 = fθ (ˆ st, I t). (5) This formulation provides three key capabilities for practical deployment in real-time state estimation and monitoring. First, the model predicts the complete internal state vector st,providing full observability of the spatially resolved electro-chemical system. Second, it generalizes across varying initial conditions and current profiles by learning the state-transition dynamics from a diverse range of operating conditions. Third, it enables solver-free autoregressive operation, supporting ef-ficient long-horizon rollouts without invoking the numerical DFN solver at each timestep. 
+
+B. Related Work 
+
+ML surrogates for the DFN model have been proposed across three broad architectural paradigms: CNNs, RNNs, and PINNs, each with distinct limitations that motivate the present work. McKay et al. [7] proposed a CNN-based surrogate that approximates DFN dynamics by mapping solid-phase concen-tration fields and terminal voltage to their subsequent state. While this architecture provides spatially resolved electrode concentrations cs,k , it omits the electrolyte concentration ce
+
+and spatially resolved potentials ϕe, ϕ s,k . Since local potentials are the fundamental drivers of Butler-Volmer kinetics, this omission prevents accurate characterization of electrochemical reaction rates. Recurrent architectures have been proposed to emulate DFN dynamics. Li et al. [8] and Mirzaee et al. [9] used specialized LSTM networks to map external signals (current, voltage, and temperature) to internal states. However, these architectures approximate entire solution trajectories rather than learning the state-transition function. Consequently, they require the full temporal history from the initial state, preventing pre-diction from arbitrary intermediate states and limiting their applicability to operating scenarios covered by the training trajectories. Huang et al. [10] addressed this limitation by embedding the governing DAEs into a Model-Integrated Neu-ral Network (MINN). Nevertheless, this approach requires an embedded numerical solver for time integration, inheriting the computational stiffness of the DFN solver and failing to achieve solver-free autoregressive operation. PINNs approximate solution fields by incorporating govern-ing equation residuals into the loss function. When applied to the DFN model, the multi-scale and stiff dynamics result in ill-conditioned optimization, which Hassanaly et al. [11] and Lee et al. [12] addressed through stabilization techniques. De-spite these training advances, PINN formulations approximate spatiotemporal solution fields for fixed operating conditions rather than learning state-transition operators. This prevents autoregressive prediction from arbitrary intermediate states and requires retraining to adapt to novel current profiles. This review reveals that no existing approach simultane-ously provides complete internal state observability, general-ization across operating conditions, and solver-free autoregres-sive operation. Moreover, the relative effectiveness of different architectural inductive biases for capturing the coupled, multi-scale electrochemical dynamics has not been systematically investigated. This work addresses both limitations by evaluat-ing four architectures commonly employed for PDE surrogate modeling, spanning distinct spatial processing strategies: fully-connected (MLP), local convolutional (ResNet), hierarchical multi-scale (U-Net), and global spectral (FNO). IV. M ETHODOLOGY 
+
+A. Unified State Representation 
+
+The DFN state vector st comprises six variables with heterogeneous spatial discretizations. Electrolyte fields ( ce,
+
+ϕe) span the entire cell and are discretized at 60 nodes along the cell thickness. Solid-phase potentials ( ϕs,n , ϕs,p ) are discretized at 20 nodes along the thickness of their respective electrodes. Solid-phase concentrations ( cs,n , c s,p ) are resolved as 2D fields at 20 × 20 nodes per electrode, spanning both electrode thickness and particle radius. To enable architecture-agnostic processing, each variable is transformed into a 20 × 20 spatial grid, yielding a unified six-channel representation st ∈ R6×20 ×20 . Solid-phase concentra-tions retain their native 20 × 20 structure, while solid-phase potentials are replicated along the radial dimension, reflecting their radial uniformity at each electrode position. Electrolyte fields are interpolated from 60-node 1D profiles to 20 × 20 
+
+grids using bilinear interpolation. To account for the disparate physical scales of the state variables, per-variable z-score normalization is applied. For each variable, normalization statistics (mean and standard deviation) are computed independently at each spatial position across all training samples, preserving spatial gradients while standardizing local magnitudes across variables. 
+
+B. Surrogate Architectures 
+
+Each architecture implements the state-transition mapping 
+
+st → st+1 using a distinct spatial processing strategy. To enable a fair comparison, all models are configured with comparable parameter counts ( ∼3M). Table I summarizes their hyperparameter configurations, and each architecture’s spatial processing mechanism is detailed below. 
+
+1) MLP: The MLP employs a spatially agnostic architec-ture. Rather than operating on the unified 20 × 20 grid, the MLP processes the native DFN discretization directly. All state variables are flattened and concatenated into a single input                     
+
+> TABLE I HYPERPARAMETER CONFIGURATIONS FOR SURROGATE ARCHITECTURES
+> Architecture Hidden Dims Depth Key Params
+> MLP 768 →1152 →768 3 Hidden Layers —ResNet 48 →96 →192 3 Residual Blocks 3×3Kernel U-Net 80 →160 →320 2 Stages 3×3Kernel FNO 64 4 Fourier Layers 10 Modes All models use GELU activation and batch normalization.
+
+vector and processed through fully-connected layers. While dense connectivity enables global information exchange, the MLP lacks explicit spatial structure, requiring it to learn the spatial dependencies purely from data. 
+
+2) ResNet: ResNet [13] processes the unified state rep-resentation through sequential residual blocks, where iden-tity shortcuts facilitate incremental feature refinements. This architecture maintains uniform spatial resolution throughout, applying localized 3 × 3 convolutions at every stage. The cumulative receptive field of the network spans the full 20 ×20 
+
+grid, with spatial context assembled incrementally through network depth. 
+
+3) U-Net: The U-Net [14] employs a hierarchical encoder-decoder architecture with multi-scale processing. Progressive downsampling compresses the spatial representation into a bottleneck that captures global context across the full 20 × 20 
+
+grid. Lateral skip connections then reintroduce high-resolution features into the decoder, preserving sharp spatial gradients. This design enables the network to capture long-range depen-dencies and local spatial variations. 
+
+4) FNO: The FNO [15] operates in the frequency domain by applying Fourier transforms to the spatial representation before performing spectral convolutions. This approach pro-vides a global receptive field within each layer, as operations in frequency space affect all spatial positions simultaneously. The architecture retains a limited number of Fourier modes, capturing predominantly low-frequency spatial structure. 
+
+C. Current Conditioning Methods 
+
+As the applied current It drives electrochemical kinetics and transport, the surrogate model must be explicitly conditioned on this control input. Three distinct conditioning paradigms are considered for integrating the control input: input concatena-tion, Feature-wise Linear Modulation (FiLM), and Conditional Instance Normalization (CIN). While MLP uses input concate-nation exclusively, spatial architectures (ResNet, U-Net, and FNO) are evaluated across all three methods, with architecture-specific optimal configurations identified empirically in Sec-tion VI-D1 and applied in all subsequent experiments. 
+
+1) Input Concatenation: The scalar current It is concate-nated with the input representation, either directly to the flattened vector (MLP) or broadcast as an additional spatial channel (ResNet, U-Net, FNO). This provides the model with direct access to the control input but offers no explicit mech-anism for modulating intermediate feature representations. 
+
+2) FiLM: FiLM [16] conditions the network by applying learned affine transformations to intermediate feature maps h ∈ RC×H×W . Based on the applied current It, the mech-anism computes channel-wise scale γ(It) and shift β(It)
+
+parameters: FiLM (h, I t) = γ(It) ⊙ h + β(It), (6) where γ, β : R → RC are learned linear projections. Applied after convolution blocks, this modulation enables dynamic adaptation of internal representations in response to the control input. 
+
+3) CIN: CIN [17] is adapted for continuous conditioning by replacing discrete style embeddings with learned functions of It. This approach standardizes feature maps h via instance normalization before applying affine modulation: CIN (h, I t) = γ(It) ⊙ h − μ(h)
+
+σ(h) + β(It), (7) where μ(h), σ (h) ∈ RC are channel-wise instance statistics, and γ, β are linear projections identical to FiLM. By de-coupling internal feature scales from the conditioning signal, CIN provides a normalized representation before applying the learned modulation. 
+
+D. Temporal Training Strategy 
+
+During autoregressive inference, the surrogate model recur-sively uses its own predictions as inputs, causing prediction errors to accumulate over time. Training on single-step pre-dictions with ground-truth states creates a distributional mis-match, known as exposure bias, as the model never encounters its own errors during training, which can lead to instability in long-horizon rollouts [18]. To address this, unrolled training over K consecutive timesteps is employed. Starting from a ground-truth state st,the model autoregressively predicts the next K states, and the multi-step prediction loss is computed as: 
+
+Lmulti-step = 1
+
+K
+
+> K
+
+X
+
+> k=1
+
+∥st+k − ˆst+k∥22, (8) where ˆst+k is obtained by recursively applying Eq. (5). By backpropagating through the unrolled sequence, the model is trained to handle its own prediction errors as inputs, improving robustness and long-horizon stability. As detailed in Section VI-D2, an unroll horizon of K = 10 balances long-term prediction stability with computational cost. V. E XPERIMENTAL SETUP 
+
+A. Dataset 1) Simulation Setup: A dataset for training and evaluation is generated using the isothermal DFN model implemented within the PyBaMM framework [19]. The model uses the Marquis2019 parameter set [6], representing a LIB cell with a graphite (MCMB 2528) negative electrode and LiCoO 2
+
+positive electrode. The spatial domain is discretized using 20 finite volumes per macroscopic region (negative electrode, separator, positive electrode) and 20 radial nodes within each electrode particle, consistent with the state representation in Section IV-A. The resulting DAE system is solved using the CasADi solver and sampled at 1 Hz.                                              
+
+> TABLE II SUMMARY OF CURRENT EXCITATION PROFILES AND OPERATING
+> CONDITIONS FOR DFN D ATASET GENERATION
+> Profile Type C-Rate Range Initial SOC Duration Count
+> Synthetic Profiles
+> CC Charge [−3.0C, −1.0C] [0%, 80%] 900 s 16 CC Discharge [1.0C, 3.0C] [20%, 100%] 900 s 16 Sinusoidal ±2.0C, ±3.0C [10%, 100%] 600 s 40 Pulse-Relaxation ±1.5C, ±2.5C [10%, 100%] 600 s 20
+> Driving Cycles
+> WLTC [−0.69C, 1.45C] [10%, 100%] 1800 s 10 UDDS [−0.56C, 1.01C] [10%, 100%] 1368 s 10 US06 [−1.68C, 3.24C] [10%, 100%] 600 s 10
+> Total [−3.00C, 3.24C] [0%, 100%] 28 h 122
+
+2) Data Generation: To facilitate generalization across a wide operating range, a dataset of 122 trajectories spanning C-rates from −3.0C to 3.24C and initial SOC values from 0% to 100% is generated (Table II). The dataset combines standardized driving cycles (WLTC, UDDS, US06) represent-ing realistic EV operation with synthetic profiles designed to systematically probe distinct electrochemical regimes. Specifi-cally, constant current (CC) profiles capture sustained load dy-namics, sinusoidal profiles with periods of 50 s and 100 s excite dynamic transient responses, and pulse-relaxation sequences (10 s pulse, 40 s rest) characterize relaxation behavior. Each profile type is simulated across multiple initial SOC values and C-rates, yielding the DFN state vector st at 1 Hz and ensuring comprehensive coverage of the battery’s operating envelope. 
+
+3) Data Partitioning: To prevent temporal data leakage while maintaining distributional balance, a stratified trajectory-based split is performed. All timesteps from each simulation trajectory are assigned to the same partition, ensuring no tem-poral overlap between sets. Stratification across 5 SOC × 20 C-rate bins ensures balanced coverage of the operating space. This yields training (83 trajectories, 69k samples), validation (19 trajectories, 15k samples), and test (20 trajectories, 16k samples) sets. 
+
+B. Training Details 
+
+All models are implemented in PyTorch and trained to minimize the multi-step prediction loss (Eq. (8)) with K=10 
+
+rollout steps. Optimization is performed using the AdamW optimizer with weight decay λ = 1 × 10 −4 and a batch size of 128. The learning rate follows a cosine annealing schedule, decaying from η0 = 8 × 10 −4 to ηmin = 10 −6
+
+over 200 epochs. Gradient norm clipping with threshold 2.0 ensures numerical stability during backpropagation through the unrolled sequence. Training inputs are augmented with Gaussian noise ( σ = 1 .5% of each variable’s range) to improve robustness to autoregressive error accumulation. Training is terminated using early stopping based on validation loss with patience of 40 epochs. All experiments are conducted on a NVIDIA A100 40 GB GPU (3g.20 GB MIG instance). 
+
+C. Evaluation Metrics 
+
+Prediction accuracy is quantified using normalized root mean squared error (nRMSE). At each rollout step k, RMSE is computed by first averaging squared errors over spatial grid points for each sample, then averaging across all test samples. The result is normalized by the global range (max − min) of each ground-truth variable to enable comparison across disparate physical scales. To evaluate autoregressive stability, 300-step rollouts are initiated from every valid starting point in the test set, yielding nRMSE as a function of rollout step k that quantifies error accumulation. A global metric is obtained by averaging nRMSE over all rollout steps. For system-level eval-uation, RMSE for terminal voltage and SOC are reported for CC discharge at 1C, 2C, and 3C. These quantities are derived from predicted internal states: terminal voltage from electrode potential differences at the current collectors, and SOC from the volume-averaged negative electrode concentration. Computational efficiency is assessed through inference la-tency and model complexity. The PyBaMM solver, executed sequentially (one timestep per call) on a single AMD EPYC 7742 CPU core, serves as the baseline. Surrogate inference latency is measured on an NVIDIA A100 40 GB GPU with batch size 1, representing single-sample online inference. Reported timings reflect model inference only, excluding data transfer between CPU and GPU, and are averaged over 100 trajectories. Model complexity is quantified by parameter count and peak GPU memory consumption during inference. VI. R ESULTS AND DISCUSSION 
+
+A. State Evolution and Autoregressive Rollout Performance 
+
+Spatiotemporal evolution of internal states over a 300-step WLTC rollout (Fig. 2) reveals architecture-dependent performance differences that vary across state variables. For 1D macroscopic profiles (Fig. 2 (a)), ResNet, U-Net, and FNO maintain close agreement with the DFN reference, while the MLP exhibits significant error accumulation. Concentration fields, both radially-averaged positive electrode (Fig. 2 (a), row 5) and spatially-resolved negative electrode (Fig. 2 (b)), expose the largest architectural disparities. The MLP exhibits catastrophic spatial collapse (Fig. 2 (b), row 2), producing spatially uniform predictions due to its inability to exploit spatial relationships. The ResNet captures surface concentra-tion depletion at steps k = 100 , 200 , but fails to propagate gradients into the particle interior due to its incremental spatial context assembly through network depth. While predictions converge by k = 300 , this transient lag could underestimate diffusion limitations during rapid load changes. The FNO shows intermediate performance, with spatial artifacts near the current collector (Fig. 2 (b), row 5, x ≈ 0) and underestimated surface lithium depletion at step k = 300 (r = Rk). These limitations stem from the truncation of higher Fourier modes, which acts as a low-pass filter that effectively captures smooth global variations but attenuates the high-frequency content required for sharp spatial gradients. The U-Net maintains close agreement with DFN throughout, accurately resolving both surface depletion and radial gradient propagation into the particle core. Despite minor spatial discontinuities relative to the smooth DFN reference, its multi-scale convolutional features effectively capture the coupled diffusion dynamics. Error accumulation over the 300-step rollout (Fig. 3) quan-tifies the long-term autoregressive stability of each architec-ture. The U-Net demonstrates the best overall performance, maintaining gradual error growth and yielding the lowest final-step nRMSE for electrode concentrations ( cs,n , c s,p ≈ 2% )and electrolyte potential ( ϕe ≈ 3.5% ). ResNet achieves the lowest final error for electrolyte concentration ( ce ≈ 3% )and positive electrode potential ( ϕs,p ≈ 4.5% ), demonstrating long-term stability despite initially trailing the U-Net. The MLP maintains the lowest error for negative electrode poten-tial ( ϕs,n ≈ 2.5% ), despite showing rapid error growth in diffusion-dominated concentration fields ( cs,n , c s,p > 12% ). The FNO remains competitive in potential fields ( ϕs,n ≈ 3% ,
+
+ϕs, ≈ 5% ) where instantaneous equilibrium dominates, but its performance in concentration fields is limited by spectral mode truncation. These results confirm that multi-scale hi-erarchical processing (U-Net) most efficiently captures both smooth global fields and sharp localized gradients, whereas architectures optimized for local (ResNet) or global (FNO) features alone exhibit variable-dependent limitations. 
+
+B. System-Level Performance 
+
+Terminal voltage and SOC are evaluated to assess whether internal state prediction accuracy translates to reliable system-level predictions. These quantities are tested under CC dis-charge at 1C, 2C, and 3C from fully charged conditions (Fig. 4). The U-Net maintains close alignment with the DFN reference at 1C and 2C, with more notable deviations emerg-ing at 3C. ResNet exhibits pronounced C-rate dependence, achieving excellent accuracy at 2C but degrading substantially at 1C and 3C. The FNO maintains reasonable voltage tracking at 1C and 2C but shows large deviations at 3C, while SOC predictions remain accurate only at 1C and drift substantially at higher C-rates. The MLP exhibits systematic overestimation of voltage and severe SOC drift across all C-rates, confirming its inability to capture electrochemical dynamics. Table III quantifies system-level performance by averaging errors from 300-step rollouts initiated at every valid timestep across each discharge trajectory. The U-Net achieves lowest errors for five of six metrics, with ResNet achieving lowest voltage RMSE at 2C (10.7 mV). The U-Net’s consistently low errors across all C-rates (≤16.1 mV, ≤2.23% SOC) demonstrate robust system-level prediction, while MLP’s large errors (33.5-45.6 mV, 7.9-12.4% SOC) underscore the critical importance of spatial inductive bias.                                        
+
+> TABLE III TERMINAL VOLTAGE AND SOC RMSE U NDER CC D ISCHARGE
+> Voltage [mV] SOC [%]
+> Model 1C 2C 3C 1C 2C 3C
+> MLP 33.5 45.6 36.0 7.94 12.40 9.20 ResNet 14.1 10.7 35.6 2.89 3.25 10.42 U-Net 6.9 11.7 16.1 1.20 0.73 2.23
+> FNO 16.7 14.0 38.4 3.76 3.92 8.59 020 40 60
+> 900
+> 1000
+> 1100
+> ce [mol m −3]
+
+(a) k = 100    
+
+> 020 40 60
+
+k = 200    
+
+> 020 40 60
+
+k = 300                           
+
+> 020 40 60
+> −0.24
+> −0.23
+> −0.22
+> −0.21
+> φe [V]
+> 020 40 60 020 40 60
+> 010 20
+> −30
+> −20
+> −10
+> 0
+> φs, n  [μV]
+> 010 20 010 20
+> 40 50 60
+> 3.60
+> 3.65
+> 3.70
+> φs, p  [V]
+> 40 50 60 40 50 60
+> 40 50 60
+
+x  
+
+> 40000
+> 41000
+> 42000
+> cs, p  [mol m −3]
+> 40 50 60
+
+x  
+
+> 40 50 60
+
+x
+
+> 0
+> 10
+> 20
+
+r
+
+> DFN
+
+(b) k = 100 k = 200 k = 300 
+
+> 0
+> 10
+> 20
+
+r
+
+> MLP
+> 0
+> 10
+> 20
+
+r
+
+> ResNet
+> 0
+> 10
+> 20
+
+r  
+
+> U-Net
+> 010 20
+
+x
+
+> 0
+> 10
+> 20
+
+r  
+
+> FNO
+> 010 20
+
+x  
+
+> 010 20
+
+x      
+
+> 050 100 150 200 250 300
+
+Rollout Step k
+
+> 0
+> 1
+> C-Rate
+
+(c) 
+
+> 9750
+> 10000
+> 10250
+> 10500
+> 10750
+> 11000
+> 11250
+> 11500
+> cs, n  [mol m −3]
+
+DFN MLP ResNet U-Net FNO Fig. 2. Spatiotemporal evolution of internal states during 300-step autoregressive rollout under a WLTC driving cycle. (a) 1D spatial profiles at steps 
+
+k = 100 , 200 , 300 , showing electrolyte concentration ( ce) and potential ( ϕe) across the full cell, electrode potentials ( ϕs,n , ϕ s,p ), and radially-averaged positive electrode concentration ( ¯cs,p ). (b) 2D negative electrode concentration ( cs,n ) fields at steps k = 100 , 200 , 300 , resolved over electrode thickness ( x)and particle radius ( r). (c) Applied C-rate profile over the 300-step rollout, representative of WLTC driving cycle dynamics. 100 200 300 
+
+0
+
+2
+
+4
+
+> nRMSE [%]
+
+ce
+
+100 200 300 
+
+0
+
+5
+
+10 
+
+cs, n 
+
+100 200 300 
+
+0
+
+5
+
+10 
+
+cs, p 
+
+100 200 300 
+
+Rollout Step k
+
+0.0 
+
+2.5 
+
+5.0 
+
+7.5 
+
+> nRMSE [%]
+
+φe
+
+100 200 300 
+
+Rollout Step k
+
+0
+
+1
+
+2
+
+3
+
+φs, n 
+
+100 200 300 
+
+Rollout Step k
+
+0
+
+2
+
+4
+
+6
+
+φs, p 
+
+MLP ResNet U-Net FNO 
+
+Fig. 3. Evolution of nRMSE over 300-step autoregressive rollout for each internal state variable. Errors are spatially averaged over grid points and averaged across all test trajectories. Each panel shows a different internal state variable ( ce, cs,n , cs,p , ϕe, ϕs,n , ϕs,p ). 0 50 100 150 200 250 300                                         
+
+> Rollout Step k
+> 3.5
+> 3.6
+> 3.7
+> 3.8
+> 3.9
+> 4.0
+> Terminal Voltage [V]
+> 050 100 150 200 250 300
+> Rollout Step k
+> 0.850
+> 0.875
+> 0.900
+> 0.925
+> 0.950
+> 0.975
+> 1.000
+> SOC [%]
+> DFN MLP ResNet U-Net FNO DFN MLP ResNet U-Net FNO 1C 2C 3C Fig. 4. Terminal voltage and SOC predictions during 300-step rollouts at 1C, 2C, 3C CC discharge from fully charged conditions. TABLE IV COMPUTATIONAL EFFICIENCY OF SURROGATE MODELS
+> Model Inference (ms/step) Speed-up (vs. DFN) Parameters (M) Peak Memory (MB)
+> MLP 0.45 24 .16 ×3.25 12.44 ResNet 3.71 2.93 ×2.65 10.15 U-Net 2.02 5.38 ×2.95 11.30 FNO 1.90 5.72 ×3.30 25.07
+
+C. Computational Efficiency 
+
+Table IV summarizes the computational requirements of each surrogate, benchmarking inference latency against the PyBaMM DFN solver (10.87 ms/step on single CPU core), with all surrogates achieving considerable speed-up (2.93– 24.16 ×). The U-Net achieves the most favorable balance of predictive fidelity with computational efficiency (5.38 × speed-up, 11.30 MB memory), making it most suitable for real-time deployment. While the MLP offers the fastest inference (24.16 ×), its poor accuracy precludes practical deployment. ResNet achieves the lowest speed-up (2.93 ×) despite compet-itive accuracy. The FNO’s high memory footprint (25.07 MB) may constrain embedded deployment despite competitive speed-up (5.72 ×). All architectures have comparable parame-ter counts (2.65–3.30 M), confirming performance differences stem from inductive biases rather than model capacity. 
+
+D. Sensitivity Analysis 1) Impact of Current Conditioning Method: To assess the effect of current conditioning on prediction accuracy, ResNet, U-Net, and FNO are each trained with three conditioning methods (concatenation, CIN, FiLM). Table V reports global nRMSE averaged over 300-step test rollouts, revealing that the optimal conditioning strategy is architecture-dependent. ResNet benefits most from CIN (3.03%), where instance-level feature modulation aligns well with its incremental residual learning. The U-Net achieves the lowest error with FiLM (1.70%), where channel-wise modulation allows adaptive fea-ture scaling across its multi-scale encoder-decoder structure. Conversely, the FNO performs best with simple concatena-tion (3.72%), suggesting that input-level conditioning better preserves the spectral representations than intermediate fea-               
+
+> TABLE V CURRENT CONDITIONING METHOD COMPARISON
+> Model Concatenation CIN FiLM
+> ResNet 5.26% 3.03% 5.17% U-Net 1.76% 2.35% 1.70%
+> FNO 3.72% 6.92% 4.11%
+
+ture modulation. The U-Net with FiLM achieves the lowest overall error, establishing it as the optimal configuration for autoregressive DFN surrogate modeling. 
+
+2) Impact of Training Unroll Horizon: The impact of training unroll horizon K on rollout stability is analyzed to assess its role in mitigating exposure bias (Fig. 5). In-creasing K consistently reduces error accumulation across all architectures, with ResNet showing the largest quantifiable improvement (70% final-step nRMSE reduction from K = 1 
+
+to K = 10 ). Critically, U-Net and FNO trained with K = 1 
+
+diverged and are excluded from the figure, demonstrating that these architectures require multi-step gradients to learn self-stabilizing dynamics. These results validate the selection of 
+
+K = 10 as the optimal operating point, balancing robust long-horizon stability with the computational cost of backpropaga-tion through the unrolled sequence. 50 100 150 200 250 300                
+
+> Rollout Step k
+> 0.0
+> 2.5
+> 5.0
+> 7.5
+> 10.0
+> 12.5
+> 15.0
+> 17.5
+> 20.0
+> nRMSE [%]
+> MLP ResNet U-Net FNO 1-step 5-step 10-step
+> Fig. 5. Impact of training unroll horizon Kon 300-step rollout stability. Global nRMSE evolution for K= 1 ,5,10 across all architectures.
+
+VII. C ONCLUSION AND OUTLOOK 
+
+This work presented a systematic comparison of four neu-ral surrogate architectures (MLP, ResNet, U-Net, FNO) for autoregressive prediction of internal electrochemical states of the DFN model, isolating the effect of spatial inductive bias on predictive fidelity, long-horizon stability, and computational efficiency. The results demonstrate that this spatial processing characteristic critically determines the surrogate performance. The MLP, lacking explicit spatial structure, exhibits the highest overall error accumulation. ResNet improves stability through local spatial processing but captures coupled dynamics less efficiently due to its gradual information propagation. The FNO captures global interactions through spectral methods but shows degraded performance in resolving localized spatial variations in concentration fields. The U-Net’s hierarchical multi-scale architecture bridges these complementary limita-tions, aligning with the coupled dynamics of the DFN model by representing both globally coupled potentials and locally evolving concentrations. This yields the most favorable trade-off between predictive fidelity and computational efficiency, achieving a mean final-step nRMSE of 3% across all internal state variables after 300-step rollouts, while maintaining a 5.38 × speed-up over the numerical solver. Beyond architectural choice, two methodological factors are identified as essential for robust autoregressive performance. Multi-step unrolled training significantly reduces error accu-mulation across all architectures and is necessary to prevent divergence for U-Net and FNO. In addition, the effectiveness of current conditioning is highly architecture-dependent, re-quiring alignment with each model’s spatial processing char-acteristics. Since both factors were applied consistently, the observed performance hierarchy is primarily attributable to differences in spatial inductive bias. The scope of this study is bounded by the isothermal formu-lation of the DFN model and the use of a single cell chemistry and parameterization. While these conditions are sufficient for a controlled comparison of architectural inductive biases, the transferability of the observed performance hierarchy across diverse cell chemistries and extended physical modeling do-mains remains to be validated. Furthermore, the surrogate operates in open-loop, requiring accurate initial internal states that are not directly measurable in practice, while accumulated errors remain uncorrected throughout the rollout. Future work will address these limitations by evaluating the framework across multiple cell chemistries and parameteriza-tions, and extending the methodology to coupled electrother-mal dynamics and degradation mechanisms. In parallel, inte-grating the surrogate into a closed-loop observer framework, where feedback from measurable system-level quantities such as terminal voltage iteratively corrects internal state predic-tions, will reduce sensitivity to initialization uncertainty and mitigate long-horizon drift. These extensions aim to advance the practical viability of high-fidelity surrogate models for real-time internal state observability in next-generation BMS and digital twins. REFERENCES [1] Y. Li, D. Karunathilake, D. M. Vilathgamuwa, Y. Mishra, T. W. Farrell, S. S. Choi, and C. Zou, “Model order reduction techniques for physics-based lithium-ion battery management: A survey,” IEEE Industrial Electronics Magazine , vol. 16, no. 3, pp. 36–51, 2021. [2] M. Doyle, T. F. Fuller, and J. Newman, “Modeling of galvanostatic charge and discharge of the lithium/polymer/insertion cell,” Journal of the Electrochemical Society , vol. 140, no. 6, p. 1526, 1993. [3] A. Hussain, Z. Mao, M. Li, M. Ahmed, W. Xu, J. Zhang, and Z. Chen, “A comprehensive review of the pseudo-two-dimensional (P2D) model: Model development, solutions methods, and applications,” Advanced Theory and Simulations , vol. 8, no. 5, p. 2401016, 2025. [4] C. Ji, J. Dai, C. Zhai, J. Wang, Y. Tian, and W. Sun, “A review on lithium-ion battery modeling from mechanism-based and data-driven perspectives,” Processes , vol. 12, no. 9, p. 1871, 2024. [5] H. A. A. Ali, L. H. J. Raijmakers, K. Chayambuka, D. L. Danilov, P. H. L. Notten, and R.-A. Eichel, “A comparison between physics-based li-ion battery models,” Electrochimica Acta , vol. 493, p. 144360, 2024. [6] S. G. Marquis, V. Sulzer, R. Timms, C. P. Please, and S. J. Chapman, “An asymptotic derivation of a single particle model with electrolyte,” 
+
+Journal of the Electrochemical Society , vol. 166, no. 15, pp. A3693– A3706, 2019. [7] M. B. McKay, B. Gopaluni, and B. Wetton, “Learning the pseudo two dimensional model for lithium-ion batteries with state of health detection,” Engineering Applications of Artificial Intelligence , vol. 163, p. 113178, 2026. [8] W. Li, J. Zhang, F. Ringbeck, D. J¨ ost, L. Zhang, Z. Wei, and D. U. Sauer, “Physics-informed neural networks for electrode-level state estimation in lithium-ion batteries,” Journal of Power Sources , vol. 506, p. 230034, 2021. [9] H. Mirzaee and S. Kamrava, “Estimation of internal states in a li-ion battery using BiLSTM with bayesian hyperparameter optimization,” 
+
+Journal of Energy Storage , vol. 74, p. 109522, 2023. [10] Y. Huang, C. Zou, Y. Li, and T. Wik, “Minn: Learning the dynamics of differential-algebraic equations and application to battery model-ing,” IEEE Transactions on Pattern Analysis and Machine Intelligence ,vol. 46, no. 12, pp. 11 331–11 344, 2024. [11] M. Hassanaly, P. J. Weddle, R. N. King, S. De, A. Doostan, C. R. Randall, E. J. Dufek, A. M. Colclasure, and K. Smith, “PINN surrogate of li-ion battery models for parameter inference, part II: Regularization and application of the pseudo-2D model,” Journal of Energy Storage ,vol. 98, p. 113104, 2024. [12] M.-S. Lee, J. Oh, D.-C. Lee, K. Lee, S. Park, and Y. Hong, “Forward and inverse simulation of pseudo-two-dimensional model of lithium-ion batteries using neural networks,” Computer Methods in Applied Mechanics and Engineering , vol. 438, p. 117856, 2025. [13] K. He, X. Zhang, S. Ren, and J. Sun, “Deep residual learning for image recognition,” in Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition , 2016, pp. 770–778. [14] O. Ronneberger, P. Fischer, and T. Brox, “U-net: Convolutional net-works for biomedical image segmentation,” in International Conference on Medical Image Computing and Computer-Assisted Intervention .Springer, 2015, pp. 234–241. [15] Z. Li, N. Kovachki, K. Azizzadenesheli, B. Liu, K. Bhattacharya, A. Stuart, and A. Anandkumar, “Fourier neural operator for parametric partial differential equations,” in International Conference on Learning Representations , 2021. [16] E. Perez, F. Strub, H. De Vries, V. Dumoulin, and A. Courville, “Film: Visual reasoning with a general conditioning layer,” in Proceedings of the AAAI Conference on Artificial Intelligence , vol. 32, no. 1, 2018. [17] V. Dumoulin, J. Shlens, and M. Kudlur, “A learned representation for artistic style,” in International Conference on Learning Representations ,2017. [18] J. Brandstetter, D. E. Worrall, and M. Welling, “Message passing neural pde solvers,” in International Conference on Learning Representations ,2022. [19] V. Sulzer, S. G. Marquis, R. Timms, M. Robinson, and S. J. Chapman, “Python battery mathematical modelling (PyBaMM),” Journal of Open Research Software , vol. 9, no. 1, 2021.

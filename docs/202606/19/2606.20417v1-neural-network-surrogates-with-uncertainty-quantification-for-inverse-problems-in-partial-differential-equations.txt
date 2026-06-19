@@ -1,0 +1,2585 @@
+Title: Neural network surrogates with uncertainty quantification for inverse problems in partial differential equations
+
+URL Source: https://arxiv.org/pdf/2606.20417v1
+
+Published Time: Fri, 19 Jun 2026 01:10:58 GMT
+
+Number of Pages: 30
+
+Markdown Content:
+# NEURAL NETWORK SURROGATES WITH UNCERTAINTY QUANTIFICATION FOR INVERSE PROBLEMS IN PARTIAL DIFFERENTIAL EQUATIONS 
+
+A P REPRINT 
+
+Christian Jimenez-Beltran 
+
+School of Mathematics and Maxwell Institute for Mathematical Sciences University of Edinburgh 
+
+s2113174@ed.ac.uk 
+
+Aretha L. Teckentrup 
+
+School of Mathematics and Maxwell Institute for Mathematical Sciences University of Edinburgh 
+
+a.teckentrup@ed.ac.uk 
+
+Antonio Vergari 
+
+School of Informatics University of Edinburgh 
+
+avergari@ed.ac.uk 
+
+Konstantinos C. Zygalakis 
+
+School of Mathematics and Maxwell Institute for Mathematical Sciences University of Edinburgh 
+
+k.zygalakis@ed.ac.uk 
+
+## ABSTRACT 
+
+Inverse problems for differential equations arise throughout science and engineering, where one seeks to infer unknown model parameters from noisy or incomplete observations. Traditional numerical methods for these problems are often computationally expensive, particularly in Bayesian settings where evaluating the likelihood becomes costly for complex forward models and high-dimensional parameter spaces. To address this challenge, we introduce DeepGaLA, a neural-network surrogate for differential equation solvers that provides uncertainty-aware predictions, reducing overconfident inference when training data are limited. To evaluate the fidelity of the surrogate-induced posterior approximations in practice, we show that a short run of delayed-acceptance Markov chain Monte Carlo can serve as an effective diagnostic. Across a range of numerical experiments, DeepGaLA delivers forward-model approximations with accuracy comparable to established Gaussian-process surrogates, while better maintaining efficiency as parameter dimension grows. Moreover, it can incorporate differential-equation constraints, including in nonlinear settings. Overall, these results indicate that uncertainty-quantified neural surrogates can enable scalable and reliable Bayesian inference for inverse problems in complex systems. 
+
+Keywords Inverse Problems · PDEs · Surrogates · Neural Networks · Bayesian · Uncertainty Quantification · Laplace Approximation 
+
+## 1 Introduction 
+
+Differential equations (DEs) are fundamental mathematical tools for modeling and analyzing a wide range of phenomena, from biological systems to fluid dynamics. However, modeling real-world phenomena such as weather dynamics or neutron transport in cancer therapy often involves complex, high-dimensional DEs, which require estimating parameters that are not directly observable. To address this challenge, recent approaches employ data-driven frameworks to infer model parameters from observations. In this context, inverse problems play a central role, as they provide a framework to infer parameters from incomplete, indirect, and noisy observations [ 21 , 36 ]. Inverse problems are, however, often ill-posed, meaning that they may admit multiple solutions or that the solution may be highly sensitive 
+
+> arXiv:2606.20417v1 [cs.LG] 18 Jun 2026
+
+arXiv Template A P REPRINT 
+
+to the observational data [ 21 , 38 , 4]. A Bayesian framework addresses these challenges by regularizing the problem and incorporating prior information as well as parameter uncertainty. In this setting, the goal is to obtain the posterior distribution, which characterizes the statistical properties of the parameters conditioned on the available observations [36, 37, 71, 44]. Although the Bayesian framework offers significant advantages including uncertainty quantification, the posterior distribution is rarely available in closed form. Consequently, the posterior distribution is typically approximated using either variational or Markov chain Monte Carlo (MCMC) methods. Variational methods involve defining a parameterized family of candidate distributions and selecting the member that best approximates the posterior [ 35 , 6]. In contrast, MCMC methods approximate the posterior by generating samples from it [ 54 , 26 , 61 ], which can then be used to estimate expectations and other quantities of interest. However, a key challenge of MCMC methods is that they typically require evaluating the likelihood function at each iteration, often millions of times to ensure the convergence of the MCMC method. Since each likelihood evaluation involves solving the DE numerically, the overall computation can become extremely expensive. Approaches such as multilevel (Markov chain) Monte Carlo [ 23 , 18 ] and Delayed Acceptance MCMC (DA-MCMC) [9, 49 ] have been developed to reduce the computational cost of posterior sampling. Other approaches such as surrogate models have been studied to enable an efficient evaluation of the likelihood function. Examples of such models include polynomial chaos expansions [ 84 , 52 ], sparse grid methods [ 1, 51 ], and Gaussian processes [ 39 , 64 , 2, 8 , 3]. More recently, neural networks have proven to be highly effective models for both regression and classification tasks, including image recognition and language processing, among others [ 24 , 76 , 73 ]. Building on these advances and the universal approximation capability of neural networks [ 32 ], deep learning approaches have been studied to introduce a new class of surrogate models that use neural networks to approximate solutions to differential equations, allowing fast and scalable solutions for high-dimensional or computationally expensive problems. Deep learning approaches can be broadly divided into three categories. One class consists of data-driven models, such as DeepONet [ 48 ], Fourier Neural Operators (FNO) [ 45 ], and Laplace Neural Operators [ 7 ], which learn mappings between function spaces. These methods have demonstrated strong performance in approximating solutions of parametric PDEs; however, they typically require large amounts of training data, which are often generated using expensive numerical solvers. For comprehensive reviews of neural operator methods, we refer to [42, 41, 14]. Physics-informed deep models constitute another class of approaches, as they incorporate physical laws directly into the neural network and may not require the explicit solution of the PDE for training. One of the first models introducing this concept is the Deep Galerkin Method (DGM), proposed in [ 68 ] for approximating solutions of high-dimensional Hamilton–Jacobi–Bellman PDEs and other quasilinear parabolic PDEs. DGM employs a neural network architecture similar to Long Short-Term Memory (LSTM) networks [ 31 ] and is trained using randomly sampled collocation points in the domain of the PDE to approximate solutions efficiently. Other examples include the popular Physics-Informed Neural Networks (PINNs) [ 59 ], which embed the governing physical laws into the loss function, and the Deep Ritz Method (DRM) [ 19 ], which reformulates the PDE as a variational problem to construct the loss function. Compared to DGM, PINNs were originally introduced to solve non-parametric PDEs; however, there has been substantial research extending PINNs to parametric problems and addressing various challenges, including training stability and generalization. For a comprehensive overview, we refer the reader to recent surveys on Physics-Informed Neural Networks, which discuss both their theoretical foundations and practical limitations [12, 16]. A third class of deep learning approaches for solving PDEs combines neural operators with physics-informed losses. Examples include the Physics - Informed Neural Operator (PINO) [ 46 ], which integrates a FNO with a physics-based loss, and the Physics - Informed DeepONet [ 79 ], which embeds PDE constraints directly into the DeepONet training process. These methods reduce the dependence on large training datasets while ensuring that the learned solution operators satisfy the underlying physical laws. Despite the promise of these approaches, training neural networks to achieve a desired level of accuracy remains challenging, as it often requires large amounts of data, and the choice of architecture can significantly affect performance. Moreover, neural networks tend to be overconfident in their predictions [ 43 ], even when their outputs are far from the ground truth, making them unreliable as surrogate models, particularly at unseen collocation points (i.e., out-of-distribution scenarios). Therefore, to effectively use deep neural networks as surrogates, it is crucial to obtain calibrated uncertainty estimates for the numerical approximation of DEs [29, 10]. To address these limitations, we propose DeepGaLA, Deep Galerkin via Laplace Approximation, a neural network method for approximating solutions of parametric PDEs while providing uncertainty quantification. Our approach combines the DGM with a Bayesian neural network obtained by randomizing the last layer and applying a Laplace approximation [ 70 ]. To the best of our knowledge, this is the first method to integrate Laplace-based uncertainty quantification into the DGM framework for parametric PDEs. The resulting model not only approximates the forward 2arXiv Template A P REPRINT 
+
+model efficiently but also provides calibrated uncertainty estimates, which are particularly important in limited-data regimes and for Bayesian inverse problems. The main contributions of this work are as follows: 1. We provide a natural Bayesian formulation for the deep Galerkin method by reinterpreting the minima achieved by the loss function as the maximum a posteriori (MAP) estimate associated with a Gaussian likelihood function. In our proposed method, DeepGaLA, the corresponding posterior is then approximated using a Laplace approximation, enabling efficient uncertainty estimation for neural network surrogates for partial differential equations. 2. Through a series of numerical experiments, we demonstrate (i) the computational efficiency of DeepGaLA and (ii) the importance of incorporating uncertainty in the surrogate model, particularly when the neural network is trained with limited data. We further show that DeepGaLA achieves comparable performance to popular alternative surrogates based on Gaussian processes, albeit with an improved scaling to high-dimensional parameter spaces and applicability also to non-linear PDEs. 3. We propose to use a short run of the delayed acceptance MCMC algorithm to evaluate the accuracy of surrogate posteriors when having access to a reference "true" posterior is infeasible, and provide a theoretical analysis to justify this approach. The rest of the paper is organized as follows. In Section 2, we introduce the PDE formulation and the inverse problems of interest. In Section 3, we discuss surrogate models and the different posterior approximations that arise from using random surrogate models. We present the methodology for constructing a neural random surrogate and also review Gaussian Processes and their use as surrogates. Section 4 focuses on MCMC methods used to sample from and assess the quality of posterior approximations. In Section 5, we present a number of numerical experiments demonstrating the computational benefits of surrogates, with particular emphasis on neural network surrogates. Finally, Section 6 concludes the paper by summarizing the proposed methodology, discussing the main findings, and outlining potential directions for future work. 
+
+## 2 Preliminaries 
+
+In this section, we set up the differential equations formulation and provide examples of the problems of interest. We also review the Bayesian framework for inverse problems and discuss some of the advantages and disadvantages of this setting. 
+
+2.1 Parametric PDE Formulation 
+
+Consider a bounded domain D ⊂ Rdx with boundary ∂D and a bounded parameter space T ⊂ Rdθ . Let W and Y
+
+denote Hilbert spaces on D, and let W∂ and Y∂ denote Hilbert spaces on ∂D . A general parametric PDE can then be written as: 
+
+AθA [u(x, θ )] = f (x, θ A), x ∈ D, θ ∈ T ,
+
+BθB [u(x, θ )] = g(x, θ B), x ∈ ∂D, θ ∈ T , (1) where u(·, θ ) ∈ W ∩ W ∂ is the solution of the PDE for a given θ = ( θA, θ B) ∈ T , AθA : W × T → Y is a general differential operator parameterized by θA, BθB : W∂ × T → Y ∂ denotes the initial and boundary conditions operator parameterized by θB, and f ∈ Y , g ∈ Y ∂ are the forcing and boundary data parametrized by θA and θB, respectively. Note that A may be nonlinear, and the input variable x could include time as a component. 
+
+Example 1. Consider the Darcy flow equation, which is a prototypical second order linear elliptic PDE used to model fluid flow in porous media, 
+
+−∇ ·  α(x, θ ) ∇u(x, θ ) = f (x), x ∈ D, θ ∈ T ,u(x, θ ) = 0 , x ∈ ∂D, 
+
+with u(·, θ ) ∈ H10 (D) denoting the pressure field and α(·, θ ) ∈ L∞(D) the permeability. The coefficient field α(x, θ )
+
+is typically modeled as a random field and parametrized using a Karhunen–Loève (KL) expansion, 
+
+log α(x, θ ) = ¯ α(x) + 
+
+> ∞
+
+X
+
+> i=1
+
+√μi ϕi(x) θi, θi ∼ N (0 , 1) ,
+
+where {μi, ϕ i(x)}∞ 
+
+> i=1
+
+are the eigenvalues and eigenfunctions of the covariance operator of the random field. In practice, this infinite sum is truncated to the first dθ terms. For this example, the operators are 
+
+AθA [ · ] = −∇ ·  α(x, θ ) ∇(·) and BθB [ · ] = I. 
+
+3arXiv Template A P REPRINT 
+
+Example 2. As a prototypical example of a nonlinear PDE, we consider the 2D incompressible Navier–Stokes equations in vorticity–stream function form, which describe viscous incompressible flow: 
+
+∂w (z, t, θ )
+
+∂t + U (z, t, θ ) · ∇ w(z, t, θ ) = ν∇2w(z, t, θ ), (z, t ) ∈ D, θ ∈ T ,
+
+∇2ψ(z, t, θ ) = −w(z, t, θ ), (z, t ) ∈ D, w(z, 0, θ ) = w0(z, θ ), z ∈ Ds,
+
+where D = Ds × (0 , T ) ⊂ Rd3 , Ds ⊂ R2 denotes the spatial domain and T ∈ R+. The term 
+
+U (z, t, θ ) = ( u1(z, t, θ ), u 2(z, t, θ )) is the velocity, with components derived from the stream function as u1(z, t, θ ) = 
+
+∂ψ (z, t, θ )/∂z 2 and u2 = −∂ψ (z, t, θ )/∂z 1. We additionally enforce periodic boundary conditions w(·, θ ) ∈
+
+L2 (0 , T ); H1 
+
+> per
+
+(Ds), and the initial vorticity is modeled through a truncated KL expansion, 
+
+w0(z, θ ) = ¯ w(z) + 
+
+> dθ
+
+X
+
+> i=1
+
+√μi ϕi(z) θi, θi ∼ N (0 , 1) ,
+
+where {μi, ϕ i(z)}dθ 
+
+> i=1
+
+are again the eigenvalues and eigenfunction of the covariance operator of the initial conditions. With x := ( z, t ), u(x, θ ) := ( w(x, θ ), ψ (x, θ )) and f = g = 0 , we then have 
+
+AθA [u] = 
+
+A1 
+
+> θA
+
+[u]
+
+A2 
+
+> θA
+
+[u]
+
+
+
+, with A1 
+
+> θA
+
+[ u ] = ∂tw + U (x, θ ) · ∇ w − ν∇2w, A2 
+
+> θA
+
+[ u ] = ∇2ψ + w, 
+
+BθB [u] = 
+
+ IθB [u]
+
+Bp,θ B [u]
+
+
+
+, with IθB [u] = w(x, θ ) t=0 , Bp,θ B [u] → w(·, t, θ ), ψ (·, t, θ ) are periodic on Ds.
+
+2.2 Bayesian Inverse Problems 
+
+The objective of inverse problems in differential equations, is to determine the parameters θ ∈ T given observations 
+
+y ∈ Rdy of the model solution subject to noise η. Typically, one assumes that the data are modeled in the following way: 
+
+y = GX(θ) + η, (2) where η ∼ N (0 , Γ) , Γ ∈ Rdy ×dy , and GX : T → Rdy is known as the observation operator. For instance, this operator can be defined as GX(θ) = {u(xi, θ )}dy i=1 , mapping the parameter θ to the solution of the PDE evaluated at the spatial (and possibly temporal) observation points X = {x1, .., x dy } ⊂ D.In a Bayesian framework, θ and y are treated as random variables. Then, the goal is to determine the probability measure of θ conditioned on y, denoted by μy , with a density πy (θ). In the absence of data, θ is distributed according to the prior measure μ0, which we assume admits a density π0(θ) with respect to the Lebesgue measure. Then, by Bayes’ formula, we have 
+
+πy (θ) ∝ l(y|θ)π0(θ), (3) where we identify l(y|θ) ∝ exp  − 12 ∥y − G X(θ)∥2Γ
+
+ as the data likelihood describing the probability of obtaining the observations y given a set of parameters θ and ∥z∥2Γ = zT Γ−1z is the norm weighted by Γ−1. The Bayesian framework provides a principled form of regularization via the prior distribution and under suitable regularity conditions the Bayesian inverse problem is well-posed, admitting a unique posterior measure that depends continuously on the data in the Hellinger distance (see e.g. [71, 44]). A major challenge of the Bayesian framework is that one often relies on Markov Chain Monte Carlo (MCMC) methods to compute quantities of interest, such as expectations, due to the lack of a closed-form expression for πy (θ). Typically, MCMC algorithms require millions of iterations to obtain a good approximation of the posterior distribution, which in turn requires evaluating the likelihood millions of times. Since each likelihood evaluation involves numerically solving a PDE, the overall computational cost can become prohibitively high, particularly for high-dimensional problems. 
+
+## 3 Surrogate Models In Bayesian Inverse Problems 
+
+This section introduces surrogate models as a means of reducing the high computational cost associated with evaluating the likelihood in the Bayesian inverse problem setting. We begin by defining surrogate models and discussing how they can be employed to approximate the posterior distribution. A central part of this section focuses on neural network–based surrogates [ 24 , 32 , 55 , 17 ]: we first present the fundamentals of neural networks and explain how 4arXiv Template A P REPRINT 
+
+they can be applied to approximate solutions of parametric PDEs. We then introduce a framework for constructing neural network surrogates equipped with uncertainty quantification. The section concludes with a review of Gaussian processes, a class of models that inherently provide uncertainty estimates alongside their predictions and have been shown to be effective surrogates in a variety of settings. These will be used as a benchmark for comparison in our numerical examples. 
+
+3.1 Surrogate models and approximate posteriors 
+
+Surrogates, or emulators, are models designed to accelerate the evaluation of computationally expensive models; in our case, they are used to accelerate the forward model GX. Instead of repeatedly solving the full numerical model, surrogate approaches approximate the input–output map of the forward model. Once constructed, the surrogate can be evaluated at a significantly lower computational cost, making Bayesian inference feasible. Conventional surrogates typically provide only deterministic predictions, whereas random surrogates also quantify uncertainty, which is essential to assess the reliability of the model. A common example is Gaussian Process (GP) regression, a random surrogate that has been extensively studied in terms of performance and the error induced by its use [69, 39, 64, 72, 28]. Suppose we employ a random surrogate, characterized by a discretization parameter or training parameter N, and let GS,NX (θ) ∼ μS,N denote the corresponding approximation to the observation operator of a surrogate S distributed according to a measure μS,N, where X is fixed. The work of [ 47 , 72 ] introduces two approaches to approximate the posterior distribution (3) when employing a random surrogate: the mean and marginal approximations. The mean-based approximation of the posterior distribution is obtained using only the expected value of the random surrogate 
+
+EμS,N [GS,NX (θ)] . This yields the following expression: 
+
+πy, GS,NX 
+
+> mean
+
+(θ) = 1
+
+Zy, GS,NX
+
+> mean
+
+exp 
+
+
+
+− 12 ∥y − EμS,N [GS,NX (θ)] ∥2Γ
+
+
+
+π0(θ),Zy, GS,NX 
+
+> mean
+
+= Eμ0
+
+
+
+exp 
+
+
+
+− 12 ∥y − EμS,N [GS,NX (θ)] ∥2Γ
+
+ 
+
+.
+
+(4) The marginal approximation , in contrast, directly uses the random surrogate in the likelihood and then takes the expectation of the resulting expression. This leads to: 
+
+πy, GS,NX
+
+> marginal
+
+(θ) = 1
+
+Zy, GS,NX
+
+> marginal
+
+EμS,N
+
+
+
+exp 
+
+
+
+− 12 ∥y − G S,NX (θ)∥2Γ
+
+ 
+
+π0(θ),Zy, GS,NX 
+
+> marginal
+
+= Eμ0
+
+
+
+EμS,N
+
+
+
+exp 
+
+
+
+− 12 ∥y − G S,NX (θ)∥2Γ
+
+ 
+
+.
+
+(5) Surrogates are often constructed from a limited computational resources, which can introduce uncertainty or limit their accuracy. Taking into account this uncertainty is therefore essential. In this context, the marginal approximation offers a key advantage: it incorporates the uncertainty of the surrogate model, thereby improving robustness in scenarios where the emulator may yield inaccurate approximations [10, 2]. In the particular case where the random surrogate is Gaussian, GS,NX (θ) ∼ N (mG
+
+> S,N
+
+(θ), ΓS,N(θ, θ ′)) , with mG
+
+> S,N
+
+(θ) ∈
+
+Rdy and ΓS,N(θ, θ ′) ∈ Rdy ×dy , the equations (4) and (5) can be simplified to: 
+
+πy, GS,NX 
+
+> mean
+
+(θ) ∝ exp 
+
+
+
+− 12 ∥y − mG
+
+> S,N
+
+(θ)∥2Γ
+
+
+
+π0(θ), (6) 
+
+πy, GS,NX
+
+> marginal
+
+(θ) ∝ 1
+
+pdet(Γ + Γ S,N(θ, θ )) exp 
+
+
+
+− 12 ∥y − mG
+
+> S,N
+
+(θ)∥2Γ+Γ S,N(θ,θ )
+
+
+
+π0(θ). (7) From these expressions, we observe that the marginal approximation accounts for the surrogate’s uncertainty. As the surrogate becomes more confident in its predictions, i.e., as ΓS,N decreases, the marginal approximation approaches the mean approximation, particularly when ΓS,N ≪ Γ [2]. Furthermore, both the mean and marginal approximations under suitable assumptions converge to the true posterior as N → ∞ [72, 28]. 
+
+3.2 Neural Networks 
+
+We are interested in building a neural network surrogate that approximates the observation operator, GX . First, we define a neural network following the presentation of [ 5, 25 ]. A feedforward neural network is a function 5arXiv Template A P REPRINT 
+
+fa(·; W) : Rd0 → RdL characterized by its architecture a and its weights or parameters W. The architecture 
+
+a = ( Nn, σ ) is characterized by the number of neurons per layer Nn = ( d0, . . . , d L) ∈ NL+1 , where L is the number of layers, and by an activation function σ : R → R. Let Ck(z) = W kz + bk denote a linear transformation, where 
+
+Wk ∈ Rdk ×dk−1 , b k ∈ Rdk . Denote the operation σ(Ck(x)) =  σ(( Ck)1(x)) , . . . , σ (( Ck)dk (x))  as the application of the activation function component-wise and Φ(0) (x; W) = x the network input. Then a feedforward neural network with architecture a and weights W = {(W i, b i)}Li=1 has the following composition rule: 
+
+fa(x; W) = CL(Φ (L−1) (x; W)) ,
+
+Φ(l+1) (x; W) = σ Cℓ+1 (Φ (l)(x; W)) , l = 0 , . . . , L − 2. (8) The input layer for the neural network corresponds to Φ(1) , while the hidden layers are represented by the intermediate functions Φ(l+1) for l = 1 , . . . , L − 2. . The most commonly used activation functions are the hyperbolic tangent and the rectified linear unit (ReLU), defined as σ(x) = tanh( x) and σ(x) = max(0 , x ), respectively [24, 12]. Given a training dataset D = {(xi, y i)}Ni=1 , where xi ∈ Rd0 and yi ∈ RdL , the goal of deep learning is to find the optimal weights W∗ of a neural network fa(·; W) such that the following empirical loss (or empirical risk) is minimized: 
+
+W∗ = arg min 
+
+> W
+
+L(D; W) = arg min 
+
+> W
+
+1
+
+N
+
+> N
+
+X
+
+> i=1
+
+ℓ (fa(xi; W) , y i) .
+
+Here ℓ : RdL × RdL → R denotes the loss function, which measures the error error between the prediction fa(xi; W) 
+
+and the true value yi. Typical choices include the mean squared error (MSE) for regression, ℓ fa(xi; W) , y i
+
+ =
+
+∥fa(xi; W) − yi∥22 , and the cross-entropy loss for classification tasks [24]. The minimization problem is typically solved using optimization techniques such as gradient-based methods. Once the minimization has been carried out, f a 
+
+> W∗
+
+has been trained. Despite the success of neural networks, it is still unclear how to design a neural network that guarantees achieving a prescribed error level. Several works have focused on improving our understanding of neural networks and on establishing approximation error bounds. Some works in this direction include [ 15 ], which studied the approximation error of two-layer neural networks with hyperbolic tangent activation functions, [ 27 ], which investigated the connection between ReLU activation functions and the finite element method (FEM), and [ 67 ], in which theoretical results concerning the approximation error bounds of shallow networks were established. In particular, the work of [ 65 ] presents rates of convergence for ReLU neural networks for a specific class of functions. Specifically, they derive these rates by first showing that Hermite polynomials can be approximated by ReLU neural networks, and then by showing that functions which can be expanded in terms of Hermite polynomials can also be approximated by ReLU neural networks. This result demonstrates the potential capabilities of neural networks; however, it remains unclear how to construct and train such networks to guarantee a certain level of accuracy. An informal version of Theorem 4.7 of [ 65 ], which applies to ReLU activation functions and approximation of functions f of dθ < ∞
+
+parameters, is stated as follows: 
+
+Proposition 1. Let f : T → R be sufficiently regular. Then there exist constants C1, C 2, depending on f and dθ ,such that for every M ∈ N there exists a feedforward neural network fa(·; W) with architecture a = ( Nn, σ ) and 
+
+σ = max(0 , x ) satisfying 
+
+∥f − fa(·; W) ∥L2(T ) ≤ C1 exp 
+
+
+
+−2− 12 C2M 12dθ +7 
+
+
+
+,
+
+and LX
+
+> i=1
+
+didi−1 + di ≤ CM (1 + log( M )) , L ≤ CM 32dθ +7 (1 + log( M )) 2 .
+
+In the following section, we review a method that employs neural networks to approximate solutions of parametric PDEs and demonstrate how this methodology can be used to construct a random surrogate model. 
+
+3.2.1 Neural Parametric PDE Solver 
+
+The Deep Galerkin Method (DGM) was introduced in [ 68 ] as a mesh-free approach for approximating solutions to parametric PDEs, enabling efficient scaling to high-dimensional problems in space and parameter variable. The original work demonstrated the method’s capabilities on high-dimensional Hamilton–Jacobi–Bellman PDEs and other quasilinear parabolic PDEs, and its effectiveness as a surrogate for solving inverse problems was later shown in [ 17 ]. Next, we will review this methodology. 6arXiv Template A P REPRINT 
+
+Consider the problem given by equation (1) , and a neural network fa(·; W) : ¯D × T → W ∩ W ∂ . The training dataset is D = DA ∪ D B = {D A,i }NA 
+
+> i=1
+
+∪ {D B,i }NB 
+
+> i=1
+
+with collocation points DA,i = ( xi, θ i) and DB,i = ( x∂i , θ i) where 
+
+xi ∼ πD , x∂i ∼ π∂D , and θi ∼ πT , independently. Here, πD , π∂D , and πT are probability densities defined on D, ∂D ,and T , respectively. We then define the training loss as: 
+
+L(D; W) = λALA(DA; W) + λBLB(DB; W) ,
+
+LA(DA; W) = 1
+
+NA
+
+> NA
+
+X
+
+> i=1
+
+AθA,i [fa(DA,i ; W)] − f (xi, θ A,i ) 2
+
+,
+
+LB(DB; W) = 1
+
+NB
+
+> NB
+
+X
+
+> i=1
+
+BθB,i [fa(DB,i ; W)] − g(x∂i , θ B,i ) 2
+
+.
+
+(9) where LA(DA; W) measures the error in the approximation of the differential operator, and LB(DB; W ) measures the error in the boundary and/or initial conditions. The terms λA and λB are weighting factors that adjust the contributions of different loss terms, accounting for the fact that they may be on different scales. In the case of time-dependent PDEs, it has been noted the loss defined in (9) can lead to violations of temporal causality. Therefore, [77] recommends partitioning the temporal domain into M segments and instead defining LA as follows: 
+
+LA(DA; W) = 1
+
+M
+
+XMi=1 wiLA(Di
+
+> A
+
+; W ), wi = exp −
+
+> i−1
+
+X
+
+> l=1
+
+LA(Dl
+
+> A
+
+; W )
+
+!
+
+, for i = 2 , . . . , M. 
+
+Here, Di 
+
+> A
+
+⊂ D A contains all the collocation points in the ith time segment. In doing so, the neural network is encouraged to learn the solution of the PDE progressively along the time axis, since Li 
+
+> A
+
+will not be minimized unless the preceding losses {L k
+
+> A
+
+}i−1 
+
+> k=1
+
+are sufficiently small to ensure that wi is large. 
+
+Algorithm 1 Training Pipeline of Deep Galerkin Method 
+
+Input: Neural network fa(·; W) , data training D, initial weights {λi}Ki=1 , {wi}Mi=1 set to one, learning rate γ, weight update frequency l, and total iterations S.
+
+Output: Trained network fa(·; W ∗) with optimal weights W∗.1. Similar to (9), consider a loss function with K components as L(D; W) = PKi=1 λiL(Di; W) 
+
+2. for n = 1 to S do 
+
+(a) Evaluate Li(Di, W) for i = {1, . . . , K }.(b) if n mod l = 0 then 
+
+i. Compute adaptive loss weights: 
+
+λi = 1
+
+K ·
+
+PKj ∥∇ WLj ∥2
+
+∥∇ WLi∥2
+
+, for i = {1, . . . , K }.
+
+ii. Update λ = ( λi, . . . , λ K ) using a moving average: 
+
+λnew = αλ old + (1 − α)ˆλnew .
+
+(c) Update network weights W via gradient descent with learning rate γ.In general, we are interested in determining the optimal values of the neural weights, W∗, such that fa(( x, θ ); W ∗) ≈
+
+u(x, θ ). This is done by minimizing (9) using a stochastic gradient-based method [ 40 ]. In this work, we combine the algorithm proposed by [ 68 ] with the approach of [ 78 ]. The latter proposes a training pipeline for PINNs that addresses issues such as unbalanced backpropagation and causality violation. algorithm 1 presents the methodology for training the neural network used in this work when the loss function consists of K different components, which may include boundary conditions, initial conditions, source terms, or multiple differential operators. In this work, we fixed the dataset from the beginning, as we observed that this improves the accuracy of the neural network in our experiments. However, for very high-dimensional problems, this approach may become problematic, and it can be more effective to resample the data at each iteration of the algorithm as in the original pipeline of the DGM. The loss weights are adaptively updated to ensure that the different components of the loss function evolve at similar rates, preventing the optimization process from being biased toward any specific term. 7arXiv Template A P REPRINT 
+
+3.2.2 Neural Network Architecture 
+
+The architecture, a, used in this work to define the mapping f ENC  
+
+> a
+
+(·; W) , is a modification of the feed-forward neural network inspired by the neural attention mechanism and it was proposed by [ 78 ]. It consists of two encoders that project the inputs into higher dimensions, and these encoders then modify the hidden layers through pointwise multiplication in a residual connection style. Let us consider two encoders V, U : ¯D × T → Rdn and define the following operation: 
+
+˜σσ (y) = σ(y) ⊙ U (z) + (1 − σ(y)) ⊙ V (z), V (z) = σ(CV (z)) , U (z) = σ(CU (z)) , (10) where z = ( x, θ ), ⊙ denotes element-wise multiplication and the subscript in ˜σσ indicates the activation function used; for example, ˜σtanh means that σ(·) = tanh( ·) is applied in the operation. Then, the mapping f ENC  
+
+> a
+
+(·; W) is defined by an architecture specified through a = ( Nn, ˜σσ ), following a composition rule analogous to that presented in (8) , where the network dimensions are chosen as Nn = ( dx + dθ , d n, . . . , d n, d L) ∈ NL+1 and the activation function is fixed as 
+
+σ(·) = tanh( ·). The trainable parameters are collected in W = {(W V , b V ), (W U , b U ), (W l, b l)Ll=1 }.It has been observed that deep neural networks tend to learn low-frequency components of a target function first, a phenomenon known as spectral bias. This was noted in the work of [ 57 ], where the authors analyzed ReLU neural networks using Fourier analysis. The problem was later revisited through the framework of the Neural Tangent Kernel (NTK), a tool for analyzing the training dynamics of neural networks [ 34 ]. Spectral bias is also present in vanilla PINNs; therefore, to mitigate this issue, [ 74 , 80 , 78 ] proposed adding random Fourier feature embeddings before passing inputs through the architecture described above. This embedding γ : Rdx+dθ → RdF +dθ is defined as: 
+
+γ(z) = [cos( Bx ), sin( Bx ), θ ],
+
+where B ∈ R dF  
+
+> 2×dx
+
+is sampled from a Gaussian distribution N (0 , σ 2 
+
+> F F
+
+), and it is recommended that σ2 
+
+> F F
+
+∈ [1 , 10] .Note that this embedding is applied to the spatio-temporal collocations only. Therefore, when using these embeddings, the neural network with Fourier Embeddings is f FF  
+
+> a
+
+(z; W) = f ENC  
+
+> a
+
+(γ(z); W) .Although the training process and neural network architecture described above is effective, neural networks typically need large amounts of data to perform well and are prone to overconfidence in their predictions, even when those predictions are far from accurate. This issue becomes especially critical when neural networks are employed as surrogate models, particularly in cases involving out-of-distribution inputs. Therefore, obtaining well-calibrated uncertainty estimates is essential, as they offer a key way to recognize when the predictions of neural networks may not be reliable. In the following section, we present a methodology that enables neural networks to incorporate uncertainty through a fast approximation, allowing us to capture meaningful uncertainty in out of domain interpolation of the PDE solution. 
+
+3.2.3 DeepGaLA 
+
+Uncertainty quantification (UQ) has been extensively studied for neural networks used as function approximators [ 83 , 82 ]. More recently, research has also explored UQ for neural PDE solvers, such as Physics-Informed Neural Networks (PINNs) and DeepONets [ 56 ]. In this section, we introduce DeepGaLA, a random neural surrogate that combines the DGM methodology with a Laplace Approximation to efficiently approximate the forward model, GX,while providing uncertainty estimates. To equip the neural network with uncertainty estimation, we adopt a Bayesian approach for the weights W in fa(·; W) .Our objective is then to compute the posterior distribution p(W |D ). This posterior is conditioned on A and B from (1) , as these terms define the likelihood. The dataset D consists of collocation points sampled from the distributions 
+
+πD , π ∂D , and πT as in section 3.2.1. We interpret the loss in (9) as a negative log-likelihood by modeling Gaussian noise around the fictitious data observed at the collocation points. The likelihood function is given by: 
+
+p(D| W) = p(DA|W) p(DB|W) ∝
+
+> NA
+
+Y
+
+> i=1
+
+exp 
+
+
+
+− LA(DA,i ; W) 2σ2
+
+> A
+
+ NBY
+
+> i=1
+
+exp 
+
+
+
+− LB(DB,i ; W) 2σ2
+
+> B
+
+
+
+,
+
+where σ2 
+
+> i
+
+= σ2
+
+> dG
+
+/λ i for i ∈ A , B. We assume that the likelihoods of the location DA and DB are conditionally independent given W. To complete the Bayesian formulation, we introduce a Gaussian prior p(W) . Applying Bayes’ theorem, we obtain the posterior distribution p(W |D ) ∝ p(D| W) p(W) which in general is intractable. The Laplace Approximation (LA) [ 70 ] is a well-known methodology for approximating the generally intractable posterior distribution with a Gaussian centered at the maximum a posteriori (MAP) solution, WMAP , and has been successfully applied to deep learning methodologies [ 50 , 13 ]. DeepGaLA employs a Laplace approximation to provide uncertainty quantification for neural network predictions and proceeds in two stages. First, a neural network is trained to minimize the loss function (9) using algorithm 1, thereby obtaining the MAP estimate, WMAP . Second, a local Gaussian distribution is fitted around WMAP , where the covariance matrix is given in terms of the Hessian of the 8arXiv Template A P REPRINT 
+
+negative log-posterior evaluated at WMAP . By considering a weight decay regularizer, which corresponds to a Gaussian prior distribution p(W) = N (W; 0 , γ 2I) [13], the inverse covariance matrix takes the form 
+
+−∇ 2Wlog p(W |D ) = − 12σ2
+
+> A
+> NA
+
+X
+
+> i=1
+
+∇2Wlog p(DA,i |W )|WMAP − 12σ2
+
+> B
+> NB
+
+X
+
+> i=1
+
+∇2Wlog p(DB,i |W) |WMAP + γ−2I. 
+
+However, computing this matrix can be computationally expensive, as its complexity scales quadratically with the number of parameters. It has been shown that randomizing the weights and computing a LA on just the last layer, WL =(W L, b L), of neural networks can achieve good results and it is often sufficient to produce reliable uncertainty estimates, as noted by [ 66 ]. Hence,we treat only the last-layer weights WL probabilistically to obtain the posterior distribution 
+
+p(WL|D ). Then, we compute the Hessian matrix using the generalized Gauss-Newton (GGN) approximation, a widely used technique for efficiently approximating the Hessian in deep learning settings [ 66 ]. The precision matrix 
+
+Λ−1 ∈ RdL×dL of WL is then given by: 
+
+Λ−1 = 1
+
+σ2
+
+> A
+> NA
+
+X
+
+> i=1
+
+JWL (Ai) JWL (Ai)T |WMAP + 1
+
+σ2
+
+> B
+> NB
+
+X
+
+> i=1
+
+JWL (Bi) JWL (Bi)T |WMAP + γ−2I, (11) where JWL (·) ∈ RdL represents the Jacobian with respect to the weights of the final layer, WL. The entries of these Jacobians are given by JWL,i (Al) = ∂∂WiL
+
+AθA,l [fa(DA,l ; W)] and JWL,i (Bl) = ∂∂WiL
+
+BθB,l [fa(DB,l ; W)] .The final step required to characterize the posterior distribution over the last-layer weights consists of optimizing the hyperparameters σ2 
+
+> dG
+
+and γ, which in this work are initially chosen by maximizing the log-likelihood. However, we observed that jointly optimizing both parameters causes the uncertainty estimates produced by DeepGaLA to shrink very rapidly. To address this, we optimize γ while fixing σ2 
+
+> dG
+
+= 1 , which leads to more reliable uncertainty estimates. For further details, we refer the reader to Appendix A. Once γ has been tuned, the posterior predictive distribution can be computed by exploiting the fact that the neural network is linear in the last layer, allowing a Gaussian approximation of the output. Then, for any test input zi = ( xi, θ i), the predictive distribution is given by: 
+
+p(fa(z)|D ) = N
+
+
+
+fa(zi; W MAP ), Φ(L−1) (zi; W MAP )T ΛΦ (L−1) (zi; W MAP )
+
+
+
+,
+
+where fa(zi; W MAP ) denotes the network output at the MAP estimate, and Φ(L−1) (zi; W MAP ) is defined according to the composition rule in (8) . In the case of multiple test inputs z = {zi}dy
+
+> i=1
+
+, the model output is given by a multivariate Gaussian distribution: 
+
+p(fa(z)|D ) = N
+
+
+
+mf
+
+> dG ,N
+
+(z), ΓdG ,N(z, z ′)
+
+
+
+, (12) where 
+
+mf
+
+> dG ,N
+
+(z) =  fa(z1; W MAP ), . . . , f a(zdy ; W MAP ) ,
+
+ΓdG ,N(z, z ′) = 
+
+
+
+Φ(L−1) (z1; W MAP )T ΛΦ (L−1) (z1; W MAP ) · · · Φ(L−1) (z1; W MAP )T ΛΦ (L−1) (zdy ; W MAP )
+
+... . . . ...
+
+Φ(L−1) (zdy ; W MAP )T ΛΦ (L−1) (z1; W MAP ) · · · Φ(L−1) (zdy ; W MAP )T ΛΦ (L−1) (zdy ; W MAP )
+
+ .
+
+(13) This formulation leverages the structure of deep neural networks to enable tractable and scalable uncertainty estimation. Although DeepGaLA has been presented using feedforward neural networks, fa(·; W) , the framework can be can be applied to architectures such as f ENC  
+
+> a
+
+(·; W) and f FF  
+
+> a
+
+(·; W) . With this formulation, we can construct a random neural network surrogate for GX, which we denote by GdG ,NX and follows a multivariate Gaussian distribution with mean 
+
+mG 
+
+> dG ,N
+
+and covariance ΓdG ,N.
+
+3.3 Gaussian Process Regression 
+
+An alternative approach for constructing a random surrogate model is to use a nonparametric method, such as Gaussian Process (GP) regression. GP regression inherently provides uncertainty estimates when approximating a function, making them an ideal benchmark for assessing the performance of DeepGaLA. For simplicity, we first consider the approximation of scalar-valued functions g : T → R. The first step is to place a Gaussian prior on g in the following way: 
+
+g0 ∼ GP (m(θ), k (θ, θ ′)) , (14) 9arXiv Template A P REPRINT 
+
+where m : T → R is the mean function and k : T × T → R is the kernel function. The choice of kernel reflects assumptions about the smoothness and structure of the function g; among the most commonly used kernels are the Matérn and squared exponential Gaussian kernels [ 53 , 60 ]. Assume that we have access to N design points Θ = {θi}Ni=1 
+
+with corresponding function values g(Θ) = [ g(θ1), . . . , g (θN)] ∈ RN . Denote by gN the Gaussian process conditioned on the observed values g(Θ) , also called the posterior predictive. Then, 
+
+gN ∼ GP (mg
+
+> N
+
+(θ), k N(θ, θ ′)) , (15) where the predictive mean and covariance functions are given by 
+
+mg
+
+> N
+
+(θ) = m(θ) + k(θ, Θ) K(Θ , Θ) −1(g(Θ) − m(Θ)) ,kN(θ, θ ′) = k(θ, θ ′) − k(θ, Θ) ⊤K(Θ , Θ) −1k(θ′, Θ) . (16) Here, k(θ, Θ) = [ k(θ, θ 1), . . . , k (θ, θ N)] ∈ RN , and K(Θ , Θ) ∈ RN ×N is the kernel matrix evaluated at the design points, with entries K(Θ , Θ) ij = k(θi, θ j ).One of the interests when employing GPs for regression tasks is to assess how well the GP can approximate a function as more design points are used. A key concept that measures how well a set of design points fills the space T is the fill distance hΘ, defined as 
+
+hΘ = sup 
+
+> θ∈T
+
+inf  
+
+> θn∈Θ
+
+∥θ − θn∥2. (17) The fill distance can be interpreted as the largest gap between any point in T and its closest design point in Θ. We are now ready to state a convergence theorem from [81], which guarantees convergence of mg 
+
+> N
+
+to the true function g.
+
+Proposition 2. Suppose T ⊆ Rdθ is a bounded Lipschitz domain that satisfies an interior cone condition, and the symmetric positive definite kernel k is such that its Reproducing kernel Hilbert space Hk is isomorphic to the Sobolev space Hτ (T ), with τ = n + r, n ∈ N, n > d θ /2 and 0 ≤ r < 1. Suppose mg 
+
+> N
+
+is given by (16) with m = 0 . If 
+
+g ∈ Hτ (T ), then there exists a constant C, independent of g, Θ and N , such that 
+
+∥g − mg
+
+> N
+
+∥Hβ (T ) ≤ Ch τ −β 
+
+> Θ
+
+∥g∥Hτ (T ), for any β ≤ τ, 
+
+for all sets Θ with hΘ sufficiently small. 
+
+proposition 2 indicates that, as dθ increases, Gaussian processes become less effective at approximating the function g,since the fill distance hΘ usually scales as N −1/d θ (see e.g. [75] and the references therein). 
+
+3.3.1 Gaussian Process Regression as a Surrogate 
+
+So far, we have presented GP regression to approximate real-valued functions. However, to construct a surrogate for GX,the framework presented so far must be extended to a multi-output GP. This extension can be achieved by considering a prior over GX of the form: 
+
+GX,0 ∼ GP (0 , K (θ, θ ′)) ,
+
+where we have chosen zero mean for simplicity and K : T × T → Rdy ×dy is the covariance kernel. The kernel is often considered in the form K(θ, θ ′) = kp(θ, θ ′)Idy , where Idy ∈ Rdy ×dy is the identity matrix and kp(θ, θ ′) : T × T → R
+
+is a scalar-valued kernel in parameter space. This assumption reduces the multi-output GP to independent GPs for each output dimension, as in (14). The predictive mean and covariance can be formulated analogously to (16). An important remark when constructing a surrogate for GX is that this function depends not only on θ but also on the spatial observations X. To account for spatial correlation, the work of [ 2 ] provides a method to introduce spatial correlation and incorporate information from the PDE by extending the model of [ 58 ] to parametric equations. We refer to this prior as a physics-informed Gaussian Process (PIGP), and briefly introduce this framework below. The starting point for the PIGP prior is a (scalar-valued) prior on the PDE solution u of the form 
+
+u0(x, θ ) ∼ GP (0 , k p(θ, θ ′) ks(x, x ′)) .
+
+If the differential operator in Equation (1) is linear, and for the sets Xf = {xi}df 
+
+> i=1
+
+⊆ D and Xg = {xi}dg 
+
+> i=1
+
+⊆ ∂D , the (joint) PIGP prior is 
+
+U (θ) = 
+
+" u(X, θ )
+
+g(Xg , θ )
+
+f (Xf , θ )
+
+#
+
+∼ GP (0 , K (θ, θ ′)) , (18) 10 arXiv Template A P REPRINT 
+
+where K(θ, θ ′) ∈ Rdy +df +dg ×dy +df +dg is given by 
+
+K(θ, θ ′) = kp(θ, θ ′)
+
+
+
+Ks(X, X ) Bθ′B Ks(X, X g ) Aθ′A Ks(X, X f )
+
+BθB Ks(Xg , X ) BθB Bθ′B Ks(Xg , X g ) BθB Aθ′A Ks(Xg , X f )
+
+AθA Ks(Xf , X ) AθA Bθ′B Ks(Xf , X g ) AθA Aθ′A Ks(Xf , X f )
+
+ .
+
+Then 
+
+GX,N = GX(θ) u(X, Θ) , g (Xg , Θ) , f (Xf , Θ) ∼ GP 
+
+
+
+muN,X f ,X g (θ), K N,X f ,X g (θ, θ ′)
+
+
+
+, (19) where the marginal predictive mean and covariance are given by 
+
+muN,X f ,X g (θ) = [ Kuu (θ, Θ) Kug (θ, Θ) Kuf (θ, Θ)] K(Θ , Θ) −1U (Θ) ,KN,X f ,X g (θ, θ ′) = K(θ, θ ′) − [Kuu (θ, Θ) Kug (θ, Θ) Kuf (θ, Θ)] K(Θ , Θ) −1
+
+
+
+Kuu (θ′, Θ) 
+
+Kug (θ′, Θ) 
+
+Kuf (θ′, Θ) 
+
+ , (20) where Kuu (θ, Θ) = kp(θ, Θ) Ks(X, X ) ∈ Rdy ×dy N , K ug (θ, Θ) = kp(θ, Θ) BθB Ks(X, X g ) ∈ Rdy ×dg N ,Kuf (θ, Θ) = kp(θ, Θ) AθA Ks(X, X f ) ∈ Rdy ×df N , and K(Θ , Θ) ∈ RN (dy +df +dg )×N (dy +df +dg ).
+
+For more details on this model, we refer the reader to [ 2 ]. With the exposition so far, we can now construct a surrogate for GX, which we denote by GGP ,NX when using a GP surrogate with mean mG 
+
+> GP ,N
+
+and covariance ΓGP ,N := KN. In the case where we use a PIGP, it should be understood that GPIGP ,NX represents the surrogate with mean and covariance given by Equations (20) and denoted by mG 
+
+> PIGP ,N
+
+and ΓPIGP ,N := KPIGP ,N, respectively. 
+
+## 4 Sampling from the posterior 
+
+This section is devoted to reviewing algorithms for generating samples from the mean and marginal approximated posterior distributions obtained from a random surrogate model. In particular, we review the Metropolis–Hastings (MH) algorithm for generating samples from a target density, π(θ) [ 54 , 26 , 61 ]. The second part presents an approach for assessing the accuracy of posterior approximations in situations where computing the true posterior is prohibitively expensive. The section concludes with an analysis of this methodology and provides convergence rates for the case of Gaussian process regression. 
+
+4.1 Metropolis-Hastings Algorithm 
+
+Given an initial state θ0, such that π(θ0) > 0, and a proposal density q(˜θ|θj ), the MH algorithm generates samples 
+
+{θj }∞
+
+> j=1
+
+, such that θj ∼ π(θ) as j → ∞ . algorithm 2 describes the MH algorithm used to generate a finite set of samples {θj }NS 
+
+> j=1
+
+from the target distribution. In practice, the first n0 samples are discarded, as they may still be far from the target distribution. These samples constitute the so called burn-in of the algorithm. A common rule of thumb is to set the burn-in period to approximately 10% of the total samples. Therefore, the samples used for inference are 
+
+{θj }NS
+
+> j=n0+1
+
+.
+
+Algorithm 2 Metropolis-Hastings MCMC 
+
+Input: Initial state θ0, proposal distribution q(·| θj ), target distribution π(·) and number of iterations NS .
+
+Output: {θj }NS
+
+> j=1
+
+.
+
+for j = 0 to NS − 1 do 
+
+(a) Given θj , generate new candidate ˜θ from q(˜θ|θj ).(b) Accept ˜θ as a sample with probability : 
+
+αMH (˜θ|θj ) = min 1, π(˜θ)q(θj |˜θ)
+
+π(θj )q(˜θ|θj )
+
+!
+
+, (21) i.e θj+1 = ˜θ with probability α(˜θ|θj ) and θj+1 = θj with probability 1 − α(˜θ|θj ).11 arXiv Template A P REPRINT 
+
+Despite its apparent simplicity, selecting an appropriate proposal distribution is crucial and often challenging. The random-walk proposal is a common choice. It uses a Gaussian proposal distribution centered at θj with covariance 
+
+β2Idθ , i.e. q(˜θ | θj ) = N  θj ; β2Idθ
+
+. Equivalently, the proposed move can be written as follows, 
+
+˜θ = θj + β ξ, ξ ∼ N (0 , I dθ ), β > 0.
+
+The random walk proposal is symmetric, which means that q(θj |˜θ) = q(˜θ|θj ) and the acceptance probability depends only on the target distribution, 
+
+αMH (˜θ | θj ) = min 1, π(˜θ)
+
+π(θj )
+
+!
+
+. (22) The parameter β is often referred to as the proposal variance, and its choice should not be overlooked. If β is too small, the parameter space is explored inefficiently due to very small moves. On the other hand, if β is too large, the algorithm rejects proposals more frequently, which also leads to poor exploration. In both cases, the resulting Markov chain can exhibit large variance and slow mixing. The optimal choice of β has been studied in [ 62 ], where it was shown that for Gaussian target distributions that β should be tuned to achieve an acceptance rate of approximately 0.234 , which minimizes the asymptotic variance. Although this result was derived under specific assumptions, it is widely used as a practical rule of thumb. We refer to the value of β that yields an acceptance rate close to 0.234 as the optimal proposal variance. It is worth noting that the MH algorithm allows for a wide variety of proposal distributions. In particular, when the posterior distribution is differentiable with respect to the parameters, proposals can be designed that take advantage of the gradient information to improve efficiency. A well-known example is based on the Langevin equation resulting in the Metropolis-adjusted Langevin algorithm (MALA) [63]. As seen in Equation (22) , even with the simplifications provided by the random-walk proposal, the data likelihood must generally still be evaluated at each iteration until convergence. This process can become computationally expensive in inverse problems in PDEs due to the need to compute the forward model GX, which often requires a numerical approximation such as the Finite Element Method or Spectral Methods. Therefore, when employing surrogates to alleviate this burden, the objective is to draw samples from the mean and marginal approximate posteriors, given by Equations (4) and (5) . However, the question remains whether these approximate posteriors are close to or far from the true posterior. In the next section, we discuss this in more detail. 
+
+4.2 Evaluation of Posterior Approximations 
+
+Controlling the error between the approximate posterior and the true posterior is a desirable property when using surrogate models. In the case of numerical methods, such as the Finite Element Method (FEM), it has been shown that the approximate posterior converges to the true posterior as the discretization of the observational operator is refined, provided that the MCMC algorithm has converged [ 11 , 30 ]. For random surrogate models, one ideally seeks that both the mean and marginal approximate posterior, πy, GS,NX 
+
+> mean
+
+(θ) and πy, GS,NX
+
+> marginal
+
+, converge to the true posterior πy as N → ∞ .For GP surrogates based on standard kernels as defined in equations (16) , it has indeed been shown that the approximate posteriors, induced by the mean and marginal approximations, converge to the true posterior in the Hellinger distance [ 72 , 28 ]. However, in practice, one often has access to only a limited number of design points. In such cases, the approximate posterior induced by the surrogate may still be far from the true posterior. On the other hand, surrogate models such as neural networks are less theoretically understood, and there is no clear guarantee of convergence to the true posterior. In this section, we describe a computable quantity αval that can be used to assess the accuracy of the approximate posterior distributions. The quantity is derived from the Delayed Acceptance MCMC (DA-MCMC) algorithm [ 9, 49 ], which employs a two-stage procedure to generate samples from a target distribution: the first stage uses a coarse, computationally inexpensive model to pre-screen proposed candidates, which are then evaluated with a finer, more accurate but costly model, thereby avoiding unnecessary evaluations of the fine model. The main benefit is that the quantity αval can be computed with a much smaller number of evaluations of the fine model compared to a full exploration of the posterior distribution with the fine model. algorithm 3 presents the approach to validate the approximate posterior distribution using the DA-MCMC algorithm. The central idea is to assess whether samples accepted for the approximate posterior by the MH algorithm are also consistent with the true posterior. The true posterior is approximated by a reference solution, denoted by πy,F , obtained from a sufficiently accurate numerical approximation of the forward model, GFX. Assume that we want to evaluate the accuracy of the surrogate-approximated posterior with a budget of NF evaluations of the fine model. Starting from the final sample θNS of the surrogate posterior produced by Algorithm 2, we run the DA-MCMC algorithm until the fine 12 arXiv Template A P REPRINT 
+
+model has been evaluated NF times. With Nacc the number of proposals tested and accepted by the fine model, we define αval as: 
+
+αval = Nacc 
+
+NF
+
+. (23) Intuitively, αval takes small values when the approximate posterior distribution πy,S associated with the surrogate S is 
+
+Algorithm 3 Posterior Validation via Delayed Acceptance MCMC 
+
+Input: Initial state θ = θNS given by Algorithm 2, surrogate posterior approximation πy,S (·), reference posterior 
+
+πy,F (·), proposal distribution q(·| θ) and number of evaluations of the fine model NF .
+
+Output: Acceptance rate αval = Nacc /N F
+
+1. Initialize nF = 0 .2. while nF < N F do 
+
+(a) Given the current state θ, generate a candidate ˜θ from q(˜θ|θ) and compute the coarse acceptance probability :
+
+˜α(˜θ|θ) = min 1, πy,S (˜θ)q(θ|˜θ)
+
+πy,S (θ)q(˜θ|θ)
+
+!
+
+.
+
+(b) If ˜θ is not accepted, return to step (a). Otherwise, update nF ← nF + 1 and compute the fine acceptance probability :
+
+α(˜θ|θ) = min 1, πy,F (˜θ) πy,S (θ)
+
+πy,F (θ) πy,S (˜θ)
+
+!
+
+. (24) (c) If ˜θ is accepted in step (b), set θ = ˜θ and Nacc ← Nacc + 1 .
+
+far from the reference posterior πy,F , and conversely large values when the surrogate posterior distribution is close the true posterior. As we will see in Section 5, the value of αval provides a meaningful diagnostic also for small values of 
+
+NF .In order to justify the use of αval as a convergence metric, we now analyze the fine acceptance probability α of algorithm 3 and show that this converges to 1 as the error between our surrogate model and the reference solution GFX
+
+goes to zero. Note that if α ≡ 1 in algorithm 3 then αval = 1 , and furthermore E[1 − αval ] = E
+
+h
+
+1 − Nacc 
+
+> NF
+
+i
+
+= E[1 − α]
+
+since E[Nacc ] = E[α]NF . We are hence interested in analyzing the expected probability of rejection, Eζ
+
+ 1 − α(˜θ|θ) ,
+
+where ζ denotes the joint distribution of a current state θ and a proposal ˜θ. Note that the proposal ˜θ has been accepted as a sample of πy,S in step (a), whereas, in the limit as the number of iterations j → ∞ , the current state θ is distributed according to πy,F . Therefore, for simplicity, we assume that the marginal distributions of ζ are πy,S and 
+
+πy,F , respectively. The following Theorem presents bounds for the expected probability of rejection when employing the mean and marginal approximations to the posterior, given in Equations (4) and (5) , denoted by Eζ
+
+h
+
+1 − αmean (˜θ|θ)
+
+i
+
+and 
+
+Eζ
+
+h
+
+1 − αmarginal (˜θ|θ)
+
+i
+
+, respectively. The proof follows closely the work of [18] and [72]. 1
+
+Theorem 1. Denote by ζ the joint distribution of θ and ˜θ, with marginals πy,F and πy,S , respectively, and denote by GS,NX ∼ μS,N the random surrogate model, with mean mG
+
+> S,N
+
+. Assume that sup θ∈T EμS,N ∥G S,NX (θ)∥22 ≤ C2S and 
+
+sup θ∈T ∥G FX(θ)∥2 ≤ CF, for some constants CS and CF independent of N. Then there exist constants C1 and C2,independent of N , such that: 
+
+Eζ
+
+h
+
+1 − αmean (˜θ|θ)
+
+i
+
+≤ C1∥G FX − mG
+
+> S,N
+
+∥L2  
+
+> πy,F (T)
+
+, and 
+
+Eζ
+
+h
+
+1 − αmarginal (˜θ|θ)
+
+i
+
+≤ C2
+
+
+
+EμS,N
+
+h
+
+∥G FX − G S,NX ∥1+ δ
+
+> 2
+
+i 1/(1+ δ)  
+
+> L2
+> πy,F (T)
+
+for any 0 < δ ≤ 1.
+
+> 1
+
+The weighted L2 norm of a function g : T → Rdy is defined as ∥g∥L2   
+
+> πy,F (T)
+
+= R 
+
+> T
+
+∥g(θ)∥22πy,F (θ) dθ =
+
+Pdy
+
+> i=1
+
+R 
+
+> T
+
+(gi(θ)) 2πy,F (θ) dθ. 
+
+13 arXiv Template A P REPRINT 
+
+Proof. It has been proved that the fine acceptance probability, (24), is given by [20, 49] 
+
+α(˜θ|θ) = min 1, πy,F (˜θ) πy,S (θ)
+
+πy,F (θ) πy,S (˜θ)
+
+!
+
+= min 1, lF (˜θ)π0(˜θ)lS (θ)π0(θ)
+
+lF (θ)π0(θ)lS (˜θ)π0(˜θ)
+
+!
+
+= min 1, lF (˜θ) lS (θ)
+
+lF (θ) lS (˜θ)
+
+!
+
+where li(θ) = li(y | θ), for i ∈ { S, F }, denotes the likelihood under the surrogate and fine models, respectively. Now, let us find a bound for the probability of rejection, 1 − α(˜θ|θ). If the ratio lF (˜θ)lS (θ)   
+
+> lF(θ)lS(˜θ)
+
+≥ 1, then 1 − α(˜θ|θ) = 0 .Otherwise, we have that 
+
+1 − α(˜θ|θ) = 1 − lF (˜θ)
+
+lS (˜θ)
+
+!
+
++ lF (˜θ)lS (θ)
+
+lF (θ)lS (˜θ)
+
+! 
+
+1 − lF (θ)
+
+lS (θ)
+
+
+
+≤ 1 − lF (˜θ)
+
+lS (˜θ) + 1 − lF (θ)
+
+lS (θ) .
+
+The last expression is valid for both approximations to the posterior distribution, the mean and the marginal. Let us first focus on the mean approximation to the posterior distribution and consider either of the last two terms. By using the definition of the likelihood, we have 
+
+1 − lF (θ)
+
+lSmean (θ) =
+
+exp 
+
+
+
+− 12 ∥y − mG
+
+> S,N
+
+(θ)∥2Γ
+
+
+
+− exp  − 12 ∥y − G FX(θ)∥2Γ
+
+
+
+exp 
+
+
+
+− 12 ∥y − mG
+
+> S,N
+
+(θ)∥2Γ
+
+
+
+≤ 1exp 
+
+
+
+− 12 ∥y − mG
+
+> S,N
+
+(θ)∥2Γ
+
+ exp 
+
+
+
+− 12 ∥y − mG
+
+> S,N
+
+(θ)∥2Γ
+
+
+
+− exp 
+
+
+
+− 12 ∥y − G FX(θ)∥2Γ
+
+
+
+.
+
+Using the triangle inequality and the inequality ∥x∥2Γ ≤ λmax ∥x∥22, where λmax is the maximum eigenvalue of Γ−1, the first term of the last inequality can be bounded in the following way 
+
+1exp 
+
+
+
+− 12 ∥y − mG
+
+> S,N
+
+(θ)∥2Γ
+
+ = exp 
+
+ 12 ∥y − mG
+
+> S,N
+
+(θ)∥2Γ
+
+
+
+≤ exp 
+
+
+
+λmax (∥y∥22 + ∥mG
+
+> S,N
+
+(θ)∥22)
+
+
+
+≤ exp  λmax (∥y∥22 + C2S ) ,
+
+where we have taken the supremum over θ, and noting that ∥mG
+
+> S,N
+
+(θ)∥22 = EμS,N [GS,NX (θ)] 22, which using Jensen’s inequality can be bounded by C2S by assumption. Then, define CB = exp  λmax (∥y∥22 + C2S ), and use the fact that the exponential function exp( −x) is locally Lipschitz on [0 , ∞), together with the triangle inequality, we obtain 
+
+1 − lF (θ)
+
+lSmean (θ) ≤ 12 CB ∥y − G FX(θ)∥2Γ − ∥ y − mG
+
+> S,N
+
+(θ)∥2Γ
+
+≤ 12 CB (∥y − mG
+
+> S,N
+
+(θ)∥Γ + ∥G FX(θ) − mG
+
+> S,N
+
+(θ)∥Γ)2 − ∥ y − mG
+
+> S,N
+
+(θ)∥2Γ
+
+= 12 CB (2 ∥y − mG
+
+> S,N
+
+(θ)∥Γ∥G FX(θ) − mG
+
+> S,N
+
+(θ)∥Γ + ∥G FX(θ) − mG
+
+> S,N
+
+(θ)∥2Γ)
+
+≤ 12 CB (2 λmax ∥y − mG
+
+> S,N
+
+(θ)∥2∥G FX(θ) − mG
+
+> S,N
+
+(θ)∥2 + λmax ∥G FX(θ) − mG
+
+> S,N
+
+(θ)∥22).
+
+Note that ∥y − mG
+
+> S,N
+
+(θ)∥2 ≤ ∥ y∥2 + ∥mG
+
+> S,N
+
+(θ)∥2 can be uniformly bounded using similar arguments as before. We now need to take the expectation of the above bound with respect to πy,F (for θ) and πy,S (for ˜θ). Note that for any random variable X, we have 
+
+Eπy,S [X] = 
+
+Z
+
+> T
+
+X 1
+
+ZS
+
+
+
+exp 
+
+
+
+− 12 ∥y − mG
+
+> S,N
+
+(θ)∥2Γ
+
+ 
+
+π0(θ)=
+
+Z
+
+> T
+
+X ZF
+
+ZS
+
+
+
+exp 
+
+
+
+− 12 ∥y − mG
+
+> S,N
+
+(θ)∥2Γ
+
+  exp  − 12 ∥y − G FX(θ)∥2Γ
+
+ πy,F (θ)
+
+≤ CS,F Eπy,F [X] ,
+
+14 arXiv Template A P REPRINT 
+
+where the constant CS,F = ZF 
+
+> ZS
+
+exp   λmax  
+
+> 2
+
+(∥y∥22 + C2F) is finite by assumption. Taking the expectation with respect to 
+
+ζ, and applying Minkowski’s inequality and Hölder’s inequality with p = ∞, q = 1 , we obtain 
+
+Eζ
+
+h
+
+1 − αmean (˜θ|θ)
+
+i
+
+≤ (1 + CS,F)λmax CB (∥y∥2 + CS)
+
+
+
+Eπy,F 
+
+h
+
+∥G FX − mG
+
+> S,N
+
+∥2
+
+i
+
++ Eπy,F 
+
+h
+
+∥G FX − mG
+
+> S,N
+
+∥22
+
+i 
+
+≤ C1∥G FX − mG
+
+> S,N
+
+∥L2  
+
+> πy,F (T)
+
+.
+
+The proof for the marginal approximation is similar. We have 
+
+1 − lF (θ)
+
+lSmarginal (θ) = 1 − exp  − 12 ∥y − G FX(θ)∥2Γ
+
+
+
+EμS,N
+
+ exp 
+
+
+
+− 12 ∥y − G S,NX (θ)∥2Γ
+
+ 
+
+≤ 1exp 
+
+
+
+EμS,N
+
+ − 12 ∥y − G S,NX (θ)∥2Γ
+
+ EμS,N
+
+
+
+exp 
+
+
+
+− 12 ∥y − G S,NX (θ)∥2Γ
+
+
+
+− exp 
+
+
+
+− 12 ∥y − G FX(θ)∥2Γ
+
+  
+
+.
+
+where Jensen’s inequality was applied to the exponential function as well as the absolute value. Note that the first term in the last inequality can be bounded again by the assumption, i.e., 
+
+1exp 
+
+
+
+EμS,N
+
+ − 12 ∥y − G S,NX (θ)∥2Γ
+
+ = exp 
+
+
+
+EμS,N
+
+ 12 ∥y − G S,NX (θ)∥2Γ
+
+
+
+≤ exp  λmax (∥y∥22 + C2S ) = CB,
+
+and, by using the local Lipschitz continuity of the exponential function, we proceed as in the mean approximation to obtain, 
+
+1 − lF (θ)
+
+lSmarginal (θ) ≤ 12 CB EμS,N
+
+h
+
+∥y − G FX(θ)∥2Γ − ∥ y − G S,NX (θ)∥2Γ
+
+i
+
+≤ 12 CB EμS,N
+
+h
+
+2λmax ∥y − G S,NX (θ)∥2∥G FX(θ) − G S,NX (θ)∥2 + λmax ∥G FX(θ) − G S,NX (θ)∥22
+
+i
+
+.
+
+Applying Minkowski’s inequality and Hölder’s inequality with conjugate exponents p = 1+ δδ and q = 1 + δ for some 
+
+0 < δ ≤ 1, to the first term in the last inequality, we have 
+
+1 − lF (θ)
+
+lSmarginal (θ) ≤ λmax CB
+
+
+
+EμS,N
+
+h
+
+∥y − G S,NX (θ)∥(1+ δ)/δ 
+
+> 2
+
+i δ/ (1+ δ) 
+
+EμS,N
+
+h
+
+∥G FX(θ) − G S,NX (θ)∥1+ δ
+
+> 2
+
+i 1/(1+ δ)
+
++ EμS,N
+
+h
+
+∥G FX(θ) − G S,NX (θ)∥22)
+
+i 
+
+.
+
+Taking the expectation with respect to ζ, and applying Minkowski’s inequality and Hölder’s inequality with p = ∞, q =1, we obtain 
+
+Eζ
+
+h
+
+1 − αmarginal (˜θ|θ)
+
+i
+
+≤ (1 + CS,F)λmax CB (∥y∥2 + CS)
+
+
+
+Eπy,F 
+
+
+
+EμS,N
+
+h
+
+∥G FX(θ) − G S,NX (θ)∥(1+ δ)/δ 
+
+> 2
+
+iδ/ (1+ δ)
+
++ Eπy,F 
+
+h
+
+EμS,N
+
+h
+
+∥G FX(θ) − G S,NX (θ)∥22
+
+ii 
+
+≤ C2
+
+
+
+EμS,N
+
+h
+
+∥G FX − G S,NX ∥1+ δ
+
+> 2
+
+i 1/(1+ δ)  
+
+> L2
+> πy,F (T)
+
+.
+
+This completes the proof. In the particular case of a Gaussian process surrogate model, an application of theorem 1 and proposition 2 gives the following convergence rates. 
+
+Proposition 3. Suppose we use a standard Gaussian process surrogate model GGP ,NX with K(θ, θ ′) = kp(θ, θ ′)Idy , as defined in (16) , and that the assumptions of proposition 2 are satisfied for g = GFX. Then there exist constants C1, C2,and C3, independent of N , such that 
+
+Eζ
+
+h
+
+1 − αmean (˜θ|θ)
+
+i
+
+≤ C1hτU , and Eζ
+
+h
+
+1 − αmarginal (˜θ|θ)
+
+i
+
+≤ C2hτU + C3hτ − dθ 
+
+> 2
+> U
+
+.
+
+15 arXiv Template A P REPRINT 
+
+Proof. First, we note that in the case of a Gaussian surrogate model, where GS,NX (θ) ∼ GP( mG
+
+> S,N
+
+(θ), ΓS,N(θ, θ ′)) ,the assumption in theorem 1 that sup θ∈T EμS,N ∥G S,NX (θ)∥22 ≤ C2S has been proven to hold in [ 72 ] using Fernique’s theorem, where in particular it is shown that the constant CS can be chosen independent of N . The other assumptions of theorem 1 are satisfied by proposition 2. The first claim follows from proposition 2 with β = 0 and the first statement of theorem 1, using that ∥ · ∥ L2   
+
+> πy,F (T)
+
+can be bounded in terms of ∥ · ∥ L2(T ) as in the proof of theorem 1. For the second claim, let us choose δ = 1 in the second statement in theorem 1 and apply Jensen’s inequality; then we have 
+
+Eζ
+
+h
+
+1 − αmarginal (˜θ|θ)
+
+i
+
+≤ C2Eπy,F 
+
+
+
+EμGP ,N
+
+h
+
+∥G FX − G GP ,NX ∥22
+
+i 1/2
+
+≤ C2
+
+
+
+Eπy,F 
+
+h
+
+EμGP ,N
+
+h
+
+∥G FX − G GP ,NX ∥22
+
+ii 1/2
+
+.
+
+Apply the triangle inequality gives 
+
+Eπy,F 
+
+h
+
+EμGP ,N
+
+h
+
+∥G FX − G GP ,NX ∥22
+
+ii 
+
+≤ 2Eπy,F 
+
+h
+
+EμGP ,N
+
+h
+
+∥G FX − mG
+
+> GP ,N
+
+∥22
+
+ii 
+
++2 Eπy,F 
+
+h
+
+EμGP ,N
+
+h
+
+∥mG 
+
+> GP ,N
+
+− G GP ,NX ∥22
+
+ii 
+
+.
+
+Using proposition 2, the first term can be bounded by 
+
+Eπy,F 
+
+h
+
+EμGP ,N
+
+h
+
+∥G FX − mG
+
+> GP ,N
+
+∥22
+
+ii 
+
+= Eπy,F 
+
+h
+
+∥G FX − mG
+
+> GP ,N
+
+∥22
+
+i
+
+≤ C22 h2τU .
+
+For the second term, we follow [ 72 ] and use the equality kp(θ, θ ) = sup ∥g∥Hk =1 |g(θ) − mG
+
+> GP ,N
+
+(θ)|2, the Sobolev embedding theorem and proposition 2 to obtain 
+
+Eπy,F 
+
+h
+
+EμGP ,N
+
+h
+
+∥mG
+
+> GP ,N
+
+(θ) − G GP ,NX (θ)∥22
+
+ii 
+
+= dy
+
+Z
+
+> T
+
+kp(θ, θ )πy,F (θ)dθ 
+
+≤ dy
+
+ZF
+
+sup 
+
+> θ∈T
+
+sup  
+
+> ∥g∥Hk=1
+
+|g(θ) − mG
+
+> GP ,N
+
+(θ)|2
+
+≤ Cemb dy
+
+ZF
+
+sup  
+
+> ∥g∥Hk=1
+
+∥g − mG
+
+> GP ,N
+
+∥2   
+
+> Hdθ
+> 2(T)
+
+≤ C23 h2τ −dθ 
+
+> U
+
+.
+
+The result then follows from the inequality √x + y ≤ √x + √y.For the case of neural network surrogates, we first note that convergence rates can be computed for the case of the mean approximation by using the result of proposition 1. In particular, if the operator GFX is sufficiently regular, then there exists a feedforward neural network fa(·; W) satisfying 
+
+Eζ
+
+h
+
+1 − αmean (˜θ | θj )
+
+i
+
+≤ C1 exp 
+
+
+
+−2− 12 C2M 12dθ +7 
+
+
+
+,
+
+where M, C 1 and C2 are as in proposition 1. However, we emphasize here that the error bound obtained depends heavily on the neural network architecture, specifically the number of neurons per layer, the number of layers, and the use of the ReLU activation function. This construction does not fully align with the architecture used in our experiments to construct the neural network surrogate. Moreover, it remains unclear how to explicitly construct and train a neural network that attains these rates in practice. In the case of the marginal approximation based on DeepGaLA, there is no theoretical background that could guide us toward establishing convergence rates. To the best of our knowledge, no existing theory provides insight into how the covariance matrix of DeepGaLA behaves or indeed converges to 0 as the size of the neural network increases. 
+
+## 5 Numerical Experiments 
+
+In this section, we study Bayesian inverse problems for three different differential equations: a one-dimensional boundary value problem, a two-dimensional elliptic PDE, and the Navier–Stokes equations in stream function formulation. We start by briefly describing the numerical methods used to approximate the solutions to these problems and present the specific neural network architecture and training hyperparameters, along with details of the MCMC algorithm. The first two examples that we study are linear, and hence we compare our DeepGaLA approach with the PIGP, in terms of αval 
+
+values, the bounds from theorem 1, and the online evaluation time. In doing these comparisons we have decided to exclude the offline training time. The rationale behind this choice is that the two methods have fundamentally different training procedures. In particular, for the PIGP model, training requires solving the differential equation in question 16 arXiv Template A P REPRINT 
+
+for several values of θ. Obtaining these solutions is problem-dependent: it can be relatively fast for simple cases, such as one-dimensional problems, but can become quite complex for high-dimensional problems or those defined on nonstandard domains. On the other hand, algorithm 1 proposes a way to train a neural network; however, there are still many free parameters that affect training, such as the batch size, learning rate, and size of the training dataset. All these factors play an important role in the training cost. 
+
+mG 
+
+> S,N
+
+ΓS,N
+
+PIGP 2dy (dy + df + dg )N + 3 N (dy + df + dg )3N 3 + 2 d2 
+
+> y
+
+N (dy + dg + df ) + 2 d2
+
+> y
+
+dG dy (2 dLdn + dL + ( L − 1)(5 dn + 2 d2
+
+> n
+
+) + dn(6 d0 + 9)) 2d2 
+
+> y
+
+(d2 
+
+> n
+
++ dn)
+
+Table 1: Online Cost of Evaluation for the PIGP and deepGaLA surrogate models Table 1 presents an online cost analysis of both the neural surrogate and the PIGP in terms of floating-point operations (FLOPs), considering the cost of evaluating the mean and variance at a new test input θ. See section B for details of the derivations. As can be seen, the computational cost of evaluating the mean of the Gaussian process scales as O(N ) with the number of training data points, while obtaining the variance scales as O(N 3) due to the need to invert a matrix or solve a linear system, as in (20) . In contrast, the neural network exhibits a linear cost O(L) with respect to the number of layers and a quadratic cost O(d2
+
+> n
+
+) with respect to the number of neurons per hidden layer. The cost of obtaining the variance of DeepGALA requires evaluating the activations of the last hidden layer, which in turn requires evaluating the entire network. This can be obtained for free when evaluating the mean, as it is already computed during the forward pass in PyTorch . Therefore, the additional cost comes from matrix–vector multiplications and scales quadratically with the number of observed solutions dy .
+
+5.1 1D Elliptic Boundary Balue Problem 
+
+We consider the following one-dimensional differential equation: 
+
+− ddx 
+
+
+
+exp( α(x, θ )) du (x, θ )
+
+dx 
+
+
+
+= 4 x, x ∈ D, θ ∈ T ,u(0 , θ ) = 0 , u(1 , θ ) = 2 , on ∂D 
+
+where D = (0 , 1) . The coefficient α(·, θ ) ∈ L∞(D) is defined by the expansion: 
+
+α(x, θ ) = 
+
+> dθ
+
+X
+
+> n=1
+
+√anθnbn(x),
+
+where an and bn correspond to the eigenvalues and eigenfunctions of the KL expansion of an exponential covariance kernel [ 22 ] and take the form an = 8 
+
+> w2
+> n+16
+
+and bn = An
+
+ sin (wnx) + wn 
+
+> 4
+
+cos (wnx), where wn is the nth solution of the equation tan (wn) = 8wn 
+
+> w2
+> n−16
+
+and An is a normalization constant such that ∥bn∥L2(D) = 1 . We also assume that 
+
+θ ∈ [−2, 2] dθ = T .We now consider the inverse problem (2) where GX(θ) = {u(xi, θ )}dy 
+
+> i=1
+
+and Γ = σ2Idy , with σ2 = 10 −4. Furthermore, we consider dθ ∈ { 2, 3, 4, 5} and dy = 6 observations located within the domain D. The observations were obtained by setting θ† = [0 .098 , 0.430 , 0.206 , 0.090 , −0.153] and using a FEM solver with Ndof degrees of freedom and piece-wise linear basis functions. For the MCMC sampling, we used the RWMH algorithm with a uniform prior distribution 
+
+U[ −2, 2] dθ and drawn 2.5 × 10 6 samples from the posterior distributions. This number of samples was chosen so that the effective sample size is at least 10 3, in particular for the problem in dimension 5. We consider the posterior distribution computed using the FEM, πFEM , with Ndof = 50 , as the ground truth. The DeepGaLA surrogate was constructed as follows: we used a neural network with one hidden layer, 60 neurons per layer, and Fourier embeddings with dF = 60 and σF F = 1 . The network was trained using algorithm 1, with S = 5 ,000 epochs, weights {λi}i=1 = 1 ,and various sizes of the training set D. The Laplace approximation was computed using the same training data. We now present in Figure 1 the mean and marginal posterior distributions obtained with DeepGaLA for different training sample sizes for dθ = 2 . As we can see in both cases, as the number of training points D increases, both the mean and the marginal posterior approximations converge to the ground truth posterior. However, the additional uncertainty of the marginal approximate posterior is beneficial in the low data regime, since it appropriately reflects the error in the approximation of the neural network, thus avoiding being overconfident around the wrong solution, as is the case with the mean approximate posterior. 17 arXiv Template A P REPRINT 2 1 0 1 2                               
+
+> 1
+> 0
+> 2
+> 4
+> 6
+> N: 40
+> 21012
+> 1
+> N: 50
+> 21012
+> 1
+> N: 1000
+> 21012
+> 1
+> N: 7000
+> 21012
+> 2
+> 0
+> 10
+> 20
+> 21012
+> 2
+> 21012
+> 2
+> 21012
+> 2
+> Low Data Regime High Data Regime
+> mean marginal FEM
+
+Figure 1: 1D BVP: Marginal ground-truth posterior distributions and the DeepGaLA mean and marginal approximations for different training set sizes. 
+
+N 40 50 100 7,000 30,000 
+
+αval (%) πmean 1.45 ± 0.11 15.26 ± 2.93 71.28 ± 0.42 99.01 ± 0.08 96.88 ± 0.15 
+
+πmarginal 17.68 ± 0.44 24.39 ± 0.44 23.94 ± 0.32 68.87 ± 0.58 86.11 ± 0.20 
+
+∥ · ∥ πmean 1.84 × 10 −1 3.28 × 10 −2 4.07 × 10 −3 3.41 × 10 −4 1.15 × 10 −3
+
+πmarginal 1.03 × 10 0 1.99 × 10 0 2.98 × 10 0 5.05 × 10 −1 7.50 × 10 −3
+
+Table 2: 1D BVP: Mean ± standard deviation of αval , together with the corresponding bounds for the DeepGaLA mean and marginal approximations, across different training set sizes for dθ = 2 .In Table 2, we present the values of αval , together with the error bounds established in theorem 1, for dθ = 2 . We used a RW proposal to run algorithm 3, where the choice of the proposal variance β was made carefully, since a poor choice can lead to inaccurate estimates of αval due to poor mixing of the DA chain. Therefore, we found that setting the proposal variance β to the optimal value obtained for πmean , and using this same value to assess both approximate posteriors πmean and πmarginal , provides good mixing of the chains. Then, αval was computed using Algorithm 3 with 10 5 evaluations of the FEM ground truth model, after which the samples were divided into groups of NF = 10 4
+
+samples to obtain 10 realizations of αval . We provide the mean and standard deviation over these realizations in Table 2, and note that variations in the value of αval primarily come from a burn-in effect in algorithm 3. The error bounds from theorem 1 were estimated by using 2.5 × 10 5 samples from the FEM ground truth posterior, with the procedure repeated three times. We only report the mean value of the error bounds in table 2, since the standard deviations were negligible. The results in table 2 show that αval increases with the size of the training dataset while the corresponding error bounds become tighter, confirming the convergence of the mean and marginal approximations. In particular, N = 7 ,000 
+
+training samples are sufficient to obtain a posterior distribution close to the ground truth for the mean approximation. For N = 30 ,000 , we observe a slight decrease in αval together with an increase in the error bound, which may be attributed to non-optimal training for this dataset size. Finally, consistent with results presented in Figure 1, Table 2 indicates that in the low-data regime, the marginal approximation achieves higher values of αval than the mean approximation, as it has a bigger overlap with the ground truth posterior. In our numerical experiments, although the actual values of αval may change, the general trends of αval increasing with N and the marginal approximations having larger αval values than the mean approximations in the low-data regime, were consistently observed for varying values of NF . Figure 2 further highlights that, in the low-data regime, the marginal approximation achieves a higher αval than the mean approximation across different parameter-space dimensions, highlighting the importance of incorporating uncertainty when data are limited or the parameter dimension is high. 18 arXiv Template A P REPRINT 20 40 60 80 100            
+
+> N
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> val
+> d= 2
+> 100 200 300
+> N
+> d= 3
+> 200 400
+> N
+> d= 4
+> 01000 2000 3000
+> N
+> d= 5
+> mean marginal
+
+Figure 2: 1D BVP in the low-data regime: αval for the mean and marginal approximations across different values of dθ .
+
+5.1.1 Comparison with PIGPs 
+
+We now compare the DeepGaLA surrogate with the PIGP surrogate in the high-data regime using the mean based approximate posterior. In the case of the PIGP surrogate, we have used a Matérn kernel of order 52 for both the spatial and parameter spaces, while df = 10 , dg = 2 . We present the results of this comparison in Table 3. As we can see the bounds in theorem 1 tighten as αval increases. Both surrogate models exhibit comparable evaluation times, with DeepGaLA being slightly faster. We do not report GPU times, as the evaluation of both surrogates at six points does not yield a significant difference; GPU acceleration would become advantageous in more computationally demanding scenarios. Moreover, we can see that the evaluation time of the DeepGALA is essentially unaffected by the size of the training data; since the architecture remains nearly the same (aside from the number of inputs), its evaluation time remains stable as the dimension of the parameters grows. On the other hand, the evaluation time of the PIGP increases marginally with the size of the training data; however, the linear behavior expected from the cost analysis would become more apparent if a larger range of training points were considered. 1DBVP Inverse Problem: Mean Approximation 
+
+dθ S N ∥ · ∥ αval (%) Mean Likelihood Eval. Time CPU (ms) 2 mG 
+
+> P IGP
+
+75 3.41 × 10 −4 99 .20 ± 0.08 0.23 ± 0.01 
+
+mG 
+
+> dG
+
+7,000 3.02 × 10 −4 99 .01 ± 0.26 0.22 ± 0.03 
+
+3 mG 
+
+> P IGP
+
+100 7.47 × 10 −4 96 .80 ± 0.18 0.24 ± 0.03 
+
+mG 
+
+> dG
+
+5,000 9.08 × 10 −4 95 .88 ± 0.19 0.22 ± 0.01 
+
+4 mG 
+
+> P IGP
+
+160 1.48 × 10 −3 93 .47 ± 0.47 0.27 ± 0.02 
+
+mG 
+
+> dG
+
+9,000 1.18 × 10 −3 94 .61 ± 0.65 0.22 ± 0.01 
+
+5 mG 
+
+> P IGP
+
+200 4.63 × 10 −3 87 .22 ± 8.66 0.26 ± 0.02 
+
+mG 
+
+> dG
+
+9,000 3.47 × 10 −3 87 .70 ± 4.24 0.22 ± 0.01 
+
+Table 3: 1D BVP: Mean ± standard deviation of αval , together with the corresponding bounds for the DeepGaLA mean and marginal approximations, across different training set sizes for dθ = 2 .We additionally present in Figure 3, the evaluation times of the marginal approximation using DeepGaLA and PIGP. As we can see, the evaluation time using DeepGaLA remains largely unchanged across different values of αval as the dimensionality of the parameter space increases. In contrast, the evaluation cost for the PIGP grows with increasing dimension, consistent with the dimension-dependent convergence rates. 
+
+5.2 2D-Elliptic Inverse Problem 
+
+Consider now a two-dimensional elliptic partial differential equation given by: 
+
+−∇ · (exp( α(x, θ )) ∇u(x, θ )) = 4 x1x2, x ∈ D, θ ∈ T ,u(x, θ ) = 0 , on ∂D 
+
+19 arXiv Template A P REPRINT 0.1 0.2 0.3            
+
+> val
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> 1.2
+> 1.4
+> Mean CPU Time (ms)
+> d= 2
+> 0.2 0.3 0.4
+> val
+> d= 3
+> 0.2 0.4 0.6
+> val
+> d= 4
+> 0.1 0.2 0.3
+> val
+> d= 5
+> DeepGaLA PIGP
+
+Figure 3: 1D BVP: Evaluation time in the low-data regime for PIGP and DeepGaLA across different parameter-space dimensions. Each data point corresponds to a different choice of training data size. where D = (0 , 1) 2. The coefficient α(·, θ ) ∈ L∞(D) is expanded in the following way: 
+
+α(x, θ ) = 
+
+> dθ
+
+X
+
+> n=1
+
+q
+
+a2Dn θnb2Dn (x),
+
+where a2Di = ajn ain and b2Di (x) = bjn (x1)bin (x2) for some jn, i n ∈ N are obtained as products of the eigenvalues, 
+
+ajn , and eigenfunctions, bjn , of the one–dimensional problem such that a1 > a 2 >, .., > a dθ . We assume that the parameters θ take values in the parameter space T = [ −4, 4] dθ . The setup of the inverse problem (2) is similar to the previous experiment. We consider once more GX(θ) = {u(xi, θ )}dy
+
+> i=1
+
+, Γ = σ2Idy with σ2 = 10 −4, dθ ∈ { 2, 3, 4, 5}
+
+and dy = 6 observations located inside the domain D. The observations are obtained using the FEM on a 75 × 75 
+
+grid and piece-wise linear basis functions. The MCMC setup follows the configuration of the first experiment, using a uniform prior U [−4, 4] dθ and drawing 2.5 × 10 6 samples from the posterior distributions. We consider the posterior distribution computed using the FEM, πFEM , on a 50 × 50 grid as the ground truth. For this experiment, the DeepGaLA surrogate was constructed with the following setup: we used one hidden layer with 80 neurons and Fourier embeddings with dF = 80 and σF F = 1 . The neural network was trained using algorithm 1 over S = 5 , 000 epochs with adaptive weighting and various sizes of D. The Laplace approximation was fitted using the same datasets. The mean and marginal posterior distributions obtained by DeepGaLA are presented in Figure 4. This experiment shows results similar to the previous one. Both the mean and marginal approximations converge to the ground truth as the number of training points in D increases. Additionally, we can again see the benefit of incorporating uncertainty in the neural network in low-data regimes, which helps prevent overconfidence when the predictions diverge from the truth. In Table 4, we present the mean values and the standard deviation of αval and the mean error bounds, where we have omitted the standard deviations due to their negligible magnitude. Again, we computed these quantities following the same procedure as in the previous experiment. In particular, αval was computed using algorithm 3 by evaluating the finer model 10 5 times, and then partitioning these evaluations into 10 realizations of αval . The error bounds were estimated by using 2.5 × 10 5 samples from the true posterior; this procedure was repeated three times. Moreover, we again used a RW proposal for algorithm 3 and set the proposal variance β to the value that is optimal for πmean .This same value was then used to assess both πmean and πmarginal . As expected, αval increases and the error bounds decrease as the mean approximation approaches the true posterior. Once again, Table 4 shows consistent results with Figure 4, confirming that the marginal approximation is beneficial in the low-data regime, where its greater overlap with the true posterior results in a higher αval . Figure 5 further confirms the importance of the marginal approximation in the low-data regime, as αval is consistently larger for the marginal approximation than for the mean approximation across the parameter-space dimensions shown in the figure. 
+
+5.2.1 Comparison with PIGPs 
+
+We next perform a comparison between the DeepGaLA and PIGP surrogate in the high-data regime based on the mean approximate posterior. For the PIGP surrogate, we employed a Matérn kernel of order 52 for both the spatial and parameter spaces, with df = 10 , dg = 20 . Table 5 shows the results of this comparison. As we can see, the bounds across the surrogate models are very similar, and, as expected, the corresponding values of αval are also close. As in the previous experiment, DeepGaLA exhibits slightly faster evaluation times. This could be further improved by identifying a smaller architecture, once again highlighting the computational advantage of the deep surrogate. 20 arXiv Template A P REPRINT 4 2 0 2 4                                       
+
+> 1
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> N: 10
+> 42024
+> 1
+> N: 50
+> 42024
+> 1
+> N: 100
+> 42024
+> 1
+> N: 2000
+> 42024
+> 1
+> N: 20000
+> 42024
+> 2
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 42024
+> 2
+> 42024
+> 2
+> 42024
+> 2
+> 42024
+> 2
+> Low Data Regime High Data Regime
+> mean marginal FEM
+
+Figure 4: Elliptic-2D: Marginal ground-truth posterior distributions and the DeepGaLA mean and marginal approxima-tions for different training set sizes. 
+
+N 10 50 100 2,000 20,000 
+
+αval (%) πmean 15 .79 ± 0.62 30 .74 ± 0.63 76 .74 ± 0.59 98 .89 ± 0.11 99 .21 ± 0.09 
+
+πmarginal 22 .92 ± 0.37 33 .64 ± 0.54 37 .62 ± 0.44 51 .06 ± 0.57 95 .68 ± 0.11 
+
+∥ · ∥ πmean 5.15 × 10 −2 5.23 × 10 −2 4.66 × 10 −2 4.59 × 10 −2 4.60 × 10 −2
+
+πmarginal 5.46 × 10 −1 1.37 × 10 −1 1.21 × 10 −1 4.48 × 10 −2 3.29 × 10 −2
+
+Table 4: Elliptic-2D: Mean ± standard deviation of αval and corresponding bounds for the DeepGaLA mean and marginal approximations across different training set sizes. Finally, Figure 6 shows the evaluation time of the marginal approximation as a function of αval for both DeepGaLA and PIGP. For this particular experiment, the PIGP surrogate achieves faster evaluation times for comparable values of 
+
+αval . Nevertheless, as the dimensionality of the parameter space increases, the evaluation time required by PIGP to attain reasonable values of αval grows significantly. This behavior is not observed for DeepGaLA, whose evaluation time remains essentially constant, as it is driven by the network architecture rather than by the size of the training data. 
+
+5.3 Navier-Stokes Inverse Problem 
+
+Let us now consider the vorticity-stream formulation of the Navier-Stokes equations given the following equation: 
+
+∂ω (z, t, θ )
+
+∂t + U (z, t, θ ) · ∇ ω(z, t, θ ) = ν∇2ω(z, t, θ ) + f (z), (z, t ) ∈ D, θ ∈ T ,
+
+∇2ψ(z, t, θ ) = −ω(z, t, θ ), (z, t ) ∈ D, w(z, 0, θ ) = w0(z, θ ), z ∈ Ds,
+
+where D = Ds × (0 , T ), Ds = [0 , 2π]2 and T ∈ R+. The functions ω and ψ are known as the vorticity and stream function, respectively, and f (z) = 0 .001(sin(2 π(z1 + z2)) + cos(2 π(z1 + z2))) represents the vorticity form of the forcing term. The term U (z, t, θ ) = ( u(z, t, θ ), v (z, t, θ )) is the velocity, with components derived from the stream function as, u(z, t, θ ) = ∂ψ (z, t, θ )/∂z 2, v = −∂ψ (z, t, θ )/∂z 1. The initial condition is given by a random field N (0 , 73/2(−∆ + τ 2I)−α/ 2), with periodic boundary conditions. Under this setup, the random field has a Karhunen-Loève expansion given by: 
+
+w0(z, θ ) = 7 3/2
+
+> dθ
+> 2
+
+X
+
+> n=1
+
+1
+
+μα/ 2
+
+> n
+
+(ϕ1,n (z)θ1,n , +ϕ2,n (z)θ2,n ) ,
+
+21 arXiv Template A P REPRINT 25 50 75          
+
+> N
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> val
+> d= 2
+> 100 200
+> N
+> d= 3
+> 0200
+> N
+> d= 4
+> 0200 400
+> N
+> d= 5
+> mean marginal
+
+Figure 5: Elliptic-2D: αval for the mean and marginal approximations across different values of dθ .Elliptic Inverse Problem: Mean Approximation 
+
+dθ S N ∥ · ∥ Lμy αval (%) Mean Likelihood Eval. Time CPU (ms) 2 mG 
+
+> PIGP
+
+150 4.60 × 10 −2 98 .76 ± 0.10 0.27 ± 0.01 
+
+mG 
+
+> dG
+
+2,000 4.59 × 10 −2 98 .89 ± 0.11 0.23 ± 0.02 
+
+3 mG 
+
+> PIGP
+
+150 3.67 × 10 −2 96 .32 ± 0.13 0.27 ± 0.03 
+
+mG 
+
+> dG
+
+2,000 3.65 × 10 −2 95 .95 ± 0.21 0.23 ± 0.01 
+
+4 mG 
+
+> PIGP
+
+150 3.44 × 10 −2 94 .95 ± 0.30 0.26 ± 0.02 
+
+mG 
+
+> dG
+
+2,000 3.44 × 10 −2 94 .98 ± 0.23 0.23 ± 0.01 
+
+5 mG 
+
+> PIGP
+
+170 3.09 × 10 −2 85 .88 ± 0.56 0.29 ± 0.01 
+
+mG 
+
+> dG
+
+5,000 3.10 × 10 −2 85 .19 ± 0.43 0.23 ± 0.01 
+
+Table 5: Elliptic-2D: Comparison of PIGP and DeepGaLA across multiple metrics and parameter-space dimensions. where μn = τ 2 + n2 
+
+> z1
+
++ n2 
+
+> z2
+
+are the eigenvalues and ϕ1,n (z) = cos( nz1 z1 + nz2 z2)/√2π and ϕ2,n (z) = sin( nz1 z1 +
+
+nz2 z2)/√2π are the eigenfunctions of the shifted Laplacian −∆ + τ 2I, for nz1 , n z2 ∈ Z. We consider θ ∈ [−2, 2] dθ ,where dθ = 2 m for some m ≥ 1 so that the parameters are arranged in pairs. The inverse problem (2) is set up such that GX(θ) = {u(zi, T, θ )}dy
+
+> i=1
+
+, and Γ = σ2Idy , with σ2 = 10 −2. We consider 
+
+dθ = 2 and dy = 6 observations in the domain Ds at time T = 2 . The observations were obtained using a pseudo-spectral method combined with the Crank–Nicolson scheme for time integration, with parameters ν = 10 −2, τ = √2,and α = 5 . For the MCMC, we used the RWMH algorithm with a uniform prior U[ −2, 2] dθ and drew 2.5 × 10 6
+
+samples from the posterior distribution. The DeepGaLA surrogate was constructed as follows: 2 hidden layers with 300 neurons per layer, a Fourier embedding with embedding scale set to 1, σ2FF = 1 . A periodic embedding was used to enforce periodic boundary conditions. The neural network was trained using algorithm 1 with different sizes of D and 
+
+S = 5 , 000 epochs, updating the weights {λi}Ni=1 every 250 epochs. To fit the Laplace approximation, we used the same training data. We now present in Figure 7 the mean and marginal approximate posterior distributions obtained with DeepGaLA, together with the true values of θ. We observe that πmarginal converges toward πmean as the size of the training dataset 
+
+D increases. At the same time, πmean becomes increasingly concentrated around the true parameter values as D grows. Nevertheless, without access to the true posterior, it is not possible to assess how close these posterior approximations are to the ground truth; in this case, computing the true posterior directly was computationally prohibitive. We employ algorithm 3 to assess this, using the previously described pseudo-spectral method as the fine model and a RW proposal with a proposal variance chosen as in the previous experiments. The fine model was evaluated 5 × 10 3 times and then the resulting evaluations were partitioned into 10 realizations of αval . The mean values of αval , along with their standard deviations, are reported in Table 6. From these results, we can conclude that the mean approximation converges to the ground truth posterior as the amount of training data increases. In contrast, and consistent with our previous findings, 22 arXiv Template A P REPRINT 0.2 0.3 0.4 0.5              
+
+> val
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Mean CPU Time (ms)
+> d= 2
+> 0.2 0.3 0.4 0.5
+> val
+> d= 3
+> 0.2 0.4 0.6
+> val
+> d= 4
+> 0.2 0.3 0.4 0.5
+> val
+> d= 5
+> DeepGaLA PIGP
+
+Figure 6: Elliptic-2D: Evaluation time in the low-data regime for PIGP and DeepGaLA across different parameter-space dimensions. Each data point corresponds to a different choice of training data size. the marginal approximation plays a crucial role in the low-data regime by mitigating model overconfidence, which is evident in the mean approximation being far from the true posterior in this setting. 2 1 0 1 2                                     
+
+> 1
+> 0
+> 1
+> 2
+> N: 320
+> 21012
+> 1
+> N: 2000
+> 21012
+> 1
+> N: 8000
+> 21012
+> 1
+> N: 16000
+> 21012
+> 1
+> N: 24000
+> 21012
+> 2
+> 0
+> 2
+> 4
+> 6
+> 21012
+> 2
+> 21012
+> 2
+> 21012
+> 2
+> 21012
+> 2
+> mean marginal
+
+Figure 7: NV: Mean and marginal approximations of the posterior distributions using DeepGaLA for different training set sizes. 
+
+N 320 2,000 8,000 16,000 24,000 
+
+αval (%) πmean 12 .66 ± 1.94 11 .28 ± 1.11 67 .26 ± 1.40 75 .10 ± 1.55 75 .04 ± 2.10 
+
+πmarginal 33 .68 ± 2.38 20 .30 ± 2.17 57 .02 ± 2.31 62 .50 ± 2.60 73 .72 ± 0.94 
+
+Table 6: NV: Mean ± standard deviation of αval for the DeepGaLA mean and marginal approximations across different training set sizes. Finally, Figure 8 shows the DeepGaLA predictions evaluated at the mode of πmean . In the low-data regime, this mode differs significantly from the ground truth. In contrast, as more training data are used, the mode of πmean moves closer to the ground truth. Figure 9 displays the absolute error of the DeepGaLA prediction with respect to the ground truth, together with the model uncertainty. In the low-data regime, the error and the uncertainty are of similar magnitude. In the high-data regime, this relationship is still observed, but at an overall smaller scale. Moreover, although the alignment is not perfect, the DeepGaLA uncertainty tends to concentrate in regions where the prediction error is large, in both the low- and high-data regimes. The remaining mismatch can be attributed to the fact that DeepGaLA treats only the last layer as stochastic. Using a fully Bayesian neural network could potentially improve the uncertainty estimates, but at a significantly higher computational cost. 23 arXiv Template A P REPRINT Ground Truth Prediction Mean ( N: 24,000) Prediction Mean ( N: 320) 
+
+DeepGaLA Evaluated at the Mode of mean 
+
+Figure 8: NV: Prediction of the Deep GaLA evaluated at the mode of the πmean .N: 320  
+
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> 1.2
+> N: 320
+> 0.65
+> 0.70
+> 0.75
+> 0.80
+> 0.85
+> 0.90
+> 0.95
+> N: 24,000
+> 0.025
+> 0.050
+> 0.075
+> 0.100
+> 0.125
+> 0.150
+> 0.175
+> N: 24,000
+> 0.040
+> 0.045
+> 0.050
+> 0.055
+> 0.060
+> 0.065
+> Absolute Error Prediction Std.
+
+Figure 9: NV: Absolute error and standard deviation of the DeepGaLA predictions in the low and high data regimes. 
+
+## 6 Discussion and Conclusion 
+
+Inverse problems in differential equations have significant computational challenges, particularly in a Bayesian setting where millions of evaluations of the forward model are required for the evaluation of the posterior. To mitigate this cost, we investigated the use of neural networks as surrogate models. This work provides two main contributions. First, we introduced a neural surrogate equipped with a Laplace approximation, called DeepGaLA, which offers an efficient way to approximate the forward model through a random neural surrogate. Second, we proposed using Delayed-Acceptance MCMC as a practical tool to assess the accuracy of any surrogate posterior approximations when the true posterior is unavailable or prohibitively expensive to compute. 24 arXiv Template A P REPRINT 
+
+DeepGaLA enables to approximate the posterior distribution through either the mean or marginal approximation. Our numerical experiments show that the mean approximation achieves accuracy comparable to the PIGP surrogate, and in some cases, DeepGaLA offers faster likelihood evaluations. In low-data regimes, the marginal approximation becomes particularly valuable, since it appropriately reflects the error in the approximation of the neural network, thus avoiding being overconfident around the wrong solution. We have also demonstrated that using DA–MCMC as a posterior validator provides a rigorous and effective way to assess surrogate accuracy. This approach is especially useful when the ground-truth posterior is unavailable or computationally expensive. The empirical results agree with the theoretical properties of the validation metric derived in our framework. A key advantage of neural-network surrogates over PIGPs is their ability to scale to nonlinear PDEs, whereas the PIGP framework is inherently limited to linear operators. Moreover, as the dimensionality of the parameter space increases, PIGP requires more training data to achieve a given level of accuracy. In such settings, obtaining additional data can become challenging, and the evaluation speed is also adversely affected. In contrast, the evaluation speed of DeepGaLA depends primarily on the network architecture and is largely independent of both the size of the training dataset and the dimensionality of the parameter space. 
+
+## Acknowledgements 
+
+This work has made use of the resources provided by the Edinburgh Compute and Data Facility (ECDF) (http://www.ecdf.ed.ac.uk/). ALT was partially supported by EPSRC grants EP/X01259X/1 and EP/Y028783/1. AV is supported by the "UNREAL: Unified Reasoning Layer for Trustworthy ML" project (EP/Y023838/1) selected by the ERC and funded by UKRI EPSRC. 
+
+## A Parameter optimization 
+
+Both surrogates studied in this work, Physics Informed Gaussian process and DeepGaLA, have hyperparameters that must be selected carefully. On the one hand, the hyperparameters of a Gaussian process depend on the kernel used. For instance, the Matern 5/2 and Gaussian kernels have the parameters σ2 
+
+> dG
+
+and l, which control the magnitude of the covariance and the length-scale at which the entries of the kernel are correlated. On the other hand, from Equation (11) ,we see that DeepGaLA has two hyperparameters, γ and σ2
+
+> dG
+
+, which encode prior beliefs over the final layer parameters and the noise of the fictional data. To determine these hyperparameters, we use the marginal log-likelihood in both cases. For the Gaussian process, we have: 
+
+ZGP = − 12 u(Θ) T K(Θ , Θ) −1u(Θ) − 12 log |K(Θ , Θ) | − N
+
+2 log(2 π),
+
+where u(Θ) is the vector of solutions in the training set Θ. For DeepGaLA, we have: 
+
+Zf aW = − 12σ2
+
+> dG
+
+L(D; W MAP ) − 12 WT
+
+> MAP
+
+γ−2WMAP − N
+
+2 log(2 πσ 2
+
+> dG
+
+) − 12 (log |Λ| − log |γ−2|).
+
+Following the work of [60, 33], we maximize the marginal likelihood: 
+
+arg max  
+
+> Ξ
+
+ZS ,
+
+where Ξ is the set of hyperparameters to optimize and ZS = {ZGP , Z f aW }.
+
+## B Cost of Evaluation Analysis 
+
+Consider the architecture of the neural network f ENC  
+
+> a
+
+(·; W) given by Equation (8) and (10) , and assume that the cost of evaluating σ(·) is one unit. Then, the cost of evaluating the encoders V and U is 2( dnd0 + dn). The cost of evaluating Equation (10) can be derived as follows. First, the cost of computing σ ◦ Cl(y) is 2( dndl + dn), for l = 0 , . . . , L − 1.
+
+Next, the term (σ ◦ Cl(y)) ⊙ U (z) has a cost of dn, while (1 − σ ⊙ Cl(y)) ⊙ V (z) has a cost of 2dn. Therefore, the input layer has a cost of 2dnd0 + 5 dn, while each hidden layer has a cost of 5dn + 2 d2
+
+> n
+
+. The final layer has a cost of 
+
+2dLdn + dL. Taking into account that the surrogate approximates the problem in question in dy points. Then, the total cost of evaluating the mean of DeepGaLA is dy (2 dLdn + dL + ( L − 1)(5 dn + 2 d2
+
+> n
+
+) + 2 dnd0 + 5 dn + 4( dnd0 + dn)) = 
+
+dy (2 dLdn + dL + ( L − 1)(5 dn + 2 d2
+
+> n
+
+) + dn(6 d0 + 9)) .
+
+25 arXiv Template A P REPRINT 
+
+Computing the variance of DeepGaLA requires evaluating the activations of the last hidden layer, which in turn requires evaluating the entire network. This can be efficiently obtained through a forward pass in PyTorch. Therefore, we assume that the cost consists of the cost of evaluating the mean plus an additional cost of 2d2 
+
+> n
+
++ 2 dn for each 
+
+Φ(L−1) (zi; W MAP )T ΛΦ (L−1) (zj ; W MAP ) for i, j = 1 , ..., d y . Therefore, the total cost of prediction with DeepGaLA, including uncertainty quantification, is dy (2 dLdn + dL + ( L − 1)(5 dn + 2 d2
+
+> n
+
+) + dn(6 d0 + 9)) + 2 d2 
+
+> y
+
+(d2 
+
+> n
+
++ dn).On the other hand, consider the cost of evaluating the PIGP, assuming N training solutions. We assume that the cost of evaluating the kernel at a test point scales as O(N ). Under this assumption, the cost of computing the predictive mean is 2dy (dy + df + dg )N + 3 N. To compute the predictive variance of the PIGP, one must evaluate the second equation in (20) , which involves computing K(Θ , Θ) −1
+
+
+
+Kuu (θ′, Θ) 
+
+Kug (θ′, Θ) 
+
+Kuf (θ′, Θ) 
+
+, this to ensure numerical stability. This operation incurs a computational cost of O (dy + df + dg )3N 3. Then the resulting matrix is multiplied by a matrix of size dy × N (dy + dg + df ), which has a cost of 2d2 
+
+> y
+
+N (dy + dg + df ). The cost of forming the last matrix is d2 
+
+> y
+
+, and the subtraction of the matrices adds another d2 
+
+> y
+
+. Therefore, the cost of computing the variance is 
+
+(dy + df + dg )3N 3 + 2 d2 
+
+> y
+
+N (dy + dg + df ) + 2 d2 
+
+> y
+
+.
+
+26 arXiv Template A P REPRINT 
+
+## References 
+
+[1] I. Babuška, F. Nobile, and R. Tempone. A stochastic collocation method for elliptic partial differential equations with random input data. SIAM Rev. , 52(2):317–355, 2010. [2] T. Bai, A. L. Teckentrup, and K. C. Zygalakis. Gaussian processes for Bayesian inverse problems associated with linear partial differential equations. Stat. Comput. , 34(4):Paper No. 139, 25, 2024. [3] P. Batlle, Y. Chen, B. Hosseini, H. Owhadi, and A. M. Stuart. Error analysis of kernel/GP methods for nonlinear and parametric PDEs. J. Comput. Phys. , 520:Paper No. 113488, 23, 2025. [4] M. Benning and M. Burger. Modern regularization methods for inverse problems. Acta Numer. , 27:1–111, 2018. [5] J. Berner, P. Grohs, G. Kutyniok, and P. Petersen. The modern mathematics of deep learning. In Mathematical aspects of deep learning , pages 1–111. Cambridge Univ. Press, Cambridge, 2023. [6] D. M. Blei, A. Kucukelbir, and J. D. McAuliffe. Variational inference: a review for statisticians. J. Amer. Statist. Assoc. , 112(518):859–877, 2017. [7] Q. Cao, S. Goswami, and G. E. Karniadakis. Laplace neural operator for solving differential equations. Nature Machine Intelligence , 6(6):631–640, 2024. [8] Y. Chen, B. Hosseini, H. Owhadi, and A. M. Stuart. Solving and learning nonlinear PDEs with Gaussian processes. 
+
+J. Comput. Phys. , 447:Paper No. 110668, 29, 2021. [9] J. A. Christen and C. Fox. Markov chain Monte Carlo using an approximation. J. Comput. Graph. Statist. ,14(4):795–810, 2005. [10] P. R. Conrad, M. Girolami, S. Särkkä, A. Stuart, and K. Zygalakis. Statistical analysis of differential equations: introducing probability measures on numerical solutions. Stat. Comput. , 27(4):1065–1082, 2017. [11] S. L. Cotter, M. Dashti, and A. M. Stuart. Approximation of Bayesian inverse problems for PDEs. SIAM J. Numer. Anal. , 48(1):322–345, 2010. [12] S. Cuomo, V. Schiano Di Cola, F. Giampaolo, G. Rozza, M. Raissi, and F. Piccialli. Scientific machine learning through physics-informed neural networks: where we are and what’s next. J. Sci. Comput. , 92(3):Paper No. 88, 62, 2022. [13] E. Daxberger*, A. Kristiadi*, A. Immer*, R. Eschenhagen*, M. Bauer, and P. Hennig. Laplace Redux — Effortless Bayesian Deep Learning. In Advances in Neural Information Processing Systems 34 (NeurIPS 2021) , pages 20089–20103. Curran Associates, Inc., Dec. 2021. *equal contribution. [14] M. V. de Hoop, D. Z. Huang, E. Qian, and A. M. Stuart. The cost-accuracy trade-off in operator learning with neural networks. J. Mach. Learn. , 1(3):299–341, 2022. [15] T. De Ryck, S. Lanthaler, and S. Mishra. On the approximation of functions by tanh neural networks. Neural Netw. , 143(C):732–750, Nov. 2021. [16] T. De Ryck and S. Mishra. Numerical analysis of physics-informed neural networks and related models in physics-informed machine learning. Acta Numer. , 33:633–713, 2024. [17] T. Deveney, E. Mueller, and T. Shardlow. A deep surrogate approach to efficient bayesian inversion in pde and integral equation models. arXiv preprint arXiv:1910.01547 , 2019. [18] T. J. Dodwell, C. Ketelsen, R. Scheichl, and A. L. Teckentrup. Multilevel Markov chain Monte Carlo. SIAM Rev. ,61(3):509–545, 2019. Revised reprint of “A hierarchical multilevel Markov chain Monte Carlo algorithm with applications to uncertainty quantification in subsurface flow” [3418231]. [19] W. E and B. Yu. The deep Ritz method: a deep learning-based numerical algorithm for solving variational problems. Commun. Math. Stat. , 6(1):1–12, 2018. [20] Y. Efendiev, T. Hou, and W. Luo. Preconditioning Markov chain Monte Carlo simulations using coarse-scale models. SIAM J. Sci. Comput. , 28(2):776–803, 2006. [21] H. W. Engl, M. Hanke, and A. Neubauer. Regularization of inverse problems , volume 375 of Mathematics and its Applications . Kluwer Academic Publishers Group, Dordrecht, 1996. [22] R. G. Ghanem and P. D. Spanos. Stochastic finite elements: a spectral approach . Springer-Verlag, New York, 1991. [23] M. B. Giles. Multilevel Monte Carlo path simulation. Oper. Res. , 56(3):607–617, 2008. [24] I. Goodfellow, Y. Bengio, and A. Courville. Deep learning . Adaptive Computation and Machine Learning. MIT Press, Cambridge, MA, 2016. 27 arXiv Template A P REPRINT 
+
+[25] R. Gribonval, G. Kutyniok, M. Nielsen, and F. Voigtlaender. Approximation spaces of deep neural networks. 
+
+Constr. Approx. , 55(1):259–367, 2022. [26] W. K. Hastings. Monte Carlo Sampling Methods Using Markov Chains and Their Applications. Biometrika ,57(1):97–109, 1970. [27] J. He, L. Li, J. Xu, and C. Zheng. Relu deep neural networks and linear finite elements. J. Comput. Math. ,38(3):502–527, 2020. [28] T. Helin, A. M. Stuart, A. L. Teckentrup, and K. C. Zygalakis. Introduction to Gaussian process regression in Bayesian inverse problems, with new results on experimental design for weighted error measures. In Monte Carlo and quasi-Monte Carlo methods , volume 460 of Springer Proc. Math. Stat. , pages 49–79. Springer, Cham, [2024] ©2024. [29] P. Hennig, M. A. Osborne, and M. Girolami. Probabilistic numerics and uncertainty in computations. Proc. A ,471(2179):20150142, 17, 2015. [30] V. H. Hoang, C. Schwab, and A. M. Stuart. Complexity analysis of accelerated MCMC methods for Bayesian inversion. Inverse Problems , 29(8):085010, 37, 2013. [31] S. Hochreiter and J. Schmidhuber. Long short-term memory. Neural Computation , 9(8):1735–1780, 11 1997. [32] K. Hornik, M. Stinchcombe, and H. White. Multilayer feedforward networks are universal approximators. Neural Networks , 2(5):359–366, 1989. [33] A. Immer, M. Bauer, V. Fortuin, G. Rätsch, and K. M. Emtiyaz. Scalable marginal likelihood estimation for model selection in deep learning. In International Conference on Machine Learning , pages 4563–4573. PMLR, 2021. [34] A. Jacot, F. Gabriel, and C. Hongler. Neural Tangent Kernel: Convergence and Generalization in Neural Networks. In S. Bengio, H. Wallach, H. Larochelle, K. Grauman, N. Cesa-Bianchi, and R. Garnett, editors, Advances in Neural Information Processing Systems , volume 31. Curran Associates, Inc., 2018. [35] M. I. Jordan, Z. Ghahramani, T. S. Jaakkola, and L. K. Saul. An Introduction to Variational Methods for Graphical Models . Springer Netherlands, Dordrecht, 1998. [36] J. Kaipio and E. Somersalo. Statistical and computational inverse problems , volume 160 of Applied Mathematical Sciences . Springer-Verlag, New York, 2005. [37] J. Kaipio and E. Somersalo. Statistical inverse problems: discretization, model reduction and inverse crimes. J. Comput. Appl. Math. , 198(2):493–504, 2007. [38] B. Kaltenbacher, A. Neubauer, and O. Scherzer. Iterative regularization methods for nonlinear ill-posed problems ,volume 6 of Radon Series on Computational and Applied Mathematics . Walter de Gruyter GmbH & Co. KG, Berlin, 2008. [39] M. C. Kennedy and A. O’Hagan. Bayesian calibration of computer models. J. R. Stat. Soc. Ser. B Stat. Methodol. ,63(3):425–464, 2001. [40] D. P. Kingma and J. Ba. Adam: A method for stochastic optimization. CoRR , abs/1412.6980, 2014. [41] N. Kovachki, Z. Li, B. Liu, K. Azizzadenesheli, K. Bhattacharya, A. Stuart, and A. Anandkumar. Neural operator: learning maps between function spaces with applications to PDEs. J. Mach. Learn. Res. , 24:Paper No. [89], 97, 2023. [42] N. B. Kovachki, S. Lanthaler, and A. M. Stuart. Operator learning. In Numerical analysis meets machine learning ,volume 25 of Handb. Numer. Anal. , pages 419–467. Elsevier/North-Holland, Amsterdam, [2024] ©2024. [43] A. Kristiadi, M. Hein, and P. Hennig. Being bayesian, even just a bit, fixes overconfidence in relu networks. In 
+
+International conference on machine learning , pages 5436–5446. PMLR, 2020. [44] J. Latz. On the well-posedness of Bayesian inverse problems. SIAM/ASA J. Uncertain. Quantif. , 8(1):451–482, 2020. [45] Z. Li, N. B. Kovachki, K. Azizzadenesheli, B. liu, K. Bhattacharya, A. Stuart, and A. Anandkumar. Fourier Neural Operator for Parametric Partial Differential Equations. In International Conference on Learning Representations ,2021. [46] Z. Li, H. Zheng, N. Kovachki, D. Jin, H. Chen, B. Liu, K. Azizzadenesheli, and A. Anandkumar. Physics-informed neural operator for learning partial differential equations. ACM/IMS J. Data Sci. , 1(3):Art. 9, 27, 2024. [47] H. C. Lie, T. J. Sullivan, and A. L. Teckentrup. Random forward models and log-likelihoods in Bayesian inverse problems. SIAM/ASA J. Uncertain. Quantif. , 6(4):1600–1629, 2018. 28 arXiv Template A P REPRINT 
+
+[48] L. Lu, P. Jin, G. Pang, Z. Zhang, and G. E. Karniadakis. Learning nonlinear operators via deeponet based on the universal approximation theorem of operators. Nature machine intelligence , 3(3):218–229, 2021. [49] M. B. Lykkegaard, T. J. Dodwell, C. Fox, G. Mingas, and R. Scheichl. Multilevel delayed acceptance MCMC. 
+
+SIAM/ASA J. Uncertain. Quantif. , 11(1):1–30, 2023. [50] D. J. C. MacKay. Bayesian interpolation. Neural Computation , 4(3):415–447, May 1992. [51] Y. Marzouk and D. Xiu. A stochastic collocation approach to Bayesian inference in inverse problems. Commun. Comput. Phys. , 6(4):826–847, 2009. [52] Y. M. Marzouk, H. N. Najm, and L. A. Rahn. Stochastic spectral methods for efficient Bayesian solution of inverse problems. J. Comput. Phys. , 224(2):560–586, 2007. [53] B. Matérn. Spatial variation , volume 36 of Lecture Notes in Statistics . Springer-Verlag, Berlin, second edition, 1986. With a Swedish summary. [54] N. Metropolis, A. W. Rosenbluth, M. N. Rosenbluth, A. H. Teller, and E. Teller. Equation of State Calculations by Fast Computing Machines. The Journal of Chemical Physics , 21(6):1087–1092, 06 1953. [55] S. Mishra and R. Molinaro. Estimates on the generalization error of physics-informed neural networks for approximating PDEs. IMA J. Numer. Anal. , 43(1):1–43, 2023. [56] A. F. Psaros, X. Meng, Z. Zou, L. Guo, and G. E. Karniadakis. Uncertainty quantification in scientific machine learning: Methods, metrics, and comparisons. Journal of Computational Physics , 477:111902, 2023. [57] N. Rahaman, A. Baratin, D. Arpit, F. Draxler, M. Lin, F. Hamprecht, Y. Bengio, and A. Courville. On the Spectral Bias of Neural Networks. In K. Chaudhuri and R. Salakhutdinov, editors, Proceedings of the 36th International Conference on Machine Learning , volume 97 of Proceedings of Machine Learning Research , pages 5301–5310. PMLR, 09–15 Jun 2019. [58] M. Raissi, P. Perdikaris, and G. E. Karniadakis. Machine learning of linear differential equations using Gaussian processes. J. Comput. Phys. , 348:683–693, 2017. [59] M. Raissi, P. Perdikaris, and G. E. Karniadakis. Physics-informed neural networks: a deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. In Proceedings of the International Conference of Basic Science (2023). Vol. 1 , pages 615–623. Int. Press, Somerville, MA, [2024] ©2024. [60] C. E. Rasmussen and C. K. I. Williams. Gaussian processes for machine learning . Adaptive Computation and Machine Learning. MIT Press, Cambridge, MA, 2006. [61] C. P. Robert and G. Casella. Monte Carlo statistical methods . Springer Texts in Statistics. Springer-Verlag, New York, second edition, 2004. [62] G. O. Roberts, A. Gelman, and W. R. Gilks. Weak convergence and optimal scaling of random walk Metropolis algorithms. Ann. Appl. Probab. , 7(1):110–120, 1997. [63] G. O. Roberts and R. L. Tweedie. Exponential convergence of Langevin distributions and their discrete approxi-mations. Bernoulli , 2(4):341–363, 1996. [64] J. Sacks, W. J. Welch, T. J. Mitchell, and H. P. Wynn. Design and analysis of computer experiments. Statist. Sci. ,4(4):409–435, 1989. With comments and a rejoinder by the authors. [65] C. Schwab and J. Zech. Deep learning in high dimension: neural network expression rates for analytic functions in L2(Rd, γ d). SIAM/ASA J. Uncertain. Quantif. , 11(1):199–234, 2023. [66] M. Sharma, S. Farquhar, E. Nalisnick, and T. Rainforth. Do Bayesian Neural Networks Need To Be Fully Stochastic? In F. Ruiz, J. Dy, and J.-W. van de Meent, editors, Proceedings of The 26th International Conference on Artificial Intelligence and Statistics , volume 206 of Proceedings of Machine Learning Research , pages 7694–7722. PMLR, 25–27 Apr 2023. [67] J. W. Siegel and J. Xu. Sharp bounds on the approximation rates, metric entropy, and n-widths of shallow neural networks. Found. Comput. Math. , 24(2):481–537, 2024. [68] J. Sirignano and K. Spiliopoulos. DGM: a deep learning algorithm for solving partial differential equations. J. Comput. Phys. , 375:1339–1364, 2018. [69] M. L. Stein. Interpolation of spatial data . Springer Series in Statistics. Springer-Verlag, New York, 1999. Some theory for Kriging. [70] S. M. Stigler. Laplace’s 1774 memoir on inverse probability. Statist. Sci. , 1(3):359–378, 1986. [71] A. M. Stuart. Inverse problems: a Bayesian perspective. Acta Numer. , 19:451–559, 2010. 29 arXiv Template A P REPRINT 
+
+[72] A. M. Stuart and A. L. Teckentrup. Posterior consistency for Gaussian process approximations of Bayesian posterior distributions. Math. Comp. , 87(310):721–753, 2018. [73] R. S. Sutton and A. G. Barto. Reinforcement learning: an introduction . Adaptive Computation and Machine Learning. MIT Press, Cambridge, MA, second edition, 2018. [74] M. Tancik, P. Srinivasan, B. Mildenhall, S. Fridovich-Keil, N. Raghavan, U. Singhal, R. Ramamoorthi, J. Barron, and R. Ng. Fourier Features Let Networks Learn High Frequency Functions in Low Dimensional Domains. In H. Larochelle, M. Ranzato, R. Hadsell, M. Balcan, and H. Lin, editors, Advances in Neural Information Processing Systems , volume 33, pages 7537–7547. Curran Associates, Inc., 2020. [75] A. L. Teckentrup. Convergence of Gaussian process regression with estimated hyper-parameters and applications in Bayesian inverse problems. SIAM/ASA J. Uncertain. Quantif. , 8(4):1310–1337, 2020. [76] A. Voulodimos, N. Doulamis, A. Doulamis, and E. Protopapadakis. Deep learning for computer vision: A brief review. Computational Intelligence and Neuroscience , 2018(1):7068349, 2018. [77] S. Wang, S. Sankaran, and P. Perdikaris. Respecting causality for training physics-informed neural networks. 
+
+Computer Methods in Applied Mechanics and Engineering , 421:116813, 2024. [78] S. Wang, S. Sankaran, H. Wang, and P. Perdikaris. An Expert’s Guide to Training Physics-informed Neural Networks. CoRR , abs/2308.08468, 2023. [79] S. Wang, H. Wang, and P. Perdikaris. Learning the solution operator of parametric partial differential equations with physics-informed DeepONets. Science Advances , 7(40):eabi8605, 2021. [80] S. Wang, H. Wang, and P. Perdikaris. On the eigenvector bias of Fourier feature networks: From regression to solving multi-scale PDEs with physics-informed neural networks. Computer Methods in Applied Mechanics and Engineering , 384:113938, 2021. [81] H. Wendland. Scattered data approximation , volume 17 of Cambridge Monographs on Applied and Computational Mathematics . Cambridge University Press, Cambridge, 2005. [82] A. G. Wilson. The case for Bayesian deep learning. arXiv preprint arXiv:2001.10995 , 2020. [83] A. G. Wilson and P. Izmailov. Bayesian deep learning and a probabilistic perspective of generalization. Advances in neural information processing systems , 33:4697–4708, 2020. [84] D. Xiu and G. E. Karniadakis. Modeling uncertainty in flow simulations via generalized polynomial chaos. J. Comput. Phys. , 187(1):137–167, 2003. 30

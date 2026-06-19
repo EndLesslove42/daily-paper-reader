@@ -1,0 +1,1459 @@
+Title: Structure-Informed Neural Operators for Long-Time Prediction of Parametric Hamiltonian PDEs
+
+URL Source: https://arxiv.org/pdf/2606.14913v1
+
+Published Time: Tue, 16 Jun 2026 00:11:41 GMT
+
+Number of Pages: 25
+
+Markdown Content:
+# Structure-Informed Neural Operators for Long-Time Prediction of Parametric Hamiltonian PDEs 
+
+Victory C. Obieke ∗
+
+Oregon State University 
+
+obiekev@oregonstate.edu 
+
+Christopher Chukwuemeka University of Houston 
+
+ccchukw2@cougarnet.uh.edu 
+
+Emmanuel E. Oguadimma Oregon State University 
+
+oguadime@oregonstate.edu 
+
+Abstract 
+
+Hamiltonian partial differential equations (PDEs) often exhibit long-time dynamics governed by conserved quantities such as mass, momentum, and Hamiltonian energy. Standard Fourier neural operators (FNOs) provide efficient data-driven approximations of solution operators, but may not preserve these invariants during autoregressive rollout, and can develop drift in conserved quantities, phase error, and loss of qualitative accuracy. We propose an energy-projection Fourier neural operator (EP-FNO), a structure-informed operator learning architecture that combines a residual FNO time-stepping update with an invariant projection for long-time prediction of parametric Hamiltonian PDEs. We also provide a theoretical analysis showing that EP-FNO can approximate operators associated with PDEs efficiently, we also suggest a stability estimate. We evaluate the approach on the Zakharov–Kuznetsov, Kadomtsev– Petviashvili, and sine–Gordon equations. Numerical experiments show that the projected model improves long-time stability, and gives more accurate propagation of soliton and coherent wave structures compared with a standard FNO baseline. Our results demonstrate that invariant projection improves the reliability of learned surrogates for long-time Hamiltonian PDE simulation. 
+
+# 1 Introduction 
+
+Hamiltonian partial differential equations (PDEs) arise in computational science, including nonlinear wave propagation [ 39 , 14 , 35 ], plasma physics [ 28 ], fluid dynamics and magnetohydrodynamics [ 29 , 27 ], and nonlinear optical media [ 4 , 1 ]. These systems often support coherent wave structures, such as solitons and localized waves, whose long-time dynamics are governed by conserved quantities including mass, momentum, and Hamiltonian energy. Accurately predicting these dynamics over long time intervals remains challenging, since small numerical or model errors can accumulate during time integration, producing phase errors, artificial damping, or drift in conserved quantities. Numerical methods such as finite-difference and FDTD schemes [ 41 , 3 ], finite element methods [ 2, 26 ], spectral and pseudospectral methods [ 37 , 16 ], and multisymplectic discretizations [ 5 , 9, 10 ], have long been used to simulate Hamiltonian and dispersive wave systems. Beyond formal discretization accuracy, the effectiveness of these methods often depends on how well they reflect the structure of the underlying differential equation, including symmetries, invariant transformations, and conserved quantities [ 32 ]. Structure-preserving schemes are therefore especially important because they are designed to respect the geometric properties of the continuous model [ 31 , 10 ]. However, high-fidelity simulations can still be computationally expensive, especially when solutions must be generated repeatedly for many initial conditions or parameter values. This has led to growing interest in machine-learning methods that approximate the evolution of nonlinear systems from data. In particular, there has been significant progress in incorporating Hamiltonian and geometric  
+
+> ∗Corresponding author: Victory C. Obieke, Oregon State University. Email: obiekev@oregonstate.edu
+
+1
+
+> arXiv:2606.14913v1 [math-ph] 12 Jun 2026
+
+structure into learned dynamical models. Hamiltonian neural networks learn an energy function and use Hamilton’s equations to evolve the state [ 17 ]. SympNets and other related architectures instead learn maps that are constrained to preserve the symplectic structure of Hamiltonian dynamics [ 18 , 6 ]. Other approaches incorporate physical constraints or conservation laws through penalty terms, variational formulations, or physics-informed residual losses [34, 20, 11, 42]. In contrast to learning maps between finite-dimensional vectors [ 24 , 22 ], neural operators provide a data-driven framework for learning solution operators between infinite-dimensional function spaces. Among existing operator-learning methods, the Fourier neural operator (FNO) has become a standard architecture for learning PDE solution maps on regular grids, since it parameterizes integral kernels in Fourier space and uses spectral convolutions to capture global interactions efficiently [ 24 ]. Several extensions of the FNO framework have been proposed, including factorized Fourier neural operators [36], residual factorized Fourier neural operators [ 13 ], and geometry-aware Fourier neural operators [ 23 ] for more complex geometries. However, explicit enforcement of the invariant structure of the underlying PDE during autoregressive rollouts remains underexplored. As the predicted solution is repeatedly fed back into the model, small one-step errors can accumulate into long-time drift in conserved quantities. In this paper, we consider learning long-time solution operators for a family of Hamiltonian PDEs. We propose the energy-projection Fourier neural operator (EP-FNO), a structure-informed FNO architecture that combines a residual FNO time-stepping update with an invariant projection for long-time prediction of parametric Hamiltonian PDEs. The FNO algorithm learns the local solution increment from a history window of previous states, while the projection module corrects the prediction toward a discrete invariant manifold. This projection step parallels residual-minimizing projection methods in reduced-order modeling, where a discrete correction is used to improve the reliability of an approximate time update [8]. The remainder of this paper is organized as follows. In Section 2, we formulate the long-time operator-learning problem for Hamiltonian PDEs and introduce the discrete invariant manifold used in the projection step. Section 3 reviews related work on Fourier neural operators, Hamiltonian and symplectic learning, structure-preserving neural operators, physics-informed methods, and geometric numerical methods. In Section 4, we present the proposed EP-FNO architecture, including the neural-operator algorithm, Fourier operator layers, residual time-step update, invariant projection block, and stability estimates. Section 5 reports numerical experiments for the Zakharov–Kuznetsov, Kadomtsev–Petviashvili, and sine–Gordon equations, together with ablation studies and cost–accuracy comparisons. Finally, Section 6 summarizes the main findings and discusses possible extensions of the projection framework. 
+
+# 2 Problem Setting 
+
+In this section, we consider the problem of learning solution operators for Hamiltonian evolution equations. Let Ω ⊂ Rd be a spatial domain and let T > 0. We denote by U : Ω × (0 , T ] → Rm the solution of the system. We assume that the governing equation can be written in first-order form as 
+
+∂tU (x, t ) = F[U ]( x, t ), (x, t ) ∈ Ω × (0 , T ],U (x, 0) = U0(x), x ∈ Ω. (2.1) where F denotes the spatial differential operator associated with the system. We further assume that the flow generated by (2.1) admits q conserved functionals C(U ) = (C1(U ), . . . , C q(U ))⊤, meaning that, for each solution U (t), one has 
+
+ddt Ci(U (t)) = 0 , i = 1 , . . . , q. (2.2) 2Thus, Ci(U (t)) = Ci(U0) along the exact evolution. These conserved quantities may include mass, momentum, or Hamiltonian energy. After using any desired choice of numerical method for the spatial discretizations of (2.1) , we let Vh
+
+denote the discrete state space and let U nh ∈ Vh be the approximation of U (·, t n), where tn = n∆t, n ∈ N.We denote the discrete conserved quantities by Ch(Uh) = (C1,h (Uh), . . . , C q,h (Uh))⊤. Given the input history 
+
+Unh = (U n−Tin +1  
+
+> h
+
+, . . . , U nh 
+
+> )
+
+where Tin is the length of the history window, the solution operator is 
+
+G† : Unh 7 −→ U n+1  
+
+> h
+
+. (2.3) We approximate G† by a learned neural operator. In the standard FNO model, the next state is predicted by the map ̂ U n+1  
+
+> h
+
+= Gθ(Unh), θ ∈ Θ, for some finite-dimensional parameter space Θ. In general, ̂ U n+1  
+
+> h
+
+need not satisfy the discrete conservation laws. To enforce the invariant structure, we define the target invariant vector c⋆ = Ch(U nh ), and the corresponding discrete invariant manifold 
+
+M = {Wh ∈ Vh : Ch(Wh) = c⋆}. (2.4) The EP-FNO update is defined by 
+
+U n+1  
+
+> h
+
+= GEP  
+
+> θ
+
+(Unh) = Π c⋆ (Gθ(Unh)) , (2.5) where Πc⋆ denotes the projection map defined in Section 4.4. This projection corrects the FNO prediction so that it lies on, or closer to, the discrete invariant manifold M. Thus, the FNO algorithm provides the data-driven prediction, while the projection step reduces drift in the discrete invariants during autoregressive rollout. 
+
+Figure 2.1: Architecture of the proposed energy-projection Fourier neural operator (EP-FNO). The input history is lifted into a latent representation and evolved by an FNO algorithm to produce a prediction. The projection module then corrects this prediction so that the final state satisfies the discrete invariant. The overall EP-FNO architecture is shown in Figure 2.1. The model has two main components: (i) a residual FNO backbone that predicts the next-step increment of the PDE state, and (ii) an invariant projection block that corrects the provisional prediction so that it remains close to the prescribed Hamiltonian energy level set. The computational cost and structure-preserving properties of FNO and EP-FNO are summarized in Table 2.1, while the corresponding stability properties are summarized in Table 2.2. 3Table 2.1: Computational complexity and structure-preserving comparison of FNO and EP-FNO models. Here N = NxNy is the number of spatial grid points, T is the rollout length, and rs denotes residual time stepper. 
+
+Model T -step cost Invariant-Projection 
+
+FNO O(T N log N ) ✗
+
+EP-FNO without rs O(T N log N ) + O(T N ) ✓
+
+EP-FNO O(T N log N ) + O(T N ) ✓
+
+Table 2.2: Stability comparison of FNO and EP-FNO. Here rs denote residual time-stepper (4.3). 
+
+Model Energy boundedness Long-time stability Residual stability 
+
+FNO ✗ ✗ ✗
+
+EP-FNO without rs ✓ ✓ ✗
+
+EP-FNO ✓ ✓ ✓
+
+# 3 Related Works 
+
+Fourier neural operators and neural operator learning. The Fourier neural operator (FNO) [ 24 , 22 ]is a standard approach for learning solution operators of PDEs on regular grids. By parameterizing the integral kernel in Fourier space, FNOs achieve resolution independence and excellent performance on a variety of problems including Navier–Stokes, Darcy flow, and Burgers’ equation. Several extensions have been proposed, such as the factorized FNO [ 36 ] and the geo-FNO [ 23 ] for irregular geometries. However, these architectures do not explicitly enforce conservation laws or Hamiltonian structure, which can lead to qualitative drift in long-time autoregressive rollout. 
+
+Hamiltonian and symplectic neural networks. For ordinary differential equations, the Hamiltonian neural network (HNN) [ 17 ] learns the Hamiltonian function and uses it to generate symplectic dynamics. SympNets [ 18 ] and their variants [ 6] directly parameterize symplectic maps. These methods guarantee exact conservation of the learned Hamiltonian (up to discretization) and have been extended to time-dependent Hamiltonians [43] and port-Hamiltonian systems [33]. 
+
+Structure-preserving neural operators. Recent efforts aim to embed geometric structure into neural operators. The structure-preserving neural differential operator with embedded Hamiltonian constraints [ 30 ]introduces a symplectic latent representation for Hamiltonian systems, while the Lagrangian neural operator (LNO) [ 12 ] learns a Lagrangian density from data. Another line of work uses penalty terms in the loss to approximately conserve energy or momentum [ 20 ], but this approaches does not guarantee exact preservation. The projection method proposed in EP-FNO is conceptually closer to the orthogonal projection used in projection-based model reduction [8]. 
+
+Physics-informed learning for Hamiltonian PDEs. Physics-informed neural networks (PINNs) [34] can incorporate Hamiltonian structure by minimizing the residual of the Hamilton–Jacobi or the variational form [ 11 , 42 ]. While PINNs excel at inverse problems and irregular domains, they are typically slower than neural operators for repeated forward simulations and do not directly produce a discrete-time map. EP-FNO is designed for fast autoregressive rollout and inherits the efficiency of spectral convolutions. 
+
+Projection methods for physical constraints. A closely related direction enforces physical consistency by correcting learned outputs after prediction. General output-projection frameworks formulate the correction as a constrained post-processing problem, where the prediction is moved onto a manifold defined by prescribed physical laws [ 38 ]. In operator learning, hard-constraint methods project surrogate outputs onto spaces 4of functions satisfying prescribed differential constraints, including efficient transformed-space projections for linear constraints such as incompressibility [ 15 ]. Other recent approaches introduce adaptive correction modules that modify neural-operator outputs to enforce linear or quadratic conserved quantities [ 25 ]. Projection layers have also been used in conservative PINNs and DeepONets by mapping candidate solutions of dynamical systems with first integrals onto the corresponding invariant manifold [ 7 ]. These works establish projection and correction as important tools for scientific machine learning. EP-FNO differs by coupling a residual FNO time-stepper with an explicit, sample-dependent damped projection onto problem-dependent discrete Hamiltonian and mass manifolds during long autoregressive rollout. This allows the correction to target nonlinear Hamiltonian invariants in parametric two-dimensional wave PDEs, which makes the specific EP-FNO formulation proposed here novel. 
+
+# 4 Structure-Informed Fourier Neural Operator 
+
+We propose a structure-informed FNO for learning solution operators associated with Hamiltonian evolution equations. The method combines the FNO algorithm with a residual time-step update and a structure-preserving projection module. The FNO backbone learns the local increment of the PDE state from a history window of previous states, producing a provisional prediction ˜U n+1 = U n + Gθ(Un). This provisional state is then passed to an invariant projection module, which corrects the prediction so that it is consistent with prescribed discrete quantities such as mass or Hamiltonian energy. In this way, the architecture retains the approximation power of FNO while incorporating the geometric structure of the underlying PDE during autoregressive rollout. 
+
+4.1 Neural Operator 
+
+Let Ω ⊂ Rd denote the spatial domain. A neural operator maps an input function a : Ω → Rda to an output function U : Ω → Rdu . We write the operator as a composition of pointwise lifting P (a), integral operator layers, and pointwise output projection Q(.),
+
+Ψθ = Q ◦ KL ◦ · · · ◦ K1 ◦ P. (4.1) The lifting map P sends the input function into a higher-dimensional latent space, v0(x) = P (a)( x),
+
+x ∈ Ω, while the final map Q projects the last latent representation back to the physical output space, ̂
+
+U (x) = Q(vL)( x). The intermediate layers Kℓ, ℓ = 1 , . . . , L , are operator layers of the form vℓ(x) =  
+
+> ∫
+> Ω
+
+κℓ(x, y )vℓ−1(y) dy , where κℓ is a learnable kernel. Nonlinear activation functions are applied between layers. 
+
+4.2 Fourier Operator Block 
+
+We describe the Fourier operator block used in the FNO algorithm. From (4.1) , the lifted latent representation 
+
+v0, evaluated on a regular grid, is passed through a sequence of Fourier layers. Let the latent functions be defined on the d-dimensional torus Td. We define an integral operator with kernel κ ∈ L2(Td; Rn×m) as the mapping C : L2(Td; Rm) → L2(Td; Rn) given by 
+
+C(v) = F−1 (F(κ) · F (v)) ,
+
+5with v ∈ L2(Td; Rm), where F and F−1 denote the Fourier transform and inverse Fourier transform, respectively. The Fourier layer is then defined by 
+
+K(v)( x) = σ (W v (x) + C(v)( x)) , x ∈ Td
+
+where W ∈ Rn×m is a learnable pointwise linear map and σ is a nonlinear activation function. Applying L such Fourier layers gives vL = KL ◦ KL−1 ◦ · · · ◦ K1(v0). The final latent representation is then mapped to the output space by a pointwise projection operator Q, giving the FNO prediction ̂
+
+U = Gθ(a) = Q(vL).
+
+4.3 Residual Time-Step Update 
+
+In the autoregressive rollout, we train the FNO model to predict an increment rather than the full next state. Given the history window a := Un, the provisional prediction can be written as 
+
+> ˜
+
+U n+1 = Rθ(Un) = U n + Gθ(Un).
+
+Thus, the neural operator learns the local change in the PDE state over one time step. This residual time-step formulation is useful for autoregressive prediction because consecutive states are typically close for sufficiently small ∆t. The provisional state ˜U n+1 is then passed to the invariant projection module. 
+
+4.4 Invariant Projection Block 
+
+The residual FNO update produces a provisional prediction ˜U n+1 = U n + Gθ(Un). Since this prediction is not guaranteed to preserve the discrete invariants of the underlying Hamiltonian system, we apply a post-processing projection step. Let Ch(U ) denote the vector of discrete invariants to be stabilized. At each time step, we define the target invariant value by c⋆ = Ch(U n). The projected EP-FNO update is then defined by 
+
+U n+1 = Π c⋆ ( ˜U n+1 )
+
+where Πc⋆ is a projection map chosen so that Ch(U n+1 ) ≈ c⋆. The projection serves as a structure-preserving correction applied after the prediction made by the FNO algorithm. For a general Hamiltonian PDE, the low-dimensional correction map is written in terms of correction directions as 
+
+Πλ(V ) = V +
+
+> q∑
+> j=1
+
+λj Dj (V ), (4.2) where Dj (V ), j = 1 , . . . , q , are chosen correction directions. They tell the projection which direction to move the raw prediction V in order to reduce the invariant defect and λ = ( λ1, . . . , λ q)⊤ is the vector of correction parameters. 
+
+4.5 Implementation of the EP-FNO Algorithm 
+
+In this section, we describe the implementation of EP-FNO. At each time level, the residual FNO first produces a provisional next state from the current history window. The prescribed discrete invariants are then computed from the last accepted state, and a low-dimensional damped projection is applied to the provisional prediction. This projection is recomputed for each sample and each rollout step, so the FNO 6backbone remains unchanged while the correction reduces drift in the prescribed invariants during long autoregressive prediction. 
+
+Algorithm 1 EP-FNO with damped invariant projection algorithm  
+
+> 1:
+
+Input. History window Un = (U n−Tin +1 , . . . , U n), residual FNO Gθ, discrete invariant map Ch(U )
+
+projection family Πλ, identity correction λ0, damping parameter 0 < η ≤ 1, and Newton tolerance tol . 
+
+> 2:
+
+Residual FNO prediction. Compute the provisional next state 
+
+˜U n+1 = U n + Gθ(Un). 
+
+> 3:
+
+Target invariant value. Compute the invariant vector from the last accepted state, 
+
+c⋆ = Ch(U n). 
+
+> 4:
+
+Invariant defect. For a provisional state V , define (using (4.2)) 
+
+F(λ; V ) = Ch(Π λ(V )) − c⋆. 
+
+> 5:
+
+Low-dimensional correction. Starting from λ(0) = λ0, apply Newton iterations to solve 
+
+F(λ∗; ˜U n+1 ) = 0. 
+
+> 6:
+
+Damped correction. Set 
+
+λ = λ0 + η (λ∗ − λ0) . 
+
+> 7:
+
+Projected EP-FNO state. Define 
+
+U n+1 = Π c⋆ ( ˜U n+1 ) = Π λ( ˜U n+1 ). 
+
+> 8:
+
+Output. Projected state U n+1 .
+
+Theorem 4.1 ([ 21 , Theorem 5]) . Let s, s ′ ≥ 0. Let G : Hs(Td; Rda ) → Hs′
+
+(Td; Rdu ) be a continuous operator. Let K ⊂ Hs(Td; Rda ) be a compact subset. Then for any ϵ > 0, there exists a FNO N : Hs(Td; Rda ) →
+
+Hs′
+
+(Td; Rdu ), of the form (6), continuous as an operator Hs → Hs′
+
+, such that 
+
+sup 
+
+> a∈K
+
+∥G (a) − N (a)∥Hs′ ≤ ϵ. 
+
+Lemma 4.2 (Residual FNO approximation ). Let s, s ′ ≥ 0, and let Un denote the history window whose most recent state is U n. Let Φh : Hs(Td; Rda ) → Hs′
+
+(Td; Rdu ) be the reference one-step flow map on a compact set K ⊂ Hs(Td; Rda ), so that Φh(Un) = U n+1 . Define the residual operator by G(Un) := Φ h(Un) − U n,
+
+where U n is the most recent state in the history window. Assume that G is well-defined and continuous as a map G : K → Hs′
+
+(Td; Rdu ). Then, for every δ > 0, there exists an FNO Gθ : Hs(Td; Rda ) → Hs′
+
+(Td; Rdu )
+
+such that the residual update Rθ(Un) = U n + Gθ(Un) satisfies 
+
+sup 
+
+> Un∈K
+
+∥Rθ(Un) − Φh(Un)∥Hs′ ≤ δ. 
+
+Proof. By assumption, G : K → Hs′
+
+is continuous. Therefore, by Theorem 4.1, for every δ > 0, there exists 7an FNO Gθ such that 
+
+sup 
+
+> Un∈K
+
+∥G(Un) − G θ(Un)∥Hs′ ≤ δ. 
+
+We obtain 
+
+∥Rθ(Un) − Φh(Un)∥Hs′ = ∥U n + Gθ(Un) − [U n + G(Un)] ∥Hs′ = ∥G θ(Un) − G(Un)∥Hs′ .
+
+Therefore, 
+
+sup 
+
+> Un∈K
+
+∥Rθ(Un) − Φh(Un)∥Hs′ = sup 
+
+> Un∈K
+
+∥G θ(Un) − G(Un)∥Hs′ ≤ δ. 
+
+This proves the result. 
+
+Lemma 4.3 (Lipschitz continuity of the damped projection ). Let K ⊂ Hs′
+
+(Td; Rdu ) be compact, and define the damped projection 
+
+Πη 
+
+> c⋆
+
+(V ) = V + η
+
+> q
+
+∑
+
+> j=1
+
+λj (V )Dj (V ), 0 < η ≤ 1.
+
+Assume that, for each j = 1 , . . . , q , the coefficient λj : K → R is well-defined, uniformly bounded, and Lipschitz continuous on K, and that Dj : K → Hs′
+
+(Td; Rdu ) is uniformly bounded and Lipschitz continuous on K, with lipschitz constants Mλ, L λ, M D, L D > 0 such that, for all V, W ∈ K respectively. Then Πη 
+
+> c⋆
+
+is Lipschitz continuous on K, with lipschitz constants Lη 
+
+> Π
+
+where Lη 
+
+> Π
+
+= 1 + ηq (MλLD + LλMD).
+
+Proof. For V, W ∈ K , we have 
+
+Πη 
+
+> c⋆
+
+(V ) − Πη 
+
+> c⋆
+
+(W ) = V − W + η
+
+> q
+
+∑
+
+> j=1
+
+[λj (V )Dj (V ) − λj (W )Dj (W )] .
+
+For each j, we observe that 
+
+λj (V )Dj (V ) − λj (W )Dj (W ) = λj (V )(Dj (V ) − Dj (W )) + (λj (V ) − λj (W ))Dj (W ).
+
+Therefore, 
+
+∥Πη 
+
+> c⋆
+
+(V ) − Πη 
+
+> c⋆
+
+(W )∥Hs′ ≤ ∥ V − W ∥Hs′ + η
+
+> q
+
+∑
+
+> j=1
+
+(
+
+|λj (V )|∥ Dj (V ) − Dj (W )∥Hs′
+
++ |λj (V ) − λj (W )|∥ Dj (W )∥Hs′
+
+)
+
+≤ [1 + ηq (MλLD + LλMD)] ∥V − W ∥Hs′ .
+
+Thus Πη 
+
+> c⋆
+
+is Lipschitz continuous on K.
+
+Lemma 4.4 (Lipschitz continuity of the EP-FNO one-step map ). Let K ⊂ Hs(Td; Rda ) be compact. Assume that Gθ is Lipschitz. Then the residual update Rθ is Lipschitz on K, with lipschitz constants 1 + LG .If, in addition, the projection Πη 
+
+> c⋆
+
+satisfies Lemma 4.3, then the EP-FNO one-step map Ψηh(U) = Π η 
+
+> c⋆
+
+(Rθ(U)) 
+
+is Lipschitz on K with lipschitz constant Lη 
+
+> Ψ
+
+where Lη 
+
+> Ψ
+
+= Lη
+
+> Π
+
+(1 + LG ).
+
+Proof. For U, W ∈ K, we have First, define the history-window norm by 
+
+∥U − W∥Hs =
+
+
+
+> Tin −1
+
+∑
+
+> ℓ=0
+
+∥U n−ℓ − W n−ℓ∥2
+
+> Hs
+
+
+
+> 1/2
+
+.
+
+8Since the most recent state corresponds to one term in the sum, we have 
+
+∥U n − W n∥2 
+
+> Hs
+
+≤
+
+> Tin −1
+
+∑
+
+> ℓ=0
+
+∥U n−ℓ − W n−ℓ∥2 
+
+> Hs
+
+, =⇒ ∥ U n − W n∥Hs ≤ ∥ U − W∥Hs .
+
+Therefore, using Lemma 4.3, we obtain 
+
+∥Ψηh(U) − Ψηh(W)∥Hs′ = ∥Πη 
+
+> c⋆
+
+(Rθ(U)) − Πη 
+
+> c⋆
+
+(Rθ(W)) ∥Hs′
+
+≤ Lη
+
+> Π
+
+∥Rθ(U) − Rθ(W)∥Hs′
+
+= Lη
+
+> Π
+
+∥U + Gθ(U) − [W + Gθ(W)] ∥Hs′
+
+≤ Lη
+
+> Π
+
+(∥U − W ∥Hs′ + ∥G θ(U) − G θ(W)∥Hs′
+
+)
+
+≤ Lη 
+
+> Π
+
+(∥U − W∥Hs + LG ∥U − W∥Hs )= Lη
+
+> Π
+
+(1 + LG )∥U − W∥Hs .
+
+as desired. 
+
+Theorem 4.5 (Universal approximation by EP-FNO ). Let s, s ′ ≥ 0, and let Un denote the history window whose most recent state is U n. Let Φh : Hs(Td; Rda ) → Hs′
+
+(Td; Rdu ) be the reference one-step flow map on a compact set K ⊂ Hs(Td; Rda ), so that Φh(Un) = U n+1 . Assume that Πη 
+
+> c⋆
+
+satisfies the hypotheses of Lemma 4.3 on a compact set K ⊂ Hs′
+
+(Td; Rdu ) containing the relevant provisional states Rθ(Un) and reference states Φh(Un). Assume also that the projection fixes the reference flow, Πη 
+
+> c⋆
+
+(Φ h(Un)) = Φ h(Un), for Un ∈ K. 
+
+Then, for every ε > 0, there exists an FNO Gθ : Hs(Td; Rda ) → Hs′
+
+(Td; Rdu ) such that the EP-FNO map 
+
+Ψηh(Un) = Π η 
+
+> c⋆
+
+(U n + Gθ(Un)) satisfies 
+
+sup 
+
+> Un∈K
+
+∥Ψηh(Un) − Φh(Un)∥Hs′ ≤ ε. 
+
+Proof. By Lemma 4.2, for every δ > 0, there exists an FNO Gθ such that the residual update map satisfies 
+
+sup 
+
+> Un∈K
+
+∥Rθ(Un) − Φh(Un)∥Hs′ ≤ δ. 
+
+Therefore, using Lemma 4.3, 
+
+∥Ψηh(Un) − Φh(Un)∥Hs′ = ∥Πη 
+
+> c⋆
+
+(Rθ(Un)) − Πη 
+
+> c⋆
+
+(Φ h(Un)) ∥Hs′ ≤ Lη
+
+> Π
+
+∥Rθ(Un) − Φh(Un)∥Hs′ .
+
+Taking the supremum over Un ∈ K, we obtain 
+
+sup 
+
+> Un∈K
+
+∥Ψηh(Un) − Φh(Un)∥Hs′ ≤ Lη 
+
+> Π
+
+sup 
+
+> Un∈K
+
+∥Rθ(Un) − Φh(Un)∥Hs′ ≤ Lη
+
+> Π
+
+δ. 
+
+Choose δ = εLη
+
+> Π
+
+. Then 
+
+sup 
+
+> Un∈K
+
+∥Ψηh(Un) − Φh(Un)∥Hs′ ≤ ε. 
+
+Hence, the EP-FNO map universally approximates the reference one-step flow map on K.
+
+Lemma 4.6 (Taylor-consistent residual approximation ). Let K ⊂ Hs(Td; Rda ) be compact. Assume that the reference one-step flow Φh admits the Taylor expansion 
+
+Φh(U) = U +
+
+> p
+
+∑
+
+> r=1
+
+hrAr(U) + O(hp+1 )
+
+9uniformly for U ∈ K, where U is the most recent state in the history window and each coefficient map 
+
+Ar : K → Hs′
+
+(Td; Rdu ) is continuous. Define Gp,h (U) = ∑pr=1 hrAr(U). Then, for every h > 0 sufficiently small, there exists an FNO Gθ(h) 4.1 such that 
+
+sup 
+
+> U∈K
+
+∥G θ(h)(U) − Gp,h (U)∥Hs′ ≤ Ch p+1 .
+
+Consequently, the residual update satisfies 
+
+sup 
+
+> U∈K
+
+∥Rθ(h)(U) − Φh(U)∥Hs′ = O(hp+1 ).
+
+Proof. By the Taylor expansion assumption, there exists a constant C1 > 0 such that 
+
+sup 
+
+> U∈K
+
+∥Φh(U) − U − Gp,h (U)∥Hs′ ≤ C1hp+1 .
+
+Since each Ar is continuous on K, the map Gp,h is continuous on K. Since Gp,h is continuous on the compact set K, the universal approximation theorem for FNOs implies that, for every tolerance δ > 0, there exists an FNO Gθ such that 
+
+sup 
+
+> U∈K
+
+∥G θ(U) − Gp,h (U)∥Hs′ ≤ δ. 
+
+For each fixed h > 0, choose 
+
+δ = hp+1 .
+
+Then there exists an FNO, denoted by Gθ(h), such that 
+
+sup 
+
+> U∈K
+
+∥G θ(h)(U) − Gp,h (U)∥Hs′ ≤ hp+1 .
+
+Using the triangle inequality, we obtain 
+
+∥Rθ(h)(U) − Φh(U)∥Hs′ = ∥U + Gθ(h)(U) − Φh(U)∥Hs′
+
+≤ ∥G θ(h)(U) − Gp,h (U)∥Hs′
+
++ ∥U + Gp,h (U) − Φh(U)∥Hs′
+
+≤ (C1 + 1) hp+1 .
+
+Taking the supremum over U ∈ K gives 
+
+sup 
+
+> U∈K
+
+∥Rθ(h)(U) − Φh(U)∥Hs′ = O(hp+1 ).
+
+Corollary 4.7 (Taylor-consistent EP-FNO one-step error ). Assume that the hypotheses of Lemma 4.6 hold. Assume also that the projection Πη 
+
+> c⋆
+
+satisfies Lemma 4.3 and fixes the reference flow: Πη 
+
+> c⋆
+
+(Φ h(U)) = Φh(U), U ∈ K. Then the EP-FNO one-step approximation error satisfies 
+
+sup 
+
+> U∈K
+
+∥Ψηh(U) − Φh(U)∥Hs′ = O(hp+1 ).
+
+Proof. By Lemma 4.3, 
+
+∥Ψηh(U) − Φh(U)∥Hs′ = ∥Πη 
+
+> c⋆
+
+(Rθ(h)(U)) − Πη 
+
+> c⋆
+
+(Φ h(U)) ∥Hs′
+
+≤ Lη
+
+> Π
+
+∥Rθ(h)(U) − Φh(U)∥Hs′ .
+
+10 By Lemma 4.6, 
+
+sup 
+
+> U∈K
+
+∥Rθ(h)(U) − Φh(U)∥Hs′ = O(hp+1 ).
+
+Hence, 
+
+sup 
+
+> U∈K
+
+∥Ψηh(U) − Φh(U)∥Hs′ = O(hp+1 ).
+
+Theorem 4.8 (stability of EP-FNO ). Assume that the hypotheses of Corollary 4.7 hold, so that the EP-FNO one-step map satisfies sup U∈K ∥Ψηh(U) − Φh(U)∥Hs′ = O(hp+1 ). Assume also that the hypotheses of Lemma 4.3 and Lemma 4.4 hold, so that the full EP-FNO map is Lipschitz on K with constant Lη 
+
+> Ψ
+
+=
+
+Lη
+
+> Π
+
+(1 + LG ). Suppose, in addition, that there exists C > 0 such that Lη 
+
+> Ψ
+
+≤ 1 + Ch . Let U n+1 = Φ h(Un)
+
+denote the reference rollout, and let ̂ U n+1 = Ψ ηh(̂ Un) denote the EP-FNO autoregressive rollout. Suppose that both rollouts remain in the compact rollout set K for all 0 ≤ tn ≤ T , and that they start from the same initial history, ̂ U0 = U0. Then, for every tn = nh ≤ T ,
+
+∥̂ U n − U n∥Hs′ = O(hp).
+
+Consequently, the EP-FNO rollout converges to the reference rollout uniformly on every finite time interval 
+
+0 ≤ tn ≤ T as h → 0.Proof. Let 
+
+en = ∥̂U n − U n∥Hs′ .
+
+Using the definitions of the reference and EP-FNO updates, we obtain 
+
+en+1 = ∥̂U n+1 − U n+1 ∥Hs′
+
+= ∥Ψηh(̂ Un) − Φh(Un)∥Hs′
+
+≤ ∥ Ψηh(̂ Un) − Ψηh(Un)∥Hs′ + ∥Ψηh(Un) − Φh(Un)∥Hs′ .
+
+By Lemma 4.4, the EP-FNO map has Lipschitz constant Lη 
+
+> Ψ
+
+= Lη
+
+> Π
+
+(1 + LG ). Since Lη 
+
+> Ψ
+
+≤ 1 + Ch , and since the one-step approximation error is O(hp+1 ), we have 
+
+en+1 ≤ (1 + Ch )en + O(hp+1 ).
+
+Since the initial histories agree, e0 = 0 . Iterating gives 
+
+en ≤ O(hp+1 )
+
+> n−1
+
+∑
+
+> k=0
+
+(1 + Ch )k = O(hp+1 ) (1 + Ch )n − 1
+
+Ch .
+
+For tn = nh ≤ T , we have 
+
+(1 + Ch )n ≤ eCnh ≤ eCT .
+
+Therefore, 
+
+en ≤ O(hp+1 ) eCT − 1
+
+Ch = O(hp).
+
+This proves the finite-time rollout stability estimate and the uniform finite-time convergence as h → 0.11 5 Numerical Experiments 
+
+5.1 Experimental Setup 
+
+In this section, we compare the proposed EP-FNO framework with the standard FNO model on the Zakharov–Kuznetsov, Kadomtsev–Petviashvili, and Sine–Gordon equations. The training data are generated from parameterized families of exact solutions. For ZK and KP, we use line-soliton and cylindrical pulse profiles with varying wave parameters, whereas for Sine–Gordon we use kink–antikink and traveling domain-wall solutions. 
+
+5.1.1 Training configuration 
+
+The baseline model is a two-dimensional FNO with four spectral layers, where each layer combines spectral convolution, pointwise linear transformation, and GELU activation. EP-FNO adapts this model by retaining the residual update and applying an invariant projection after each prediction made by the FNO framework. For first-order-in-time equations such as ZK and KP, the network predicts the scalar field u, while for the sine–Gordon equation we write the system in first-order form and predict the coupled state (u, v ), where 
+
+v = ut. We intend to learn the one-step solution operator 
+
+G† : (un−Tin +1 , . . . , u n) 7 → un+1 . (5.1) Long-time predictions are then obtained by autoregressive rollout. In all our experiments, the models use 
+
+Tin = 10 previous snapshots as input, 12 retained Fourier modes, channel width 24 , batch size 1, and Adam optimization with weight decay. A step learning-rate scheduler reduces the learning rate by a factor of 0.5
+
+every 8 epochs. For the parametric experiments, each realization is defined by one sampled parameter tuple. From each realization, we extract 15 temporal windows to form autoregressive input–output pairs. Unless otherwise stated, the dataset contains 40 parameter realizations, giving 600 samples in total. We split the data by realization so that all windows associated with a given parameter tuple remain in the same split. Specifically, 
+
+32 realizations are used for training, 4 for validation, and 4 for testing, corresponding to 480 , 60 , and 60 
+
+temporal windows, respectively. Both models are trained for 35 epochs, and the checkpoint with the lowest validation loss is used for testing. All experiments are run on a single NVIDIA A40 GPU with 8 CPU cores and 96 GB RAM. 
+
+5.2 Zakharov–Kuznetsov Equation 
+
+Let T > 0 and Ω ⊂ R2. Consider the two-dimensional Zakharov–Kuznetsov (ZK) equation, given by 
+
+ut + uu x + ε (uxxx + uxyy ) = 0 , (x, y ) ∈ Ω, t ∈ (0 , T ],u(x, y, 0) = u0(x, y ), (x, y ) ∈ Ω,u(x + Lx, y, t ) = u(x, y, t ), y ∈ [0 , L y], t ∈ [0 , T ],u(x, y + Ly, t ) = u(x, y, t ), x ∈ [0 , L x], t ∈ [0 , T ],
+
+(5.2) where ε > 0 is the dispersion parameter. The ZK equation conserves mass and Hamiltonian, which can be written as 
+
+MZK [u] = 
+
+> ∫
+> Ω
+
+u(x, y, t ) dx dy, (5.3) and 
+
+HZK [u] =  
+
+> ∫
+> Ω
+> [
+
+ε
+
+2 (u2 
+
+> x
+
++ u2
+
+> y
+
+) − 16 u3
+
+> ]
+
+dx dy. (5.4) 12 respectively. 
+
+Line Soliton 
+
+We consider (5.2) on the domain [0 , L x] × [0 , L y] with T = 3 , Lx = Ly = 8 , and ε = 0 .01 . Each initial condition is drawn from a parameterized family of tilted line-soliton profiles. We write ξ = ( c, θ, x 0, y 0), where the parameters are sampled independently as c ∼ U (0 .75 , 1.25) , θ ∼ U (−0.08 , 0.08) , x 0 ∼ U (1 .0, 3.0) , y 0 ∼U(2 .5, 5.5) . The corresponding initial condition is 
+
+u0(x, y ; ξ) = 3 c sech 2 
+
+> [
+
+12 
+
+> √
+
+cε (( x − x0) cos θ + ( y − y0) sin θ)
+
+> ]
+
+, (5.5) and the corresponding exact solution given by 
+
+u(x, y, t ; ξ) = 3 c sech 2 
+
+> [
+
+12 
+
+> √
+
+cε (( x − ct − x0) cos θ + ( y − y0) sin θ)
+
+> ]
+
+. (5.6) Table 5.1: Relative L2 error comparison of EP-FNO and FNO solutions against the exact solution. 
+
+Method t = 0 .00 t = 0 .50 t = 1 .00 t = 1 .50 t = 2 .00 t = 2 .50 t = 3 .00 
+
+EP-FNO 0.0000 0.0100 0.0221 0.0295 0.0362 0.0375 0.0449 
+
+FNO 0.0000 0.0446 0.0577 0.0716 0.0832 0.1073 0.1545 Table 5.1 shows that EP-FNO consistently gives smaller relative L2 errors than the standard FNO for this result. Both models start from the exact initial condition, so the error is zero at t = 0 , but the difference becomes clear as time evolves. At the final time t = 3 , the EP-FNO error is 0.0449 , while the FNO error increases to 0.1545 . Thus, the EP-FNO final-time error is about 3.4 times smaller than that of the baseline FNO. Figure A.1 shows that the EP-FNO prediction preserves the main ridge-like structure of the line soliton over the rollout interval. The wave profile remains sharp and travels in the correct direction, indicating that the projection step does not destroy the qualitative soliton dynamics. In addition, Figure A.2 shows that the mass and Hamiltonian remain preserved during the EP-FNO rollout. This confirms that the projection step helps control invariant drift while maintaining the correct qualitative propagation of the ZK line soliton. 
+
+Cylindrical Solitary Pulse 
+
+The second ZK benchmark follows the cylindrically symmetric solitary pulse example used by Chen et al. [ 10 ]. This example is more demanding than the line-soliton case because the solution is localized in both spatial directions and its evolution requires the model to preserve the radial pulse structure during propagation. We consider a solution of (5.2) corresponding to cylindrically symmetric solitary pulses on the domain 
+
+Lx = Ly = 32 over the time interval T = 3 . Let η = ( c, x 0, y 0) denote the parameter vector. The initial condition is then written as 
+
+u0(x, y ; ξ) = c
+
+3
+
+> 10 ∑
+> n=1
+
+a2n
+
+> [
+
+cos 
+
+> (
+
+2n arccot  
+
+> (
+
+√c
+
+2
+
+> √
+
+(x − x0)2 + ( y − y0)2
+
+> ))
+
+− 1
+
+> ]
+
+. (5.7) The parameters are sampled independently as c ∼ U (3 .5, 4.5) , x 0 ∼ U (8 , 12) , y 0 ∼ U (14 , 18) .
+
+Table 5.2: Coefficients a2n used in the cylindrically symmetric solitary solution of the ZK equation, following Chen et al. [10].                     
+
+> n12345678910
+> a2n−1.25529873 0.21722635 0.06452543 0.00540862 −0.00332515 −0.00281281 −0.00138352 −0.00070289 −0.00020451 −0.00003053
+
+13 The coefficients a2n appearing in the finite-series representation are listed in Table 5.2. Table 5.3: Relative L2 error comparison of EP-FNO and FNO solutions against the exact solution. 
+
+Method t = 0 .00 t = 0 .50 t = 1 .00 t = 1 .50 t = 2 .00 t = 2 .50 t = 3 .00 
+
+EP-FNO 0.0000 0.0322 0.0514 0.0755 0.1015 0.1177 0.1175 
+
+FNO 0.0000 0.0802 0.1485 0.2367 0.3347 0.4101 0.4754 
+
+Table 5.3 shows that while both models start with comparable short-time errors, the standard FNO error grows steadily to 4.75 × 10 −1 at t = 3 , whereas EP-FNO achieves a final error of only 1.18 × 10 −1. These results demonstrate that explicit invariant preservation can substantially improve both physical fidelity and long-time prediction accuracy for two-dimensional dispersive wave dynamics. Figure 5.1 shows that the EP-FNO rollout captures the main localized pulse and its motion across the domain. The predicted solution captures the same physical behaviour and propagation in [ 10 ] and does not exhibit severe spreading, which suggests that the structure-informed projection helps control long-time degradation of the learned trajectory. In addition, Figure 5.2 shows that the mass and Hamiltonian are preserved during the rollout, further confirming that the projection step helps stabilize the learned dynamics while maintaining the qualitative behavior of the cylindrically symmetric solitary wave. 
+
+5.3 Kadomtsev–Petviashvili Equation 
+
+Let T > 0 and Ω ⊂ R2. Consider the two-dimensional Kadomtsev–Petviashvili (KP) equation, given by 
+
+(ut + ( f (u)) x + uxxx )x + σu yy = 0 , (x, y ) ∈ Ω, t ∈ (0 , T ],u(x, y, 0) = u0(x, y ), (x, y ) ∈ Ω,u(x + Lx, y, t ) = u(x, y, t ), y ∈ [0 , L y], t ∈ [0 , T ],u(x, y + Ly, t ) = u(x, y, t ), x ∈ [0 , L x], t ∈ [0 , T ].
+
+(5.8) The KP equation conserves mass and Hamiltonian given by 
+
+MKP [u] = 
+
+> ∫
+> Ω
+
+u(x, y, t ) dx dy (5.9) and 
+
+HKP [u] =  
+
+> ∫
+> Ω
+> [
+
+12 u2 
+
+> x
+
+− F (u) − σ
+
+2 (∂−1 
+
+> x
+
+uy)2
+
+> ]
+
+dx dy (5.10) respectively. In the above, F ′(u) = f (u). We choose f (u) = 3 u2, so that F (u) = u3.
+
+Line Soliton 
+
+We consider the KP line-soliton family parameterized by ξ = ( k, λ, x 0, σ ). The exact solution is given by 
+
+u(x, y, t ; ξ) = 2 k2 sech 2 [
+
+k
+
+> (
+
+x + λy − (4 k2 + σλ 2)t − x0
+
+> )]
+
+. (5.11) The corresponding initial condition is 
+
+u0(x, y ; ξ) = u(x, y, 0; ξ) = 2 k2 sech 2 [k(x + λy − x0)] . (5.12) For each realization, the parameters are chosen as k ∼ U (0 .90 , 1.10) , λ = 0 , x0 = 10 , and σ = −3.14 Figure 5.1: EP-FNO rollout for the Cylindrical ZK pulse benchmark at representative times t = 0 , 1, 2, and 3.
+
+Table 5.4: Relative L2 error comparison of EP-FNO and FNO solutions against the exact solution. 
+
+Method t = 0 .00 t = 0 .50 t = 1 .00 t = 1 .50 t = 2 .00 t = 2 .50 t = 3 .00 
+
+EP-FNO 0.0000 0.1622 0.2896 0.3764 0.4300 0.5108 0.6526 
+
+FNO 0.0000 0.3466 0.4801 0.7228 0.9645 0.9724 0.9768 Table 5.4 shows the relative L2 error between EP-FNO and FNO compared with the exact solution (5.11) . We can observe that the error of the FNO model grows rapidly as time increases and approaches unity by t = 3 , indicating severe degradation of the predicted solution. In contrast, EP-FNO exhibits a 15 (a) (b) 
+
+Figure 5.2: Evolution of the Hamiltonian and mass during the EP-FNO rollout for the ZK cylindrical pulse benchmark. significantly slower growth in error, maintaining substantially better agreement with the exact solution at all reported times. 0 5 10 15 20 25 30  
+
+> x0
+> 5
+> 10
+> 15
+> 20
+> 25
+> 30
+> y
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> 3.0
+> u
+
+t=0        
+
+> 0510 15 20 25 30
+> x0
+> 5
+> 10
+> 15
+> 20
+> 25
+> 30
+> y
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> 3.0
+> u
+
+t=1        
+
+> 0510 15 20 25 30
+> x0
+> 5
+> 10
+> 15
+> 20
+> 25
+> 30
+> y
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> 3.0
+> u
+
+t=2        
+
+> 0510 15 20 25 30
+> x0
+> 5
+> 10
+> 15
+> 20
+> 25
+> 30
+> y
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> 3.0
+> u
+
+t=3 
+
+EP-FNO line-soliton rollout 
+
+Figure 5.3: EP-FNO rollout for the KP line-soliton benchmark at representative times t = 0 , 1, 2, and 3.0.0 0.5 1.0 1.5 2.0 2.5 3.0 
+
+> time
+> 600
+> 400
+> 200
+> 0
+> 200
+> 400
+
+Hamiltonian over time 
+
+> EP-FNO
+
+(a) 0.0 0.5 1.0 1.5 2.0 2.5 3.0 
+
+> time
+> 200
+> 100
+> 0
+> 100
+> 200
+> 300
+
+Mass over time  
+
+> EP-FNO
+
+(b) 
+
+Figure 5.4: Evolution of the Hamiltonian and mass during the EP-FNO rollout for the KP line-soliton benchmark. Figure 5.3 shows the EP-FNO prediction at representative times during the rollout. The line soliton 16 propagates across the computational domain while retaining its coherent structure throughout the prediction horizon. As shown in Figure 5.4, both the Hamiltonian and the mass remain nearly constant over the entire rollout interval, indicating that the structure-preserving projection effectively controls invariant drift during autoregressive prediction. For comparison, the corresponding FNO rollout and invariant evolution are provided in Appendix A.2. 
+
+5.4 Sine–Gordon Equation 
+
+Let T > 0 and Ω ⊂ R2. Consider the two-dimensional sine–Gordon (SG) equation, given by 
+
+utt − uxx − uyy + sin( u) = 0 , (x, y ) ∈ Ω, t ∈ (0 , T ],u(x, y, 0) = u0(x, y ), (x, y ) ∈ Ω,ut(x, y, 0) = v0(x, y ), (x, y ) ∈ Ω,u(x + Lx, y, t ) = u(x, y, t ), y ∈ [0 , L y], t ∈ [0 , T ],u(x, y + Ly, t ) = u(x, y, t ), x ∈ [0 , L x], t ∈ [0 , T ].
+
+(5.13) Setting the velocity variable as v = ut, the SG equation can be written as the first-order system 
+
+ut = v, (x, y ) ∈ Ω, t ∈ (0 , T ],vt = uxx + uyy − sin( u), (x, y ) ∈ Ω, t ∈ (0 , T ],u(x, y, 0) = u0(x, y ), (x, y ) ∈ Ω,v(x, y, 0) = v0(x, y ), (x, y ) ∈ Ω,u(x + Lx, y, t ) = u(x, y, t ), y ∈ [0 , L y], t ∈ [0 , T ],u(x, y + Ly, t ) = u(x, y, t ), x ∈ [0 , L x], t ∈ [0 , T ].
+
+(5.14) The sine–Gordon Hamiltonian is 
+
+HSG [u, v ] =  
+
+> ∫
+> Ω
+> [
+
+12 v2 + 12
+
+> (
+
+u2 
+
+> x
+
++ u2
+
+> y
+> )
+
++ 1 − cos( u)
+
+> ]
+
+dx dy. (5.15) which is a conserved quantity. The Hamiltonian consists of kinetic, gradient, and potential energy contribu-tions, which we write as 
+
+HSG [u, v ] = Ekin [v] + Egrad [u] + Epot [u], (5.16) where 
+
+Ekin [v] = 12
+
+> ∫
+> Ω
+
+v2 dx dy, Egrad [u] = 12
+
+> ∫
+> Ω
+> (
+
+u2 
+
+> x
+
++ u2
+
+> y
+> )
+
+dx dy, (5.17) and 
+
+Epot [u] = 
+
+> ∫
+> Ω
+
+(1 − cos( u)) dx dy. (5.18) In particular, Egrad [u] measures the spatial-gradient energy of the domain-wall profile and is used to monitor whether the learned rollout preserves the sharp transition structure of the sine–Gordon solution. 
+
+Traveling domain-wall 
+
+The traveling domain-wall profile used in this experiment follows the exact two-dimensional sine–Gordon domain-wall solution described by Johnson, Suarez, and Biswas [ 19 ]. We consider a traveling domain-wall family parameterized by ξ = ( B1, B 2, x 0, y 0, t 0). Define 
+
+B3 =
+
+> √
+
+B21 + B22 − 1,
+
+17 with B21 + B22 > 1 enforced so that B3 is real. The exact displacement field is 
+
+u(x, y, t ; ξ) = 4 arctan(exp( θ(x, y, t ; ξ))) , (5.19) where θ(x, y, t ; ξ) = B1(x − x0) + B2(y − y0) − B3(t − t0). The associated velocity field is given by 
+
+v(x, y, t ; ξ) = −2B3 sech( θ(x, y, t ; ξ)) . (5.20) The corresponding initial conditions are 
+
+u0(x, y ; ξ) = 4 arctan(exp( θ(x, y, 0; ξ))) , (5.21) and 
+
+v0(x, y ; ξ) = v(x, y, 0; ξ) = −2B3 sech( θ(x, y, 0; ξ)) . (5.22) For each realization, the parameters are sampled independently as B1 ∼ U (0 .90 , 1.20) , B 2 ∼ U (0 .70 , 1.00) , x 0 ∼U(−1.0, 1.0) , y 0 ∼ U (−1.0, 1.0) , and t0 ∼ U (−0.5, 0.5) .
+
+Table 5.5: Relative L2 error comparison of EP-FNO and FNO for the SG solution field u.
+
+Model t = 0 .00 t = 1 .00 t = 2 .00 t = 3 .00 t = 4 .00 
+
+EP-FNO 0.000000 0.002221 0.002501 0.004175 0.006927 
+
+FNO 0.000000 0.001838 0.003447 0.006636 0.017220 Table 5.5 shows that FNO gives a slightly smaller error at early time t = 1 , but EP-FNO is more accurate over longer rollouts. In particular, EP-FNO exhibits slower error growth and achieves a substantially smaller error at t = 4 . This indicates that the Hamiltonian correction improves the long-time stability of the autoregressive predictions.  
+
+> (a) EP-FNO spatiotemporal solution. (b) Exact and EP-FNO midline profiles
+
+Figure 5.5: Two-dimensional sine–Gordon experiment. (a) EP-FNO prediction of the spatiotemporal solution profile. (b) Midline comparison between the exact solution and the EP-FNO prediction. Although the sine–Gordon equation is Hamiltonian at the continuous level, the Hamiltonian computed from our reference data is not exactly conserved [ 19 ], so we use the spatial gradient energy as a diagnostic for long-time stability. Figure 5.5 shows that the EP-FNO prediction captures the motion of the domain 18 wall and preserves the main transition structure of the displacement field u. The predicted interface remains well aligned with the reference solution, indicating that the Hamiltonian projection does not distort the qualitative wave dynamics. 
+
+Figure 5.6: Spatial Gradient Energy plot over time. Figure 5.6 shows the corresponding gradient energy evolution during the rollout, controlling the Hamilto-nian drift is important for stable long-time prediction. The EP-FNO prediction maintains a more stable gradient-energy profile, indicating that the learned solution preserves the sharp domain-wall transition without excessive smoothing or artificial oscillation. 
+
+5.5 Ablation Study 
+
+5.5.1 Training and Validation Diagnostics 
+
+We first examine the contribution of the two main architectural components: the residual time-step update and the invariant projection. We compare three models on the ZK line-soliton benchmark: a standard FNO, the proposed EP-FNO, and an EP-FNO variant in which the residual update is removed while the projection mechanism is retained. 0 20 40 60 80 100   
+
+> Epoch
+> 10 2
+> 10 1
+> Relative error
+> FNO
+> EP-FNO
+> EP-FNO (no residual)
+
+(a) 0 20 40 60 80 100    
+
+> Epoch
+> 10 2
+> 10 1
+> Relative error
+> FNO
+> EP-FNO
+> EP-FNO (no residual)
+
+(b) 
+
+Figure 5.7: Training (Fig. (a)) and validation (Fig. (b)) relative errors as a function of epochs for FNO, EP-FNO, and EP-FNO without the residual update on the ZK line-soliton problem. For the ZK line-soliton problem, EP-FNO attains a best validation error of 3.33 × 10 −3, improving upon the baseline FNO error of 4.08 × 10 −3. The non-residual EP-FNO variant reaches a substantially higher error of 1.27 × 10 −2. The non-residual EP-FNO—projection without the residual formulation—consistently underperforms both EP-FNO and the baseline FNO. This indicates that the projection step alone cannot compensate for the lack of a suitable time-stepping inductive bias. Conversely, the residual update provides 19 a natural way to learn small increments in wave propagation, but without projection the model still suffers from invariant drift over long rollouts. Only the combination of the two yields the best accuracy and stability. The training and validation curves in Figure 5.7 also show consistent convergence behavior. The residual EP-FNO exhibits stable error reduction, while the non-residual variant plateaus at a higher error level. In summary, the empirical evidence on the ZK line-soliton benchmark demonstrates that both components of the proposed method contribute to performance. The residual neural-operator update supplies a powerful inductive bias for learning wave dynamics, and the energy projection complements it by enforcing physical invariants. Their combination yields the most accurate and stable model among those tested. 
+
+5.5.2 Cost–Accuracy Tradeoff 
+
+To further highlight the efficiency of our method, we compare the cost–accuracy behavior of FNO and EP-FNO for the Zakharov–Kuznetsov experiment. Since the EP-FNO uses the FNO framework, the additional cost of EP-FNO comes from the projection step. For this experiment, we normalize the FNO cost to 1.00 
+
+and compute the EP-FNO cost from the measured runtime ratio at the common training horizon. For ZK, the corresponding runtimes are 704 .27 s for FNO and 875 .07 s for EP-FNO, giving a normalized EP-FNO cost of 875 .07 /704 .27 ≈ 1.243 .
+
+> (a) ZK score over time.
+
+Figure 5.8: Cost–accuracy comparison of FNO and EP-FNO. The cost–accuracy score is defined as the normalized cost multiplied by the relative L2 error. Smaller values therefore indicate a better trade-off between computational cost and accuracy. Despite its projection overhead, EP-FNO achieves a better final-time cost–accuracy score, with a 3.26 × improvement over FNO as shown in Fig. 5.8. The time-dependent cost–accuracy curves show that this advantage is maintained over the long-time rollout. 
+
+# 6 Discussion and Conclusion 
+
+Invariant structure. A structure-informed operator provides a natural way to improve long-time prediction of parametric Hamiltonian PDEs by making operators that are aware of conserved quantities. A future direction is to develop more structure-based neural layers [ 40 ] and combine learned models with numerical solvers for dispersive PDEs. 
+
+Model flexibility. The projection idea is not restricted to FNOs. Since it is applied as a post-processing correction, the same structure-preserving strategy can be added to other neural operators, recurrent models, or AI-based surrogate models. 20 References 
+
+[1] Govind P. Agrawal. Nonlinear Fiber Optics . Academic Press, 6 edition, 2019. [2] H. T. Banks, Vrushali A. Bokil, and Nathan L. Gibson. Analysis of stability and dispersion in a finite element method for debye and lorentz dispersive media. Numerical Methods for Partial Differential Equations , 25(4):885–917, 2009. [3] Vrushali A. Bokil and Nathan L. Gibson. Analysis of spatial high-order finite difference methods for maxwell’s equations in dispersive media. IMA Journal of Numerical Analysis , 32(3):926–956, 2012. First published online 2011. [4] Robert W. Boyd. Nonlinear Optics . Academic Press, 4 edition, 2020. [5] Thomas J. Bridges and Sebastian Reich. Multi-symplectic spectral discretizations for the zakharov– kuznetsov and shallow water equations. Physica D: Nonlinear Phenomena , 152–153:491–504, 2001. [6] Joshua William Burby and Eero Hirvijoki. Normal stability of slow manifolds in nearly periodic hamiltonian systems. Journal of Mathematical Physics , 62(9), 2021. [7] Elsa Cardoso-Bihlo and Alex Bihlo. Exactly conservative physics-informed neural networks and deep operator networks for dynamical systems. Neural Networks , 181:106826, 2025. [8] Kevin Carlberg, Charbel Farhat, Julien Cortial, and David Amsallem. The gnat method for nonlinear model reduction: effective implementation and application to computational fluid dynamics and turbulent flows. Journal of Computational Physics , 242:623–647, 2013. [9] Jing-Bo Chen and Meng-Zhao Qin. Multi-symplectic fourier pseudospectral method for the nonlinear schrödinger equation. Electron. Trans. Numer. Anal , 12:193–204, 2001. [10] Yaming Chen, Songhe Song, and Huajun Zhu. The multi-symplectic fourier pseudospectral method for solving two-dimensional hamiltonian pdes. Journal of Computational and Applied Mathematics ,236(6):1354–1369, 2011. [11] Yuhan Chen, Takashi Matsubara, and Takaharu Yaguchi. Kam theory meets statistical learning theory: Hamiltonian neural networks with non-zero training loss. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 36, pages 6322–6332, 2022. [12] Miles Cranmer, Sam Greydanus, Stephan Hoyer, Peter Battaglia, David Spergel, and Shirley Ho. Lagrangian neural networks, 2020. [13] Maximilian Dauner, Ankith Bheemanakone, Benedikt Zönnchen, and Gudrun Socher. Residual factorized fourier neural operator for simulation of three-dimensional turbulence, 2024. Submitted to ICLR 2024. [14] P. G. Drazin and R. S. Johnson. Solitons: An Introduction . Cambridge Texts in Applied Mathematics. Cambridge University Press, Cambridge, 1989. [15] Valentin Duruisseaux, Miguel Liu-Schiaffini, Julius Berner, and Anima Anandkumar. Towards enforcing hard physics constraints in operator learning frameworks. In ICML 2024 Workshop on AI for Science ,2024. [16] Bengt Fornberg. A Practical Guide to Pseudospectral Methods . Cambridge Monographs on Applied and Computational Mathematics. Cambridge University Press, Cambridge, 1996. 21 [17] Samuel Greydanus, Misko Dzamba, and Jason Yosinski. Hamiltonian neural networks. Advances in neural information processing systems , 32, 2019. [18] Pengzhan Jin, Zhen Zhang, Aiqing Zhu, Yifa Tang, and George Em Karniadakis. Sympnets: Intrinsic structure-preserving symplectic networks for identifying hamiltonian systems. Neural Networks , 132:166– 179, 2020. [19] Suarez Johnson, P Suarez, and A Biswas. New exact solutions for the sine-gordon equation in 2+ 1 dimensions. Computational Mathematics and Mathematical Physics , 52(1):98–104, 2012. [20] Georgios Kissas, Yibo Yang, Eileen Hwuang, Walter R Witschey, John A Detre, and Paris Perdikaris. Machine learning in cardiovascular flows modeling: Predicting arterial blood pressure from non-invasive 4d flow mri data using physics-informed neural networks. Computer methods in applied mechanics and engineering , 358:112623, 2020. [21] Nikola Kovachki, Samuel Lanthaler, and Siddhartha Mishra. On universal approximation and error bounds for fourier neural operators. Journal of Machine Learning Research , 22(290):1–76, 2021. [22] Nikola Kovachki, Zongyi Li, Burigede Liu, Kamyar Azizzadenesheli, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. Neural operator: Learning maps between function spaces with applications to pdes. Journal of Machine Learning Research , 24(89):1–97, 2023. [23] Zongyi Li, Daniel Zhengyu Huang, Burigede Liu, and Anima Anandkumar. Fourier neural operator with learned deformations for pdes on general geometries. Journal of Machine Learning Research ,24(388):1–26, 2023. [24] Zongyi Li, Nikola Kovachki, Kamyar Azizzadenesheli, Burigede Liu, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. Fourier neural operator for parametric partial differential equations. 
+
+arXiv preprint arXiv:2010.08895 , 2020. [25] Chaoyu Liu, Yangming Li, Zhongying Deng, Chris Budd, and Carola-Bibiane Schönlieb. Adaptive correction for ensuring conservation laws in neural operators, 2025. [26] Peter Monk. Finite Element Methods for Maxwell’s Equations . Numerical Mathematics and Scientific Computation. Oxford University Press, Oxford, 2003. [27] P. J. Morrison. Hamiltonian description of the ideal fluid. Reviews of Modern Physics , 70(2):467–521, 1998. [28] P. J. Morrison. Hamiltonian and action principle formulations of plasma physics. Physics of Plasmas ,12(5):058102, 2005. [29] P. J. Morrison and J. M. Greene. Noncanonical hamiltonian density formulation of hydrodynamics and ideal magnetohydrodynamics. Physical Review Letters , 45(10):790–794, 1980. [30] David A Najera-Flores and Michael D Todd. A structure-preserving neural differential operator with embedded hamiltonian constraints for modeling structural dynamics. Computational Mechanics ,72(2):241–252, 2023. [31] Victory Obieke and Ameh Emmanuel Sunday. An energy stable approach for learning derivative operators from noisy data for maxwells equations, 2026. 22 [32] Emmanuel E. Oguadimma, Mohamed A. F. Elbarkawy, Dominic O. Oranugo, Heba E. Salem, Mustafa Bayram, and Okechukwu J. Obulezi. A foundational review of ordinary differential equation solution methods and their inherent symmetries. Boletim da Sociedade Paranaense de Matemática , 44(8):1–27, 2026. [33] Luca Di Persio, Matthias Ehrhardt, Youness Outaleb, and Sofia Rizzotto. Port-hamiltonian neural networks: From theory to simulation of interconnected stochastic systems, 2025. [34] Maziar Raissi, Paris Perdikaris, and George E Karniadakis. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational physics , 378:686–707, 2019. [35] Catherine Sulem and Pierre-Louis Sulem. The Nonlinear Schrödinger Equation: Self-Focusing and Wave Collapse , volume 139 of Applied Mathematical Sciences . Springer, New York, 1999. [36] Alasdair Tran, Alexander Mathews, Lexing Xie, and Cheng Soon Ong. Factorized fourier neural operators. arXiv preprint arXiv:2111.13802 , 2021. [37] Lloyd N. Trefethen. Spectral Methods in MATLAB . Society for Industrial and Applied Mathematics, Philadelphia, PA, 2000. [38] Matilde Valente, Tiago C. Dias, Vasco Guerra, and Rodrigo Ventura. Physics-consistent machine learning with output projection onto physical manifolds. Communications Physics , 8(433), 2025. [39] G. B. Whitham. Linear and Nonlinear Waves . Wiley-Interscience, New York, 1974. [40] Michael Woodward, Yen Ting Lin, Yifeng Tian, Christoph Hader, Hermann Fasel, and Daniel Livescu. Mori-zwanzig mode decomposition: Comparison with time-delay embeddings. arXiv preprint arXiv:2311.09524 , 2023. [41] Kane S. Yee. Numerical solution of initial boundary value problems involving maxwell’s equations in isotropic media. IEEE Transactions on Antennas and Propagation , 14(3):302–307, 1966. [42] Carolyn Zhang, Michael Levin, and Sven Bachmann. Vanishing hall conductance for commuting hamiltonians. Physical Review B , 105(8):L081103, 2022. [43] Yaofeng Desmond Zhong, Biswadip Dey, and Amit Chakraborty. Symplectic ode-net: Learning hamiltonian dynamics with control, 2024. 
+
+# A Supplementary Results 
+
+A.1 Zakharov–Kuznetsov Equation A.2 FNO Results 
+
+To further highlight the motivation for the proposed EP-FNO framework, we report the corresponding FNO results for the parametric KP equation. Among the models considered, the KP equation is particularly challenging because it combines nonlinear wave propagation, higher-order dispersion, and anisotropic two-dimensional dynamics. Small phase and speed errors can accumulate rapidly during long autoregressive rollouts, especially for line-soliton solutions. This makes the KP equation a useful test case for assessing the limitations of the standard FNO and the advantages of the energy-preserving approach. 23 Figure A.1: ZK line Experiment  
+
+> (a) (b)
+
+Figure A.2: Hamiltonian and mass of the ZK line Experiment EP-FNO Figure A.3 shows the corresponding FNO rollout for the KP line-soliton benchmark. In contrast to EP-FNO, the predicted solution progressively departs from the characteristic line-soliton profile during autoregressive prediction. By (t=2) and (t=3), substantial distortion of the wave structure is observed. Figure A.4 shows the evolution of the Hamiltonian and mass during the same rollout. Both quantities exhibit significant drift from their initial values, indicating that the standard FNO does not preserve the underlying invariants of the KP equation. The loss of invariant preservation is consistent with the degradation observed in the predicted solution and provides additional evidence for the benefits of the structure-preserving projection employed by EP-FNO. 24 0 5 10 15 20 25 30 
+
+x 0
+
+5
+
+10 
+
+15 
+
+20 
+
+25 
+
+30 
+
+y
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+2.0 
+
+2.5 
+
+3.0 
+
+u
+
+t=0 
+
+0 5 10 15 20 25 30 
+
+x 0
+
+5
+
+10 
+
+15 
+
+20 
+
+25 
+
+30 
+
+y
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+2.0 
+
+2.5 
+
+3.0 
+
+u
+
+t=1 
+
+0 5 10 15 20 25 30 
+
+x 0
+
+5
+
+10 
+
+15 
+
+20 
+
+25 
+
+30 
+
+y
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+2.0 
+
+2.5 
+
+3.0 
+
+u
+
+t=2 
+
+0 5 10 15 20 25 30 
+
+x 0
+
+5
+
+10 
+
+15 
+
+20 
+
+25 
+
+30 
+
+y
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+2.0 
+
+2.5 
+
+3.0 
+
+u
+
+t=3 
+
+FNO line-soliton rollout Figure A.3: FNO rollout for the KP line-soliton benchmark at representative times t = 0 , 1, 2, and 3.0.0 0.5 1.0 1.5 2.0 2.5 3.0 
+
+time 
+
+600 
+
+400 
+
+200 
+
+0
+
+200 
+
+400 
+
+Hamiltonian over time 
+
+FNO 
+
+(a) 0.0 0.5 1.0 1.5 2.0 2.5 3.0 
+
+time 
+
+200 
+
+100 
+
+0
+
+100 
+
+200 
+
+300 
+
+Mass over time 
+
+FNO (b) 
+
+Figure A.4: Evolution of the Hamiltonian and mass during the FNO rollout for the KP line-soliton benchmark. 25
