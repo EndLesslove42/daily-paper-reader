@@ -1,0 +1,1231 @@
+Title: Design principles for stable and generalizable data-driven discretizations for solving linear hyperbolic conservation laws
+
+URL Source: https://arxiv.org/pdf/2606.17497v1
+
+Published Time: Wed, 17 Jun 2026 00:39:32 GMT
+
+Number of Pages: 23
+
+Markdown Content:
+# Highlights 
+
+## Design principles for stable and generalizable data-driven discretizations for solving linear hyperbolic conservation laws 
+
+A.-A. Nasser, A. Adcroft 
+
+• Exact advection from cell-averaged inputs is shape-specific, explaining poor generalization in ML-FV schemes. 
+
+• Enforcing stencil-scale normalization yields semilinear schemes and prevents out-of-distribution behavior. 
+
+• A data-driven flux limiter that outperforms OSTVD3 in shape preservation across smooth and discontinuous initial conditions. 
+
+> arXiv:2606.17497v1 [math.NA] 16 Jun 2026
+
+# Design principles for stable and generalizable data-driven discretizations for solving linear hyperbolic conservation laws 
+
+## A.-A. Nasser a,∗,1 , A. Adcroft a
+
+> a
+
+Princeton University Atmospheric and Oceanic Sciences Program, Princeton, USA 
+
+A R T I C L E I N F O 
+
+Keywords :data-driven discretization finite-volume advection machine learning physics informed neural-networks semilinearity numerical stability flux-limiters monotonicity constraints generalization shape preservation scientific computing 
+
+A B S T R A C T 
+
+We investigate data-driven finite-volume discretizations of the linear advection equation in one dimension. Neural networks for use as numerical advection schemes are constructed adhering to first principles of numerical analysis, allowing us to examine how normalization, training data, and architectural choices influence stability, accuracy, and shape preservation. (i) We show that reconstruction based solely on cell averages leads to a multi-valued learning problem, explaining limited generalization when training data includes widely different curvature regimes. (ii) Numerical stability and good generalization can be achieved by enforcing semilinearity (Lin and Rood 1998) through local stencil-scale normalization, which ensures invariance under affine transformations of the inputs. (iii) A new data-driven flux limiter is introduced that outperforms the classical ’OSTVD3’ (Arora and Roe, 1997) scheme in shape preservation by introducing mild antidiffusion in near-linear regimes, while higher-order reconstruction in non-monotonic regions provides limited benefit. (iv) We show that training on polynomial profiles yields stable, high-order accurate discretizations, with the polynomial degree controlling the formal order of accuracy. Together, these results illustrate how the representational, architectural, and training choices govern the stability and generalization of data-driven finite-volume schemes for linear advection. 
+
+## 1. Introduction 
+
+Accurate numerical treatment of transport processes is central to predictive simulations of geophysical flows [1], astrophysical flows [2], and engineering fluid dynamics [3]. Yet available computational resources limit the smallest physical scales that can be explicitly resolved. This motivates the investigation of machine-learning (ML) approaches to extend the effective resolution of numerical simulations. Despite recent progress, several outstanding challenges still prevent ML-based solvers from being routinely used in numerical models [4]. A central difficulty is the absence of a general framework for designing data-driven discretizations that both generalize and remain numerically stable. Previous studies [5, 6] have shown that enforcing mass conservation and at least first-order accuracy constitutes a minimal requirement to prevent rapid numerical blow-up. However, conservation alone is generally insufficient to avoid out-of-distribution behavior or instabilities over long time integrations [5, 6, 7, 8]. For example, [9] embedded a neural network (NN)–based closure within a conservative flux-correction framework, achieving stable behavior and accurate predictions in scenarios not seen during training. Part of this performance, however, depends on the flux limiting strategy, which may be applied a posteriori or incorporated during training. Alternatively, [5] account for NN errors during training by introducing a multi-step loss that reduces the accumulation of space–time discretization errors and improves stability. Such approaches, however, do not provide a priori guarantees, and the number of steps required to ensure stability remains unclear [10]. [11] argue that selecting turbulent training data from statistically steady states enables stable long-time integration, as point-wise accuracy can be traded for long-time behavior under ergodic arguments. However, their results apply to global operators rather than local schemes, and it remains unclear whether this equivalence holds at the scale of local stencils. In contrast, classical numerical analysis interprets spatial and temporal errors through truncation terms in the discretization [12], providing explicit stability conditions. This contrast raises the question of whether stability can instead be enforced within a unified numerical framework. In addition, [6] showed that semilinear data-driven schemes [13], which preserve linear tracer correlations, significantly enhance numerical stability. From a machine-learning perspective, this property corresponds to rescaling both inputs and outputs, thereby mitigating distribution shifts in the training 
+
+> ∗
+
+Corresponding author 
+
+antoine.nasser@princeton.edu (A.-A. Nasser) 
+
+> ORCID
+
+(s): 0000-0001-6757-2650 (A.-A. Nasser); 0000-0001-9413-1017 (A. Adcroft) 
+
+A.-A. Nasser and A. Adcroft: Preprint submitted to Elsevier Page 1 of 22 Design principles for stable and generalizable data-driven discretizations 
+
+data [14, 15]. Nevertheless, the data-driven discretization proposed by [6] remains prone to overfitting, with solutions tending toward shapes observed during training. Hence, several barriers remain in achieving robust generalization for learned discretizations. These challenges are compounded by the fact that the design of traditional advection schemes remains an open problem. A well-known difficulty is that formally high-order discretizations often produce spurious oscillations (or wiggles) near shocks or steep gradients, which must be controlled through flux or slope limiters [16]. As originally formulated [17, 18, 19], limiters have the property that the truncation error is first-order accurate at all extrema, regardless of the accuracy of the underlying high-order method. This limitation is solved, for instance, in [20] where a high-order reconstruction is introduced near smooth extrema which significantly improves the accuracy of the solution. In practice, numerous limiter formulations have been proposed, yet no single method performs optimally across all problems [21]. Machine-learning approaches may offer new insights into the design of improved flux limiters. For instance, [22, 23] argue that spring-like formulations of limiters in the Sweby diagram improve shape preservation for Burgers’ equation. In contrast, [24] showed that a simple combination of the Superbee and Minmod limiters [25] can surpass classical limiters across a range of problems with shocks and discontinuities. To address these questions, we investigate strategies for improving the numerical stability and generalization of data-driven discretizations for transport problems in a one-dimensional periodic domain. First, we cover the numerical framework required for constructing stable data-driven discretizations (Sections 1.1-1.3). Next, we demonstrate that reconstructing solutions from cell-averaged inputs leads to a multi-valued learning problem, which limits the generalization ability of data-driven discretizations (Section 2). We then introduce a data-driven three-point flux limiter that improves shape preservation during simulated transport and outperforms classical TVD-based formulations [19] (Section 3). Finally, Sections 4–5 summarize the main findings and discuss their implications. 
+
+1.1. Linear one-dimensional advection problem 
+
+In this study, we focus on the solution of the linear scalar advection equation 
+
+𝑑 𝑡 𝑞 = 𝜕 𝑡 𝑞 + 𝑢𝜕 𝑥 𝑞 = 0 , (1) where 𝑢 is a constant velocity and for which the general solution is 𝑞 (𝑥, 𝑡 ) = 𝑞 (𝑥 − 𝑢𝑡, 0) . In many applications, the conservation laws are written in flux-form, i.e. 
+
+𝜕 𝑡 𝑞 + 𝜕 𝑥 (𝑢𝑞 ) = 0 . (2) For simplicity, we assume 𝑢 > 0; the case 𝑢 < 0 follows by symmetry with respect to the cell interface. Let 𝜏 and Δ
+
+denote the time step and the cell width, respectively. The discrete solution at time 𝑡 𝑛 = 𝑛𝜏 and spatial location 𝑥 𝑖 = 𝑖 Δ
+
+is denoted by 𝑞 𝑛 𝑖 .
+
+1.2. Finite-volume approximation 
+
+Following [26], the finite-volume (FV) formulation represents the discrete solution with volume average values given by 
+
+𝑞 𝑛 𝑖 = 1Δ ∫
+
+> 𝑥 𝑖 +1∕2
+> 𝑥 𝑖 −1∕2
+
+𝑞 (𝑥, 𝑡 𝑛 )𝑑𝑥, (3) where 𝑥 𝑖 ±1∕2 denote the cell interfaces of cell 𝑖 . The one-step approach [12] leads to the update 
+
+𝑞 𝑛 +1  
+
+> 𝑖
+
+= 𝑞 𝑛 𝑖 − 𝜏 
+
+Δ
+
+(
+
+𝐹 𝑛 𝑖 +1∕2 − 𝐹 𝑛 𝑖 −1∕2 
+
+)
+
+, (4) where 𝐹 𝑛 𝑖 +1∕2 is the numerical flux through the right cell interface. The exact time-averaged flux can be written as 
+
+𝐹 𝑛 𝑖 +1∕2 = 1
+
+𝜏 ∫
+
+> 𝑡 𝑛 +1
+> 𝑡 𝑛
+
+𝑢𝑞 (𝑥 𝑖 +1∕2 , 𝑡 )𝑑𝑡, (5) or, using the characteristic solution above, equivalently, 
+
+𝐹 𝑛 𝑖 +1∕2 = 𝑢 𝜈 Δ ∫
+
+> 𝑥 𝑖 +1∕2
+> 𝑥 𝑖 +1∕2 −𝜈 Δ
+
+𝑞 (𝑥, 𝑡 𝑛 )𝑑𝑥 (6) where 𝜈 = 𝑢𝜏 ∕Δ is the Courant number. This expression corresponds to the spatial average of 𝑞 over an interval of length 𝜈 Δ upstream of the interface.   
+
+> A.-A. Nasser and A. Adcroft: Preprint submitted to Elsevier Page 2 of 22 Design principles for stable and generalizable data-driven discretizations
+
+1.3. Coupled one-step approach 
+
+Following [27], discrete advection schemes are constructed by successively correcting the error terms in the modified equation arising from the one-step approach [12], yielding schemes that are accurate in both space and time (referred to as ’OS’ schemes). In this framework, the discrete flux (6) can be written in the form of a Lax–Wendroff scheme modified by an accuracy function Φ,
+
+𝐹 𝑛 𝑖 +1∕2 = 𝑞 𝑛 𝑖 + 1 − 𝜈 
+
+2 Φ𝑖 +1∕2 
+
+(𝑞 𝑛 𝑖 +1 − 𝑞 𝑛 𝑖 
+
+) . (7) Setting Φ = 1 recovers the second-order Lax–Wendroff scheme (’OS2’), while Φ = 0 yields the first-order upwind scheme (’OS1’). A third-order accurate scheme (’OS3’) is obtained by defining 
+
+Φ3 
+
+> 𝑖 +1∕2
+
+= 1 − 1 + 𝜈 
+
+3 (1 − 𝑟 𝑖 +1∕2 ) (8) where the slope ratio 𝑟 𝑖 +1∕2 = ( 𝑞 𝑖 −𝑞 𝑖 −1 )∕( 𝑞 𝑖 +1 −𝑞 𝑖 ) is a measure of local curvature (of the discrete values, 𝑞 𝑖 ): 𝑟 = 1 for a straight line, 𝑟 → 0 or 𝑟 → ∞ for monotonic sharp gradients, and 𝑟 < 0 in non-monotonic regions. By successively correcting truncation errors, arbitrarily high-order schemes can be constructed by defining Φ, with explicit expressions provided in [27, 28]. 
+
+## 2. Numerics and generalization of data-driven discretizations 
+
+2.1. Physics-informed neural networks for solving advection 
+
+2.1.1. Hybrid model 
+
+On the basis that the OS schemes are accurate and stable, we now investigate whether neural networks can be trained to work in the same context, inheriting the stability, but with better accuracy. Here, the neural network predicts the numerical fluxes in (4) at time 𝑡 𝑛 to advance the solution to 𝑡 𝑛 +1 , using as inputs the local grid values (𝑞 𝑛 𝑖 +𝑘 )𝑘 ∈𝐾 
+
+(Fig. 1a). The network weights are learned by minimizing the mean square errors (MSE), averaged over the domain, between the prediction 𝐹 𝑛  
+
+> NN
+
+and the exact finite-volume flux given from Eq.6 (see Fig. 1d), giving 
+
+1 = ∑
+
+> 𝑥
+
+(𝐹 𝑛  
+
+> exact
+
+− 𝐹 𝑛 
+
+> NN
+
+)2 . (9) Global conservation of mass is a minimal requirement for stable conventional advection schemes and is ensured if the numerical flux at a cell interface is uniquely defined, independent of whether it is evaluated from the left or from the right cell. Enforcing this property in a machine learning based approach is therefore essential and is ensured by predicting a unique flux. 
+
+2.1.2. Local semilinearity invariant 
+
+The transport equation Eq. 1 is semilinear invariant, meaning that affine relationships between tracers are preserved during advection, a property that discrete schemes should also satisfy [13]. [6] argued that satisfying semilinearity improved numerical stability which they achieved by applying global normalization of the solution prior to neural-network inference, followed by denormalization of the predicted flux. From a machine-learning perspective, this would require sufficiently dense sampling of the hypercube [0 , 1] 𝑁 , with 𝑁 the number of grid points, to avoid out-of-distribution inputs, a requirement that becomes prohibitive as 𝑁 increases and is therefore intractable in practice. Here, we suggest instead to apply normalization locally at the stencil scale, thereby ensuring that semilinearity holds at the level of the numerical flux. Local normalization provides three main advantages: it preserves tracer correlations at the scale of a few grid cells; it guarantees preservation of constant states, a consistency condition required for stability [5]; and it defines a stronger invariance property than global normalization, which ensures no out-of-distribution behavior and simplifies the training dataset [15]. At the discrete level, the flux is equivariant under affine transformations of the inputs, i.e. 
+
+𝐹 𝑛 𝑖 +1∕2 = 𝑎 𝑛 𝑖 +1∕2 ̃ 𝐹 𝑛 𝑖 +1∕2 + 𝑏 𝑛 𝑖 +1∕2 (10) where the discrete normalization factors (𝑎 𝑛 𝑖 +1∕2 , 𝑏 𝑛 𝑖 +1∕2 ) are defined over the input stencil 𝐾 used to infer 𝐹 𝑛 𝑖 +1∕2 , tilde refers to the normalized solution related by 𝑞 = 𝑎̃ 𝑞 + 𝑏 and ̃ 𝐹 is the flux associated with ̃𝑞 , written ̃𝐹 𝑛 𝑖 +1∕2 = 𝑢 𝜈 Δ ∫
+
+> 𝑥 𝑖 +1∕2
+> 𝑥 𝑖 +1∕2 −𝜈 Δ
+
+̃𝑞 (𝑥, 𝑡 𝑛 )𝑑𝑥. (11)   
+
+> A.-A. Nasser and A. Adcroft: Preprint submitted to Elsevier Page 3 of 22
+
+Design principles for stable and generalizable data-driven discretizations Generation of smooth profiles Training workflow of the data-driven limiter e) Exact advection Timestepping update Neural Network Min-max norm Inferred advection Compute Loss Update weights (a) d) Compute Loss Update weights Exact Flux Input Data Training workflow of a data-driven FV scheme Neural Network Inferred flux Random polynomials c) 
+
+> Exact profiles b) Neural Network Data-driven formulation for solving advection a) Min-max Norm. Space dimension Stencil K
+
+Figure 1: Illustration of the problem setup and architectures of the data-driven discretizations. (a) Data-driven formulation for the advection problem. (b–c) Generation of training data using analytical profiles (b) and random polynomials (c). (d) Under local input–output normalization (as in panel a), the network is trained on exact pairs of FV cell-averages and numerical fluxes. (e) Training workflow of the data-driven limiter: random harmonic profiles are generated, and the loss with an added TVD penalty term is computed between the exact FV solution and the neural network predictions. 
+
+Several scaling approaches are possible to enforce local semilinear property in the neural network, here, we adopt the min–max normalization rule: 
+
+𝑎 𝑛 𝑖 +1∕2 = max  
+
+> 𝑘 ∈𝐾
+
+(𝑞 𝑛 𝑖 +𝑘 ) − min 
+
+> 𝑘 ∈𝐾
+
+(𝑞 𝑛 𝑖 +𝑘 ) (12) 
+
+𝑏 𝑛 𝑖 +1∕2 = min 
+
+> 𝑘 ∈𝐾
+
+(𝑞 𝑛 𝑖 +𝑘 ) (13) and define normalized inputs ̃𝑞 𝑛 𝑖 =
+
+𝑞 𝑛 𝑖 − 𝑏 𝑛 𝑖 +1∕2 
+
+𝑎 𝑛 𝑖 +1∕2 
+
+. (14) Hence, a neural network takes normalized data (𝑞 𝑛 𝑖 )𝑖 as input to predict the normalized flux ̃ 𝐹 𝑛 𝑖 +1∕2 , which gives the physical flux 𝐹 𝑛 𝑖 +1∕2 using (10). To prevent singularities when 𝑎 𝑛 𝑖 +1∕2 → 0, the scaling factor is clipped to machine precision. Now consider the level of representation of a discrete scheme using normalized inputs in function of its stencil size. For 𝐾 = 1 , both the normalized value, ̃ 𝑞 𝑛 𝑖 , and the normalized flux, ̃ 𝐹 𝑛 𝑖 +1∕2 , vanish, making the normalized scheme degenerate. For 𝐾 = 2 , three configurations exist depending on (𝑞 𝑛 𝑖 , 𝑞 𝑛 𝑖 +1 ): a plateau 𝑞 𝑛 𝑖 = 𝑞 𝑛 𝑖 +1 , a positive jump 
+
+𝑞 𝑛 𝑖 < 𝑞 𝑛 𝑖 +1 , and a negative jump 𝑞 𝑛 𝑖 > 𝑞 𝑛 𝑖 +1 . After normalization, these reduce to (0 , 0) and (0 , 1) , with the sign of the jump encoded in 𝑎 . Therefore, the smallest stencil that yields expressive behavior is 𝐾 = 3 , since one free continuous parameter remains after normalization. In this case, six distinct permutations arise, characterized by the mean slope, ̃𝑞 𝑖 +1 −̃𝑞 𝑖 −1 , and the position of the intermediate value in the stencil, allowing the discrete representation of arbitrary functions up to quadratic order (see Fig. 2). This interpretation extends to larger stencils, by introducing additional free 
+
+A.-A. Nasser and A. Adcroft: Preprint submitted to Elsevier Page 4 of 22 Design principles for stable and generalizable data-driven discretizations                
+
+> 𝛿 2̃𝑞
+> −2 −1 012̃𝑞 01
+> Figure 2: Possible configurations of a three-point stencil in normalized phase space, sorted according to the curvature of the gridded data. The horizontal axis represents the local curvature of the normalized field, ̃𝑞 𝑖 −1 − 2 ̃𝑞 𝑖 +̃𝑞 𝑖 +1 . Black dots denote values equal to 0 or 1 depending on their vertical position, whereas intermediate values are shown in orange. Configurations located in the upper (lower) part of the figure correspond to positive (negative) slopes, defined by ̃𝑞 𝑖 +1 −̃𝑞 𝑖 −1 .The symmetric-extrema case defines the bounds of the admissible configurations.
+
+parameters which enables the representation of higher-order curvatures. We note that by virtue of local normalization, if the training data includes the samples at the transitions between permutations then we can be sure the input features at inference will always be within the range of the training data. We now investigate data-driven discretizations based on a three-point stencil ( 𝐾 = 3 ). Throughout this study, the local curvature of the normalized field is represented by the discrete second derivative, 𝛿 2̃𝑞 =̃𝑞 𝑖 −1 − 2 ̃𝑞 𝑖 +̃𝑞 𝑖 +1 
+
+2.2. Training with smooth solutions recovers traditional accurate schemes 
+
+Following (3) and (6), a given continuous solution uniquely determines both the cell-averaged values and the associated numerical flux. However, the converse is not true since a discrete representation may correspond to multiple underlying profiles, raising the question of whether a discretization using cell-averaged inputs can generalize well across distinct solutions. To address this question, we evaluate the exact finite-volume flux, within the phase space of a normalized three-point stencil, of three analytical profiles commonly used for training: an abrupt step, a linear ramp, and a sine wave (Fig. 3). The cell-averaged values and the flux are calculated from exact solution and sampled by incrementally shifting the profile across the full stencil length (the sampling procedure is detailed in Appendix A). Each profile induces a trajectory in phase space which, if learned, allows simulating perfect advection of the profile. From left to right, panels a, b, and c correspond to CFL numbers of 0.01, 0.5, and 0.99, respectively. Figs. 3a,b show that the three profiles produce distinct mappings in phase space. This behavior is consistent with Eq. (6), where the numerical flux approaches the mid-point value as the CFL number tends toward zero. In contrast, Fig. 3c shows that in the limit of pure advection, when the CFL number approaches one, all mappings collapse onto the first-order upwind scheme (black line in Fig. 3). A consistent feature across Figs. 3a–c is that the sine-wave trajectory (blue line) closely aligns with the third-order reconstruction OS3 (dashed pink line). This agreement reflects that, for smooth profiles (i.e. the profile curvature is well resolved at a given Courant number), the third-order scheme recovers the Taylor expansion of the sine function up to 𝑂 (Δ 3). Sensitivity tests using other smooth test functions produce similar trajectories (not shown), indicating that the numerical flux associated with smooth solutions is already accurately reproduced by classical high-order schemes. Fig. 3 demonstrates that discrete representations using cell-averages leads to a multi-valued problem when training solutions range from discontinuous to smooth shapes. This multi-valued mapping reflects the fact that cell averages alone do not uniquely determine the sub-grid profile, so no single deterministic mapping from a fixed stencil of cell averages to a numerical flux can exactly reproduce the advection of profiles with differing regularity. 
+
+2.3. Impact of training data on stability and generalization 
+
+A recurring challenge is that trained models may depend on random seeds used in training, which can then manifest as undetermined behavior during integration of a solution [5]. Figure 4 illustrates this issue by comparing the advection of initial conditions that lie outside the training distribution for different neural networks. The hyperparameters and training data are described in Appendices B and C, respectively. In Figs. 4b–c, the advection of a sinusoidal initial condition is shown for two neural networks trained on exact step solutions and initialized with different random weights. The corresponding learned mappings in phase space are displayed in Fig. 4a. In Fig. 4b, extrapolation of the network in non-monotonic regions leads to numerical instability, causing the solution to blow up after only a few time steps. In contrast, in Fig. 4c the integration remains stable but   
+
+> A.-A. Nasser and A. Adcroft: Preprint submitted to Elsevier Page 5 of 22
+
+Design principles for stable and generalizable data-driven discretizations 2.0 1.5 1.0 0.5 0.0 0.5 1.0 1.5 2.0                  
+
+> 2q
+> 0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 1.25
+> Fi+ 1/2
+> =0.01
+> a)
+> 2.0 1.5 1.0 0.5 0.0 0.5 1.0 1.5 2.0
+> 2q
+> =0.5
+> b)
+> 2.0 1.5 1.0 0.5 0.0 0.5 1.0 1.5 2.0
+> 2q
+> =0.99
+> c)
+> Sine
+> Ramp
+> Step
+> OS1
+> OS3
+
+Figure 3: Flux-curvature diagrams for perfect advection of three initial conditions for a three-point stencil. Each color denotes a shape specified in the legend. The normalized numerical flux ̃ 𝐹 𝑖 +1∕2 is plotted in the 𝑦 -axis against the local curvature of the normalized gridded field, ̃𝑞 𝑖 −1 − 2 ̃𝑞 𝑖 +̃𝑞 𝑖 +1 along 𝑥 -axis. The curvature range corresponds to the same stencil values shown in Fig. 2, where the flux for positive slopes (top part of Fig. 2) are shown as solid lines, and those for negative slopes (bottom) as dotted dashed lines. Each panel shows the flux at a CFL number of (a) 0.01, (b) 0.5, and (c) 0.99. 2.0 1.5 1.0 0.5 0.0 0.5 1.0 1.5 2.0 
+
+> 2q
+> 0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 1.25
+
+Fi + 1/2    
+
+> a)
+> (b)
+> (c)
+> (d)
+> 0L
+> 2
+> 1
+> 0
+> 1
+> q
+> b)
+> 0L
+> 1
+> 0
+> 1
+> q
+> c)
+> 0L
+> x
+> 0.0
+> 0.5
+> 1.0
+> q
+> d)
+
+Figure 4: Flux-curvature diagram for data-driven discretizations trained on specific solutions. Panel (a): phase space of neural networks trained to predict the flux for a step profile (two random seeds (b,c)) and for a sine profile (d); axes are identical to those in Fig. 3. Numerical simulations with 𝜈 = 0 .5 show numerical instability after a few time steps (b) and distorted solutions after three full domain cycles (c,d). The blue line denotes the initial condition and the orange line the model response; the y-axis shows solution 𝑞 and the x-axis the spatial domain [0, L]. 
+
+exhibits strong overfitting: the initially smooth profile evolves into a square-like wave after one domain cycle, consistent with Fig. 4 in [6]. The numerical instability observed in Fig. 4b can be explained by the choice of training data, since step-like profiles leave non-monotonic regions of the mappable phase space unconstrained. By contrast, training on harmonic functions spans the full phase space, which ensures numerically stable advection even for out-of-sample initial conditions, as illustrated in Fig. 4d for an initial square profile. 
+
+2.4. Towards high-order accurate and stable data-driven discretizations 
+
+As the highest-order curvature representable on a stencil of size 𝐾 is of degree 𝐾 − 1 , we introduce a framework for constructing high-order one-step data-driven (OSDD) schemes. The central idea is to learn accurate reconstruction with neural networks using polynomials defined at the stencil scale and of maximum degree 𝐾 − 1 (as illustrated in Fig. 1c). In theory, training on local polynomials should yield a formal order of accuracy equal to the polynomial degree 
+
+A.-A. Nasser and A. Adcroft: Preprint submitted to Elsevier Page 6 of 22 Design principles for stable and generalizable data-driven discretizations 
+
+Table 1 
+
+Transport of a sum of 4 sine waves: 𝐿 2 error and order of accuracy for the one-step data-driven (OSDD) schemes. Method Number of grid points 𝐿 2 error 𝐿 2 order OSDD3 160 2.738 ×10 −3 
+
+320 3.469 ×10 −4 2.98 640 4.352 ×10 −5 3.00 1280 5.445 ×10 −6 3.00 2560 6.807 ×10 −7 3.00 OSDD4 160 5.820 ×10 −4 
+
+320 3.706 ×10 −5 3.97 640 2.327 ×10 −6 3.99 1280 1.456 ×10 −7 4.00 2560 9.103 ×10 −9 4.00 OSDD5 160 8.187 ×10 −5 
+
+320 2.617 ×10 −6 4.97 640 8.223 ×10 −8 4.99 1280 2.573 ×10 −9 5.00 2560 8.044 ×10 −11 5.00 
+
+[27]. The hyperparameters are gathered in Appendix B and the procedure used to generate the random polynomial training data is described in Appendix C. We show that this framework provides one-step high-order schemes as summarized in Table 1, where the OSDD index equals the order of accuracy (Δ 𝐾 ). The OSDD approach remains accurate, at the appropriate order, provided that neural-network approximation errors are adequately controlled (e.g., [29]). We found that computational inaccuracies began to interfere with the empirical estimation of 𝐿 2 order for 𝐾 > 5,likely due to the reduced dynamic range in the 𝐿 2 error; the network software introduces errors of 𝑂 (10 −12 ). While learning discretizations that can be derived by analysis seems redundant, applying the data-driven methodology to multidimensional and multi-step settings does have the advantage of alleviating the need for cumbersome analytical derivations [28]. 
+
+## 3. Learning enhanced shape-preserving flux limiter with data-driven advection 
+
+3.1. Background 
+
+Among the monotonicity-preserving schemes, the Total Variation Diminishing (TVD) conditions [19] are generally considered well suited for the preservation of sharp features but also considered too diffusive near extrema due to the limitation to first-order upwinding [27]. The TVD conditions ensures that an unlimited scheme is monotonicity-preserving, if (assuming Φ = 0 for 𝑟 < 0)
+
+{
+
+0 ≤ Φ𝑖 +1∕2 ≤ 2𝑟 𝑖 +1∕2  
+
+> 𝜈
+
+,
+
+0 ≤ Φ𝑖 +1∕2 ≤ 21− 𝜈 . (15) Following [18], enforcing the TVD constraints on the third-order scheme Φ3 yields a method that is formally third-order accurate almost everywhere and avoids the generation of spurious oscillations near sharp features (denoted OSTVD3): 
+
+ΦOSTVD3  
+
+> 𝑖 +1∕2
+
+= max 
+
+(
+
+min 
+
+(
+
+Φ3
+
+> 𝑖 +1∕2
+
+, 2𝑟 𝑖 +1∕2 
+
+𝜈 , 21 − 𝜈 
+
+)
+
+, 0
+
+)
+
+. (16) If instead the accurate transport of fronts and sharp gradients is the primary objective, the second-order shock-capturing limiter (so-called “Superbee” limiter), introduced in [25], is often preferred. It writes 
+
+ΦSuperbee  
+
+> 𝑖 +1∕2
+
+= max 
+
+(
+
+min 
+
+( 2𝑟 𝑖 +1∕2 
+
+𝜈 , 1
+
+)
+
+, min 
+
+(
+
+𝑟 𝑖 +1∕2 , 21 − 𝜈 
+
+)
+
+, 0
+
+)
+
+. (17) Hence, the choice of limiter remains application-dependent, and designing a formulation that gives accurate numerical solutions while minimizing distortions continues to be an open question. 
+
+A.-A. Nasser and A. Adcroft: Preprint submitted to Elsevier Page 7 of 22 Design principles for stable and generalizable data-driven discretizations 
+
+3.2. Data-driven approach to flux-limiter design 
+
+It follows from the previous section that training a discretization solely for formal accuracy yields solutions specific to the training dataset and is therefore prone to overfitting. An alternative approach to design a generalizable discretization is to train the network using both accuracy and monotonicity criteria to promote shape-preservation. By doing this we explore whether a flux-limiter formulation, applicable to linear conservation laws, can be learned within machine-learning framework. We now present this construction in the case of a three-point stencil. 
+
+3.2.1. Neural network architecture 
+
+We consider two parameterizations of the local stencil (Fig. 2) as inputs to the neural network, together with the CFL number. The slope ratio 𝑟 is a natural choice in flux-limiter formulations, however, it is poorly suited from machine-learning perspective, as it becomes singular at extrema where its denominator vanishes, making it more prone to out-of-distribution behavior. A desirable feature of 𝑟 -based formulations is their invariance to the sign of the gradient, where positive and negative slopes are treated identically. To retain this symmetry while avoiding singular behavior, we instead use the locally normalized curvature of the discrete field, 𝛿 2̃𝑞 (Section 2.1.2), as input. Symmetry is enforced by introducing a signed curvature: for negative slopes, ̃𝑞 𝑖 +1 −̃𝑞 𝑖 −1 < 0, we apply the transformation 𝛿 2̃𝑞 ↦ −𝛿 2̃𝑞 ,ensuring an identical representation of up- and down-gradient configurations. This symmetry implies the corresponding mapping of the flux, ̃ 𝐹 ↦ 1 − ̃ 𝐹 . The hyperparameters of the neural network are gathered in Appendix B. The training workflow of the data-driven limiter is summarized in Fig. 1e. The central idea is to combine an accuracy loss with a penalty term that promotes monotonicity preservation. Minimizing the global mean-absolute error (MAE) between the neural-network prediction, 𝑞 𝑛 +1 NN , and the exact solution, 𝑞 𝑛 +1 exact , drives the network toward the unlimited third-order scheme, Φ3. This loss is defined as 
+
+exact = ∑
+
+> 𝑥
+
+||||𝑞 𝑛 +1 exact − 𝑞 𝑛 +1 NN 
+
+||||. (18) To remove the emergence of spurious oscillations near sharp gradients, we introduce a TVD penalty inspired by the Local Discrete Maximum principle [30], which discourages reconstructed values from leaving the initial range of the reconstruction stencil. It writes 
+
+TVD = ∑
+
+> 𝑥
+
+∑
+
+> 𝐾
+
+||||minmod 
+
+(̃𝑞 𝑛 +1 NN 
+
+> 𝑛
+
+)
+
+−̃ 𝑞 𝑛 +1 NN 
+
+> 𝑛
+
+||||, (19) with ̃ 𝑞 𝑛 +1 
+
+> 𝑖 𝑛
+
+= ( 𝑞 𝑛 +1  
+
+> 𝑖
+
+− 𝑏 𝑛 𝑖 +1∕2 )∕ 𝑎 𝑛 𝑖 +1∕2 , and minmod( 𝑥 ) = max(min( 𝑥, 1) , 0) . The two losses are combined using an empirically determined penalty parameter 𝜆 = 0 .5:
+
+2 = (1 − 𝜆 )exact + 𝜆 TVD . (20) As local modifications induced by a flux limiter influence the global shape preservation of the solution, we train on harmonic functions defined over the full domain to include these non-local effects in the loss. Data generation is detailed in Appendix C. 
+
+3.2.2. Sensitivity to weight initialization 
+
+Numerical experiments indicate that the final performance of the learned limiter depends on the random initialization of the network weights. To assess this sensitivity, we train a set of 20 models with different random seeds and rank them using a shape-preservation metric. This metric is defined as the mean 𝐿 1 error after one full cycle of advection, averaged over a set of initial conditions and CFL numbers 𝜈 ∈ [0 .2, 0.8] . The initial conditions include both smooth harmonic profiles from the test dataset and composite profiles combining discontinuities, sharp gradients, smooth regions, and extrema (see Appendix D). The resulting score therefore reflects the ability of a limiter to preserve a broad range of shapes. Overall, the set has a substantial spread in performance, with several members achieving accuracy comparable to the classical OSTVD3 scheme (see Fig. D1 which shows all members in the Sweby diagram), while low-ranked members are excessively diffusive, damping extrema and smoothing sharp features of the solution. All learned members share common features, which are reflected in the best-performing limiter (Table 2) and discussed in the next section.                             
+
+> A.-A. Nasser and A. Adcroft: Preprint submitted to Elsevier Page 8 of 22 Design principles for stable and generalizable data-driven discretizations
+> Table 2
+> Shape-preservation metric for the best data-driven limiter (DDL) from the set, the reference OSTVD3 scheme [18] and the Piecewise Parabolic Method (PPM) [17], for comparison. Values correspond to the mean 𝐿 1error after one cycle of advection averaged over CFL numbers 𝜈 ∈ [0 .2,0.8] , for two classes of initial conditions: smooth harmonic profiles (testing dataset) and composite shapes combining Gaussian, square, triangular, and semi-elliptic features. The best one is bolded. Limiter Testing Dataset Composite shapes Total DDL 7.42 ×10 −2 1.17 ×10 −2 4.29 ×10 −2
+> OSTVD3 1.11 ×10 −1 1.23 ×10 −2 6.15 ×10 −2
+> PPM 1.29 ×10 −1 1.28 ×10 −2 7.09 ×10 −2
+
+3.3. Preservation of sharp gradients and extrema 
+
+Fig. 5a illustrates the performance of the best data-driven limiter identified in Table 2 (DDL) after one period of advection of the composite initial condition in Eq. D1. The third-order unlimited scheme (OS3) performs well in smooth regions but generates oscillations near discontinuities (Fig. 5c). The TVD limiter removes these oscillations but diffuses extrema, although this effect is spatially localized (Fig. 5b). In contrast, the DDL preserves monotonicity while substantially reducing diffusion of extrema. Thus, the data-driven limiter yields a superior solution compared to the classical third-order OSTVD3 scheme. After ten periods (Fig. 6), these conclusions remain unchanged. A notable difference, however, is that extrema under the DDL generate plateaus more prominently than under TVD (compare Fig. 6a–b). 
+
+3.4. Analysis of the dominant limiting mechanism 
+
+The observed compressive effect is more visible in the vicinity of smooth extrema, which may reflect that the neural network has learned a less diffusive reconstruction in non-monotonic regions. However, classical limiters such as Superbee also induce compression while reverting to first-order behavior near extrema [16], raising the question of which underlying mechanism is responsible for the staircasing effect observed in DDL. To address this question, we analyze DDL by diagnosing the accuracy function Φ (obtained by inverting Eq. 7) and plot it as a function of the slope ratio 𝑟 in the Sweby diagram (Fig. 7a–c). The learned limiter aligns closely with the third-order OS3 scheme (dashed pink line) and remains within the TVD region (gray zone) for 𝑟 > 0. For 𝑟 < 0, it departs from classical TVD behavior by displaying a positive kink, followed by a transition toward a third-order-like behavior that ends in a negative plateau. Note that DDL exhibits a discontinuity near 𝑟 = −1 , due to approximation errors of the neural network at extreme curvature values 𝛿 2̃𝑞 = ±2 , however, it has no visible impact on the simulated solution. Fig. 8a presents sensitivity test using modified versions of DDL where the entire 𝑟 < 0 branch is suppressed. After ten periods, the resulting solutions are nearly indistinguishable from the unmodified DDL (Fig. 6a), suggesting that the dominant mechanism lies in the 𝑟 ≥ 0 regime. Next, comparing DDL (in black) with OSTVD3 (in pink) in Fig. 7b–c reveals small overshoots in near-linear regimes and undershoots in curved regimes, corresponding to mild antidiffusion and additional diffusion relative to OSTVD3, respectively. Sensitivity tests show that retaining only the antidiffusive excess relative to OSTVD3 is sufficient to reproduce the observed staircasing effect (Fig. 8b), whereas additional diffusion is required to prevent out-of-range extrema. In summary, the staircasing behavior in DDL is due to mild antidiffusion in near-linear curvature regimes, which significantly improves the preservation of extrema and sharp fronts. 
+
+3.5. Numerical convergence 
+
+While mild antidiffusion is optimal for DDL, it remains unclear whether the benefit of better preserving discontinuities and steep gradients is detrimental to the accuracy in smooth regions. To assess this trade-off, Table 3 reports the convergence order of the limited schemes for a smooth initial condition. The theoretical third-order scheme with TVD constraints (OSTVD3) converges at nearly second order (1.96), whereas the data-driven limiter DDL achieves mean accuracy orders of 1.78. This reduction in convergence rate is consistent with the observed staircasing effect, which is most pronounced for smooth solutions. However, more work is needed to better understand the impact of flux limiting on the convergence rate. 
+
+3.6. Interpretation of distortion effect for traditional limiters 
+
+The numerical flux associated with each profile: a discontinuous step, a linear ramp, and a smooth sine wave can be expressed through the corresponding accuracy function Φ (obtained by inverting Eq. 7), which is shown in Fig. 7d.   
+
+> A.-A. Nasser and A. Adcroft: Preprint submitted to Elsevier Page 9 of 22
+
+Design principles for stable and generalizable data-driven discretizations 0.0 0.25 0.5 0.75 1.0         
+
+> X
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> q
+> a) DDL
+> 0.0 0.25 0.5 0.75 1.0
+> X
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> q
+> b) OSTVD3
+> 0.0 0.25 0.5 0.75 1.0
+> X
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> q
+> c) OS3
+
+Figure 5: Advection over one period. The dotted line denotes the initial condition and the square markers denote the final state. From top to bottom: the optimized data-driven limiter (DDL), the TVD third order one-step scheme (OSTVD3) and the unlimited scheme (OS3), for comparison. All the schemes are used with CFL 𝜈 = 0 .2.
+
+First, the compressive Superbee limiter closely matches the ramp profile (in orange), consistent with its design based on the method of characteristic for linear jumps [31]. Further, the step profile (in green) delineates the boundary of the TVD region (shaded gray), indicating that Harten’s TVD bounds in Eq. 15 correspond to the limiting behavior associated with advecting sharp fronts. Lastly, we note that the accuracy functions associated with the sine wave (in blue) and the step intersect, suggesting that the emergence of spurious oscillations seen in Fig. 4d and Fig. 5c arises from the polynomial reconstruction of a discontinuous front based on discrete inputs, which are treated as if it was those of a smooth solution. 
+
+## 4. Synthesis and Discussion 
+
+4.1. Synthesis 
+
+The resulting data-driven limiter DDL is summarized in Fig. 9, where the predicted flux is plotted in a flux-curvature diagram. For comparison, OSTVD3 and the Piecewise Parabolic Method (PPM) [17] are also shown. Notably, DDL (thick black line) remains close to the analytical OSTVD3 (in pink) and PPM (in blue) curves for monotonic region (𝑟 ≥ 0), highlighting how small modifications to the limiter design can significantly improve shape-preservation. Both OSTVD3 and PPM naturally revert to the first-order upwind scheme (thin black line) in non-monotonic regions, visible as plateaus in the diagram. Thus, representing the numerical flux as a function of the curvature of the discrete 
+
+A.-A. Nasser and A. Adcroft: Preprint submitted to Elsevier Page 10 of 22 Design principles for stable and generalizable data-driven discretizations 0.0 0.25 0.5 0.75 1.0         
+
+> X
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> q
+> a) DDL
+> 0.0 0.25 0.5 0.75 1.0
+> X
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> q
+> b) OSTVD3
+> 0.0 0.25 0.5 0.75 1.0
+> X
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> q
+> c) OS3
+
+Figure 6: Advection over 10 periods. From top to bottom: the optimized data-driven limiter (DDL), the TVD third order one-step scheme (OSTVD3) and the unlimited scheme (OS3), for comparison. All the schemes are used with CFL 𝜈 = 0 .2.
+
+cell-averages provides a simple visualization of local reconstructions using a three-point stencil. In this framework, both slope limiters and flux limiters correspond to specific trajectories in the diagram, where slope breaks are consistent with limiting choices. In short, Fig. 9 shows that limiter design can be interpreted, and potentially guided, through the geometry of these local reconstructions. 
+
+4.2. Discussion 
+
+All randomly seeded 𝐹 NN reliably had a non-zero feature in the non-monotonic region of 𝑟 < 0 (Fig. D1) and yet, when eliminated during inference, this region had no appreciable effect. We are unable to explain why this feature is selected in training when it is not substantially affecting the solution. The DDL slopes match the OS3 reconstruction in some cases for non-monotonic discrete inputs (e.g in Fig. 9), echoing [32, 33] who identified admissible reconstructions for non-monotonic inputs that satisfy TVD constraints while differing from first-order upwind scheme. However, the sensitivity analysis in Section 3.3 suggests that allowing higher-than-first-order reconstruction for 𝑟 < 0 has limited impact (compare extrema heights in Fig. 8a with Fig.6a). We suspect that improvements may emerge when considering larger stencils, which could better resolve non-monotonic regions and mitigate the known limitations of TVD limiters near critical points [27, 20]. While this study identifies a data-driven flux limiter that would be difficult to derive through analysis alone, it does not preclude the existence of alternative optimal limiters under different design criteria. In particular, extending the 
+
+A.-A. Nasser and A. Adcroft: Preprint submitted to Elsevier Page 11 of 22 Design principles for stable and generalizable data-driven discretizations 20 15 10 5 0 5 10 15 20                   
+
+> r
+> 4
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> 4
+> a)
+> TVD region
+> OS3
+> OSTVD3
+> DDL
+> 21012345
+> r
+> 0
+> 1
+> 2
+> 3
+> b)
+> 21012345
+> r
+> 0
+> 1
+> 2
+> 3
+> d)
+> Sine
+> Ramp
+> Step
+> Superbee
+> 0.2 0.1 0.0 0.1 0.2
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> c)
+
+Figure 7: Data-driven and conventional flux limiters in the Sweby 𝑟 -diagram. Panel (b) shows a magnified view of the inset in panel (a), while panel (c) further zooms into panel (b). The accuracy function Φ is plotted along the vertical axis and the slope ratio 𝑟 along the horizontal axis, with CFL 𝜈 = 0 .2. The best-performing data-driven limiter DDL is shown as a solid black line. Panel d) shows the accuracy function, inverted from Eq.7, of a sine wave (blue), a linear ramp (orange), and an abrupt step (green). For reference, TVD region is shaded in gray and some conventional discrete schemes are shown in pink and black lines. 
+
+Table 3 
+
+Transport of a sum of 4 sine waves: 𝐿 2 error and order of accuracy for the data-driven flux-limiter DDL and the one-step third order scheme combined with TVD constraints (OSTVD3). Method Number of grid points 𝐿 2 error 𝐿 2 order DDL 160 2.689 ×10 −2 
+
+320 7.768 ×10 −3 1.79 640 2.310 ×10 −3 1.75 1280 6.148 ×10 −4 1.91 2560 1.950 ×10 −4 1.66 OSTVD3 160 3.029 ×10 −2 
+
+320 8.076 ×10 −3 1.91 640 2.318 ×10 −3 1.80 1280 5.060 ×10 −4 2.20 2560 1.238 ×10 −4 2.03 
+
+learning framework to incorporate metrics beyond point-wise accuracy, such as monotonicity or entropy consistent constraints [34, 35], offers promising avenues for further exploration. More broadly, our results show that robust data-driven discretizations can be constructed when the underlying formulation is grounded in a stable numerical framework. Here, stability and generalization are ensured by a one-step formulation [12] and by stencil-scale normalization, provided that the neural network is adequately trained. In this approach, the neural network infers the numerical flux by taking as inputs the local curvature 𝛿 2̃𝑞 together with a mirroring condition. This contrasts with conventional analyses, where slope ratios are used directly as parameters for constructing high-order and more elaborate limiters [27, 28, 20]. In particular, the slope ratio 𝑟 is invariant under local affine transformations, ensuring the semilinearity of Φ, which is a necessary condition for the stability and consistency of the discretization. However, using an unbounded quantity such as 𝑟 as input to a neural network can be problematic from a machine-learning perspective, as it may induce vanishing gradients or out-of-distribution behavior [6]. Sensitivity tests with the representation Φ( 𝑟, 𝜈 ) gave similar results and confirmed that large values of 
+
+𝑟 , associated with sharp gradients, occasionally induce numerical instabilities, even when clipping strategies were applied (not shown). This likely reflects the inability of the training dataset to guarantee robust behavior outside the sampled range. Last, an alternative is to use as inputs the local cell-averaged values (𝑞 𝑖 )𝑖 ∈𝐾 combined with a mirroring condition. However, this increases the input dimensionality by two, which typically entails larger training datasets and network capacity to achieve comparable accuracy [36]. In summary, finding which input representation provides the 
+
+A.-A. Nasser and A. Adcroft: Preprint submitted to Elsevier Page 12 of 22 Design principles for stable and generalizable data-driven discretizations 0.0 0.25 0.5 0.75 1.0 
+
+X
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+
+q    
+
+> a) DDL reverting to UP1 for r<0
+> 0.0 0.25 0.5 0.75 1.0
+
+X
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+
+q    
+
+> b) OSTVD3 with mild antidiffusion from DDL
+> 0.0 0.25 0.5 0.75 1.0
+
+X
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+
+q
+
+> c) DDL without additional antidiffusion (relative to OSTVD3)
+
+Figure 8: Advection over 10 periods for modifications of the DDL limiter. In (a), all Φ values for 𝑟 < 0 are set to zero. In panels (b-c), the limiter enforces DDL when ΦDDL value is respectively above or below ΦOSTVD3 for 𝑟 > 0. All simulations use Courant number 𝜈 = 0 .2.
+
+best performance remains a critical step when designing a data-driven discretization, which should be assessed based on the application. Finally, numerical simulations always involve a trade-off between accuracy and computational cost. Although, neural-network inference relies primarily on dense matrix multiplications and therefore typically requires more oper-ations than traditional discretizations, practical performance depends strongly on hardware characteristics, including memory access patterns and processor architecture, which can significantly affect runtime [5, 6]. Naturally, it is not computationally efficient to preserve at all cost the full neural network. Hence, to mitigate computational overhead, we perform a model-order reduction of DDL by constructing a parametric representation of the flux limiter based on hinge functions with CFL-dependent knot locations and polynomial amplitudes (presented in Appendix E), following classical approaches in regression splines [37, 38]. The approximated limiter reproduces well the results obtained with the full neural-network DDL (not shown). The ability to reduce the model complexity suggests that we might one day be able to connect data-driven improvements to numerical analysis and theory, which we did not do here. 
+
+## 5. Conclusions 
+
+We investigated design principles for stable and generalizable data-driven parameterizations of the linear advection problem. Within a finite-volume framework for one-dimensional transport in a periodic domain, a neural network 
+
+A.-A. Nasser and A. Adcroft: Preprint submitted to Elsevier Page 13 of 22 Design principles for stable and generalizable data-driven discretizations 2.0 1.5 1.0 0.5 0.0 0.5 1.0 1.5 2.0                 
+
+> 2q
+> 0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 1.25
+> Fi+ 1/2
+> TVD region
+> OS1
+> OS3
+> PPM
+> OSTVD3
+> DDL
+> Figure 9: Advective schemes diagnosed in the flux-curvature diagram. Each color denotes a shape specified in the legend. The normalized numerical flux ̃𝐹 𝑛 𝑖 +1∕2 is plotted in the 𝑦 -axis, for a CFL number 𝜈 = 0 .2, against the local curvature of the normalized gridded field, ̃𝑞 𝑖 −1 − 2 ̃𝑞 𝑖 +̃𝑞 𝑖 +1 along 𝑥 -axis.
+
+was constructed from first principles and used as a numerical advection scheme. Several data-driven strategies were examined for discrete advection and flux limiting across a range of initial conditions, from discontinuous to smooth profiles. (i) We show that exact advection of profiles spanning discontinuous to smooth shapes requires distinct discretiza-tions when only cell-averaged values are used as inputs. From a machine-learning perspective, mixing profiles with widely varying curvature creates a multi-valued learning problem, which explains the limited generalization of data-driven schemes that mimic conventional finite-volume reconstructions. For smooth data, where curvature is well resolved at a given Courant number, the associated numerical flux is already well approximated by classical high-order schemes. More broadly, it is always possible to derive a discretization that exactly fits a given solution shape, implying that data-driven approaches are unlikely to outperform analytical discretizations so long as the loss function reflects accuracy in the same way as usually defined in numerical analysis. (ii) It is shown that numerical stability can be achieved through a rigorous formulation of the numerical framework and by enforcing the semilinearity property of the numerical-flux, ensuring invariance under affine transformations of the inputs. While previous studies enforced semilinearity through global normalization, we demonstrate that applying normalization locally at the stencil scale leads to more stable and generalizable data-driven discretizations. However, the choice of training data remains the dominant factor in achieving stable and accurate discretizations. (iii) We introduce a new data-driven flux limiter, expressed as functions of the local curvature of the three-point stencil 𝛿 2𝑞 and the Courant number, which outperforms the classical OSTVD3 limiter in terms of shape preservation and generalizes well across smooth and discontinuous initial conditions. The results indicate that limiter design is particularly sensitive in near-linear curvature regimes, where mild antidiffusion significantly improves the preservation of extrema and sharp gradients. By contrast, allowing higher-order reconstruction in non-monotonic regions rather than reverting to first-order upwinding does not yield a clear improvement for overall advection accuracy. (iv) We show that training on polynomial profiles defined over the stencil yields stable, high-order accurate data-driven discretizations, with the polynomial degree directly controlling the formal order of accuracy. Achieving sixth-order accuracy or higher, however, requires careful control of neural-network approximation errors. These results highlight promising pathways for constructing multidimensional data-driven advection schemes that are both accurate and stable.   
+
+> A.-A. Nasser and A. Adcroft: Preprint submitted to Elsevier Page 14 of 22 Design principles for stable and generalizable data-driven discretizations
+
+We conclude that finite-volume advection schemes based on data-driven reconstructions using only cell-averaged inputs tend to specialize toward the solution shapes represented in the training dataset. However, conventional schemes can also exhibit implicit specialization toward particular solution classes. Addressing the generalization limits of data-driven discretizations therefore connects to the broader challenge of developing robust advection schemes in numerical models and may provide new directions for improving the fidelity of simulated currents across diverse flow regimes. 
+
+## Acknowledgments 
+
+The authors thank Joseph Mouallem for comments on the draft of this manuscript. The authors would like to also thank M 2LInES team in particular Pavel Perezhogin, Danni Du and Will Chapman, for fruitful discus-sion and comments. This research received support through Schmidt Sciences, LLC, under the M 2LInES project. The code for training of the neural networks and figures is available at https://github.com/antoine-182/ design-principles-ML-FV-schemes-JCP2026 .
+
+## A. Computation of the normalized FV flux for analytical profile shapes 
+
+A.1. Principle 
+
+Here, we present how we compute the learnable flux (of section 2.2) shown in the flux-curvature diagram Fig. 3. We wanted to gain insights about the advection of some well-know shapes from the perspective of a discrete scheme, to understand better how to learn this with a neural network. This means that we have to compute the FV flux in function of the cell-averaged values in every point of the solution. Both finite-volume cell-averages values and numerical flux are consistent to profile shape, which, if learned by a neural network, enables perfect advection of the same solution. i) To achieve this, we computed the pairs of flux and cell-averaged solution by sampling the profile shape, that is shifting incrementally the full profile across the length of the stencil. The logic of the sampling method is reflected in the following simple example of a unit positive jump at 𝑥 = 𝑤 0:
+
+𝑓 𝑗𝑢𝑚𝑝 (𝑥 ) = 
+
+{
+
+1 𝑥 ≥ 𝑤 0,
+
+0 otherwise. (A1) Sampling consists of calculating the FV flux in Eq. 6 and the cell-averages with Eq. 3 for every increment along the 
+
+𝑥 -dimension. The general expression for the numerical flux, defined in 𝑥 𝑖 +1∕2 , is 
+
+𝐹 𝑗𝑢𝑚𝑝 (𝑥 ; 𝑤 0) = 
+
+⎧⎪⎨⎪⎩
+
+1 𝑥 − 𝑤 0 ≥ 𝜈 Δ, 
+
+> 𝑥 −𝑤 0
+> 𝜈 Δ
+
+0 ≤ 𝑥 − 𝑤 0 ≤ 𝜈 Δ,
+
+0 otherwise. (A2) and the cell-averaged solution, defined in 𝑥 𝑖 , is 
+
+𝑞 𝑗𝑢𝑚𝑝 (𝑥 ; 𝑤 0) = minmod ( 1Δ (𝑥 − 𝑤 0) − 12
+
+) (A3) ii) Considering a three-node scheme, which is the minimal stencil size for capturing curved inputs, we concatenate the formulation Eq. A3 to form (𝑞 𝑖 −1 , 𝑞 𝑖 , 𝑞 𝑖 +1 ). To obtain the invariant form of the distribution, both flux and the input cell-averaged stencil are normalized with the min-max rule (see Section 2.1.2). iii) Using the fact that each permutations (̃𝑞 𝑖 −1 ,̃𝑞 𝑖 ,̃𝑞 𝑖 +1 ) can be described by the local curvature of the gridded data, 
+
+𝛿 2
+
+> 𝑖 +1∕2
+
+̃𝑞 =̃𝑞 𝑖 −1 − 2 ̃𝑞 𝑖 +̃𝑞 𝑖 +1 , and the sign of the slope ̃𝑞 𝑖 +1 −̃𝑞 𝑖 −1 (see Fig. 2), we partition the FV flux as a function of these two parameters. The case of uniform values with the normalization reduces to the trivial case which leads to a singular point in the phase space and thus is ignored in the plot. 
+
+A.2. Training/test profiles considered in the study 
+
+While previous efforts have used numerical quadrature to estimate the correct flux, to be able to test numerical agreement we calculate the exact flux analytically. We present the exact expression of the FV flux and the cell-averaged solution for three analytical profiles shown in Fig. 3 commonly used for training: a discontinuous step, a linear ramp, and a sine wave.   
+
+> A.-A. Nasser and A. Adcroft: Preprint submitted to Elsevier Page 15 of 22
+
+Design principles for stable and generalizable data-driven discretizations 
+
+Discontinuous Step 
+
+A discontinuous step defined by 𝑤 1 > 𝑤 0, large enough so that the width of the plateau is wider than 𝐾 Δ, is 
+
+𝑓 𝑠𝑡𝑒𝑝 (𝑥 ) = 
+
+{
+
+1 𝑤 0 ≤ 𝑥 ≤ 𝑤 1,
+
+0 otherwise, (A4) which gives the flux 
+
+𝐹 𝑠𝑡𝑒𝑝 (𝑥 ; 𝑤 0, 𝑤 1) = 
+
+⎧⎪⎪⎨⎪⎪⎩
+
+1 𝑤 0 + 𝜈 Δ ≤ 𝑥 ≤ 𝑤 1,
+
+1 − 𝑥 −𝑤 1 
+
+> 𝜈 Δ
+
+0 ≤ 𝑥 − 𝑤 1 ≤ 𝜈 Δ, 
+
+> 𝑥 −𝑤 0
+> 𝜈 Δ
+
+0 ≤ 𝑥 − 𝑤 0 ≤ 𝜈 Δ,
+
+0 otherwise, (A5) and cell-averaged solution 
+
+𝑞 𝑠𝑡𝑒𝑝 (𝑥 ; 𝑤 0, 𝑤 1) = minmod ( 1Δ (𝑥 − 𝑤 0) − 12
+
+) − minmod ( 1Δ (𝑥 − 𝑤 1) − 12
+
+). (A6) 
+
+Linear Ramp 
+
+We consider a linear ramp of slope larger than the size of a cell of the mesh Δ. Expressions are given only for the increasing portion of the profile, the negative portion can be obtained in a similar way. The profile shape is 
+
+𝑓 𝑟𝑎𝑚𝑝 (𝑥 ) = 
+
+⎧⎪⎨⎪⎩
+
+1 𝑥 ≥ 𝑤 1,
+
+> 𝑥 𝑤 1−𝑤 0
+
+𝑤 0 ≥ 𝑥 ≥ 𝑤 1
+
+0 otherwise (A7) which gives a quadratic dependency with the position of the ramp. The numerical flux is 
+
+𝐹 𝑟𝑎𝑚𝑝 (𝑥 ; 𝑤 0, 𝑤 1) = 
+
+⎧⎪⎪⎪⎨⎪⎪⎪⎩
+
+1 𝑥 ≥ 𝑤 1 + 𝜈 Δ, 
+
+> 𝑥 −𝑤 1
+> 𝜈 Δ
+
++ 𝑤 21−( 𝑥 −𝜈 Δ) 2 
+
+> 2𝜈 Δ( 𝑤 1−𝑤 0)
+
+𝑥 ≤ 𝑤 1 + 𝜈 Δ, and 𝑥 ≥ 𝑤 1, 
+
+> 2𝑥 −𝜈 Δ2( 𝑤 1−𝑤 0)
+
+𝑥 ≥ 𝑤 0 + 𝜈 Δ, and 𝑥 ≤ 𝑤 1, 
+
+> 𝑥 2−𝑤 20
+> 2𝜈 Δ( 𝑤 1−𝑤 0)
+
+𝑥 ≤ 𝑤 0 + 𝜈 Δ, and 𝑥 ≥ 𝑤 0,
+
+0 otherwise, (A8) and cell-averaged solution is 
+
+𝑞 𝑟𝑎𝑚𝑝 (𝑥 ; 𝑤 0, 𝑤 1) = 
+
+⎧⎪⎪⎪⎨⎪⎪⎪⎩
+
+1 𝑥 ≥ 𝑤 1 + Δ∕2 , 
+
+> 12
+
++ 𝑥 −𝑤 1 
+
+> Δ
+
++ 𝑤 21−( 𝑥 −Δ∕2) 2 
+
+> 2Δ( 𝑤 1−𝑤 0)
+
+𝑥 ≤ 𝑤 1 + Δ∕2 , and 𝑥 ≥ 𝑤 1 − Δ∕2 , 
+
+> 𝑥
+> (𝑤 1−𝑤 0)
+
+𝑥 ≥ 𝑤 0 + Δ∕2 , and 𝑥 ≤ 𝑤 1 − Δ∕2 , 
+
+> (𝑥 +Δ∕2) 2−𝑤 20
+> 2Δ( 𝑤 1−𝑤 0)
+
+𝑥 ≤ 𝑤 0 + Δ∕2 , and 𝑥 ≥ 𝑤 0 − Δ∕2 ,
+
+0 otherwise. (A9) 
+
+Sine wave 
+
+A sine wave, of wavelength much larger than the Nyquist mode is 
+
+𝑓 𝑠𝑖𝑛𝑒 (𝑥 ) = sin ( 𝑘𝑥 ) (A10) with wavenumber 𝑘 = 2 𝜋 ∕𝜆 . Following Eq. 6 and Eq. 3, the finite-volume flux is 
+
+𝐹 𝑠𝑖𝑛𝑒 (𝑥 ) = sinc 
+
+( 𝑘𝜈 Δ2
+
+)
+
+sin 
+
+(
+
+𝑘𝑥 − 𝑘𝜈 Δ2
+
+)
+
+(A11) and the cell-centered averaged solution writes 
+
+𝑞 𝑠𝑖𝑛𝑒 (𝑥 ) = sinc 
+
+( 𝑘 Δ2
+
+)
+
+sin 
+
+(
+
+𝑘𝑥 − 𝑘 Δ2
+
+)
+
+(A12) 
+
+A.-A. Nasser and A. Adcroft: Preprint submitted to Elsevier Page 16 of 22 Design principles for stable and generalizable data-driven discretizations 
+
+Table B1 
+
+Parameters used for the shape-specific neural-network presented in Section 2.3. Inputs (𝑞 𝑛 𝑖 −1 , 𝑞 𝑛 𝑖 , 𝑞 𝑛 𝑖 +1 )
+
+Output 𝐹 𝑛 𝑖 +1∕2 
+
+Number of hidden layers 3Number of filters 8Activation function Relu Number of epochs 300 
+
+Normalization step 
+
+We normalize both the flux and the stencil data to obtain the invariant form of the discretization. The cases of the discontinuous step and the linear ramp are unitary, therefore the expressions remain unchanged after min-max normalization. When considering a general profile, we can follow a slightly different approach for the sampling: the maxima (𝑞 min , 𝑞 max ) across the stencil are derived depending on the monotonicity of the solution, then the normalized flux is obtained by ̃ 𝐹 = ( 𝐹 − 𝑞 min )∕( 𝑞 max − 𝑞 min ). Hence, for the sine wave, 𝑓 𝑠𝑖𝑛𝑒 , the specific normalization parameters are 
+
+(𝑞 min , 𝑞 max )( 𝑥 𝑖 ) = 
+
+⎧⎪⎪⎪⎪⎪⎪⎨⎪⎪⎪⎪⎪⎪⎩
+
+(𝑞 𝑖 −1 , 𝑞 𝑖 +1 ) ∀ 𝑥 𝑖 ∈ [ Δ2 − 𝜆 
+
+4 ; 𝜆 
+
+4 − Δ2 ],
+
+(𝑞 𝑖 +1 , 𝑞 𝑖 −1 ) ∀ 𝑥 𝑖 ∈ [ 𝜆 
+
+4 + Δ2 ; 3𝜆 
+
+4 − Δ2 ],
+
+(𝑞 𝑖 −1 , 𝑞 𝑖 ) ∀ 𝑥 𝑖 ∈ [ 𝜆 
+
+4 − Δ2 ; 𝜆 
+
+4 ],
+
+(𝑞 𝑖 +1 , 𝑞 𝑖 ) ∀ 𝑥 𝑖 ∈ [ 𝜆 
+
+4 ; 𝜆 
+
+4 + Δ2 ],
+
+(𝑞 𝑖 , 𝑞 𝑖 −1 ) ∀ 𝑥 𝑖 ∈ [ 3𝜆 
+
+4 − Δ2 ; 3𝜆 
+
+4 ],
+
+(𝑞 𝑖 , 𝑞 𝑖 +1 ) ∀ 𝑥 𝑖 ∈ [ 3𝜆 
+
+4 ; 3𝜆 
+
+4 + Δ2 ],
+
+(A13) which gives, for the monotonic increasing case ( 𝛿 2𝑞 ∈ [−1 , 1] , blue line in Fig. 3a), the following analytical expression: 
+
+∀ 𝑥 ∈ [ Δ2 − 𝜆 
+
+4 ; 𝜆 
+
+4 − Δ2 ],̃ 𝐹 𝑠𝑖𝑛 (𝑥 ) = sinc 
+
+( 𝑘𝜈 Δ2
+
+)
+
+sin 
+
+(
+
+𝑘𝑥 − 𝑘𝜈 Δ2
+
+)
+
+− sinc 
+
+( 𝑘 Δ2
+
+)
+
+sin 
+
+(
+
+𝑘𝑥 − 𝑘 3Δ 2
+
+)
+
+2 sinc 
+
+( 𝑘 Δ2
+
+)
+
+sin ( 𝑘 Δ) cos 
+
+(
+
+𝑘𝑥 − 𝑘 Δ2
+
+) (A14) 
+
+## B. Hyper-parameters 
+
+The data-driven discretizations are modeled by multi-layer perceptrons (MLPs), i.e. fully connected neural networks. The architectures employed in each part of the study, together with their associated hyperparameters, are summarized in Tables B1–B2–B3. All computations are performed in Python, and the data-driven discretizations are implemented using the PyTorch framework [39]. Network parameters are optimized with the Adam optimizer using a learning rate of 10 −3 , and all training and inference are carried out in double-precision floating point. In all cases, the generated dataset is split into training and testing subsets using an 80/20 ratio, and training is performed with a batch size of 32 samples. 
+
+## C. Dataset 
+
+Shape-specific neural networks used in Section 2.3 
+
+Neural networks shown in panel b,c and d of Fig. 4 are trained against a step profile of width 𝑤 1 − 𝑤 0 = 11Δ 
+
+(Eq. A4) and a sine wave of wavelength 𝐿 ∕8 (Eq. A10), respectively. The dataset consists of 4000 pairs of inputs/outputs 
+
+(( 𝑞 𝑖 −1 , 𝑞 𝑖 , 𝑞 𝑖 +1 ); 𝐹 𝑖 +1∕2 ) by sampling the analytical functions using numerical interpolation, see Appendix A. 
+
+A.-A. Nasser and A. Adcroft: Preprint submitted to Elsevier Page 17 of 22 Design principles for stable and generalizable data-driven discretizations 
+
+Table B2 
+
+Parameters used for the one-step data-driven discretization trained with polynomials presented in Section 2.4. OSDD3 OSDD4 OSDD5 Inputs (𝑞 𝑛 𝑖 −1 , 𝑞 𝑛 𝑖 , 𝑞 𝑛 𝑖 +1 ) (𝑞 𝑛 𝑖 −2 , 𝑞 𝑛 𝑖 −1 , 𝑞 𝑛 𝑖 , 𝑞 𝑛 𝑖 +1 ) (𝑞 𝑛 𝑖 −2 , 𝑞 𝑛 𝑖 −1 , 𝑞 𝑛 𝑖 , 𝑞 𝑛 𝑖 +1 , 𝑞 𝑛 𝑖 +2 )
+
+Output 𝐹 𝑛 𝑖 +1∕2 𝐹 𝑛 𝑖 +1∕2 𝐹 𝑛 𝑖 +1∕2 
+
+Number of hidden layers 1 1 1Number of filters 8 8 16 Activation function Linear Linear Linear Number of epochs 200 200 400 
+
+Table B3 
+
+Parameters used for the data-driven limiter approach presented in Section 3.2. The network predicts a correction to the first-order upstream (UP1) flux to improve accuracy. Inputs (𝛿 2𝑞, 𝜈 )
+
+Output Δ𝐹 𝑛 𝑖 +1∕2 
+
+Number of hidden layers 3Number of filters 32 Activation function Relu Number of epochs 40 
+
+One-step data-driven (OSDD) schemes trained with polynomials 
+
+One-step data-driven discretizations achieves formal accuracy by training on polynomials defined on the stencil lengths. For training OSDD schemes, 2000 local polynomials of maximum degree 𝑘 − 1 are generated with random coefficients. Let 𝑃 𝑘 denote a polynomial of degree 𝑘 ∈ ℕ+,
+
+𝑃 𝑘 (𝑥 ) = 
+
+> 𝑘
+
+∑
+
+> 𝑙 =0
+
+𝛽 𝑙 𝑥 𝑙 , (C1) where 𝛽 𝑙 are scalar coefficients and 𝑥 ∈ ℝ is the spatial coordinate. Any affine transformation of the spatial coordinate, 
+
+𝑥 ↦ 𝜃 1𝑥 + 𝜃 2, maps 𝑃 𝑘 onto another polynomial of the same degree. As a result, the polynomial generation is independent of the underlying spatial grid and of the local grid spacing. Without loss of generality, we therefore set a uniform grid of unitary spacing centered at the midpoint of the first cell upstream of the flux. Following Eq. 3 and 6, the cell-averaged concentration 𝑞 𝑖 and the right interface mass flux 𝐹 1∕2 are analytically calculated, thereby reducing numerical errors. They are given, respectively, by 
+
+𝑞 𝑖 =
+
+> 𝑘
+
+∑
+
+> 𝑙 =0
+
+𝛽 𝑙 
+
+𝑙 + 1 
+
+((𝑥 𝑖 +1∕2 )𝑙 +1 − ( 𝑥 𝑖 −1∕2 )𝑙 +1 ) and 𝐹 1∕2 = 𝑢 𝜈 
+
+> 𝑘
+
+∑
+
+> 𝑙 =0
+
+𝛽 𝑙 
+
+(𝑙 + 1) 
+
+((𝑥 𝑖 +1∕2 )𝑙 +1 − ( 𝑥 𝑖 +1∕2 − 𝜈 )𝑙 +1 ). (C2) 
+
+Data-driven limiters 
+
+To generate training data for section 3.2, we construct 53,248 harmonic solutions over a periodic domain of length 
+
+𝐿 = 2 𝜋 , with resolution of 256 grid points. Each realization is defined as the superposition of four sine modes with randomly sampled amplitudes and wavelengths, the latter constrained to be larger than 16 grid points to ensure smooth curves. The reference “true” solutions are generated by advecting each harmonic solutions on one timestep, and subsequently computing the next time step solutions using Eq. 3. The Courant number is sampled uniformly within the interval [0 .01 , 0.99] using 26 discrete values. 
+
+## D. Sensitivity to randomized weight initialization 
+
+We quantify shape preservation by the mean 𝐿 1 error after one full advection cycle, averaged over CFL numbers 
+
+𝜈 ∈ {0 .2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8} and a set of random initial conditions. The test suite consists of 16 samples drawn (i) from the test dataset and (ii) from a composite profile comprising a Gaussian pulse, a square wave, a triangular wave, and an ellipse, randomly shifted within the domain. The latter is a worthy testcase that combines discontinuities, sharp 
+
+A.-A. Nasser and A. Adcroft: Preprint submitted to Elsevier Page 18 of 22 Design principles for stable and generalizable data-driven discretizations 20 15 10 5 0 5 10 15 20 
+
+r       
+
+> 5
+> 4
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> 4
+> a)
+> TVD region
+> OS3
+> OSTVD3
+> 21012345
+
+r    
+
+> 0
+> 1
+> 2
+> 3
+> b)
+> 0.2 0.1 0.0 0.1 0.2
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> c)
+
+Figure D1: All members of the DDL formulation in the Sweby diagram plotted for a Courant number of 0.2. Colors range from blue (best) to yellow (worst), indicating the ranking based on shape-preservation performance. 
+
+gradients, smooth regions, and extrema, and is defined on [−1 , 1] using the transformed variable 𝑥 ↦ (𝑥 ∕𝐿 − 1∕2) as 
+
+𝑞 0(𝑥 ) = 
+
+⎧⎪⎪⎪⎨⎪⎪⎪⎩
+
+exp(− log(2)( 𝑥 + 0 .7) 2∕0 .0009) −0 .8 ≤ 𝑥 ≤ −0 .6,
+
+1 −0 .4 ≤ 𝑥 ≤ −0 .2,
+
+1 − |10( 𝑥 − 0 .1) | 0 ≤ 𝑥 ≤ 0.2,
+
+(1 − 100( 𝑥 − 0 .5) 2)1∕2 0.4 ≤ 𝑥 ≤ 0.6,
+
+0 otherwise. (D1) The learned limiters are reported in Fig. D1 and analyzed through the accuracy function Φ (obtained by inverting Eq. 7). Colors indicate the ranking in terms of shape-preservation performance, from blue (best) to yellow (worst). We find that data-driven limiters that perform worse than the well-know OSTVD3 were excessively diffusive, damping extrema and smoothing sharp features of the solution. 
+
+## E. Simplified DDL formulation 
+
+To reduce computational overhead when performing flux-limiting, we perform a model-order reduction by constructing a parametric representation of DDL based on hinge functions, ℎ(𝑧 ) = max( 𝑧, 0) , with CFL-dependent knot locations and polynomial amplitudes. The coefficients are obtained with least-squares regression of 
+
+𝑦 (𝛿 𝑐 , 𝜈 ) = ∑
+
+> 𝑚
+
+∑
+
+> 𝑘
+
+(1 − 𝜈 )𝑘 (𝛼 𝑚,𝑘 ℎ(𝛿 𝑐 − 𝑐 𝑚 (𝜈 )) + 𝛽 𝑚,𝑘 ℎ(𝑐 𝑚 (𝜈 ) − 𝛿 𝑐 )) + ∑
+
+> 𝑘
+
+𝛾 𝑘 (1 − 𝜈 )𝑘 𝛿 𝑐 (E2) 
+
+𝑐 𝑚 (𝜈 ) = ∑
+
+> 𝑗
+
+𝑎 𝑚,𝑗 (1 − 𝜈 )𝑗 (E3) where 𝛿 𝑐 is the curvature, 𝜈 the CFL number and 𝛼 𝑚,𝑘 , 𝛽 𝑚,𝑘 , 𝛾 𝑘 , and 𝑎 𝑚,𝑗 are the regression coefficients (listed in Table E1). The regression is performed for up-gradient configurations (positive signed curvature), the full expression is recovered by enforcing the symmetry condition described in Section 3.2.1. 
+
+## CRediT authorship contribution statement 
+
+A.-A. Nasser: Conceptualization of this study, Methodology, Software. A. Adcroft: Conceptualization of this study, Methodology, Software. 
+
+A.-A. Nasser and A. Adcroft: Preprint submitted to Elsevier Page 19 of 22 Design principles for stable and generalizable data-driven discretizations 
+
+Table E1 
+
+Regression coefficients defining the reduced-order parametric approximation of DDL, including hinge-function amplitudes (𝛼 𝑚,𝑘 , 𝛽 𝑚,𝑘 ), linear contributions ( 𝛾 𝑘 ), and CFL-dependent knot locations ( 𝑎 𝑚,𝑗 ). Coefficient Value Coefficient Value Coefficient Value 
+
+𝑎 0,0 -1.839 𝛼 0,1 -1.819 ×10 −1 𝛽 0,1 -1.203 ×10 −1 
+
+𝑎 0,1 1.203 𝛼 0,2 -5.358 ×10 −1 𝛽 0,2 -4.168 ×10 −1 
+
+𝑎 0,2 -3.746 ×10 −1 
+
+𝛼 1,1 6.821 ×10 −1 𝛽 1,1 7.144 ×10 −1 
+
+𝑎 1,0 -1.060 𝛼 1,2 -1.427 𝛽 1,2 -1.547 
+
+𝑎 1,1 -1.252 ×10 −1 
+
+𝑎 1,2 1.084 ×10 −1 𝛼 2,1 7.828 ×10 −2 𝛽 2,1 3.413 ×10 −2 
+
+𝛼 2,2 1.445 𝛽 2,2 1.574 
+
+𝑎 2,0 -9.930 ×10 −1 
+
+𝑎 2,1 -8.291 ×10 −2 𝛼 3,1 -5.512 ×10 −1 𝛽 3,1 -6.537 ×10 −1 
+
+𝑎 2,2 8.796 ×10 −2 𝛼 3,2 4.918 ×10 −1 𝛽 3,2 4.217 ×10 −1 
+
+𝑎 3,0 -8.258 ×10 −1 𝛼 4,1 2.764 ×10 −1 𝛽 4,1 1.996 ×10 −1 
+
+𝑎 3,1 2.884 ×10 −1 𝛼 4,2 -3.432 ×10 −1 𝛽 4,2 -2.509 ×10 −1 
+
+𝑎 3,2 7.062 ×10 −2 
+
+𝛼 5,1 -1.982 ×10 −1 𝛽 5,1 -10.000 ×10 −2 
+
+𝑎 4,0 1.066 𝛼 5,2 -6.196 ×10 −1 𝛽 5,2 -6.690 ×10 −1 
+
+𝑎 4,1 -1.329 
+
+𝑎 4,2 1.011 𝛼 6,1 1.073 𝛽 6,1 1.123 
+
+𝛼 6,2 -1.974 𝛽 6,2 -2.028 
+
+𝑎 5,0 5.801 ×10 −1 
+
+𝑎 5,1 -3.374 ×10 −2 𝛼 7,1 -7.184 ×10 −1 𝛽 7,1 -6.418 ×10 −1 
+
+𝑎 5,2 4.135 ×10 −1 𝛼 7,2 2.631 𝛽 7,2 2.584 
+
+𝑎 6,0 9.744 ×10 −1 𝛼 8,1 -4.704 ×10 −1 𝛽 8,1 -5.439 ×10 −1 
+
+𝑎 6,1 1.132 ×10 −1 𝛼 8,2 3.020 ×10 −1 𝛽 8,2 3.731 ×10 −1 
+
+𝑎 6,2 -1.971 ×10 −1 
+
+𝑎 7,0 9.771 ×10 −1 
+
+𝑎 7,1 3.010 ×10 −2 
+
+𝑎 7,2 5.463 ×10 −4 
+
+𝑎 8,0 1.147 
+
+𝑎 8,1 5.295 ×10 −2 
+
+𝑎 8,2 7.120 ×10 −1 
+
+𝛾 1 1.454 ×10 −2 
+
+𝛾 2 2.565 ×10 −2 
+
+## References 
+
+[1] V. Balaji, F. Couvreux, J. Deshayes, J. Gautrais, F. Hourdin, C. Rio, Are general circulation models obsolete?, Proceedings of the National Academy of Sciences 119 (2022) e2202075119. [2] J. M. Stone, T. A. Gardiner, P. Teuben, J. F. Hawley, J. B. Simon, Athena: A New Code for Astrophysical MHD, The Astrophysical Journal Supplement Series 178 (2008) 137. [3] J. H. Ferziger, M. Perić, Computational Methods for Fluid Dynamics, Springer, Berlin, Heidelberg, 2002. URL: http://link.springer. com/10.1007/978-3-642-56026-2 . doi: 10.1007/978-3-642-56026-2 .[4] L. Zanna, W. Gregory, P. Perezhogin, A. Sane, C. Zhang, A. Adcroft, M. Bushuk, C. Fernandez-Granda, B. Reichl, D. Balwada, J. Busecke, W. Chapman, A. Connolly, D. Du, K. Everard, F. Falasca, R. Falga, D. Kamm, E. Meunier, Q. Liu, A. Nasser, M. Pudig, A. Shao, J. L. Simpson, L. Vogt, J. Wu, A Framework for Hybrid Physics-AI Coupled Ocean Models, 2025. URL: http://arxiv.org/abs/2510.22676 .doi: 10.48550/arXiv.2510.22676 , arXiv:2510.22676 [physics]. [5] Y. Bar-Sinai, S. Hoyer, J. Hickey, M. P. Brenner, Learning data-driven discretizations for partial differential equations, Proceedings of the National Academy of Sciences 116 (2019) 15344–15349. 
+
+A.-A. Nasser and A. Adcroft: Preprint submitted to Elsevier Page 20 of 22 Design principles for stable and generalizable data-driven discretizations 
+
+[6] J. Zhuang, D. Kochkov, Y. Bar-Sinai, M. P. Brenner, S. Hoyer, Learned discretizations for passive scalar advection in a two-dimensional turbulent flow, Physical Review Fluids 6 (2021) 064605. [7] V. Morand, N. Müller, R. Weightman, B. Piccoli, A. Keimer, A. M. Bayen, Deep learning of first-order nonlinear hyperbolic conservation law solvers, Journal of Computational Physics 511 (2024) 113114. [8] B. Stevens, T. Colonius, Enhancement of shock-capturing methods via machine learning, Theoretical and Computational Fluid Dynamics 34 (2020) 483–496. [9] I. Timofeyev, A. Schwarzmann, D. Kuzmin, Application of machine learning and convex limiting to subgrid flux modeling in the shallow-water equations, Mathematics and Computers in Simulation 238 (2025) 163–178. [10] D. Kochkov, J. A. Smith, A. Alieva, Q. Wang, M. P. Brenner, S. Hoyer, Machine learning–accelerated computational fluid dynamics, Proceedings of the National Academy of Sciences 118 (2021) e2101784118. [11] A. Alieva, S. Hoyer, M. Brenner, G. Iaccarino, P. Norgaard, Toward accelerated data-driven Rayleigh-Bénard convection simulations, The European Physical Journal. E, Soft Matter 46 (2023) 64. [12] P. Lax, B. Wendroff, Systems of conservation laws, Communications on Pure and Applied Mathematics 13 (1960) 217–237. _eprint: https://onlinelibrary.wiley.com/doi/pdf/10.1002/cpa.3160130205. [13] S.-J. Lin, R. B. Rood, Multidimensional Flux-Form Semi-Lagrangian Transport Schemes, Monthly Weather Review 124 (1996) 2046–2070. [14] T. Beucler, P. Gentine, J. Yuval, A. Gupta, L. Peng, J. Lin, S. Yu, S. Rasp, F. Ahmed, P. A. O’Gorman, J. D. Neelin, N. J. Lutsko, M. Pritchard, Climate-invariant machine learning, Science Advances 10 (2024). [15] T. Kim, J. Kim, Y. Tae, C. Park, J.-H. Choi, J. Choo, Reversible Instance Normalization for Accurate Time-Series Forecasting against Distribution Shift, 2021. URL: https://openreview.net/forum?id=cGDAkQo1C0p .[16] R. J. LeVeque, Numerical Methods for Conservation Laws, Birkhäuser, Basel, 1992. URL: http://link.springer.com/10.1007/ 978-3-0348-8629-1 . doi: 10.1007/978-3-0348-8629-1 .[17] P. Colella, P. R. Woodward, The Piecewise Parabolic Method (PPM) for gas-dynamical simulations, Journal of Computational Physics 54 (1984) 174–201. [18] M. Arora, P. L. Roe, A Well-Behaved TVD Limiter for High-Resolution Calculations of Unsteady Flow, Journal of Computational Physics 132 (1997) 3–11. [19] A. Harten, High resolution schemes for hyperbolic conservation laws, Journal of Computational Physics 49 (1983) 357–393. [20] P. Colella, M. D. Sekora, A limiter for PPM that preserves accuracy at smooth extrema, Journal of Computational Physics 227 (2008) 7069–7076. [21] D. Zhang, C. Jiang, D. Liang, L. Cheng, A review on TVD schemes and a refined flux-limiter for steady-state calculations, Journal of Computational Physics 302 (2015) 114–154. [22] N. Nguyen-Fotiadis, M. McKerns, A. Sornborger, Machine learning changes the rules for flux limiters, Physics of Fluids 34 (2022) 085136. [23] N. Nguyen-Fotiadis, R. Chiodi, M. McKerns, D. Livescu, A. Sornborger, Probabilistic flux limiters, Physics of Fluids 37 (2025) 046112. [24] C. Huang, A. S. Sebastian, V. Viswanathan, Learning second-order TVD flux limiters using differentiable solvers, 2025. URL: http: //arxiv.org/abs/2503.09625 . doi: 10.48550/arXiv.2503.09625 , arXiv:2503.09625 [physics]. [25] P. Roe, M. Baines, Asymptotic behaviour of some non-linear schemes for linear advection, Notes on Numerical Fluid Mechanics 7 (1983) 283–290. [26] R. Eymard, T. Gallouët, R. Herbin, Finite volume methods, in: Solution of Equation in Rn (Part 3), Techniques of Scientific Computing (Part 3), volume 7 of Handbook of Numerical Analysis , Elsevier, 2000, pp. 713–1018. URL: https://www.sciencedirect.com/science/ article/pii/S1570865900070058 . doi: https://doi.org/10.1016/S1570-8659(00)07005-8 .[27] V. Daru, C. Tenaud, High order one-step monotonicity-preserving schemes for unsteady compressible flow calculations, Journal of Computational Physics 193 (2004) 563–594. [28] S. Del Pino, H. Jourdren, Arbitrary high-order schemes for the linear advection and wave equations: application to hydrodynamics and aeroacoustics, Comptes Rendus Mathematique 342 (2006) 441–446. [29] Y. Wang, C.-Y. Lai, Multi-stage neural networks: Function approximator of machine precision, Journal of Computational Physics 504 (2024) 112865. [30] K. Lipnikov, D. Svyatskiy, Y. Vassilevski, Minimal stencil finite volume scheme with the discrete maximum principle, Russian Journal of Numerical Analysis and Mathematical Modelling 27 (2012). [31] P. L. Roe, Characteristic-based schemes for the euler equations, Annual Review of Fluid Mechanics 18 (1986) 337–365. ADS Bibcode: 1986AnRFM..18..337R. [32] J. Woodfield, H. Weller, C. J. Cotter, New limiter regions for multidimensional flows, Journal of Computational Physics 515 (2024) 113286. [33] S. Spekreijse, Multigrid solution of monotone second-order discretizations of hyperbolic conservation laws, Mathematics of Computation 49 (1987) 135–155. [34] R. G. Patel, I. Manickam, N. A. Trask, M. A. Wood, M. Lee, I. Tomas, E. C. Cyr, Thermodynamically consistent physics-informed neural networks for hyperbolic systems, Journal of Computational Physics 449 (2022) 110754. [35] G. d. Romémont, F. Renac, F. Chinesta, J. Nunez, D. Gueyffier, Data-Driven Adaptive Gradient Recovery for Unstructured Finite Volume Computations, 2025. URL: http://arxiv.org/abs/2507.16571 . doi: 10.48550/arXiv.2507.16571 , arXiv:2507.16571 [math]. [36] I. Goodfellow, Y. Bengio, A. Courville, Deep Learning, Adaptive Computation and Machine Learning series, MIT Press, Cambridge, MA, USA, 2016. URL: https://mitpress.mit.edu/9780262035613/deep-learning/ .[37] T. Hastie, R. Tibshirani, J. Friedman, The Elements of Statistical Learning: Data Mining, Inference, and Prediction, in: T. Hastie, R. Tibshirani, J. Friedman (Eds.), The Elements of Statistical Learning: Data Mining, Inference, and Prediction, Springer, New York, NY, 2009, pp. 1–8. URL: https://doi.org/10.1007/978-0-387-84858-7_1 . doi: 10.1007/978-0-387-84858-7_1 .[38] J. H. Friedman, Multivariate Adaptive Regression Splines, The Annals of Statistics 19 (1991) 1–67. 
+
+A.-A. Nasser and A. Adcroft: Preprint submitted to Elsevier Page 21 of 22 Design principles for stable and generalizable data-driven discretizations 
+
+[39] A. Paszke, S. Gross, F. Massa, A. Lerer, J. Bradbury, G. Chanan, T. Killeen, Z. Lin, N. Gimelshein, L. Antiga, A. Desmaison, A. Kopf, E. Yang, Z. DeVito, M. Raison, A. Tejani, S. Chilamkurthy, B. Steiner, L. Fang, J. Bai, S. Chintala, PyTorch: An Imperative Style, High-Performance Deep Learning Library, in: Advances in Neural Information Processing Systems, volume 32, Curran Associates, Inc., 2019. URL: https://proceedings.neurips.cc/paper/2019/hash/bdbca288fee7f92f2bfa9f7012727740-Abstract.html .
+
+A.-A. Nasser and A. Adcroft: Preprint submitted to Elsevier Page 22 of 22

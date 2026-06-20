@@ -1,0 +1,2296 @@
+Title: A fast direct solver based neural network for solving PDEs
+
+URL Source: https://arxiv.org/pdf/2606.19895v1
+
+Published Time: Fri, 19 Jun 2026 00:38:53 GMT
+
+Number of Pages: 26
+
+Markdown Content:
+A FAST DIRECT SOLVER BASED NEURAL NETWORK FOR SOLVING PDES 
+
+JASHWANTH REDDY KADARU ∗ AND VAISHNAVI GUJJULA †
+
+Abstract. The matrices arising from large scale N -body problems can be efficiently represented using hierarchical matrices, whose key idea is that the admissible off-diagonal sub-matrices can be well approximated by low-rank matrices across a hierarchy of matrix partitions. HODLR (Hierarchical Off-Diagonal Low-Rank) matrices are a subclass of hierarchical matrices in which all off-diagonal submatrices at every level of a recursive binary partition are low-rank. In this article, we present a neural network that learns the inverse operation of HODLR matrices based on the fast direct solver for HODLR matrices developed by Ambikasaran and Darve (2013). We further extend the architecture to learn nonlinear solution operators associated with PDEs by replacing some of the linear layers with deep sub-networks. We demonstrate the performance of the proposed architecture by performing a comprehensive set of experiments that include (i) solving a linear problem such as the Fredholm integral equation of the second kind, (ii) solving PDEs such as the nonlinear Schr¨ odinger equation, Burgers’ equation, and the steady-state Darcy’s flow equation, (iii) generalization study across varying parameter values, (iv) comparing the inference time of the proposed network with the run time of a classical numerical solver, and (v) comparing the proposed network with some of the existing neural operator learning networks. 
+
+Key words. Hierarchical matrices, HODLR matrices, fast direct solver, locally connected neural network, convolutional neural network, PDE solvers, operator learning 
+
+MSC codes. 68T07, 65R20, 65F30 
+
+1. Introduction. Physical problems governed by linear partial differential equa-tions can be formulated using either integral equation (IE) or differential equation approaches. Discretization of the IE formulation typically results in a dense linear system, whose size becomes huge when solving large-scale problems or when high accuracy is required. Consequently, the use of naive linear algebra solvers for such dense linear systems is computationally expensive. Motivated by these challenges, the development of efficient algorithms for solving large-scale linear systems arising from the discretization of integral equations has been an active area of research in computational physics. Linear systems can generally be solved using either iterative or direct methods. It-erative methods, such as Jacobi iteration, conjugate gradient, GMRES, and MINRES, are widely used for large systems. However, the performance of iterative methods is highly sensitive to matrix conditioning, and they become inefficient when multiple right-hand sides need to be processed. The computationally intensive step in the iterative solvers is the computation of matrix-vector product in each iteration. To accelerate computation, fast matrix-vector product algorithms are to be used. An alternative approach is to use direct solvers. However, conventional direct methods such as LU and QR factorizations are computationally expensive for large dense systems. To accelerate computation, fast direct solvers are to be used. These computational challenges have motivated the development of multiscale frameworks that exploit the inherent structure of physical operators. Multiscale meth-ods including multigrid methods [6], the Fast Multipole Method (FMM) [15], wavelet-based methods [4] and hierarchical matrix frameworks [5, 14] exploit the underlying  
+
+> ∗
+
+Department of Computer Science & Engineering, International Institute of Information Tech-nology Bangalore (IIIT-B), India (Jashwanth.Kadaru095@iiitb.ac.in). 
+
+> †
+
+Department of Data Science and Artificial Intelligence, International Institute of Information Technology Bangalore (IIIT-B), India (vaishnavi.gujjula@iiitb.ac.in). 1
+
+> arXiv:2606.19895v1 [math.NA] 18 Jun 2026
+
+2 JASHWANTH REDDY KADARU AND VAISHNAVI GUJJULA 
+
+multiscale structure to reduce computational complexity. In the hierarchical matrix framework introduced by Hackbusch [18, 19], the com-putational domain is organized into a hierarchical tree of sub-domains. The resulting system matrix is composed of sub-matrices that represent the interactions between the sub-domains at a given level of hierarchy. Most of these sub-matrices correspond to interactions between far-field sub-domains, while a few correspond to interactions between near-field sub-domains. The sub-matrices corresponding to the far-field inter-actions exhibit low-rank. Furthermore, a near-field interaction at a given level in the hierarchy can be broken down into interactions among their respective subdomains. At a finer level, some of these interactions are far-field interactions, which can be well represented using low-rank approximations, and a few are near-field interactions. Consequently, as the hierarchical refinement proceeds deeper into the tree, the num-ber of low-rank sub-matrices increases. This low-rank structure can be leveraged to develop fast direct and iterative solvers. This is the key idea behind the hierarchical matrix framework. The fast iterative and direct solvers developed for hierarchical matrices can achieve near-linear (quasi-linear) complexity [28, 7, 3, 34, 13, 8]. Developing computationally efficient numerical methods for evaluating non-linear solution operators associated with PDEs is an active area of research. In general, these methods are problem-specific, and constructing them is challenging due to the complexity of the underlying solution map. The combination of numerical methods and deep learning has emerged as a promising direction for learning non-linear solution operators associated with PDEs. Deep learning approaches offer powerful and flexible function approximators capa-ble of handling high-dimensional non-linearities [31]. By the universal approximation theorem, a sufficiently wide feedforward neural network with a non-polynomial acti-vation can uniformly approximate any continuous function on a compact domain to arbitrary accuracy under mild conditions [9, 21]. However, selecting an appropriate architecture for a given problem remains challenging and is an active area of research. In recent years, several neural networks have been proposed for learning non-linear solution operators associated with PDEs. The Fourier Neural Operator (FNO) of Li et al. [26] parameterizes integral kernel operators through learned Fourier-mode coefficients, enabling efficient resolution-invariant operator learning. DeepONet [27] uses a branch-trunk architecture to approximate infinite-dimensional operators. Atheoretical framework for neural operator approximation has been established by Ko-vachki et al. [25]. A notable recent advancement in incorporating multiscale structures into model architectures is the multiscale neural network based on H-matrices (from here on abbreviated as MNN) and H2-matrices proposed by Fan et al. [12, 11]. In these articles, the authors build (i) a neural network that learns the forward operation of the hierarchical matrix (hierarchical matrix-vector product) and then (ii) extend it to learn non-linear solution operators associated with PDEs. In this article, similar to the work by Fan et al. [12], we design a neural network inspired by hierarchical matrices. However, while Fan et al. [12] introduced a network to learn the forward operation of a hierarchical matrix, we introduce 1. A neural network to learn the inverse operation of a hierarchical matrix. By learn-ing the inverse operator, our model effectively functions as a fast direct solver. While learning the forward map of a matrix (matrix-vector product) is valuable, the primary computational bottleneck in many forward and inverse problems is solving the associated linear system. To the best of our knowledge, this is the first neural network approach structured to invert a hierarchical matrix or, equiv-alently, to solve the underlying linear system it represents. After training, the A FAST DIRECT SOLVER BASED NEURAL NETWORK FOR SOLVING PDES 3network takes a right hand side vector as input and, via a forward pass, solves the corresponding linear system. 2. Further, we extend this neural network to learn non-linear solution operators as-sociated with PDEs by replacing selected linear layers with deeper sub-networks. The architecture of the proposed neural network is inspired from the fast direct solver developed by Ambikasaran and Darve [1] for a sub-class of hierarchical matrices called HODLR (Hierarchically Off-Diagonal Low-Rank) matrices. HODLR matrices are constructed based on the weak admissibility criterion, in which all interactions other than self-interactions are approximated as low-rank. As a consequence, at each level of the hierarchy, all the off-diagonal blocks of the matrix are approximated as low-rank. Their approach avoids the prohibitive cost of dense matrix inversion by constructing a recursive factorization of the matrix into a sequence of block-diagonal factors. After constructing the factorization, solutions to new right-hand sides can be obtained at low computational cost, making the method attractive for problems involving multiple right-hand sides. We evaluate the performance of the proposed neural network through a compre-hensive set of experiments that includes: 1. Solving the linear system arising from the Fredholm integral equation. 2. Solving nonlinear PDEs, such as the nonlinear Schr¨ odinger equation (NLSE), Burg-ers’ equation, and the linear Darcy flow problem. The proposed network approxi-mates the solutions well to a relative error in the order of 10 −4 to 10 −2.3. Solving PDEs across parametric sweeps. For the NLSE 1D problem, the proposed network is observed to generalize well across a range of parameter values. When trained on a dataset spanning multiple parameter values, the network accurately infers solutions corresponding to unseen parameter values. Further, the total offline cost of our neural network comprises the time required for data generation and training. Although this cost is higher than that of a classical numerical solver, it is effectively amortized in settings involving non-linear operators and extensive parametric sweeps. In such scenarios, classical solvers must be re-run for each parameter instance. In contrast, the proposed neural network learns over a range of parameters during training, thereby amortizing this cost and enabling faster inference. We observe that, for the NLSE 1D problem, the inference time of the neural network is significantly lower than the run time of a classical numerical solver, making it particularly advantageous in parametric sweeps. 4. Comparison of the performances of the proposed neural network with some of the existing operator learning networks for PDEs, such as the FNO, DeepONet, and MNN. We observe that the proposed neural network performs competitively with its counterparts at a cheaper parameter count. The rest of the paper is organized as follows. Section 2 presents the fast direct solver for linear systems involving HODLR matrix. Section 3 presents the neural network architecture that models the direct solver. Section 4 extends the direct solver described in Section 3 to solve PDEs. Section 5 presents numerical results on both linear and nonlinear maps. Finally, Section 6 provides conclusions and possible future directions. 
+
+2. Fast direct solver for HODLR matrices. The architecture of the neural network proposed in this paper is based on the computational framework of the fast direct solver for HODLR (Hierarchical Off-Diagonal Low-Rank) matrices, introduced in [1]. In this section, we briefly describe the HODLR matrix structure and the direct solver algorithm. We refer the readers to [1] for more details. 4 JASHWANTH REDDY KADARU AND VAISHNAVI GUJJULA 
+
+2.1. HODLR matrix. Let K be the matrix arising from the discretization of a kernel function g(x, y) : Rd × Rd → R, which is smooth everywhere except along the line x = y. Such matrices commonly arise in the discretized integral equation formulation of linear elliptic PDEs. Let N denote the number of degrees of freedom, and let I = {1, 2, . . . , N } be the index set associated with the discretization points in the physical domain Ω ⊆ Rd. A K-D tree is used to recursively bisect I and construct the hierarchical binary tree T . A node t ∈ T of the tree represents a spatially localized cluster of indices. These nodes are defined such that the partition of the index set I
+
+reflects the geometric topology of the discretization points, ensuring that every node corresponds to a connected sub-domain in Ω. The root node of the tree represents the entire set I. Each non-leaf node t ∈ T 
+
+is bisected into two disjoint children nodes. The recursion continues until the number of indices in a node is below or equal to a specified leaf size m. Let the depth of the tree be denoted by κ = log 2
+
+  Nm
+
+ .The HODLR matrix approximates the sub-matrices corresponding to interaction between any two disjoint nodes as a low-rank matrix. At level 0 of the hierarchical tree, the HODLR matrix represented by K(0) is the system matrix K itself. (2.1) K(0) = K. 
+
+Let the nodes in level l be indexed by 1, 2, . . . , 2l . Let a node i at level l be denoted by i(l). Let the child nodes of i(l) be indexed by (2 i − 1) (l+1) and (2 i)(l+1) . At level 0 of the tree, there is a single node denoted by 1 (0) . At level 1 of the tree, there are two nodes, indexed by 1 (1) and 2 (1) . The HODLR matrix at level 1, represented by K(1) ,comprises of (i) the self interactions of nodes 1 (1) and 2 (1) , represented by K(1) 1 and 
+
+K(1) 2 respectively and (ii) the interactions between the nodes 1 (1) and 2 (1) , represented by K(1) 12 and K(1) 21 . Since nodes 1 (1) and 2 (1) are disjoint, the interactions K(1) 12 and 
+
+K(1) 21 are approximated by low-rank matrices and are represented by K(1) 12 = U (1) 1 V (1) T
+
+> 12
+
+and K(1) 21 = U (1) 2 V (1) T 
+
+> 21
+
+.(2.2) K =
+
+"
+
+K(1) 1 K(1) 12 
+
+K(1) 21 K(1) 2
+
+#
+
+≈ K(1) =
+
+"
+
+K(1) 1 U (1) 1 V (1) T
+
+> 12
+
+U (1) 2 V (1) T 
+
+> 21
+
+K(1) 2
+
+#
+
+At level 2, the sub-matrix K(1) 1 is further represented using the pairwise interactions between the child nodes of node 1 (1) . The off-diagonal sub-matrices of K(1) 1 are K(2) 12 
+
+and K(2) 21 that correspond to interactions between the sibling nodes. The sibling nodes are disjoint, and hence the interactions between them are approximated using low-rank matrices. The low-rank representations of the interactions between sibling nodes 
+
+i(l) and ( i + 1) (l) are denoted by K(l) 
+
+> i,i +1
+
+≈ U (1)  
+
+> i
+
+V (l)T 
+
+> i,i +1
+
+and K(l) 
+
+> i+1 ,i
+
+≈ U (1) 
+
+> i+1
+
+V (l)T
+
+> i+1 ,1
+
+.(2.3) K(1) 1 =
+
+"
+
+K(2) 1 K(2) 12 
+
+K(2) 21 K(2) 2
+
+#
+
+≈
+
+"
+
+K(2) 1 U (2) 1 V (2) T
+
+> 12
+
+U (2) 2 V (2) T 
+
+> 21
+
+K(2) 2
+
+#
+
+Similarly, (2.4) K(1) 2 =
+
+"
+
+K(2) 3 K(2) 34 
+
+K(2) 43 K(2) 4
+
+#
+
+≈
+
+"
+
+K(2) 3 U (2) 3 V (2) T
+
+> 34
+
+U (2) 4 V (2) T 
+
+> 43
+
+K(2) 4
+
+#
+
+.A FAST DIRECT SOLVER BASED NEURAL NETWORK FOR SOLVING PDES 5The HODLR matrix at level 2 is                                   
+
+> (2.5)
+> K(2) =
+> "
+> K(2) 1K(2) 12
+> K(2) 21 K(2) 2
+> #
+> U(1) 2V(1) T
+> 12
+> U(1) 2V(1) T
+> 21
+> "
+> K(2) 3K(2) 34
+> K(2) 43 K(2) 4
+> #≈
+> "
+> K(2) 1U(2) 1V(2) T
+> 12
+> U(2) 2V(2) T
+> 21 K(2) 2
+> #
+> U(1) 1V(1) T
+> 12
+> U(1) 2V(1) T
+> 21
+> "
+> K(2) 3U(2) 3V(1) T
+> 34
+> U(2) 4V(1) T
+> 43 K(2) 4
+> #
+
+At every level of the hierarchical tree, the off-diagonal blocks representing the interaction between sibling nodes are approximated by low-rank matrices. The jth 
+
+diagonal block of the HODLR matrix at level k, denoted by K(k) 
+
+> j
+
+, is represented at level k + 1 as (2.6) K(k) 
+
+> j
+
+≈
+
+"
+
+K(k+1) 2j−1 U (k+1) 2j−1 V (k+1) T
+
+> 2j−1,2j
+
+U (k+1) 2j V (k+1) T 
+
+> 2j, 2j−1
+
+K(k+1) 2j
+
+#
+
+where U (k+1) 2j−1 , V (k+1) 2j−1,2j , U (k+1) 2j , V (k+1) 2j, 2j−1 ∈ R N 
+
+> 2k+1 ×p
+
+, k = 0 , 1, . . . , κ − 1 and rank p
+
+follows [22, 23, 24] (2.7) p =
+
+(O(log( N ) log(log( N ))) in 1D 
+
+O
+
+
+
+N d−1
+
+> d
+
+
+
+in dD The hierarchical matrix is constructed recursively down to the leaf level, where the diagonal blocks are stored explicitly. At intermediate levels, only the low-rank factors are stored, yielding a data-sparse representation with storage complexity O(pN log N ). Figure 1 illustrates the low-rank structure of the HODLR matrix at successive levels.      
+
+> K(0) K(1) K(2) K(3) K(4)
+> Full Rank Low Rank
+
+Fig. 1: HODLR matrix at successive levels 
+
+2.2. Fast direct solver. In this section, we discuss the fast direct solver for linear systems involving HODLR matrices proposed in [1], which forms the foundation of the neural network proposed in this article. The solver involves two phases i) the factorization phase and ii) the solve phase. Before describing the two phases, we describe the Sherman-Morrison-Woodbury (SMW) formula, which is the key tool underlying the fast direct solver. 
+
+2.2.1. Sherman–Morrison–Woodbury (SMW) formula. SMW [33, 20] formula gives a computationally efficient way of solving a linear system of equations characterized by a low-rank perturbation of the identity matrix. Given the system (2.8)  I + U V T  x = b, 
+
+where I ∈ RN ×N , U, V ∈ RN ×p, and p ≪ N , the SMW formula provides the solution (2.9) x = b − U  I + V T U −1 V T b, 6 JASHWANTH REDDY KADARU AND VAISHNAVI GUJJULA 
+
+where the p × p matrix  I + V T U  only needs to be inverted. The cost of the naive dense solve of Equation (2.8) is O  N 3, whereas the SMW formula (Equation (2.9)) reduces it to O(N p ). We suggest the reader to refer [33, 20] for the derivation. 
+
+2.2.2. Factorization phase. The objective of the factorization phase is to fac-torize the κ-level HODLR matrix K(κ) in the form (2.10) K(κ) = KκKκ−1 · · · K1K0.
+
+The factorization begins at the leaf level. The first factor Kκ is a block-diagonal matrix comprising the diagonal blocks of K(κ), which is (2.11) Kκ =
+
+
+
+K(κ)1
+
+K(κ)2
+
+. . .
+
+K(κ)2κ
+
+
+
+By factoring out Kκ from K(κ), we have (2.12) 
+
+K−1
+
+κ K(κ)
+
+=                                       
+
+> 
+> K(κ)−1
+> 1
+> K(κ)−1
+> 2
+> . . .
+> K(κ)−1
+> 2κ
+> "
+> K(κ)1U(κ)1V(κ)T
+> 12
+> U(κ)2V(κ)T
+> 21 K(κ)2
+> #
+> U(κ−1) 1V(κ−1) T
+> 12 . . . . . . U(κ−1) 2V(κ−1) T
+> 21
+> "
+> K(κ)3U(κ)3V(κ)T
+> 34
+> U(κ)4V(κ)T
+> 43 K(κ)4
+> #
+> . . . . . .
+> ....... . ....
+> . . . . . . . . .
+> "
+> K(κ)2κ−1U(κ)2κ−1V(κ)T
+> 2κ−1,2κ
+> U(κ)2κV(κ)T
+> 2k,2k−1K(κ)2κ
+> #
+
+=
+
+"
+
+I U (κ, 1) 1 V (κ)T
+
+> 12
+
+U (κ, 1) 2 V (κ)T 
+
+> 21
+
+I
+
+#
+
+U (κ−1,1) 1 V (κ−1) T 
+
+> 12
+
+. . . . . . U (κ−1,1) 2 V (κ−1) T
+
+> 21
+
+"
+
+I U (κ, 1) 3 V (κ)T
+
+> 34
+
+U (κ, 1) 4 V (κ)T 
+
+> 43
+
+I
+
+#
+
+. . . . . . 
+
+... ... . . . ...
+
+. . . . . . . . . 
+
+"
+
+I U (κ, 1) 2κ−1V (κ)T
+
+> 2κ−1,2κ
+
+U (κ, 1) 2κ V (κ)T 
+
+> 2κ,2κ−1
+
+I
+
+#
+
+.U (k, 1) 
+
+i , for all k ∈ { 1, 2, . . . κ }, indicates that U (k)
+
+i has been updated as a result of applying the inverse of K(κ)
+
+i , for all i ∈ { 1, 2, . . . 2κ}. The size of K(κ)
+
+i is O(m)×O (m). Let m = p. The cost of applying the inverse of K(κ)
+
+i to r columns is O  p3 + p2r.The inverse of K(κ)
+
+i has to be applied to the appropriate rows of 
+
+n
+
+U (k)
+
+j
+
+o
+
+j(k)∈A (i(κ)),where A  i(κ) represents the set of ancestors of i(κ) including i(κ). The cardinality of the set A  i(κ) is κ and each U (k)
+
+j has p columns. Therefore, the number of columns to which the inverse of K(κ)
+
+i has to be applied is pκ . Hence, the cost of applying the inverse of K(κ)
+
+i to the ith block row is O  p3 + p2pκ  = O(p3κ). To factor out Kκ,the inverse of K(κ)
+
+i is to be applied for all i ∈ { 1, 2, . . . , 2κ}. Therefore, the total cost of factoring out Kκ is O  p3κ2κ. Since κ =
+
+j
+
+log 2
+
+ Np
+
+k 
+
+, the total cost of factoring out Kκ is O  p2N κ .A FAST DIRECT SOLVER BASED NEURAL NETWORK FOR SOLVING PDES 7Upon factoring out Kκ from K(k), we obtain the matrix (2.13) K−1 
+
+> κ
+
+K(κ) =
+
+
+
+K(κ−1,1) 1 U (κ−1,1) 1 V (κ−1) T 
+
+> 12
+
+. . . . . . U (κ−1,1) 2 V (κ−1) T 
+
+> 21
+
+K(κ−1,1) 2 . . . . . . 
+
+... ... . . . ...
+
+. . . . . . . . . K(κ−1,1) 2κ−1
+
+
+
+where (2.14) K(κ−1,1)  
+
+> i
+
+=
+
+"
+
+I U (κ, 1) 2i−1 V (κ)T
+
+> 2i−1,2i
+
+U (κ, 1) 2i V (κ)T 
+
+> 2i, 2i−1
+
+I
+
+#
+
+, ∀ i ∈ 1, 2, . . . , 2κ−1 .
+
+The second factor Kκ−1 in the factorization of Equation (2.10), (2.15) Kκ−1 =
+
+
+
+K(κ−1,1) 1
+
+K(κ−1,1) 2
+
+. . .
+
+K(κ−1,1) 2κ−1
+
+ ,
+
+is a block diagonal matrix comprising the diagonal blocks of K−1 
+
+> κ
+
+K(κ). Upon factoring out Kκ−1 from K−1 
+
+> κ
+
+K(κ), we obtain the matrix (2.16) 
+
+K−1
+
+> κ−1
+
+K−1 
+
+> κ
+
+K(κ)
+
+=
+
+
+
+K(κ−1,1) −1
+
+> 1
+
+K(κ−1,1) −1
+
+> 2
+
+. . .
+
+K(κ−1,1) −1
+
+> 2κ−1
+
+
+
+K(κ−1,1) 1 U (κ−1,1) 1 V (κ−1) T 
+
+> 12
+
+. . . . . . U (κ−1,1) 2 V (κ−1) T 
+
+> 21
+
+K(κ−1,1) 2 . . . . . . 
+
+... ... . . . ...
+
+. . . . . . . . . K(κ−1,1) 2κ−1
+
+
+
+From Equation (2.14), it can be observed that K(κ−1,1)  
+
+> i
+
+can be written as K(κ−1,1)  
+
+> i
+
+=
+
+I + eU (κ) 
+
+> i
+
+eV (κ)T 
+
+> i
+
+where (2.17) eU (κ) 
+
+> i
+
+=
+
+"
+
+U (κ, 1) 2i−1 00 U (κ, 1) 2i
+
+#
+
+and eV (κ)T 
+
+> i
+
+=
+
+"
+
+0 V (κ)T
+
+> 2i, 2i−1
+
+V (κ)T 
+
+> 2i−1,2i
+
+0
+
+#
+
+.I + eU (κ) 
+
+> i
+
+eV (κ)T 
+
+> i
+
+is a rank 2 p perturbation to an identity matrix of size N 
+
+> 2κ−1
+
+× N 
+
+> 2κ−1
+
+.The inverse of K(κ−1,1)  
+
+> i
+
+using the SMW formula is (2.18) K(κ−1,1) −1 
+
+> i
+
+=
+
+
+
+I + eU (κ) 
+
+> i
+
+eV (κ)T
+
+> i
+
+−1
+
+= I − eU (κ)
+
+> j
+
+
+
+I + eV (κ)T 
+
+> j
+
+eU (κ)
+
+> j
+
+−1 eV (κ)T 
+
+> j
+
+.
+
+Using the SMW formula, the cost to apply the inverse of I + eU (κ) 
+
+> i
+
+eV (κ)T 
+
+> i
+
+to r columns is 
+
+O   N 
+
+> 2κ−1
+
+× 2p × r. The inverse of K(κ−1,1)  
+
+> i
+
+has to be applied to the appropriate rows of 
+
+n
+
+U (k, 1) 
+
+> j
+
+o
+
+> j(k)∈A
+
+(i(κ−1) ), where A  i(κ−1)  represents the set of ancestors of i(κ−1) .The cardinality of the set A  i(κ−1)  is κ−1 and each U (k, 1)  
+
+> j
+
+has 2 p columns. Therefore, the number of columns to which the inverse of K(κ−1,1)  
+
+> i
+
+has to be applied is 2 p(κ − 1), 8 JASHWANTH REDDY KADARU AND VAISHNAVI GUJJULA 
+
+and the cost is O   N 
+
+> 2κ−1
+
+× 2p × 2p(κ − 1)  = O
+
+ p2N (κ−1) 2κ−1
+
+
+
+. To factor out Kκ−1, the inverse of K(κ−1,1)  
+
+> i
+
+is to be applied for all i ∈ { 1, . . . , 2κ−1}. Therefore, the total cost of factoring out Kκ−1 is O  p2N (κ − 1) .This is repeated until level 0 is reached, to obtain the subsequent factors 
+
+{Kκ−2, . . . , K 0}. As a result, this process yields the factorization (2.19) K(κ) = KκKκ−1 . . . K 1K0.
+
+The structure of the factorization is illustrated in Figure 2. On similar lines of deriving the cost of factoring out Kκ−1, the cost of factoring out Kk for a k ∈ { 1, 2 . . . κ − 2} is O(p2N k ). Hence, the total cost of factorization is equal to the sum of costs of factoring out Kk for all k ∈ { 1, 2 . . . κ }, which is 
+
+O  P κk=1 p2N k  = O  p2N log 2(N ).
+
+> K
+
+≈
+
+> K(3)
+
+=
+
+> K3
+
+×
+
+> K2
+
+×
+
+> K1
+
+×   
+
+> K0
+> Full Rank Low Rank Zero Matrix Identity Matrix
+
+Fig. 2: A 3-level HODLR matrix factorization 
+
+2.2.3. Solve phase. Using the factorization of K(κ) obtained in Equation (2.19), the solution to K(κ)x = b is x = K(κ)−1
+
+b = K−10 K−11 . . . K −1
+
+> κ−1
+
+K−1 
+
+> κ
+
+b. To solve for x,each of the K−1 
+
+> k
+
+has to be applied to vector b starting from k = κ to k = 0. Applying 
+
+K−1 
+
+> k
+
+to a vector is similar to applying K−1 
+
+> k
+
+in the factorization phase (while factoring them out). 
+
+Structure of K−1 
+
+> κ
+
+. From Equation (2.11), it follows that Kκ is a block diagonal matrix with diagonal blocks K(κ) 
+
+> i
+
+, for all i ∈ { 1, 2, . . . 2κ}. Thus K−1 
+
+> κ
+
+is also a block-diagonal matrix with diagonal blocks K(κ)−1 
+
+> i
+
+, for all i ∈ { 1, 2, . . . 2κ}.
+
+Structure of K−1 
+
+> k
+
+for all k ∈ { κ − 1, . . . , 0}. From Section 2.2.2, it follows that 
+
+Kk is a block diagonal matrix with diagonal blocks (2.20) K(k,κ −k) 
+
+> i
+
+= I + eU (k+1)  
+
+> i
+
+eV (k+1) T 
+
+> i
+
+, ∀ i ∈ { 1, 2, . . . 2k}.
+
+The notation K(k,κ −k) 
+
+> i
+
+indicates that it is the ith diagonal block of matrix Kk,(2.21) eU (k+1)  
+
+> i
+
+=
+
+"
+
+U (k+1 ,κ −k)) 2i−1 00 U (k+1 ,κ −k)) 2i
+
+#
+
+and eV (k+1) T 
+
+> i
+
+=
+
+"
+
+0 V (k+1) T
+
+> 2i, 2i−1
+
+V (k+1) T 
+
+> 2i−1,2i
+
+0
+
+#
+
+.
+
+and U (k+1) 2i−1 and U (k+1) 2i had undergone updation κ−k times as a result of factoring out 
+
+Kκ, K κ, . . . , and Kk+1 . It follows that K−1 
+
+> k
+
+is a block-diagonal matrix with diagonal blocks K(k,κ −k)−1 
+
+> i
+
+. Using the SMW formula, it is (2.22) K(k,κ −k)−1
+
+> i
+
+| {z }  
+
+> N
+> 2k×N
+> 2k
+
+= I|{z}   
+
+> N
+> 2k×N
+> 2k
+
+− eU (k+1) 
+
+> i
+
+| {z }  
+
+> N
+> 2k×2p
+
+S(k+1) 
+
+> i
+
+| {z } 
+
+> 2p×2p
+
+eV (k+1) Ti
+
+| {z } 
+
+> 2p×N
+> 2k
+
+, ∀i ∈ { 1, 2, . . . 2k},A FAST DIRECT SOLVER BASED NEURAL NETWORK FOR SOLVING PDES 9where S(k+1)  
+
+> i
+
+=
+
+
+
+I + eV (k+1) T 
+
+> i
+
+eU (k+1) 
+
+> i
+
+−1
+
+and the dimensions of the matrices are indi-cated by the underbraces beneath each matrix. It can be observed that K(k,κ −k)−1
+
+> i
+
+is a rank-2 p perturbation of the identity matrix. Further, the matrices eU (k+1)  
+
+> i
+
+and 
+
+eV (k+1) T 
+
+> i
+
+, for all k ∈ { κ−1, . . . , 0}, are block diagonal and block anti-diagonal matrices respectively. Figure 3 illustrates the structure of the factorization of K(κ)−1
+
+. The matrices appearing in the factorization are block diagonal, where K−1 
+
+> k
+
+contains 2 k diagonal blocks, each of size N/ 2k × N/ 2k, for all k ∈ { 0, 1, . . . , κ }. The diagonal blocks of 
+
+K−1 
+
+> κ
+
+are dense matrices, whereas the diagonal blocks of the remaining factors are rank-2 p perturbations of the identity matrix.    
+
+> K−1
+> ≈
+> K(3) −1
+> =
+> K−10
+> ×
+> K−11
+> ×
+> K−12
+> ×
+> K−13
+> Full Rank Low Rank Zero Matrix Identity Matrix
+
+Fig. 3: Factorization of inverse of HODLR matrix Applying K−1 
+
+> k
+
+to a vector costs O(pN ), where k ∈ { 0, 1, . . . , κ } (the derivation follows the same lines as the derivation we have seen in the factorization phase). Hence, the total cost of the solve phase is O(pN log( N )). 
+
+3. Fast direct solver as a neural network. In this section, we present the design of a neural network for solving linear systems involving HODLR matrices, based on the solver described in Section 2. First, we recall the standard feedforward network formulation. Consider a feed-forward neural network, denoted by N , with input v, output u, and D + 1 layers, denoted by 
+
+u = N (v), v ∈ RnD , u ∈ Rn0 ,
+
+which can be expressed recursively as 
+
+ξ(D) = v, (3.1) 
+
+ξ(k) = ϕ
+
+
+
+W (k)ξ(k+1) + b(k)
+
+, k ∈ { D − 1, D − 2, . . . , 0}(3.2) 
+
+u = ξ(0) .(3.3) The layers are indexed by {D, D − 1, . . . , 0}, where D denotes the input layer and 0 denotes the output layer. The number of neurons in layer l is denoted by nl. In the terminology of neural networks, the vector ξ(k) ∈ Rnk denotes the activations ,the matrix W (k) ∈ Rnk ×nk+1 denotes the weights , and the vector b(k) ∈ Rnk denotes the biases , for all k ∈ { 1, 2, . . . D }. The function ϕ is the activation function, applied element-wise, and typical choices include the identity (linear), the rectified linear unit (ReLU), and the sigmoid. 
+
+Remark 3.1. If the activation function is linear (i.e., ϕ(x) = x) and the bias is set to zero, then each feedforward layer reduces to a matrix-vector multiplication 
+
+ξ(k) = W (k)ξ(k+1) . Hence, a multi-layer neural network built with linear activation and zero biases is a sequence of matrix-vector multiplications. 10 JASHWANTH REDDY KADARU AND VAISHNAVI GUJJULA 
+
+3.1. Locally connected networks. It follows from Section 2.2.3 that to solve for x, we need to compute (3.4) x = K(κ)−1
+
+b = K−10 K−11 . . . K −1
+
+> κ−1
+
+K−1 
+
+> κ
+
+b, 
+
+where K−1 
+
+> κ
+
+is first applied to b, followed successively by K−1 
+
+> κ−1
+
+and continuing up to 
+
+K−10 . Thus, x is obtained by performing a sequence of matrix-multiplications on b,where all the matrices are block diagonal. Following Remark 3.1, the mapping from 
+
+b to x can be represented by a multilayer neural network that takes b as input and produces x as output, with D = κ + 1 layers using linear activations and zero biases. Another important observation is that the sequence of matrices 
+
+K−10 , K −11 , . . . K −1
+
+> κ−1
+
+, K −1 
+
+> κ
+
+are block-diagonal. At level k, K−1 
+
+> k
+
+is applied to a vector, say, h, and let y = K−1 
+
+> k
+
+h. Let h and y be partitioned into 2 k segments as (3.5) h =
+
+
+
+h1
+
+h2
+
+...
+
+h2k
+
+ , y =
+
+
+
+y1
+
+y2
+
+...
+
+y2k
+
+ , where (3.6) y =
+
+
+
+y1
+
+y2
+
+...
+
+y2k
+
+ = K−1 
+
+> k
+
+h =
+
+
+
+K(k,κ −k)−1
+
+> 1
+
+K(k,κ −k)−1
+
+> 2
+
+. . .
+
+K(k,κ −k)−1
+
+> 2k
+
+
+
+h1
+
+h2
+
+...
+
+h2k
+
+
+
+Since K−1 
+
+> k
+
+is block diagonal, the ith segment of y,
+
+yi = K(k,κ −k)−1 
+
+> i
+
+hi, ∀ i ∈ 1, 2, . . . , 2k , ∀ k ∈ { 0, 1, . . . , κ }
+
+depends only on the corresponding input segment hi. This localised dependence can be represented using locally connected networks (LCNNs) instead of standard feed-forward networks. In the terminology of neural networks, LCNNs are those networks where neurons in each layer are connected only to a local subset of neurons in the previous layer. Hence, the computation in Equation (3.4) can be represented using an LCNN framework. 
+
+3.2. Neural network architecture. We now describe a locally connected neu-ral network (LCNN) architecture whose forward pass follows the same computational framework as that of the solve phase of the direct solver presented in Section 2.2.3. The following describes the sequence of operations, or equivalently the various layers present in the network. 1. Initialization: The input layer takes vector b as input to the network, which is represented by ξ(κ+1) .
+
+Input layer: ξ(κ+1) = b(3.7) 2. K(κ) layer: Let ξ(κ+1) be partitioned as ξ(κ+1) =
+
+h
+
+ξ(κ+1) T 
+
+> 1
+
+, . . . , ξ (κ+1) T
+
+> 2κ
+
+iT
+
+such that each partition corresponds to a leaf node of the HODLR tree. Each input segment ξ(κ+1)  
+
+> i
+
+is multiplied by the corresponding block inverse matrix K(κ)−1 
+
+> i
+
+.A FAST DIRECT SOLVER BASED NEURAL NETWORK FOR SOLVING PDES 11 Since each segment is processed independently, this layer follows a locally con-nected structure. (3.8) ξ(κ) 
+
+> i
+
+= K(κ)−1
+
+> i
+
+| {z }   
+
+> N
+> 2κ×N
+> 2κ
+
+ξ(κ+1)  
+
+> i
+
+, ∀i ∈ { 1, . . . , 2κ},
+
+3. Flatten layer: The resulting collection of segment-wise outputs from the K(κ)-layer is then flattened to form the vector ξ(κ), facilitating the tensor operations in the subsequent layer. (3.9) ξ(κ) := Flatten 
+
+h 
+
+ξ(κ)1 , . . . , ξ (κ)2κ
+
+i 
+
+4. Iterative layers: The subsequent hidden layers apply K−1 
+
+> k
+
+for 
+
+k ∈ { 0, 1, . . . , κ − 1}. K−1 
+
+> k
+
+is applied to a vector, say h, in a segment-wise manner. To avoid notational clutter, from here on, we refer to K(k,κ −k)−1 
+
+> i
+
+, the 
+
+ith diagonal block of K−1 
+
+> k
+
+, as K(k)−1 
+
+> i
+
+.(3.10) 
+
+K(k)−1 
+
+> i
+
+= I − eU (k+1)  
+
+> i
+
+S(k+1)  
+
+> i
+
+eV (k+1) T 
+
+> i
+
+, ∀ k ∈ { κ − 1, . . . , 0} , ∀ i ∈ { 1, . . . , 2k}.
+
+For each segment hi of the vector h, the operations are performed sequentially by first applying eV (k+1) T 
+
+> i
+
+, followed by S(k+1)  
+
+> i
+
+, and then eU (k+1)  
+
+> i
+
+. The resulting vector is subsequently subtracted from hi. For all k ∈ { κ − 1, . . . , 0}, these operations are performed iteratively and are implemented through the following layers. (a) Swap layer: Let the 2 k+1 segments of ξ(k+1) be denoted by ξ(k+1) =
+
+h
+
+ξ(k+1) T 
+
+> 1
+
+, . . . , ξ (k+1) T
+
+> 2k+1
+
+iT
+
+. eV (k+1) T 
+
+> i
+
+is block anti-diagonal with its two anti-diagonal blocks of size p × N 
+
+> 2k+1
+
+. Applying 
+
+eV (k+1) T 
+
+> i
+
+=
+
+"
+
+0 V (k+1) T
+
+> 2i, 2i−1
+
+V (k+1) T 
+
+> 2i−1,2i
+
+0
+
+#
+
+to a vector consisting of two segments is equivalent to applying a trans-formed matrix to a vector with swapped segments. The transformed matrix is obtained by rewriting the anti-diagonal block matrix as a diagonal block matrix, as illustrated in Equation (3.11). 
+
+ 0 V (k+1) T  
+
+> 2i, 2i−1
+> V(k+1) T
+> 2i−1,2i0
+
+  ξ(k+1) 2i−1
+
+> ξ(k+1) 2i
+
+
+
+=
+
+V (k+1) T   
+
+> 2i, 2i−100V(k+1) T
+> 2i−1,2i
+
+  ξ(k+1) 2i
+
+> ξ(k+1) 2i−1
+
+
+
+=
+
+V (k+1) T   
+
+> 2i, 2i−1ξ(k+1) 2i
+> V(k+1) T
+> 2i−1,2iξ(k+1) 2i−1
+
+(3.11) Rewriting the matrix as a diagonal matrix makes it amenable to model it using an LCNN layer. Therefore, the following swap operation is performed, before applying the transformed matrix. (3.12) 
+
+
+
+ξ(k+1) 2i−1 , ξ (k+1) 2i
+
+
+
+:= 
+
+
+
+ξ(k+1) 2i , ξ (k+1) 2i−1
+
+
+
+, ∀ i ∈ { 1, . . . , 2k}
+
+(b) V (k) layer: Apply eV (k+1) T 
+
+> i
+
+as described in Equation (3.11), to compute 
+
+η(k)
+
+> i
+
+(3.13) η(k) 
+
+> i
+
+=
+
+"
+
+V (k+1) T 
+
+> 2i, 2i−1
+
+ξ(k+1) 2i
+
+V (k+1) T 
+
+> 2i−1,2i
+
+ξ(k+1) 2i−1
+
+#
+
+, ∀ i ∈ { 1, . . . , 2k}12 JASHWANTH REDDY KADARU AND VAISHNAVI GUJJULA 
+
+(c) S(k) layer: Compute (3.14) ζ(k) 
+
+> i
+
+= S(k+1) 
+
+> i
+
+| {z } 
+
+> 2p×2p
+
+η(k) 
+
+> i
+
+, ∀ i ∈ { 1, . . . , 2k}
+
+(d) Reshape layer: The output of the S(k)-layer consists of 2 k segments, each of dimension 2 p. Since the subsequent U (k)-layer operates on 2 k+1 seg-ments of dimension p, the tensor organization of ζ(k) must be modified accordingly. Each segment ζ(k) 
+
+> i
+
+∈ R2p is partitioned into two p-dimensional segments, thereby reshaping the tensor dimensions from (2 k, 2p) to (2 k+1 , p ), i.e., 
+
+ζ(k) := reshape  ζ(k), (2 k+1 , p ).
+
+(e) U (k) layer: eU (k+1)  
+
+> i
+
+is to be applied to ζ(k) 
+
+> i
+
+. Let ζ(k) 
+
+> i
+
+be partitioned into two blocks as ζ(k) 
+
+> i
+
+=
+
+"
+
+ζ(k)
+
+> i, 1
+
+ζ(k)
+
+> i, 2
+
+#
+
+. Since (3.15) eU (k+1)  
+
+> i
+
+=
+
+"
+
+U (k+1 ,κ −k)2i−1 00 U (k+1 ,κ −k)2i
+
+#
+
+,
+
+compute χ(k) 
+
+> i
+
+= eU (k+1)  
+
+> i
+
+ζ(k) 
+
+> i
+
+=
+
+" eU (k+1 ,κ −k)2i−1 ζ(k)
+
+> i, 1
+
+eU (k+1 ,κ −k)2i ζ(k)
+
+> i, 2
+
+#
+
+, ∀ i ∈ { 1, . . . , 2k}
+
+(3.16) (f) Residual layer: The resulting collection of segment-wise outputs from the 
+
+U (k)-layer is then flattened and then subtracted from ξ(k+1) .(3.17) ξ(k) = ξ(k+1) − Flatten 
+
+
+
+χ(k)
+
+.
+
+We refer to the collection of all the layers described in steps (a) to (f) above, for iteration k, by SMW block k.5. Output layer: The final output x is obtained at k = 0, and is given by 
+
+x = ξ(0) 
+
+(3.18) Each of the K(κ), V (k), S(k), and U (k) layers described above is implemented using locally connected layers using tensor operations. The LCNN representation of these layers is described below. 
+
+• The K(κ) layer, described in Equation (3.8), is modeled using a locally connected layer with stride length s = N 
+
+> 2κ
+
+, kernel window size w = N 
+
+> 2κ
+
+, and number of filters 
+
+f = N 
+
+> 2κ
+
+.
+
+• The V (k) layer, described in Equation (3.13), is modeled using a locally connected layer with stride length s, kernel window size w as s = w = N 
+
+> 2k+1
+
+, and number of filters f = p.
+
+• The S(k) layer, described in Equation (3.14), is modeled using a locally connected layer with stride length and kernel window size s = w = 2, and number of filters 
+
+f = 2 p.A FAST DIRECT SOLVER BASED NEURAL NETWORK FOR SOLVING PDES 13 
+
+Algorithm 3.1 Forward pass of the neural network that computes K(κ)−1
+
+b. Here, LC denotes locally connected layer. 
+
+Require: The input vector b ∈ RN
+
+Require: The number of levels κ in HODLR tree structure  
+
+> 1:
+
+ξ(κ+1) = b; 
+
+> 2:
+
+ξ(κ) = LC activation=linear; s = N 
+
+> 2κ
+
+; w = N 
+
+> 2κ
+
+; f = N
+
+> 2κ
+
+   ξ(κ+1)  ; ▷ K (κ) layer  
+
+> 3:
+
+ξ(κ) = Flatten ξ(κ) ; ▷ Flatten layer  
+
+> 4:
+
+for k = κ − 1 to 0 do  
+
+> 5:
+
+Swap sibling blocks of ξ(k+1) =
+
+h
+
+ξ(k+1) 1 , ξ (k+1) 2 , . . . , ξ (k+1) 2k+1 
+
+i
+
+, i.e. swap ξ(k+1) 2i−1
+
+with ξ(k+1) 2i , ∀ i ∈ { 1, . . . 2k}
+
+▷ Swap layer  
+
+> 6:
+
+η(k) = LC activation=linear; s = N 
+
+> 2k+1
+
+; w = N 
+
+> 2k+1
+
+; f = p   ξ(k+1)  ; ▷ V (k) layer  
+
+> 7:
+
+ζ(k) = LC [activation=linear; s = 2; w = 2; f = 2 p]  η(k) ; ▷ S (k) layer  
+
+> 8:
+
+ζ(k) = Reshape  ζ(k),  2k+1 , p  ▷ Reshape layer  
+
+> 9:
+
+χ(k) = LC activation=linear; s = 1; w = 1; f = N
+
+> 2k+1
+
+   ζ(k) ; ▷ U (k) layer  
+
+> 10:
+
+ξ(k) = ξ(k+1) − Flatten  χ(k) ; ▷ Residual layer  
+
+> 11:
+
+end for  
+
+> 12:
+
+xN = ξ(0)  
+
+> 13:
+
+return xN
+
+• The U (k) layer, described in Equation (3.16), is modeled using a locally connected layer with stride length and kernel window size s = w = 1, and number of filters 
+
+f = N 
+
+> 2k+1
+
+.Algorithm 3.1 outlines the architecture of the neural network described above. We refer to this neural network as linear FDSNet (Fast Direct Solver based Neural Network). The learnable parameters of this network include the parameters of all the LCNN layers described in the above steps, which includes entries of the matrices                       
+
+> V(k+1) T
+> 2i, 2i−1, V (k+1) T
+> 2i−1,2i, S (k+1)
+> i,eU(k+1 ,κ −k)2i−1,eU(k+1 ,κ −k)2i,∀i∈
+> n
+> 1, . . . , 2ko
+> ,∀k∈ { κ−1, . . . , 0}
+> 
+
+and 
+
+n
+
+K(κ)−1 
+
+> i
+
+, ∀ i ∈ { 1, . . . , 2κ}
+
+o
+
+. Let xN denote the output of Algorithm 3.1 correspond-ing to the input b, and let K−1 
+
+> N
+
+represent the map learned by the network. Then, 
+
+xN = K−1 
+
+> N
+
+(b) approximates the inverse operation associated with the HODLR matrix 
+
+K(κ). Figure 4 illustrates the architecture described in Algorithm 3.1. 
+
+Remark 3.2. In Algorithm 3.1, S(k+1)  
+
+> i
+
+is treated as a learnable parameter rather than being explicitly enforced via the relation (3.19) S(k+1)  
+
+> i
+
+=
+
+
+
+I + eV (k+1) ⊤ 
+
+> i
+
+eU (k+1) 
+
+> i
+
+−1
+
+.
+
+We choose the learnable formulation since enforcing the above relation was observed to result in higher training times. After training, S(k+1)  
+
+> i
+
+is expected to approximate the relation in Equation (3.19). 
+
+4. Neural network as PDE solver. Consider a PDE D[u; μ] = f on a domain Ω, subject to appropriate boundary and initial conditions, where D is a differential operator, u is the solution, f is the forcing function, and μ encodes the problem parameters such as material coefficients. 14 JASHWANTH REDDY KADARU AND VAISHNAVI GUJJULA                             
+
+> b∈RN(right-hand side)
+> K(κ)layer - LC linear
+> SMW Block κ−1
+> ...
+> SMW Block k
+> ...
+> SMW Block 0
+> x≈K−1b(predicted solution)
+> ξ(κ)
+> ξ(0)
+> κresidual SMW levels ( k=
+> κ−1, . . . , 0)encoding
+> K−10K−11· · · K−1
+> κ−1
+> Input ξ(k+1) ∈RN
+> Swap layer
+> pairwise permute of sibling blocks
+> V(k)layer - LC linear
+> S(k)layer - LC linear
+> Reshape layer
+> U(k)layer - LC linear
+> −
+> Output ξ(k)∈RN
+> Residual connection
+
+Fig. 4: Linear FDSNet architecture: A neural network to compute the inverse opera-tion of a HODLR matrix. 
+
+4.1. Solution operators arising in linear elliptic PDEs. Consider a lin-ear elliptic PDE with fixed μ and solution operator S : f 7 → u. We consider its integral-equation formulation based on the associated Green’s function g(x, y). The discretization of the integral equation using an N point grid over Ω, results in a lin-ear system Ku = f . The matrix K can be efficiently approximated by a HODLR matrix K(κ), since the Green’s function of an elliptic operator with smooth coef-ficients is asymptotically smooth away from the singularity [3, 18]. Therefore, the solution operator f 7 → u ≈ K(κ)−1
+
+f can be learnt using the architecture described in Algorithm 3.1. 
+
+4.2. Non-linear solution operators. Consider a PDE with non-linear solution operator S : ( μ, f ) 7 → u. Its solution in general cannot be represented through the application of a fixed matrix inverse. Therefore we extend Algorithm 3.1 to Algorithm 4.1 to learn the non-linear solution operator. The V (k) and U (k) layers are retained as single linear maps. These layers are considered to encode the geometry of the hierarchical partition, which is operator-independent. The operator dependence is placed entirely on the K(κ) and S(k) layers, where the single LC (locally connected) layer with linear activation in Algorithm 3.1 is replaced by a stack of D LC layers with nonlinear activations (e.g., ReLU) except the top layer. Each LC layer in the stack is implemented as a fully connected layer. We refer to the neural network described in Algorithm 4.1 as non-linear FDSNet. Figure 5 illustrates the architecture described in Algorithm 4.1. The effectiveness of this network is demonstrated on a range of PDE benchmark problems in Section 5. 
+
+4.3. Translation-invariant case. Linear Case. For a translation-invariant kernel g(x, y) = g(x − y) on a uniform grid, the low-rank factors U (k)
+
+i and V (k)T
+
+i of the off-diagonal blocks at level k in the HODLR matrix are exactly identical across all i ∈ { 1, . . . , 2k}. This is because, on an uniform grid, all off-diagonal blocks at the same level correspond to interactions over exactly the same set of pairwise differences A FAST DIRECT SOLVER BASED NEURAL NETWORK FOR SOLVING PDES 15 
+
+Algorithm 4.1 Neural network to learn non-linear solution operators associated with PDEs. 
+
+Require: The input vector b ∈ RN
+
+Require: The number of levels κ in HODLR tree structure  
+
+> 1:
+
+ξ(κ+1) 0 = b; 
+
+> 2:
+
+for j = 0 to D − 1 do  
+
+> 3:
+
+if j < D − 1 then  
+
+> 4:
+
+ξ(κ) 
+
+> j+1
+
+= LC activation=non-linear; s = N 
+
+> 2κ
+
+; w = N 
+
+> 2κ
+
+; f = N
+
+> 2κ
+
+ 
+
+ξ(κ+1) 
+
+> j
+
+
+
+; 
+
+> 5:
+
+else  
+
+> 6:
+
+ξ(κ) 
+
+> j+1
+
+= LC activation=linear; s = N 
+
+> 2κ
+
+; w = N 
+
+> 2κ
+
+; f = N
+
+> 2κ
+
+ 
+
+ξ(κ+1) 
+
+> j
+
+
+
+; 
+
+> 7:
+
+end if  
+
+> 8:
+
+end for ▷ A stack of D K (κ) layers  
+
+> 9:
+
+ξ(κ) = Flatten 
+
+
+
+ξ(κ)
+
+> D
+
+
+
+; ▷ Flatten layer  
+
+> 10:
+
+for k = κ − 1 to 0 do  
+
+> 11:
+
+Swap sibling blocks of ξ(k+1) =
+
+h
+
+ξ(k+1) 1 , ξ (k+1) 2 , . . . , ξ (k+1) 2k+1 
+
+i
+
+, i.e. swap ξ(k+1) 2i−1
+
+with ξ(k+1) 2i , ∀ i ∈ { 1, . . . 2k}
+
+▷ Swap layer  
+
+> 12:
+
+η(k)0 = LC activation=linear; s = N 
+
+> 2k+1
+
+; w = N 
+
+> 2k+1
+
+; f = p   ξ(k+1)  ; ▷ V (k) layer  
+
+> 13:
+
+for j = 0 to D − 1 do  
+
+> 14:
+
+if j < D − 1 then  
+
+> 15:
+
+η(k) 
+
+> j+1
+
+= LC [activation=non-linear; s = 2; w = 2; f = 2 p]
+
+
+
+η(k)
+
+> j
+
+
+
+; 
+
+> 16:
+
+else  
+
+> 17:
+
+η(k) 
+
+> j+1
+
+= LC [activation=linear; s = 2; w = 2; f = 2 p]
+
+
+
+η(k)
+
+> j
+
+
+
+; 
+
+> 18:
+
+end if  
+
+> 19:
+
+end for ▷ A stack of D S (k) layers  
+
+> 20:
+
+ζ(k) = Reshape 
+
+
+
+η(k) 
+
+> D
+
+,  2k+1 , p 
+
+▷ Reshape layer  
+
+> 21:
+
+χ(k) = LC activation=linear; s = 1; w = 1; f = N
+
+> 2k+1
+
+   ζ(k) ; ▷ U (k) layer  
+
+> 22:
+
+ξ(k) = ξ(k+1) − Flatten  χ(k) ; ▷ Residual layer  
+
+> 23:
+
+end for  
+
+> 24:
+
+u = ξ(0)  
+
+> 25:
+
+return u
+
+between the coordinates of the discretization points, and hence share the same low-rank structure. Further, in the factorization step of the direct solver algorithm, where the matrix K(κ) is factorized into Ki’s for all i = {0, . . . , κ }, with each factor having 2i diagonal blocks in RN/ 2i×N/ 2i
+
+, the translation invariance implies that all block matrices within each factor share the same entries, i.e., the blocks K(k) 
+
+> i
+
+for all i ∈
+
+1, . . . , 2k are identical. Furthermore, eV (k+1) T 
+
+> i
+
+are identical for all i ∈ 1, . . . , 2k
+
+and the same holds true fro eU (k+1)  
+
+> i
+
+and S(k+1)  
+
+> i
+
+. Consequently, within each of K(κ),
+
+V (k), S(k), and U (k) layers, for all k ∈ { 0, . . . , κ − 1}, all the local connections share common weights. This leads to a key architectural simplification: the LC layers can be replaced with CNN (convolutional neural network) layers, which use identical weights for all spatial positions. 
+
+Non-linear case. In the nonlinear case, suppose the solution operator S is 16 JASHWANTH REDDY KADARU AND VAISHNAVI GUJJULA   
+
+> f∈RN
+> (forcing function)
+> LC layer 1 - non-linear
+
+...  
+
+> LC layer j- non-linear
+
+...              
+
+> LC layer D- linear
+> ξ(κ)∈RN
+> (output)
+> Stack of D
+> LC layers with non-linear activa-tions except the top layer
+> f∈RN(forcing function)
+> K−1
+> κBlock
+> Stack of DLC layers with non-linear activations except the top layer
+> SMW Block κ−1
+
+... 
+
+> SMW Block k
+
+...                    
+
+> SMW Block 0
+> u(predicted solution)
+> ξ(κ)
+> ξ(0)
+> κ-residual SMW lev-els ( k=
+> κ−1, . . . , 0) encoding
+> K−10K−11
+> · · · K−1
+> κ−1
+> Input ξ(k+1) ∈RN
+> Swap layer
+> pairwise permute of sibling blocks
+> V(k)layer - LC linear
+> S(k)layer - LC stack
+> Stack of DLC layers with non-linear activations except the top layer
+> U(k)layer - LC linear
+> −
+> Output ξ(k)∈RN
+> Residual connection
+
+Fig. 5: Non-linear FDSNet: A neural network to learn non-linear solution operators associated with PDEs translation equivariant, i.e., for a translation T , T S(v) = S(T v ). Under a uniform grid discretization, the LC layers in Algorithm 4.1 can be replaced by CNN layers, analogous to the linear case. The scaling of the number of parameters in the networks discussed above is sum-marized in Table 1. 
+
+Network Number of parameters Linear FDSNet with LC layers O  2pN log ( N ) + p2N 
+
+Linear FDSNet with CNN layers O  2pN + p2 log ( N )
+
+Non-linear FDSNet with LC layers O  2pN log ( N ) + p2DN 
+
+Non-linear FDSNet with CNN layers O  2pN + p2D log ( N )
+
+Table 1: Scaling of number of parameters in FDSNet 
+
+5. Numerical results. In this section, we describe the implementation details of FDSNet and demonstrate its performance through a comprehensive set of experi-ments. The following problems are considered for the various experiments presented in this section. 1. Fredholm integral equation of the second kind in 2D, 2. Nonlinear Schr¨ odinger equation (NLSE) in both 1D and 2D, 3. Burgers’ equation in 1D, and 4. Steady-state Darcy’s flow equation in 2D. FDSNet is implemented in Python using PyTorch [30]. For non-linear problems, rectified linear unit (ReLU) activation [29] is used in the non-linear layers of K(κ)
+
+and S(k) stack, while a linear activation is used elsewhere. The network is trained A FAST DIRECT SOLVER BASED NEURAL NETWORK FOR SOLVING PDES 17 end-to-end by minimizing the mean squared relative ℓ2 error over a minibatch of size 
+
+B. Let u(i) 
+
+> N N
+
+and u(i) 
+
+> G
+
+denote the network prediction and ground-truth corresponding to the i-th sample in a minibatch of size B, respectively. The training loss L is defined as (5.1) L = 1
+
+B
+
+> B
+
+X
+
+> i=1
+
+ϵ2 
+
+> i
+
+, where ϵi =
+
+u(i) 
+
+> N N
+
+− u(i) 
+
+> G2
+
+u(i) 
+
+> G2
+
+.
+
+We use NAdam as the optimization algorithm [10]. The evaluation metric is defined as 1
+
+> B
+
+PBi=1 ϵi and is reported as the error in all subsequent experiments. All experiments are conducted on GPUs in 32-bit floating-point precision. The hyperparameters p and D are tuned per test case. The source code and training scripts for all experiments reported in this paper have been made publicly available at https://github.com/JashwanthKadaru/directsolver-neural-network. 
+
+5.1. Fredholm integral equation. The Fredholm integral equation of the sec-ond kind arises in many fields such as potential theory, radiative transfer, and scat-tering, and is widely used as a benchmark for solvers involving hierarchical matrices. We consider its two-dimensional form, (5.2) u(x) + 
+
+Z
+
+> Ω
+
+g(x, y)u(y) dy = f (x), x ∈ Ω ⊂ R2
+
+where g(x, y) is the kernel, f (x) is the right-hand side, and u(x) is the unknown solution. We consider g(x, y) = log ( ∥x − y∥2) and Ω = [ −1, 1] 2. Discretizing on an 
+
+n × n uniform grid reduces Equation (5.2) to a dense linear system ( I + A)u = f with 
+
+N = n2 degrees of freedom, where u and f are the discretized solution and right-hand side vectors respectively. The matrix I + A admits HODLR structure, and hence the proposed linear FDSNet can be applied to the problem.                                                                      
+
+> NκpDmParameter count Test error 1,600 612 125 43,697 4.63 ×10 −3
+> 614 125 51,281 4.25 ×10 −3
+> 616 125 59,057 3.73 ×10 −3
+> 6,400 810 125 137,965 2.96 ×10 −3
+> 812 125 164,921 3.49 ×10 −3
+> 814 125 192,133 3.41 ×10 −3
+> 14,400 612 1225 408,897 4.35 ×10 −3
+> 614 1225 466,881 5.03 ×10 −3
+> 616 1225 525,057 3.54 ×10 −3
+
+Table 2: Results for Fredholm integral equation using FDSNet 
+
+Experimental Setup & Results. We learn the mapping f → u using the linear FD-SNet. Since the kernel is translation invariant and the discretization grid is uniform, the LC layers are replaced with CNN layers. The dataset consists of 10000 ( f, u )pairs, with 5000 samples used for training and 5000 for testing. Training is performed using NAdam for a maximum of 2000 epochs, learning rate 1 .0 × 10 −3, batch size 128 together with early stopping using a patience of 150 epochs. The ground-truth 18 JASHWANTH REDDY KADARU AND VAISHNAVI GUJJULA 
+
+solutions are generated by discretizing Equation (5.2) using the Nystr¨ om method, fol-lowed by directly solving the resulting discrete linear systems. FDSNet is evaluated on three grid resolutions. Table 2 lists (i) the hyperparameters for each problem size: 
+
+κ (number of levels in the HODLR structure), p (off-diagonal block rank), D (depth of the S(k) and K(κ) stacks), m (leaf size), and the model parameter count and (ii) the test error (relative ℓ2 error). It can be observed that FDSNet learns the f → u
+
+map well across all three resolutions, achieving test errors at or below 0 .50%, with a best-case error of nearly 0 .30% at N = 6400. 
+
+5.2. Nonlinear Schr¨ odinger Equation (NLSE 1D & 2D). The nonlinear Schr¨ odinger equation (NLSE) governs ground states of trapped Bose–Einstein con-densates and a range of nonlinear-optical phenomena [32]. We consider the stationary defocusing nonlinear Schr¨ odinger equation with an inhomogeneous potential V (x), (5.3) −∆u(x) + V (x) u(x) + β |u(x)|2u(x) = E u (x), x ∈ Ω,
+
+on Ω = [0 , 1) d, d ∈ { 1, 2}, with periodic boundary conditions, where E ∈ R is the eigen value (chemical potential), subject to the normalization R 
+
+> Ω
+
+u2 dx = 1. We fix 
+
+β = 10, corresponding to a strongly defocusing regime, in which the ground state solution uG is real and positive. The objective is to learn the solution operator S : V (·) 7 → uG. Owing to the periodic boundary conditions and the translation-invariant structure of the differential operators in Equation (5.3), the solution operator S is translation-equivariant, and its discretization on a uniform grid exhibits a convolutional structure in both 1D and 2D. We exploit this property by replacing the locally-connected blocks of the non-linear FDSNet with shared convolutional kernels. 
+
+Dataset. The potential V (x) is a periodic sum of Gaussian wells, 
+
+V (x) = −
+
+> ng
+
+X
+
+> i=1
+
+X
+
+> j∈Z
+
+ρ(i)
+
+√2πσ 2 exp 
+
+
+
+− |x − j − c(i)|2
+
+2σ2
+
+
+
+,
+
+where ng ∈ { 1, . . . , 4} is the number of Gaussian wells, ρ(i) ∼ U (1 , 4) are the ampli-tudes, c(i) ∼ U (0 , 1) are the centers, and σ2 ∼ U (2 , 4) × 10 −3 is the variance. Since the centers c(i) are drawn uniformly on [0 , 1) d, the distribution of V is translation-invariant on the torus, consistent with the periodic boundary conditions. We use 20 ,000 training and 20 ,000 test pairs ( V, u G) in both dimensions and train for 2000 maximum epochs with a learning rate of 1 × 10 −3. The ground-truth solutions are computed using normalized gradient flow [2]. 
+
+5.2.1. NLSE 1D. The domain is discretised using a uniform grid with N = 320 points. A hierarchical depth of κ = 6 is used in the FDSNet configuration, resulting in a leaf size of m = 5. We experimented with varying depths D of K(κ) and S(k)
+
+stacks and ranks p. The network is trained using the NAdam optimiser with batch size 128 and early stopping with patience 200. An illustration of a sample of V from the test data, the ground truth uG, the prediction uN N by the FDSNet, and the error with respect to uG is given in Figure 6. The performance of FDSNet is tabulated in Table 4. Increasing the rank from 2 to 10 reduces the error by ≈ 75% at ≈ 8× more parameters, while the depth sweep is non-monotone, with D = 5 outperforming both 
+
+D = 3 and D = 7. A FAST DIRECT SOLVER BASED NEURAL NETWORK FOR SOLVING PDES 19 
+
+(a) V (b) uG, uN N , and uN N − uG
+
+Fig. 6: NLSE 1D: FDSNet prediction uN N , ground truth uG, and the error function 
+
+uN N − uG for a test sample V . The test error is 2 .10 × 10 −3 with N = 320, κ = 6, 
+
+p = 10, D = 5. 
+
+(a) V (b) uG
+
+(c) uN N (d) uN N − uG
+
+Fig. 7: NLSE 2D: FDSNet prediction uN N , ground truth uG, and the error function 
+
+uN N − uG for a test sample V . The test error is 1 .03 × 10 −2 with N = 6400, κ = 8, 
+
+p = 10, D = 5. 20 JASHWANTH REDDY KADARU AND VAISHNAVI GUJJULA 
+
+5.2.2. NLSE 2D. The domain is discretised on an Nx ×Ny 2D uniform grid with 
+
+Nx = Ny = 80, resulting in N = 6400 grid points. FDSNet is configured to κ = 8, which results in a leaf size of m = 25. We trained FDSNet using NAdam optimiser with batch size 128, and early stopping with patience 200 epochs. An illustration of a sample V from the test data, the ground truth uG, the prediction uN N by FDSNet, and the error with respect to uG is given in Figure 7. We experimented with multiple depth D and rank p configurations and the results are tabulated in Table 4. Increasing the rank from 2 to 10 reduces the error by ≈ 62% at ≈ 4× more parameters, while the depth sweep is non-monotone. 
+
+5.2.3. Generalization across β values (NLSE 1D). In Equation (5.3), β
+
+scales the term |u(x)|2u(x) and controls how far the ground state uG departs from the linear Schr¨ odinger regime. In Section 5.2.1, β is set to 10. In this section, we study whether a single FDSNet can predict uG across a range of β, including values not seen during training. To test this, we sample 101 values of β on a uniform grid over [5 .0, 10 .0] and generate 2 ,000 potential and ground-state pairs ( V, u G) for each value of β. Four FDSNets, each with N = 320, κ = 6, p = 12, D = 5, and 26 ,127 parameters, are trained and evaluated under the following train/test split protocol of the sampled β values: 
+
+• P1 (dense interpolation): trains on every other β value, tests on the remaining 50. 
+
+• P2 (sparse interpolation): trains on every fifth β value, tests on the remaining 80. 
+
+• P3 (one-sided extrapolation): trains on β ∈ [5 .0, 8.0], tests on β ∈ [8 .05 , 10 .0]. 
+
+• P4 (two-sided extrapolation): trains on β ∈ [6 .5, 8.5], tests on both tails outside this interval. The models use NAdam optimizer with batch size 128 and early stopping. Validation error is monitored on a fixed 8 ,000-sample subset drawn at the start of training from the held-out β pool, and the weights achieving lowest validation loss are retained. The results are summarized in Table 3. The following observations are notewor-thy: (i) P1 and P2 achieve nearly identical test errors (1 .99% and 1 .98%, respectively), even though P2 trains on roughly one-fifth as many distinct β values as that of P1 .This suggests the network has learned a representation that varies smoothly in β
+
+rather than interpolating between memorized samples. (ii) Both extrapolation pro-tocols ( P3 and P4 ) achieve 2 .50–2 .52% test errors that are only slightly higher than that of the interpolation runs, despite testing entirely outside the training range. (iii) The fixed-β result at β = 10 from Section 5.2.1 with p = 10, D = 5, (refer Table 4) gives roughly 0 .98% test error at the same configuration.                               
+
+> Protocol Train βrange No. of test Test error (mean ±sd)
+> βsamples
+> P1 (dense interpolation) [5 .00 ,10 .00] 50 1.99 ×10 −2±7.9×10 −3
+> P2 (sparse interpolation) [5 .00 ,10 .00] 80 1.98 ×10 −2±8.0×10 −3
+> P3 (1-sided extrapolation) [5 .00 ,8.00] 40 2.52 ×10 −2±5.7×10 −3
+> P4 (2-sided extrapolation) [6 .50 ,8.50] 60 2.50 ×10 −2±7.4×10 −3
+
+Table 3: Generalization of FDSNet across β in the NLSE 1D problem. The mean and standard deviation of the test errors are reported in the last column. 
+
+5.2.4. Comparison of FDSNet with a classical numerical solver. We solved the ground state of the NLSE problem using a normalized gradient flow solver A FAST DIRECT SOLVER BASED NEURAL NETWORK FOR SOLVING PDES 21 [2] and compared its run time to that of the inference time of FDSNet, at a matched accuracy. For this experiment, we trained FDSNet using the P1 protocol described in Section 5.2.3. When averaged over test samples spanning several β values, the nor-malized gradient flow solver took 0 .2373 ms per sample, while FDSNet took 0 .034 ms, on the same GPU. FDSNet is roughly 7× faster, justifying the offline training cost. 
+
+PDE Sweep p D Parameter Test error count 
+
+NLSE 1D (N = 320 , κ = 6 , m = 5) 
+
+p with D = 5 2 5 2,367 3.95 × 10 −2
+
+4 5 5,199 1.72 × 10 −2
+
+6 5 8,991 1.39 × 10 −2
+
+8 5 13,743 1.16 × 10 −2
+
+10 5 19,455 9.80 × 10 −3
+
+D with p = 10 10 3 14,355 1.16 × 10 −2
+
+10 5 19,455 9.80 × 10 −3
+
+10 7 24,555 1.01 × 10 −2
+
+NLSE 2D (N = 6400 , κ = 8 , m = 25) 
+
+p with D = 7 2 7 38,211 7.17 × 10 −2
+
+4 7 66,639 4.85 × 10 −2
+
+6 7 96,859 3.61 × 10 −2
+
+8 7 128,871 2.85 × 10 −2
+
+10 7 162,675 2.72 × 10 −2
+
+D with p = 10 10 3 146,635 2.72 × 10 −2
+
+10 5 154,655 2.78 × 10 −2
+
+10 7 162,675 2.72 × 10 −2
+
+Burgers’ 1D (N = 1024 , κ = 7 , m = 8) 
+
+p with D = 5 2 5 6,226 1.33 × 10 −2
+
+4 5 12,124 1.86 × 10 −3
+
+6 5 19,142 1.41 × 10 −3
+
+8 5 27,280 1.28 × 10 −3
+
+10 5 36,538 1.11 × 10 −3
+
+D with p = 6 6 3 16,814 1.73 × 10 −3
+
+6 5 19,142 1.41 × 10 −3
+
+6 7 21,470 2.72 × 10 −3
+
+Darcy flow 2D (N = 9216 , κ = 10 , m = 9) 
+
+p with D = 7 6 7 131,391 5.04 × 10 −2
+
+9 7 199,683 4.68 × 10 −2
+
+12 7 273,015 7.77 × 10 −2
+
+D with p = 6 6 3 124,791 5.91 × 10 −2
+
+6 5 128,091 5.61 × 10 −2
+
+6 7 131,391 5.04 × 10 −2
+
+Table 4: FDSNet hyperparameter sweeps across four PDE benchmarks. For each problem, the upper sub-block varies p at fixed D, while the lower sub-block varies D
+
+at fixed p.
+
+5.3. Burgers’ equation in 1D. The viscous Burgers’ equation is a standard nonlinear advection-diffusion PDE exhibiting steep gradient formation and viscous dissipation. We consider the one-dimensional form (5.4) ∂u ∂t + u ∂u ∂x = ν ∂2u∂x 2 , x ∈ [0 , 2π), t > 0,22 JASHWANTH REDDY KADARU AND VAISHNAVI GUJJULA 
+
+with periodic boundary conditions, where ν > 0 is the viscosity coefficient. We learn the solution operator S : u0(x) 7 → u(x, T ) mapping the initial condition u0(x) = 
+
+u(x, 0) to the solution at a fixed terminal time T . The solution operator S is translation-equivariant on [0 , 2π) due to the periodic and spatially homogeneous struc-ture of Equation (5.4), and the discretized operator exhibits a Toeplitz structure on a uniform grid. We exploit this structure by replacing the locally-connected blocks of FDSNet with shared convolutional kernels. The ground-truth solutions are ob-tained by numerically solving Equation (5.4) using an explicit forward-Euler with second-order central finite difference scheme. 
+
+Setup. We set viscosity ν = 0 .03 and terminal time T = 1 .0. FDSNet is configured with N = 1024, and κ = 7, resulting in leaf size m = 8. We use NAdam optimiser for training with minibatch size B = 128, maximum epochs 2000, learning rate 1 × 10 −3
+
+and early stopping with patience of 200 epochs. Both train and test datasets contain 20K samples. 
+
+Results. Table 4 reports the rank sweep ( p ∈ { 2, 4, 6, 8, 10 } at fixed D = 5) and depth sweep ( D ∈ { 3, 5, 7} at fixed p = 6). Increasing the rank from 4 to 10 reduces the error by ≈ 40% at ≈ 3× more parameters, while the depth sweep is non-monotone, with D = 5 outperforming both D = 3 and D = 7. The best configuration (p = 10 , D = 5) achieves a test error of ≈ 0.11%, despite the underlying steep-gradient dynamics. 
+
+5.4. Darcy’s flow in 2D. Darcy’s flow describes the steady-state pressure 
+
+u(x, y ) driven by a heterogeneous permeability field a(x, y ) in a porous medium. We consider the elliptic boundary value problem (5.5) −∇ ·  a(x, y ) ∇u(x, y ) = f (x, y ), (x, y ) ∈ (0 , 1) 2, u ∂(0 ,1) 2 = 0 ,
+
+with constant forcing f = 1. The permeability field is sampled from a Gaussian random field (GRF) with Whittle–Mat´ ern covariance C = σ2(−∆ + τ 2I)−α, with 
+
+σ2 = 1, α = 2, τ = 3, and thresholded to yield a piecewise-constant high-contrast field 
+
+a(x, y ) = 
+
+(
+
+12 if GRF( x, y ) ≥ 0,
+
+4 otherwise. The task is to learn the solution operator S : a 7 → u. Although Equation (5.5) is linear in u, the operator S is nonlinear in a. Therefore we model it using the non-linear FDSNet. Although the homogeneous Dirichlet boundary conditions break translation equivariance, we impose translation equivariance as an inductive bias by replacing the locally-connected layers of FDSNet with shared convolutional kernels. 
+
+Setup. The domain (0 , 1) 2 is discretised on a uniform Nx × Ny interior grid with 
+
+Nx = 96, resulting in N = 9 ,216 degrees of freedom. Ground-truth solutions are generated by discretising Equation (5.5) with a five-point cell-centred finite-difference scheme using arithmetic-mean interface coefficients on an interior grid, and the result-ing sparse symmetric positive-definite linear system is solved directly via a sparse LU factorisation. The dataset comprises of 20 ,000 training and 20 ,000 test pairs ( a, u ). Training is performed using NAdam with learning rate 2 × 10 −4, batch size 128, and early stopping with a patience of 200, for a maximum of 1000 epochs. The hierarchical depth is set to κ = 10, resulting in a leaf size of m = 9. 
+
+Results. Table 4 reports the rank sweep ( p ∈ { 6, 9, 12 } at fixed D = 7) and depth sweep ( D ∈ { 3, 5, 7} at fixed p = 6). The depth sweep at p = 6 is monotone, with deeper nonlinear stacks consistently improving performance, and D = 7 improves A FAST DIRECT SOLVER BASED NEURAL NETWORK FOR SOLVING PDES 23 over D = 3 by roughly 15% in test error. The rank sweep is non-monotone. The best configuration ( p = 9 , D = 7) achieves a test error of 4 .68% at just 199K parameters. 
+
+PDE Model Configuration Parameter Train error Test error Inference count time (ms) 
+
+NLSE 1D FNO M =16 , W =64 , D =4 287 ,425 1.07 ×10 −3 6.45 ×10 −4 0.031 MNN L=6 , α =10 , K =5 20 ,455 4.21 ×10 −3 3.27 ×10 −3 0.032 FDSNet κ=6 , p =10 , D =5 19 ,455 1.11 ×10 −2 1.06 ×10 −2 0.035 MLP W =35 , D =3 25 ,275 7.44 ×10 −2 7.48 ×10 −2 0.005 DeepONet p=128 , D =3 124 ,033 1.02 ×10 −1 1.04 ×10 −1 0.005 Burgers 1D FNO M =16 , W =64 , D =4 287 ,425 3.77 ×10 −3 8.23 ×10 −4 0.042 FDSNet κ=7 , p =10 , D =5 36 ,538 3.07 ×10 −3 9.57 ×10 −4 0.043 MNN L=7 , α =10 , K =5 31 ,944 3.96 ×10 −3 9.94 ×10 −4 0.039 MLP W =18 , D =3 38 ,590 2.39 ×10 −2 1.85 ×10 −2 0.003 DeepONet p=128 , D =3 214 ,145 1.08 ×10 −1 8.56 ×10 −2 0.005 Darcy 2D FNO M =12 , W =32 , D =4 1,188 ,353 1.34 ×10 −2 6.65 ×10 −3 0.275 FDSNet κ=10 , p =9 , D =7 199 ,683 5.69 ×10 −2 4.89 ×10 −2 0.087 DeepONet p=128 , D =4 (CNN br.) 7,498 ,497 6.13 ×10 −2 6.29 ×10 −2 0.042 MLP W =11 , D =3 212 ,243 1.50 ×10 −1 1.50 ×10 −1 0.004 MNN L=5 , α =15 , K =5 221 ,265 2.99 ×10 −1 4.54 ×10 −1 0.053 NLSE 2D FNO M =12 , W =32 , D =4 1,188 ,353 2.63 ×10 −3 1.19 ×10 −3 0.362 FDSNet κ=8 , p =10 , D =7 162 ,675 2.71 ×10 −2 2.71 ×10 −2 0.067 MNN L=4 , α =12 , K =7 176 ,947 4.21 ×10 −2 3.52 ×10 −2 0.037 MLP W =13 , D =3 173 ,177 3.26 ×10 −1 3.25 ×10 −1 0.004 DeepONet p=128 , D =4 (CNN br.) 5,008 ,385 3.44 ×10 −1 3.43 ×10 −1 0.007 Table 5: Comparison of FDSNet (the proposed architecture) with existing neural operator learning architectures across various PDEs in 1D and 2D. For each PDE, networks are listed in ascending order of test error. 
+
+Symbols. For FNO, M is the number of retained Fourier modes per spatial axis, W is the channel width, and D is the number of Fourier layers [26]. For FDSNet, κ is the number of HODLR levels, 
+
+p is the off-diagonal block rank, and D is the depth of K(κ) and S(k) stacks. For MNN, L is the number of hierarchical levels, α is the channel/rank parameter, and K is the depth of the non-linear stack [12]. For DeepONet, p is the output basis dimension and D is the trunk depth [27]. For MLP, 
+
+W is the hidden width and D is the depth. 
+
+Configuration. FNO uses distinct 1D and 2D variants, with the spectral convolution applied via 
+
+rfft (1D) or rfft2 (2D) [26]. The spectral-weight tensor scales as O(W 2M ) in 1D and O(W 2M 2)in 2D, which is why the reported 2D configurations use smaller M and W . MNN similarly uses separate 1D and 2D variants and operates on a 2D grid for 2D problems via a quadtree. DeepONet uses an MLP branch for 1D function inputs and a CNN branch for 2D function inputs (denoted “CNN br.” in the table), as recommended by Lu et al. [27]. FDSNet, by contrast, uses the same architecture irrespective of dimensions. It uses a K-D tree with depth κ. As a consequence, on 2D problems FDSNet’s κ counts levels of a binary partition of the index set and is roughly twice the corresponding 2D MNN’s count of levels L at a matched leaf size (e.g. FDSNet with κ=10 and MNN with L=5, on a 96 ×96 grid, yield a leaf size of 9). 
+
+5.5. Comparison of FDSNet with existing neural operator architec-tures. We compare FDSNet with four existing architectures: Multiscale Neural Net-work (MNN) of Fan et al. [12], Fourier Neural Operator (FNO) of Li et al. [26], DeepONet of Lu et al. [27], and a parameter-matched feedforward MLP with same width across all hidden layers. The comparison is conducted across four PDE bench-marks: NLSE 1D, Burgers’ 1D, NLSE 2D, and Darcy flow 2D. All models are trained with NAdam using a training dataset of size 20 , 000 at batch size 128 and early stop-24 JASHWANTH REDDY KADARU AND VAISHNAVI GUJJULA 
+
+ping. The learning rate is 10 −3 for all problems except Darcy, where we use 2 × 10 −4.Each baseline network uses a configuration adopted from the corresponding original article and serves as a reasonable reference configuration rather than a tuned setting. All models are trained on unnormalized input–output pairs. Test errors and inference times are averaged across multiple random seeds. We report the mean per-sample inference time measured on the test set. Table 5 summarizes the results. FNO attains the lowest test error on every benchmark. On the 1D benchmarks, FNO uses roughly 7–15 × more parameters than FDSNet and incurs nearly equal per-sample inference times. On the 2D benchmarks, FNO uses roughly 6–7 × more parameters than FDSNet and incurs higher per-sample inference times, by approximately 4 × on Darcy flow and 5 .4× on NLSE 2D. On the 1D benchmarks, FDSNet and MNN perform comparably at similar pa-rameter counts. On Burgers’ 1D, both achieve test errors within a small margin of FNO (9 .57 × 10 −4 and 9 .94 × 10 −4, respectively, versus 8 .23 × 10 −4 for FNO) despite using roughly 8 × fewer parameters. On NLSE 1D, MNN outperforms FDSNet on test error (3 .27 × 10 −3 versus 1 .06 × 10 −2) at a comparable parameter count. Both architectures exploit the translation invariance of the NLSE 1D ground-state map via shared convolutional kernels, so the difference between them reflects how each param-eterizes the operator. MNN learns the forward map of a hierarchical matrix, while FDSNet learns its inverse factorization. At this problem size and parameter budget, the forward parameterization appears easier to fit. On the 2D benchmarks, FDSNet is the second most accurate architecture after FNO, while using a substantially smaller parameter budget than both FNO and Deep-ONet. On Darcy’s flow, FDSNet achieves a test error of 4 .89 × 10 −2, which is lower than 6 .29 × 10 −2 obtained by DeepONet (at roughly 37 × the parameter count) and is also lower than 1 .50 × 10 −1 obtained by MLP. MNN does not reach competitive accuracy on Darcy under the baseline configuration used here. On NLSE 2D, FDSNet achieves a test error of 2 .71 × 10 −2 at 163k parameters, with DeepONet, MNN, and the MLP all reporting higher test errors. Overall, the results show FDSNet is parameter-efficient and achieves competitive accuracy while maintaining low inference time. 
+
+6. Conclusion. We presented linear FDSNet, a neural network for performing the inverse operation of a HODLR matrix, inspired by a fast direct solver. The archi-tecture uses locally connected (LC) layers with linear activations. It has a parameter complexity of O(pN log N ), the same complexity as that of the solve phase of its classical fast direct solver counterpart. When the operator being learnt is translation-invariant, LC layers are replaced with CNN layers, further reducing complexity to 
+
+O(pN ). Further, for learning non-linear solution operators associated with PDEs, we presented the non-linear FDSNet. It extends the linear FDSNet by replacing selected linear layers with stacks of layers where non-linear activations are used in all layers except the top layer, thereby enabling the network to learn the operator’s nonlinearity. We performed a comprehensive set of numerical experiments to validate the pro-posed architecture. Various inferences drawn from the experiments include: (1) FD-SNet efficiently solved the Fredholm integral equation in 2D, nonlinear Schr¨ odinger equation in 1D & 2D, Burgers’ equation in 1D, and Darcy’s flow problem in 2D. (2) In the NLSE 1D problem, FDSNet demonstrated strong generalisation across a pa-rameter sweep. When trained on a dataset spanning multiple values of β, the network accurately predicted solutions for values of β not encountered during training. (3) Furthermore, on the NLSE 1D problem, the inference time of FDSNet is observed A FAST DIRECT SOLVER BASED NEURAL NETWORK FOR SOLVING PDES 25 to be lower than the run time of a classical numerical solver. Classical solvers must be re-run independently for a new parameter value, whereas a single FDSNet trained over a parameter range can infer solutions at a fraction of the computational cost, highlighting its practical advantage over classical approaches. (4) The comparison of FDSNet with existing neural operator learning architectures shows that FDSNet achieves competitive accuracy using only a fraction of the parameters required by existing neural operator learning architectures. This highlights the benefit of incor-porating algebraic structure inspired by fast direct solvers directly into the network design. In future, we aim to enhance the FDSNet architecture to improve its performance. Possible enhancements include: (1) In higher dimensions, the off-diagonal block rank of HODLR matrix grows in powers of N . As a result, the parameter complexity of FDSNet grows in powers of N in higher dimensions. To build architectures with bet-ter parameter complexity and thereby better inference times, networks inspired by hierarchical matrices built on the strong admissibility condition are to be considered. In particular, we would like to extend it to the fast direct solver for FMM-able (Fast Multipole Method) matrices [17]. (2) When approximating oscillatory kernels, hierar-chical matrices perform well in low to moderate frequency regimes, but they possess challenges in high frequency regime. To address this, we would like to extend the proposed architecture to the directional FMM framework [16]. 
+
+REFERENCES [1] S. Ambikasaran and E. Darve , An O(N log N ) fast direct solver for partial hierarchically semi-separable matrices with application to radial basis function interpolation , Journal of Scientific Computing, 57 (2013), pp. 477–501. [2] W. Bao and Q. Du , Computing the ground state solution of Bose–Einstein condensates by a normalized gradient flow , SIAM Journal on Scientific Computing, 25 (2004), pp. 1674–1697, https://doi.org/10.1137/S1064827503422956. [3] M. Bebendorf , Hierarchical Matrices , Lecture Notes in Computational Science and Engineer-ing, Springer, 2008. [4] G. Beylkin, R. Coifman, and V. Rokhlin , Fast wavelet transforms and numerical algorithms I, Communications on Pure and Applied Mathematics, 44 (1991), pp. 141–183. [5] S. B¨ orm, L. Grasedyck, and W. Hackbusch , Introduction to hierarchical matrices with applications , Engineering Analysis with Boundary Elements, 27 (2003), pp. 405–422. [6] A. Brandt , Multi-level adaptive solutions to boundary-value problems , Mathematics of Com-putation, 31 (1977), pp. 333–390. [7] S. Chandrasekaran, M. Gu, and T. Pals , A fast ULV decomposition solver for hierarchically semiseparable representations , SIAM Journal on Matrix Analysis and Applications, 28 (2006), pp. 603–622. [8] P. Coulier, H. Pouransari, and E. Darve , The inverse fast multipole method: Using a fast approximate direct solver as a preconditioner for dense linear systems , SIAM Journal on Scientific Computing, 39 (2017), pp. A761–A796, https://doi.org/10.1137/15M1034477. [9] G. Cybenko , Approximation by superpositions of a sigmoidal function , Mathematics of Con-trol, Signals and Systems, 2 (1989), pp. 303–314. [10] T. Dozat , Incorporating Nesterov momentum into Adam , in ICLR Workshop, 2016. [11] Y. Fan, J. Feliu-Faba, L. Lin, L. Ying, and L. Zepeda-N´ u˜ nez , A multiscale neural network based on hierarchical nested bases , Research in the Mathematical Sciences, 6 (2019), p. 21. [12] Y. Fan, L. Lin, L. Ying, and L. Zepeda-N´ u˜ nez , A multiscale neural network based on hi-erarchical matrices , Multiscale Modeling & Simulation, 17 (2019), pp. 1189–1213, https: //doi.org/10.1137/18M1203602. [13] W. Fong and E. Darve , The black-box fast multipole method , Journal of Computational Physics, 228 (2009), pp. 8712–8725, https://doi.org/10.1016/j.jcp.2009.08.031. [14] L. Grasedyck and W. Hackbusch , Construction and arithmetics of H-matrices , Computing, 70 (2003), pp. 295–334, https://doi.org/10.1007/s00607-003-0019-1. [15] L. Greengard and V. Rokhlin , A fast algorithm for particle simulations , Journal of Com-26 JASHWANTH REDDY KADARU AND VAISHNAVI GUJJULA putational Physics, 73 (1987), pp. 325–348. [16] V. Gujjula and S. Ambikasaran , A new directional algebraic fast multipole method based iterative solver for the Lippmann-Schwinger equation accelerated with HODLR precon-ditioner , Communications in Computational Physics, 33 (2022), pp. 1061–1089, https: //doi.org/10.4208/cicp.OA-2022-0081. [17] V. Gujjula and S. Ambikasaran , Algebraic inverse fast multipole method: A fast direct solver that is better than HODLR based fast direct solver , Journal of Computational Physics, 497 (2024), p. 112627. [18] W. Hackbusch , A sparse matrix arithmetic based on H-matrices. Part I: Introduction to H-matrices , Computing, 62 (1999), pp. 89–108. [19] W. Hackbusch , Hierarchical Matrices: Algorithms and Analysis , vol. 49, Springer, 2015. [20] W. W. Hager , Updating the inverse of a matrix , SIAM Review, 31 (1989), pp. 221–239, https://doi.org/10.1137/1031049. [21] K. Hornik, M. Stinchcombe, and H. White , Multilayer feedforward networks are universal approximators , Neural Networks, 2 (1989), pp. 359–366. [22] V. Kandappan, V. Gujjula, and S. Ambikasaran , HODLR2D: A new class of hierarchical matrices , SIAM Journal on Scientific Computing, 45 (2023), pp. A2382–A2408. [23] V. Kandappan, V. Gujjula, and S. Ambikasaran , HODLR3D: Hierarchical matrices for N-body problems in three dimensions , Numerical Algorithms, 97 (2024), pp. 1635–1672. [24] R. Khan, V. Kandappan, and S. Ambikasaran , HODLR dD: A new black-box fast algorithm for n-body problems in d-dimensions with guaranteed error bounds: Applications to integral equations and support vector machines , Journal of Computational Physics, 501 (2024), p. 112786. [25] N. Kovachki, Z. Li, B. Liu, K. Azizzadenesheli, K. Bhatt, A. Stuart, and A. Anandku-mar , Neural operator: Learning maps between function spaces with applications to PDEs ,Journal of Machine Learning Research, 24 (2023), pp. 1–97. [26] Z. Li, N. Kovachki, K. Azizzadenesheli, B. Liu, K. Bhattacharya, A. Stuart, and A. Anandkumar , Fourier neural operator for parametric partial differential equations , in International Conference on Learning Representations (ICLR), 2021, https://openreview. net/forum?id=c8P9NQVtmnO. [27] L. Lu, P. Jin, G. Pang, Z. Zhang, and G. E. Karniadakis , Learning nonlinear operators via DeepONet based on the universal approximation theorem of operators , Nature Machine Intelligence, 3 (2021), pp. 218–229. [28] P. G. Martinsson and V. Rokhlin , A fast direct solver for boundary integral equations in two dimensions , Journal of Computational Physics, 205 (2005), pp. 1–23, https://doi.org/ 10.1016/j.jcp.2004.10.033. [29] V. Nair and G. E. Hinton , Rectified linear units improve restricted Boltzmann machines ,in Proceedings of the 27th International Conference on Machine Learning (ICML), 2010, pp. 807–814. [30] A. Paszke, S. Gross, F. Massa, A. Lerer, J. Bradbury, G. Chanan, T. Killeen, Z. Lin, N. Gimelshein, L. Antiga, A. Desmaison, A. Kopf, E. Yang, Z. DeVito, M. Raison, A. Tejani, S. Chilamkurthy, B. Steiner, L. Fang, J. Bai, and S. Chintala , PyTorch: An imperative style, high-performance deep learning library , in Advances in Neural Infor-mation Processing Systems, 2019, pp. 8024–8035. [31] M. Raissi, P. Perdikaris, and G. E. Karniadakis , Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations , Journal of Computational Physics, 378 (2019), pp. 686–707. [32] C. Sulem and P.-L. Sulem , The Nonlinear Schr¨ odinger Equation: Self-Focusing and Wave Collapse , vol. 139 of Applied Mathematical Sciences, Springer, 1999. [33] M. A. Woodbury , Inverting modified matrices , Tech. Report Memo. Rep. 42, Statistical Re-search Group, Princeton University, 1950. [34] L. Ying, G. Biros, and D. Zorin , A kernel-independent adaptive fast multipole algorithm in two and three dimensions , Journal of Computational Physics, 196 (2004), pp. 591–626, https://doi.org/10.1016/j.jcp.2003.11.021.
