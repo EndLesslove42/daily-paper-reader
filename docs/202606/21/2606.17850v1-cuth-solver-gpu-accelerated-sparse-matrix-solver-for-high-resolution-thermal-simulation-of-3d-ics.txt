@@ -1,0 +1,1352 @@
+Title: CUTh-Solver: GPU-Accelerated Sparse Matrix Solver for High-Resolution Thermal Simulation of 3D ICs
+
+URL Source: https://arxiv.org/pdf/2606.17850v1
+
+Published Time: Wed, 17 Jun 2026 00:57:23 GMT
+
+Number of Pages: 14
+
+Markdown Content:
+# CUTh-Solver: GPU-Accelerated Sparse Matrix Solver for High-Resolution Thermal Simulation of 3D ICs 
+
+Chenghan Wang, Zhen Zhuang, Shui Jiang, Siyuan Liang, Xiaoman Yang, Kai Zhu, Darong Huang, Luis Costero, Rongmei Chen, Tsung-Wei Huang, David Atienza, Tsung-Yi Ho 
+
+Abstract —Coarse-grained thermal simulation tends to under-estimate localized thermal issues, potentially missing critical hotspots. Accurate analysis, therefore, demands fine-grained in-formation, which dramatically increases grid resolution and thus computational workload. Fortunately, the coefficient matrices are often sparse with regular sparsity patterns, offering optimization opportunities. However, existing general-purpose matrix solvers on GPUs rarely exploit these domain-specific properties, thereby encountering bottlenecks in data storage, memory access, paral-lelism, computational efficiency, and hardware utilization. There-fore, we propose CUTh-Solver, a co-designed GPU-accelerated Preconditioned Conjugate Gradient (PCG)-based sparse solver framework for Symmetric Positive Definite (SPD) systems arising from high-resolution steady-state and transient 3D IC thermal simulation. For data storage, CUTh-Solver condenses the Diago-nal (DIA) storage format to remove redundancy. To optimize the memory access, CUTh-Solver employs diagonal-wise SpMV to achieve coalesced memory access. We further observe a critical conflict between parallelism and preconditioning quality and thus adopt a high-parallelism preconditioning strategy. To improve computational efficiency and hardware utilization, we employ an adaptive fine-grained mixed-precision strategy that leverages diverse floating-point units to avoid resource contention, en-hancing throughput without compromising numerical stability. Experimental results show that CUTh-Solver achieves up to 
+
+25 .8× speedup over GPU-accelerated COMSOL Multiphysics 6.4 and over 3× speedup over NVIDIA’s native general-purpose libraries (AmgX, cuSPARSE, cuDSS). Ablation studies validate the individual contribution of each optimization. The code is available at: https://github.com/Chenghan-Wang/CUTh-Solver. 
+
+Index Terms —Thermal Simulation, GPU Acceleration, Sparse Solvers, Storage Format, SpMV, Mixed Precisions 
+
+Chenghan Wang, Zhen Zhuang, Shui Jiang, Siyuan Liang, Xiaoman Yang and Tsung-Yi Ho are with the Department of Computer Science and En-gineering, The Chinese University of Hong Kong, NT, Hong Kong SAR. (Corresponding author: Zhen Zhuang )Kai Zhu, Darong Huang, and David Atienza are with Embedded Systems Laboratory (ESL), ´ Ecole Polytechnique F´ ed´ erale de Lausanne (EPFL), Lau-sanne, Switzerland. Darong Huang is also with Department of Electrical and Computer En-gineering, The University of Hong Kong, Hong Kong Island, Hong Kong SAR. Luis Costero is with the Department of Computer Architecture and System Engineering, Universidad Complutense de Madrid (UCM), Madrid, Spain. Rongmei Chen is with the School of Electronics, Peking University, Beijing, China. Tsung-Wei Huang is with the Department of Electrical and Computer Engineering (ECE), the University of Wisconsin at Madison, Wisconsin, USA. Out of Memory     
+
+> (d) Matrix Size (M)
+> Runtime (s)
+> 973.1
+> 494.8
+> 1
+> (c) Cell Size (𝛍𝐦 )
+> Matrix Size (M)
+> (a) (b)
+> Powermaps:
+> Coarse -Grained Fine -Grained
+> Cholesky
+> Jacobi -PCG
+> ICC -PCG
+> AMG -PCG
+
+Fig. 1 (a) Fine-grained (1-μm) power maps reveal up to 
+
+6.3× higher peak power density than coarse-grained (20-μm) ones [5]. (b) High-resolution simulation cells are needed to capture fine-grained design features. (c) Matrix size growth with increasingly finer cell size. (d) Efficiency of CPU-based sparse solvers on large-scale systems Ax = b.I. I NTRODUCTION 
+
+As a pivotal solution to transcend the scaling limits of Moore’s Law, 3D integration offers substantial advantages in integration density, interconnect latency, and energy effi-ciency [1]. However, vertical stacking of active components significantly exacerbates thermal density, posing severe chal-lenges to thermal management [2]–[4]. Accurate thermal simulation requires fine-grained design features extracted from IC design files [6]–[8]. Coarse-grained thermal analysis risks obscuring local hotspots by averaging out localized peaks [5], [9]. As illustrated in Fig. 1(a), the maximum power density at a resolution of 1-μm can be up to 6.3× higher than at a resolution of 20-μm [5], leading to temperature discrepancies sometimes exceeding 10 °C. The latest 3D-ICE 4.0 also demonstrates that coarse-grained mod-eling can lead to a significant underestimate of temperature [10]. However, meshing millimeter-scale 3D IC packaging at micron-level granularity produces high-resolution simulation cells [5]. With high-resolution simulation cells, a sparse large-scale linear system Ax = b is obtained, whose numerical so-lution constitutes the main computational bottleneck, often exceeding 60% of the overall simulation runtime [11], [12]. Consequently, the design and implementation of an efficient sparse solver is critical to enhancing simulation throughput. 1
+
+> arXiv:2606.17850v1 [cs.AR] 16 Jun 2026
+
+Sparse linear solvers fall into direct and iterative meth-ods [13]. Direct solvers (e.g., Cholesky decomposition) are numerically robust but suffer from prohibitive runtime and memory overheads due to fill-in effects, as shown in Fig. 1(d), making them ill-suited for high-resolution thermal simula-tion [14]. Despite this, many popular open-source thermal tools, including HotSpot 7.0 [15], 3D-ICE 4.0 [10], PACT [9], and MFIT [16], still rely on CPU-based direct solvers, which inherently limit their scalability. Iterative methods offer supe-rior efficiency in both throughput and memory footprint [17], [18]. In particular, the Preconditioned Conjugate Gradient (PCG) method has become the de facto standard for large-scale Symmetric Positive Definite (SPD) systems [19], [20]. Nevertheless, as shown in Fig. 1(d), PCG solvers on CPU platforms still require hundreds of seconds for large-scale linear systems with tens of millions of unknowns. The limited scalability of CPU-based sparse solvers drives a shift toward GPU acceleration. A notable example is that the latest COMSOL Multiphysics 6.4 ( released in November 2025) integrates NVIDIA cuDSS to accelerate direct solvers across its diverse physics modules [21]. However, existing GPU-accelerated general-purpose sparse libraries, including cuDSS, struggle to fully leverage the domain-specific knowl-edge of 3D IC heat transfer, facing fundamental bottlenecks in data storage, GPU memory access, parallelism, computational efficiency, and hardware utilization: 
+
+Data Storage: Matrices from solid-state 3D IC thermal simulation are typically banded and SPD. However, general-purpose storage formats do not use symmetry by default. While the DIA format leverages the band property, it intro-duces excessive zero-padding when the diagonal bandwidth is large, which is a common scenario in high-resolution 3D IC thermal simulation. Therefore, with these domain-specific properties, general-purpose storage formats can be condensed to further improve the efficiency of data storage. 
+
+GPU Memory Access: General-purpose sparse formats often incur indirect addressing and irregular memory access in SpMV operations, causing frequent high-latency global DRAM access. Leveraging the regular sparsity of matrices arising from 3D IC thermal analysis, coalesced memory access can be achieved in SpMV operations to lower the frequency of the costly global DRAM access. 
+
+Parallelism: Preconditioners suffer from the conflict be-tween convergence rate and parallelism. CPU-favored precon-ditioners involve complex data dependencies that are difficult to parallelize. We observe that after migration to GPUs, their limited parallelism can degrade overall performance, even worse than that of vanilla CG solvers. This observation suggests that GPU acceleration demands a different precondi-tioning strategy from CPUs, one that balances mathematical convergence with hardware parallelism. 
+
+Computational Efficiency and Hardware Utilization: 
+
+Driven by machine learning workloads, recent consumer-grade GPUs are drastically reducing double-precision (FP64) hardware resources. However, general-purpose scientific com-puting conventionally defaults to FP64 for numerical stabil-ity, causing massive floating-point operations to queue for increasingly scarce FP64 units while abundant single- and half-precision units sit idle. Domain-specific insights from 3D IC thermal simulation can effectively enable lower-precision arithmetic in precision-insensitive steps to avoid resource contention, improving hardware utilization and computational efficiency without sacrificing numerical stability. Therefore, we present CUTh-Solver , an open-source and GPU-accelerated sparse solver framework specifically tailored for high-resolution steady-state and transient thermal analysis of 3D ICs. CUTh-Solver is designed to bridge the efficiency gap inherent in general-purpose sparse solvers by fully lever-aging prior domain-specific insights. CUTh-Solver is pub-licly available, providing intuitive interfaces and supporting seamless, out-of-the-box integration for both steady-state and transient thermal simulation. The primary contributions of this work are summarized as follows:  
+
+> •
+
+Redundancy-Free Storage Format: Leveraging the SPD matrix property, we further condense the conven-tional DIA format into Quad-Diag , a redundancy-free and GPU-friendly storage format specifically tailored for 7-diagonal matrices arising from high-resolution 3D IC thermal simulation.  
+
+> •
+
+Coalesced Memory Access in SpMV: Quad-Diag fa-cilitates a diagonal-wise SpMV computation pattern, in which vector elements are accessed contiguously in GPU memory, thereby enabling fully coalesced memory trans-actions and significantly reducing the frequency of high-latency global DRAM accesses.  
+
+> •
+
+Adaptive Fine-Grained Mixed-Precision Strategy: 
+
+Leveraging the prior physical knowledge of heat transfer within 3D ICs, we propose an adaptive and fine-grained mixed-precision strategy, which adjusts arithmetic preci-sion across different convergence stages and functional components based on their precision sensitivity. This strategy effectively avoids resource contention and mit-igates the scarcity of double-precision units on modern consumer-grade GPUs, thereby enhancing the hardware utilization and computational throughput.  
+
+> •
+
+High-Parallelism Preconditioning with Synergy: We adjust the conventional preconditioning strategy and turn to high-parallelism polynomial preconditioning to re-solve the observed parallelism-convergence contradiction on GPU architectures. This preconditioning framework also has significant synergistic effects for the proposed Quad-Diag, SpMV kernels, and mixed-precision strategy, thereby maximizing the overall performance.  
+
+> •
+
+Performance: Experimental results demonstrate that CUTh-Solver achieves significant speedup over the lat-est GPU-accelerated COMSOL Multiphysics 6.4, and a wide range of NVIDIA’s native general-purpose sparse libraries (AmgX, cuSPARSE, cuDSS). The remainder is organized as follows: Section II introduces related works. Section III gives basic preliminaries. Section IV introduces the methodology. Section V presents experiments. Section VI draws the conclusion and future work. 2II. R ELATED WORKS 
+
+This section reviews previous work related to sparse linear solvers of thermal simulators on CPUs and GPUs. 
+
+A. CPU-Based Sparse Solvers in Thermal Simulators 
+
+Most existing thermal simulation frameworks rely on CPU-based sparse solvers. HotSpot 7.0 [15], 3D-ICE 4.0 [10], and MFIT [16] employ direct solvers through the SuperLU library [22]. PACT [9] offers multiple solver options through interfaces to KLU [23], AztecOO [24], and Belos [25]. ThermalScope [26] uses stationary iterative methods such as Gauss-Seidel (GS), while MTA [27] adopts algebraic multigrid (AMG)-PCG via HYPRE library [28]. The framework in [29], [30] similarly employs aggregation-based AMG-PCG. Addi-tionally, the works in [31], [32] adopt Geometric Multigrid (GMG) as the sparse solver using domain-specific knowledge. Although these CPU-based solvers are effective at small-to-medium scales, they face significant scalability challenges for high-resolution simulations. Achieving sign-off-grade accu-racy within practical turnaround times calls for a shift toward modern GPU architectures to harness its compute power. 
+
+B. GPU-Accelerated Sparse Solvers of Thermal Simulators 
+
+Some research has increasingly turned to GPU acceleration. For example, the work in [33] introduced a GPU-accelerated multigrid framework using the ELLPACK storage format, achieving substantial speedups over direct solvers and various Krylov subspace methods. ARTSim 2.0 [34] accelerates LU factorization using a multifront method to achieve task-level parallelism in GPU architectures. Despite these valuable contributions, there are opportunities for further optimization. The ELLPACK-based solver in [33] achieves coalesced access to matrix elements, but access to the operand vector during SpMV remains irregular. Additionally, its multigrid V-cycle and tridiagonal sub-solver introduce fine-grained data dependencies that limit GPU parallelism, and the proposed smoother is specifically designed for microchannel cooling rather than purely solid-state heat transfer. ARTSim 2.0 [34] adopts a hybrid CPU-GPU architecture, offloading only a portion of workload to GPUs while retaining symbolic analysis and triangular solves on CPUs, which may limit its scalability for high-resolution 3D IC thermal analysis. Meanwhile, ARTSim 2.0 does not take advantage of domain-specific knowledge for optimization. III. P RELIMINARIES 
+
+This section establishes the necessary background. We first introduce the governing partial differential equations (PDEs) for heat transfer. The corresponding numerical discretization schemes are then detailed in Section III-B, followed by an overview of the PCG algorithm in Section III-C. D4 (c)(b) 
+
+> D1
+> D7
+> D2
+> D6
+> D3
+> D5
+> x
+> z
+> (a)
+> y
+> 1
+> 5
+> 4
+> 0
+> 3
+> 2
+> 6
+> :𝒈 𝟎 ,𝒊
+> Metal 1
+> Metal 2
+> Metal 3
+
+Fig. 2 (a) Structured mesh of a 3D IC. (b) Standard 7-point finite difference/volume stencil: each cell interacts with itself and six neighbors. (c) SPD banded matrix with 7 diagonals. 
+
+A. Governing Heat PDEs 
+
+Heat transfer within solid 3D ICs is governed by classic Fourier’s Law as the following PDE: 
+
+c(x) ∂T (x, t )
+
+∂t − ∇ · (κ(x)∇T (x, t )) = p(x, t ) in Ω (1) where x refers to the 3D spatial coordinates (x1, x 2, x 3),
+
+κ(x) and c(x) denote space-dependent thermal conductivity and volumetric heat capacity and thermal conductivity, p(x, t )
+
+represents the dynamic power maps, and Ω describes the simulation domain of 3D ICs. The Robin convective boundary condition is applied to the convective surfaces ΓR, expressed as follows: 
+
+κ(x, y ) ∂T (x, t )
+
+∂n |ΓR = −h(T (x, t ) − Tamb ) (2) where h is the heat transfer coefficient ( W/m 2K), and Tamb 
+
+is the air temperature. n is the outward normal vector. The Neumann boundary condition is applied to the adiabatic surfaces ΓN, formulated as follows: 
+
+κ(x, y ) ∂T (x, t )
+
+∂n |ΓN = qN eumann = 0 (3) where qN eumann refers to the heat flux flowing through ΓN
+
+in Neumman boundary condition. Equation (1), Equation (2) and Equation (3) constitute the whole PDEs of heat transfer within solid-state 3D IC. 
+
+B. Discretization of Heat PDEs 
+
+The standard 7-point finite difference/volume stencil is widely used for spatial discretization in thermal simulation of heat PDEs [9], [10], [15]. As shown in Fig. 2 (b), a generic cell is typically adjacent to six neighboring cells. Therefore, the steady-state equation for cell 0 ( c0) can be formulated as: 
+
+> 6
+
+X
+
+> i=1
+
+g0,i (T0 − Ti) + hS 0T0 = p0V0 + hS 0Tamb (4) where g0,i represent the thermal conductance between c0 and 
+
+ci, S0 refers to its area of ΓR (S0 = 0 since c0 is not connected to the ambient air), and V0 denotes c0’s volume. The implicit Euler method is also commonly adopted for temporal discretization due to its numerical stability [10], [16], 3Bottleneck 1: Storage Format 
+
+Bottlenecks of General -Purpose Solvers Observation & Properties  Optimization Techniques  Improvements 
+
+Runtime Breakdown and 
+
+Exploitable Properties 
+
+Tech. 1: Quad -Diag Format 
+
+Tech. 3: Polynomial Preconditioning 
+
+> Tech. 4: Adaptive Mixed -Precision (AMP)
+
+Bottleneck 2: Memory Access 
+
+Bottleneck 3: Parallelism 
+
+Bottleneck 4: GPU Utilization                
+
+> Solving Ax = b (over 60%)
+> 01234567
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> 7
+> 5
+> 8
+> 6
+> 9
+> 3
+> 4
+> 1
+> 2
+> 11
+> 14
+> 17
+> 13
+> 19
+> 15
+> 18
+> 11
+> 14
+> 17
+> 13
+> 19
+> 15
+> 18
+> 27
+> 24
+> 29
+> 22
+> 21
+> 27
+> 24
+> 29
+> 22
+> 21
+> 35
+> 31
+> 37
+> 35
+> 31
+> 37
+> 01234567
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> 7
+> 56
+> 68
+> 73
+> 46
+> 42
+> 59
+> 55
+> 53
+> 11
+> 14
+> 12
+> 13
+> 8
+> 6
+> 7
+> 11
+> 14
+> 12
+> 13
+> 8
+> 6
+> 7
+> 10
+> 12
+> 10
+> 11
+> 9
+> 10
+> 12
+> 10
+> 11
+> 9
+> 35
+> 31
+> 37
+> 35
+> 31
+> 37 D4
+> D5
+> D6
+> D7
+> D3 D2 D1
+> Matrix A
+
+:                                                        
+
+> Exploitable properties:
+> 1. Band Structure: 7 diagonals, D1 ~D7
+> 2. Symmetry: D2 =D6 ,D3 =D5 ,D1 =D7
+> 3. Magnitude: D7 /D1 ≫D2 /D6 /D3 /D5
+> Row:
+> Col:
+> Val:
+> D1 ,D2 ,D3 ,D4 ,D5 ,D6 ,D7
+> Data
+> Redundancy
+> SpMV (y = Ax ):
+> Row(A):
+> Col(A):
+> x: Irregular Access
+> Dependency:
+> Limited
+> Parallelism
+> 35 31 37
+> 10 12 10 11 9
+> 11 14 12 13 867
+> 56 68 73 46 42 59 55 53
+> D7 ×3: FP64/32/16
+> D6 ×3: FP64/32/16
+> D5 ×3
+> D4 (A):
+> Benchmarks
+> Transient Runtime
+> Irregular
+> Coalesced
+> 2.1 ×
+> Speedup
+> Runtime
+> FP64
+> 2.2 ×Speedup
+> Runtime
+> No Pre
+> Jacobi -Pre
+> Polyno -Pre
+> 2.9 ×Speedup Level 1 L2 L3 L4
+> Overall Runtime
+> Setup Preconditioning CG Loop
+> FP64
+> FP32
+> FP16
+> Setup Pre CG Loop
+> FP64
+> FP32
+> FP16
+> Only FP64 is working
+> FP64/32/16 are
+> all working
+> Synergy
+> Indirect
+> Addressing
+
+Tech. 2: Coalesced Memory Access                      
+
+> Post -Processing Discretization
+> 56 68 73 46 42 59 55 53
+> Direct Addressing
+> 1x: 2345678
+> D4 ×3
+> Synergy
+> Continuous Elements →Coalesced Access
+> Numerical
+> Divergence
+> FP16
+> FP32
+> AMP Numerical
+> Drifts
+> SpMV Runtime
+> Solvers
+> 1.0 ×
+> 2.6 ×3.1 ×8.8 ×
+> cuDSS
+> AmgX
+> cuSPARSE
+> Ours
+> Data
+> Dependency
+> y = Ax :
+> High Utilization Low Utilization
+> Vec 1:
+> Vec 2:
+> Point -Wise Arithmetic and Parallelism
+> Enables
+
+Fig. 3 Overview of CUTh-Solver. Exploitable properties of high-resolution 3D IC thermal simulation are identified and exploited. General-purpose solvers that overlook these properties face several bottlenecks. Four optimization techniques are proposed to leverage these opportunities, achieving considerable improvements over general-purpose solvers. [35]. After temporal discretization, transient heat equation of 
+
+c0 can be formulated as follows: 
+
+C0V0
+
+T0,n +1 
+
+∆t +
+
+> 6
+
+X
+
+> i=1
+
+g0,i (T0,n +1 − Ti,n +1 ) + hS 0T0,n +1 
+
+= p0,n +1 V0 + hS 0Tamb + C0V0
+
+T0,n 
+
+∆t
+
+(5) where C0 denotes volumetric heat capacity, ∆t refers to the time step size in transient thermal simulation, n and n + 1 
+
+represent the current and the next time step, respectively. By applying Equation (4) and Equation (5) across all simulation cells, we construct a global sparse linear system 
+
+Ax = b for both steady-state and transient thermal simula-tion. Matrix A is an SPD banded matrix characterized by a structured sparsity pattern (typically comprising seven parallel non-zero diagonals), as depicted in Fig. 2 (c), which offers opportunities for domain-specific optimization. 
+
+C. Preconditioned Conjugate Gradient (PCG) 
+
+As described in Algorithm 1, the PCG method is well-suited to solve Ax = b when A is SPD. M −1 is the preconditioner, which is supposed to be an approximate inverse of A and easy to be solved. In each CG iteration, the computational overhead is typically dominated by preconditioning and SpMV operation [14], [36]. The implicit preconditioning phase (lines 2 and 10) involves solving an inner linear system M z k+1 = rk+1 to cluster the eigenvalues to accelerate the convergence. The efficacy of PCG depends on the selection of a preconditioner M −1
+
+that closely approximates A while ensuring that the action of 
+
+M −1 is computationally inexpensive to obtain. 
+
+Algorithm 1: Preconditioned Conjugate Gradient 
+
+Input: A, b, M , x0, ϵ 
+
+Output: xk 
+
+> 1
+
+r0 = b − Ax 0 // Initial Residual  
+
+> 2
+
+z0 = M −1r0 // Preconditioning  
+
+> 3
+
+p0 = z0 // Initialization of p 
+
+> 4
+
+k = 0 // No. Iteration  
+
+> 5
+
+while ∥rk∥2 > ϵ do  
+
+> 6
+
+μk = Ap k// Reusable SpMV  
+
+> 7
+
+αk = rTk zk  
+
+> pTkμk
+
+// Two Inner Products  
+
+> 8
+
+xk+1 = xk + αkpk // AXPY  
+
+> 9
+
+rk+1 = rk − αkμk // AXPY  
+
+> 10
+
+zk+1 = M −1rk+1 // Preconditioning  
+
+> 11
+
+βk = rTk+1 zk+1   
+
+> rTkzk
+
+// Inner Product  
+
+> 12
+
+pk+1 = zk+1 + βkpk // AXPY  
+
+> 13
+
+k = k + 1 // Next Iteration  
+
+> 14
+
+end 
+
+IV. M ETHODOLOGY : CUT H-S OLVER ON GPU S
+
+This section presents the methodology of CUTh-Solver. Section IV-A provides an overview. Section IV-B introduces Quad-Diag format and coalesced memory access in SpMV. Section IV-C describes a high-parallelism preconditioning strategy with synergistic effects. Finally, Section IV-D details the mixed-precision scheme within the PCG algorithm. 
+
+A. Overview of CUTh-Solver 
+
+Fig. 3 presents an overview of CUTh-Solver. In numerical thermal simulation, solving Ax = b dominates the overall 40 1 2 3 4 5 6 7
+
+0
+
+1
+
+2
+
+3
+
+4
+
+5
+
+6
+
+7
+
+5
+
+8
+
+6
+
+9
+
+3
+
+4
+
+1
+
+2
+
+11 
+
+14 
+
+17 
+
+13 
+
+19 
+
+15 
+
+18 
+
+11 
+
+14 
+
+17 
+
+13 
+
+19 
+
+15 
+
+18 
+
+27 
+
+24 
+
+29 
+
+22 
+
+21 
+
+27 
+
+24 
+
+29 
+
+22 
+
+21 
+
+35 
+
+31 
+
+37 
+
+35 
+
+31 
+
+37    
+
+> (a) 7 -Diagonal Band Matrix A (b) Quad -Diag Storage Format
+> (c) Diagonal -wise SpMV Implementation
+
+D4 
+
+D5 
+
+D6 
+
+D7   
+
+> Operand Vector x:
+
+1 2 3 4 5 6 7 8
+
+> SpMV :
+
+D7 
+
+⨀ 1 2 3
+
+6 7 8
+
+D6 
+
+⨀ 1 2 3 4 5
+
+4 5 6 7 8
+
+D5 
+
+⨀ 1 2 3 4 5 6 7
+
+2 3 4 5 6 7 8
+
+D4  ⨀ 1 2 3 4 5 6 7 8
+
+> x[1] ~x [3]
+> x[6] ~x [8]
+> x[1] ~x [5]
+> x[4] ~x [8]
+> x[1] ~x [7]
+> x[2] ~x [8]
+> x
+
+## ⨁ =
+
+> 345
+> 406
+> 547
+> 333
+> 397
+> 346
+> 391
+> 358
+
+SM  SM ⋯ ⋯
+
+SM  SM ⋯ ⋯        
+
+> ⋯
+> ⋯
+> FP32
+> INT32
+> FP64
+> Register File
+> M×
+> N×
+> K×
+> Tensor
+> Cores
+> L1 /Shared Memory
+> ⋯
+> ⋯
+> SFU LD/ST LD/ST
+> 0123
+> irregular
+
+CSR 
+
+Ours  coalesced 
+
+> Multiple Memory Transactions: Slow
+> Streaming Multiprocessor GPU Architecture (d)
+> Coalesced Memory Transactions: Fast
+> Warp Scheduler (32)
+
+⨀
+
+⨀
+
+⨀  
+
+> Thread IDs
+> DRAM Global Memory
+
+0 1 2 3 4 5 6 7
+
+0
+
+1
+
+2
+
+3
+
+4
+
+5
+
+6
+
+7
+
+5
+
+8
+
+6
+
+9
+
+3
+
+4
+
+1
+
+2
+
+11 
+
+14 
+
+17 
+
+13 
+
+19 
+
+15 
+
+18 
+
+11 
+
+14 
+
+17 
+
+13 
+
+19 
+
+15 
+
+18 
+
+27 
+
+24 
+
+29 
+
+22 
+
+21 
+
+27 
+
+24 
+
+29 
+
+22 
+
+21 
+
+35 
+
+31 
+
+37 
+
+35 
+
+31 
+
+37 
+
+D4  𝑨 𝟏 (FP64)  𝑨 𝟐 (FP32)  𝑨 𝟑 (FP16) Fig. 4 Quad-Diag storage format and diagonal-wise SpMV implementation: (a) a 7-diagonal banded matrix A discretized from 3D IC thermal simulation, (b) Proposed Quad-Diag storage format, (c) Diagonal-wise SpMV implementation, (d) coalesced memory access to the DRAM global memory enabled by the diagonal-wise SpMV. runtime (more than 60%) [11], [12]. However, general-purpose GPU sparse solvers overlook several domain-specific proper-ties of A, resulting in four bottlenecks: redundant storage, irregular memory access, limited parallelism, and low GPU utilization. To address these issues, we propose CUTh-Solver for high-resolution steady-state and transient 3D IC thermal simulation, which exploits these opportunities via four co-designed GPU optimizations: (i) the Quad-Diag format eliminates data redun-dancy; (ii) Diagonal-wise SpMV computation pattern achieves coalesced memory access, thus reducing the frequency of high-latency global DRAM accesses; (iii) Polynomial precon-ditioning delivers point-wise parallelism and superior synergy than common preconditioners; and (iv) an adaptive mixed-precision strategy leverages heterogeneous compute units to alleviate hardware contention and utilization, while avoiding numerical issues observed in fixed-precision solvers. Together, CUTh-Solver achieves significant improvement over state-of-the-art (SOTA) tools and sparse solvers, includ-ing the GPU-accelerated COMSOL Multiphysics 6.4, NVIDIA cuDSS, cuSPARSE, and AmgX. 
+
+B. Quad-Diag Format and Coalesced Memory Access 
+
+General-purpose storage formats (CSR, ELLPACK, DIA) suffer from low efficiency of SpMV in domain-specific tasks due to: redundant data storage, irregular memory access, and lack of mixed-precision support. We observe that matrices from 3D IC thermal simulation possess three exploitable properties: SPD symmetry, 7-diagonal band structure, and physical magnitude disparity between diagonals. Leveraging these domain-specific properties of heat transfer within 3D 
+
+Algorithm 2: Diagonal-wise SpMV: y = Ax 
+
+Input: D4, D5, D6, D7, N , x, of s 1, of s 2
+
+Output: y 
+
+> 1
+
+y = 0// Initialization  
+
+> 2
+
+y + = D4 ⊙ x// D4 Component  
+
+> 3
+
+y[1 : N − 1] + = D5 ⊙ x[2 : N ]// D5  
+
+> 4
+
+y[2 : N ] + = D5 ⊙ x[1 : N − 1] // D3  
+
+> 5
+
+y[1 : N − of s 1] + = D6 ⊙ x[of s 1 + 1 : N ]// D6  
+
+> 6
+
+y[of s 1 : N ] + = D6 ⊙ x[1 : N − of s 1]// D2  
+
+> 7
+
+y[1 : N − of s 2] + = D7 ⊙ x[of s 2 + 1 : N ]// D7  
+
+> 8
+
+y[of s 2 : N ] + = D7 ⊙ x[1 : N − of s 2]// D1  
+
+> 9
+
+Return y
+
+ICs, we propose Quad-Diag , a redundancy-free format, to-gether with four specialized SpMV kernels. This domain-specific design achieves 2.1× SpMV speedup over the general-purpose format and facilitates the subsequent preconditioning and mixed-precision strategies. Quad-Diag removes data redundancy by condensing the conventional DIA format: It exploits the SPD property of ma-trix A to halve storage, and eliminates the padding overhead inherent in conventional DIA. Padding removal is motivated by our observation that high-resolution 3D IC simulation produces matrices with large diagonal bandwidth, where con-ventional inter-diagonal alignment incurs substantial memory waste. As illustrated in Fig. 4, by exploiting matrix symmetry, Quad-Diag stores only the upper triangular portion (4 un-aligned diagonals: D4 through D7) in triplicate as A1, A2,and A3 at double-, single-, and half-precision, respectively. 5CUTh5  CUTh6  CUTh7        
+
+> 10.8
+> 13.4
+> 18.3
+> 7.3 8.2
+> 11.2
+> 15.0 16.5
+> 22.1
+> CUTh5 CUTh6 CUTh7
+> 893
+> 1138
+> 1587
+> 538 635
+> 888
+> 269 314 437
+> CPU Runtime (s)
+> GPU Runtime (s) CG wo Pre
+> Jacobi -PCG
+> IC -PCG
+> CG wo Pre
+> Jacobi -PCG
+> IC -PCG
+> 0
+> 300
+> 600
+> 900
+> 1200
+> 1500
+> 1800
+> 5
+> 10
+> 15
+> 20
+> 25
+> 0
+
+Fig. 5 End-to-end runtime of different PCG solvers on CPU and GPU. The performance inversion of IC-PCG highlights the parallelism bottleneck on GPUs. CUThs are benchmarks presented in TABLE I. To achieve coalesced memory access in SpMV kernels, we adopt a diagonal-wise algorithm based on Quad-Diag. As shown in Fig. 4, facilitated by Quad-Diag, the diagonal-wise computation pattern transforms finite inner products into seven element-wise multiplications followed by one vector addition without global reductions. The procedure is formalized in Algorithm 2, where ⊙ denotes element-wise multiplication and of s denotes the column offset of each diagonal relative to the main diagonal. This diagonal-wise SpMV computation enables coalesced memory transactions by accessing seven continuous subsequences within x, rather than scattered ele-ments in conventional row-wise SpMV computation. By min-imizing costly global DRAM accesses, the achieved coalesced memory access pattern leads to a substantial reduction in SpMV execution time. 
+
+C. High-Parallelism Preconditioning with Synergy 
+
+GPU preconditioning suffers from a fundamental conflict between convergence quality and parallelism that is absent on CPUs. CPU-favored preconditioners such as incomplete Cholesky (IC) and algebraic multigrid (AMG) accelerate con-vergence through complex data dependencies (e.g., SpTRSV, V-cycles), but these dependencies severely limit GPU par-allelism. As shown in Fig. 5, IC-PCG on GPUs can even underperform unpreconditioned CG, indicating that naively migrating CPU-favored techniques to GPUs is suboptimal. Guided by this observation, we adopt the Chebyshev poly-nomial preconditioner, which (i) is composed exclusively of high-parallelism BLAS operations (SpMV and AXPY) without global reductions or recursive dependencies, (ii) re-quires no explicit storage of M −1, and (iii) provides far stronger spectral approximation than its most common high-parallelism alternative, Jacobi [37]. Beyond its inherent par-allelism, Chebyshev preconditioning establishes two unique synergies with the rest of CUTh-Solver, delivering an over 
+
+2.5× synergistic acceleration (detailed in TABLE VII) that no other preconditioner achieves. Specifically, Chebyshev precon-ditioning amplifies our other optimizations in two ways: 
+
+1) SpMV Kernel Dominance: The preconditioning phase is decomposed into a series of SpMV operations, increasing the total SpMV count to Ncg × (k + 1) , where k is the Chebyshev polynomial degree, and making SpMV the dominant kernel of PCG. This allows the solver to fully capitalize on Quad-Diag and the optimized SpMV kernels. 
+
+2) Mixed-Precision Amplification: Chebyshev precondi-tioning shifts over 90% of total runtime to the preconditioning phase, which only requires a robust estimate of z rather than an exact result and thus exhibits high numerical resilience to reduced precisions since the outer CG iteration corrects residual errors introduced by inexact preconditioning. This creates ample headroom for low-precision compute units (e.g., FP16) to be exploited by the mixed-precision strategy in Section IV-D. As validated by TABLE VII, alternative pre-conditioners gain less than 1.2× from the same optimization suite, confirming the unique synergy of Chebyshev. The mathematical principle by which the Chebyshev poly-nomial preconditioning approximates the action of A−1 can be explained as follows: For CG method with Pk(0) = 1 , the error vector of the k-th iteration, ek, is formulated as: 
+
+ek = xexact − xk = Pk(A) · e0 (6) where e0 denotes the error vector of the initial guess x0,and Pk(A) represents the k-degree polynomial of matrix A.Based on the definition of the matrix 2-norm, the following inequality holds [38]: 
+
+∥ek∥2 ≤ ∥ Pk(A)∥2 · ∥ e0∥2 (7) According to the spectral mapping theorem, Pk(A) maintains the SPD property of A, as expressed by [38]: 
+
+Pk(A) = V diag (Pk(λ1), P k(λ2), . . . , P k(λn)) V T (8) where λi and V denote the eigenvalues and the orthogonal eigenvector matrix of A, respectively. diag represents diago-nal matrix. Therefore, Equation (7) can be written as follows: 
+
+∥ek∥2 ≤ max  
+
+> i
+
+|Pk(λi)| · ∥ e0∥2 (9) To maximize the convergence rate, the objective is to identify a polynomial Pk(λ) that satisfies: 
+
+min  
+
+> Pk∈Πk,P k(0)=1
+
+max  
+
+> λ∈[α,β ]
+
+|Pk(λ)| (10) where [α, β ] represents the spectral range defined by the minimum and maximum eigenvalues of A. This is a minimax problem. In approximation theory, its solution is provided by the first-kind Chebyshev polynomial defined as [37]: 
+
+Pk(λ) = Ck(t)
+
+Ck(θ/δ ) , t = θ − λδ (11a) 
+
+θ = β + α
+
+2 , δ = β − α
+
+2 (11b) where Ck is the degree-k Chebyshev polynomial on the interval [−1, 1] , satisfying the three-term recurrence [39]: 
+
+Ck(x) = 2 xC k−1(x) − Ck−2(x), C 0(x) = 1 , C 1(x) = x
+
+(12) By applying this recurrence to the error evolution and utiliz-ing the relationships ek = xexact − xk and rk = b − Ax k,6Algorithm 3: Chebyshev Polynomial Preconditioning 
+
+Input: A, rcg , λmin , λmax , k
+
+Output: zcg  
+
+> 1
+
+rchebyshev = rcg  
+
+> 2
+
+σ1 = θ / δ  
+
+> 3
+
+ρ0 = 1 / σ 1 
+
+> 4
+
+d0 = rchebyshev / θ  
+
+> 5
+
+for i = 0 to k − 1 do  
+
+> 6
+
+zcg = zcg + d // AXPY  
+
+> 7
+
+Ad = A · d // SpMV  
+
+> 8
+
+rchebyshev = rchebyshev − Ad // AXPY  
+
+> 9
+
+ρi+1 = 1 / (2 σ − ρi)// Scalar  
+
+> 10
+
+di+1 = ρi+1 ρi di + (2 ρi+1 / δ ) rchebyshev  
+
+> 11
+
+return zcg 
+
+we derive the iterative update for the solution vector: 
+
+xk+1 − xk = ρk
+
+
+
+ρk−1(xk − xk−1) + 2
+
+δ rk
+
+
+
+(13a) 
+
+ρk = 12σ1 − ρk−1
+
+, σk+1 = 2 σ1σk − σk−1 (13b) with initial conditions σ1 = θ/δ , σ0 = 1 , and ρ0 = δ/θ .Algorithm 3 outlines the Chebyshev polynomial precondi-tioning within PCG (solving M z cg = rcg ). Unlike IC or MG, the Chebyshev preconditioner does not require explicit storage of M −1, significantly reducing GPU memory usage. The spectral range required by Algorithm 3 is estimated using the Lanczos algorithm [40], which reduces A to a small tridiagonal matrix T whose extreme eigenvalues approximate 
+
+λmin and λmax . In this algorithm, matrix A2 is used for 
+
+N -step Lanczos iterations to construct T on GPUs, and the solution of the spectrum of T is executed on CPUs. 
+
+D. Adaptive Mixed-Precision Strategy in PCG 
+
+Modern consumer-grade GPUs increasingly prioritize low-precision throughput over FP64 capability, with FP64-to-FP32 ratios as low as 1:32. Nevertheless, scientific computing conventionally defaults to FP64 for numerical integrity [41], forcing all arithmetic to queue for scarce FP64 units while abundant FP32/FP16 units sit idle. However, naively switching to low precision is unsafe: rounding errors can corrupt the Krylov subspace and cause numerical drift, residual stagna-tion, or even divergence, as empirically confirmed by the fixed-FP16 and fixed-FP32 columns in TABLE VI. To fully exploit low-precision throughput without sacrificing fidelity, we propose an adaptive mixed-precision PCG that allocates precision along two orthogonal dimensions , governed by a safety mechanism:  
+
+> •
+
+Stage-wise (temporal): the solver is bifurcated into an 
+
+early stage that aggressively uses low precision for fast residual reduction, and a late stage that reverts to FP64 for accurate convergence.  
+
+> •
+
+Component-wise (spatial): within each stage, precision is assigned granularly to distinct PCG components (pre-conditioner, SpMV, vector updates, inner products) based on their numerical sensitivity.  
+
+> •
+
+Safety mechanism: a tripartite switching criterion trig-gers the early-to-late transition, followed by a hot restart 
+
+that purges accumulated low-precision errors while pre-serving the established Krylov subspace. This design delivers a 2.2× speedup over fixed-FP64 with 
+
+∥e∥∞ ≤ 3.1 × 10 −4 (shown in TABLE VI), whereas fixed-FP32 incurs numerical drift and fixed-FP16 diverges. The remainder of this subsection details: 1) SpMV kernels supporting diverse floating-point precisions, and 2) the preci-sion management strategy of the PCG solver throughout the entire convergence process, from the early to the late stage. 
+
+SpMV Kernels Supporting Diverse Precisions: 1) Physics-Aware FP32/16 SpMV with Arithmetic De-coupling (AD): This kernel applies heterogeneous precision across diagonals based on their physical magnitudes. It uses the matrix A3, whose diagonals are stored in FP16, reducing the data movement overhead to 50% of FP32 and 25% of FP64, thereby mitigating the memory wall. After loading, 
+
+D4 and D7 are promoted from FP16 to FP32 to preserve arithmetic accuracy, while D5 and D6 remain in FP16 to maximize low-precision throughput and avoid GPU hardware resource contention. The validity of this approach stems from the physical properties of heat transfer in 3D ICs: D4 and D7
+
+represent out-of-plane thermal conductance, which exhibits large magnitudes due to ultra-short vertical heat paths within thin stacked layers [35], and thus dominates the SpMV results. In contrast, D5 and D6 represent in-plane conductance, which has small magnitudes due to the high aspect ratios of stacked thin layers [35], which contributes less significantly to the results. This physics-aware precision alignment achieves an optimal balance between performance and accuracy. The kernel algorithm is presented in Algorithm 4. 
+
+2) FP64/32 SpMV with AD: This kernel loads A2 in FP32 to halve data movement compared to FP64, then promotes values to FP64 for arithmetic. This design alleviates memory bandwidth stress without compromising numerical stability, making it suitable for the high-precision phases of the iterative solver where FP16 cannot meet accuracy requirements. 
+
+3) Fixed-Precision SpMV: Standard FP64 and FP32 ker-nels implemented directly via Algorithm 2. Together, these four kernels provide the precision flexibil-ity required by the subsequent mixed-precision management throughout the PCG solver: 
+
+Component-wise precision in Lanczos algorithm: The 
+
+N -step Lanczos algorithm is executed on the GPU device to construct the tridiagonal matrix T in FP32 precision using the fixed FP32 SpMV kernel. The resulting T is then transferred from the GPU device to the CPU host for eigen-decomposition to estimate the spectral range of A in FP64 precision. 
+
+Component-wise precision in preconditioning: The pre-conditioning phase approximates A−1 and inherently tolerates a lower precision than the outer CG loop. However, exclusive 7Algorithm 4: Physics-Aware FP32/16 SpMV with AD 
+
+Input : A3 (FP16), x (FP64) 
+
+Output: y (FP32)  
+
+> 1
+
+y = 0 // Initialization  
+
+> 2
+
+convert x → xF P 32  
+
+> 3
+
+convert x → xF P 16 // one-time convert  
+
+> 4
+
+for each diagonal d ∈ D do  
+
+> 5
+
+if d ∈ { D4, D 7} // Out-of-plane: High  
+
+> 6
+
+then 
+
+// Arithmetic Decoupling (AD)  
+
+> 7
+
+Load val F P 16 of d from A3 
+
+> 8
+
+Promote val F P 16 → val F P 32  
+
+> 9
+
+y = y + ( val F P 32 × xF P 32 ) 
+
+> 10
+
+else if d ∈ { D5, D 6}// In-plane: Low  
+
+> 11
+
+then 
+
+// Direct FP16 Execution  
+
+> 12
+
+Load val F P 16 of d from A3 
+
+> 13
+
+ytmp = val F P 16 × xF P 16  
+
+> 14
+
+Add( ytmp → y) // back to FP32  
+
+> 15
+
+return y;FP16 use can trigger instability [42], particularly given the recursive structure of Algorithm 3. We therefore adopt FP32 for all vector and scalar operations (lines 1–6, 8–10 of Algorithm 3), which provides sufficient numerical safeguards at negligible cost. For the dominant SpMV kernel (line 7), we deploy the physics-aware FP32/16 SpMV from Section IV-B, leveraging FP16 for data movement while arithmetic decou-pling preserves accuracy. The Lanczos spectral estimation runs similarly in FP32 with the fixed FP32 SpMV kernel. 
+
+Component-wise precision in early CG loops: During early iterations, the residual decreases rapidly and dominates rounding errors. We employ the FP64/32 SpMV kernel with arithmetic decoupling (line 6 of Algorithm 1) to halve mem-ory traffic while retaining FP64 arithmetic. The remaining operations stay in FP64, since updates of x and r steer the convergence and the inner products involve global reductions where limited mantissa bits would amplify cancelation errors. 
+
+Component-wise precision in late CG loops: As the resid-ual diminishes to magnitudes comparable to low-precision unit roundoff, rounding errors begin to mask the true residual. We thus transition to the fixed-FP64 SpMV kernel to eliminate catastrophic orthogonality loss and restore convergence to the prescribed tolerance. 
+
+Stage-switching criterion: The early-to-late transition is triggered when any of the following holds: 
+
+∥rlow ∥2 ≤ 1 × 10 n,n = log 10 (ϵ)/2 (14a) 
+
+∥rktrue ∥2 > 0.9 ∥rk−1
+
+> true
+
+∥2 (14b) 
+
+∥rtrue − rlow ∥2 ≥ 0.5 ∥rtrue ∥2 (14c) where rtrue = b − Ax and rlow is the recursively maintained residual. Equation (14a) detects proximity to convergence. Floorplan 1:        
+
+> C1 C2 C3 C4
+> C5 C6 C7 C8
+> crossbar L1
+> L1
+> CLK
+> FPU
+> Tag_01
+> Tag_11
+> Buffer_0
+> Buffer_1
+> Tag_21
+> Tag_31
+
+Floorplan 2: 
+
+> L2_2
+> L2_0
+> L2_1 Core
+
+Floorplan 3:      
+
+> Dcache Icache
+> Bpred
+> FPAdd
+> FPMul
+> FPMap
+> IntExec
+> IT
+> B
+> IntMap IntQ LdStQ
+> C1
+> C2
+> C3
+> C7
+> C8
+> C4
+> C5
+> C6
+> CPU Bridges 1, 2
+> Cache_2
+> Cache_3
+> Cache_4
+> Cache_5
+> Cache_6
+> L2_2
+> L2_3
+> L2_0
+> L2_1
+> DTB
+> FPReg F
+> P
+> Q
+> IntReg
+> L1_0
+> L1_1 L1_2
+> Cache_1
+> C9
+
+Fig. 6 Three MoL floorplans: Logic floorplan 1 is the SPARC processor, logic floorplan 2 is the EV6 processor with the core magnified, and logic floorplan 3 is a simplified multi-core processor. Floorplans 2 and 3 share the same 3-cache memory (right bottom). Equation (14b) detects stagnation of the true residual despite a decreasing recursive one. Equation (14c) detects significant drift between them. rtrue is periodically re-evaluated in FP64, such as every 20 iterations for steady-state and every 5for transient simulations, since the previous time step often supplies an initial guess that is already in the late stage. 
+
+Hot restart: Because r and p are updated recursively, low-precision rounding errors accumulate over iterations. Upon switching, a hot restart explicitly recomputes r and p from their defining equations to purge these errors. The solution vector x is carried over directly as a high-quality initial guess, allowing late-stage PCG iterations to continue the solution search without losing the effort invested in the early stage. V. E XPERIMENTS 
+
+This section presents the experimental setup and exten-sive comparisons, including three end-to-end comparisons to demonstrate the efficiency of CUTh-Solver and three ablation studies to validate individual contributions. 
+
+A. Experimental Setup 
+
+3D IC Configuration: We evaluate CUTh-Solver on a 10-layer Memory-on-Logic (MoL) F2F 3D IC. From bottom to top, the layers are: logic bulk (10 μm), logic FEOL (2 μm), logic BEOL (10 μm), hybrid bonding (2 μm), memory BEOL (10 μm), memory FEOL (2 μm), memory bulk (200 μm), TIM (100 μm), heat spreader (400 μm), and heat sink (1000 μm). Three couples of power maps (Fig. 6), widely used as bench-marks [15], [35], [43], [44], are applied to the logic/memory FEOL layers, with h of 1000, 10000, and 8000 W/m 2K on the top surface of the heat sink, respectively. 
+
+Benchmark Matrices: The matrices listed in TABLE I are used as benchmarks in Section V-C through Section V-G. They 8HotSpot 7.0 3D-ICE 4.0  CUTh -Solver COMSOL        
+
+> 96.48 ℃
+> 97.53 ℃
+> 97.00 ℃
+> 2.29 ×𝟏𝟎 −𝟐 ℃
+> 0
+> 1.00 ×𝟏𝟎 −𝟐 ℃
+
+Errors of CUTh -Solver               
+
+> 80.14 ℃
+> 88.47 ℃
+> 84.30 ℃
+> 0
+> 1.23 ×𝟏𝟎 −𝟏 ℃
+> 0.62 ×𝟏𝟎 −𝟏 ℃
+> 97.06 ℃
+> 111.58 ℃
+> 104.30 ℃
+> 0
+> 2.02 ×𝟏𝟎 −𝟏 ℃
+> 1.00 ×𝟏𝟎 −𝟏 ℃
+
+Fig. 7 Thermal maps of the 3D IC top tier by COMSOL Multiphysics [21], 3D-ICE 4.0 [10], HotSpot 7.0 [15], CUTh-Solver, and the error map of CUTh-Solver. Three cases from the top to the bottom are SPARC, EV6, and 9-Core, respectively. TABLE I Real-world steady-state and transient matrices dis-cretized from 3D-ICE [10]. They are used as matrix bench-marks from Section V-C to Section V-G. Matrix Benchmarks Dimension ( N ) Num of Non-Zeros ( N N Z )CU Therm 1 (CUTh1) 5.1 × 10 6 3.4 × 10 7                                    
+
+> CU Therm 2 (CUTh2) 8.4×10 65.6×10 7
+> CU Therm 3 (CUTh3) 1.4×10 79.4×10 7
+> CU Therm 4 (CUTh4) 1.8×10 71.2×10 8
+> CU Therm 5 (CUTh5) 2.4×10 71.6×10 8
+> CU Therm 6 (CUTh6) 2.8×10 71.9×10 8
+> CU Therm 7 (CUTh7) 3.5×10 72.3×10 8
+
+are real-world thermal matrices discretized by 3D-ICE [10], covering both steady-state and transient scenarios. Transient matrices are formed by adding a diagonal heat-capacity term to the steady-state counterparts via Backward Euler, so both share the same dimension ( N ) and number of non-zeros ( N N Z ). The stopping criterion for all iterative solvers is identical to 
+
+∥rk∥2 ≤ ϵ = 1 .0e − 6. The Chebyshev polynomial degree k
+
+of CUTh-Solver is set to 30. 
+
+Platform and Baselines: All experiments are conducted on an Intel Xeon w3-2423 CPU with 32 GB RAM and a consumer-level NVIDIA GeForce RTX 5090 GPU with 32 GB VRAM. The identical memory capacity ensures fair compari-son between CPU and GPU methods. CUTh-Solver is imple-mented in PyTorch 2.9.0. Baselines in Section V-B include the latest GPU-accelerated COMSOL Multiphysics [21], HotSpot 7.0 [15], and 3D-ICE 4.0 [10]. After tuning, the number of threads for 3D-ICE 4.0 is set to 4 for the best efficiency. The baselines in Section V-C and Section V-D include IC(0)-PCG (PETSc 3.24.3 CPU Version [45]), Cholesky (NVIDIA cuDSS 0.5.0 [46], [47]), IC(0)-PCG (NVIDIA cuSPARSE 12.5.4 [48], [49]), and AMG-PCG (NVIDIA AmgX 2.5.0 [11], [50], [51]). 
+
+Notation and Metrics: Experiments in Section V-C to Sec-tion V-G adopt the following notations and metrics. Simulation accuracy is measured by MaxAE, MAE, and ∥e∥∞, denoting the maximum absolute error (°C), the mean absolute error (°C), and infinity norm of the error vector, respectively, where 
+
+∥e∥∞ = ∥xexact − xevaluated ∥∞ = max  
+
+> i
+
+|ei|. (15) The simulation efficiency is characterized by Nite and NSpMV ,i.e., the iteration count and the SpMV execution count of the iterative solvers, together with their SpMV runtime TSpMV ,setup time Tsetup , solve time Tsol , and total runtime Ttot (all in seconds). 
+
+B. End-to-End Comparison with Thermal Simulators 
+
+This subsection presents end-to-end steady-state compar-isons between CUTh-Solver and other thermal simulators. The grid resolutions range from 128 2 × 10 to 512 2 × 10 for each couple of power maps. The comparison results are shown in TABLE II and Fig. 7. COMSOL Multiphysics 6.4 results serve as ground truth. With GPU acceleration via NVIDIA cuDSS [46], COMSOL consistently outperforms HotSpot 7.0 and 3D-ICE 4.0, both of which rely on CPU-based SuperLU [22] and encounter Out-of-Memory (OOM) errors at high resolutions. COMSOL further benefits from a hybrid RAM-VRAM memory architecture, whereas SuperLU is limited to host-side memory. 3D-ICE 4.0 exhibits superior efficiency than HotSpot 7.0 since the latest update integrates OpenMP and SuperLU MT for CPU multi-thread execution [10]. CUTh-Solver achieves speedups of up to 10 .28 ×, 22 .10 ×,and 51 .04 × over COMSOL at resolutions of 128 2 ×10 , 256 2 ×
+
+9TABLE II The steady-state performance of GPU-accelerated COMSOL Multiphysics 6.4 [21], HotSpot 7.0 [15], 3D-ICE 4.0 [10], and CUTh-Solver. Benchmark is a 10-layer hybrid bonding F2F 3D ICs with 3 different couples of power maps as illustrated in Fig. 6. The simulation results of COMSOL Multiphysics are considered as the ground truth. OOM refers to out of memory. The memory capacity is 32GB for both RAM and VRAM. Floorplans Grid Resol. COMSOL [21] HotSpot 7.0 [15] 3D-ICE 4.0 [10] CUTh-Solver Runtime(s) MaxAE MAE Runtime(s) MaxAE MAE Runtime(s) MaxAE MAE Runtime(s) SPARC                                                                                                                       
+
+> 128 2×10 11.0 0.15 0.03 163.5 0.02 0.01 12.4 0.02 0.01 1.2
+> 256 2×10 46.0 --OOM 0.02 0.01 94.7 0.02 0.01 2.3
+> 512 2×10 176.0 --OOM --OOM 0.02 0.01 3.7
+> EV6
+> 128 2×10 11.0 0.96 0.33 162.3 0.12 0.01 19.5 0.12 0.01 1.1
+> 256 2×10 40.0 --OOM 0.13 0.03 100.6 0.13 0.03 1.8
+> 512 2×10 179.0 --OOM --OOM 0.13 0.03 3.3
+> 9-Core
+> 128 2×10 11.0 2.38 0.56 162.1 0.20 0.06 17.9 0.20 0.06 1.2
+> 256 2×10 43.0 --OOM 0.15 0.03 102.1 0.16 0.03 2.47
+> 512 2×10 171.0 --OOM --OOM 0.16 0.03 3.4
+> Average Speedup (Avg.Spd) 1.0×--0.1×--0.6×--25 .8×
+
+10 , and 512 2 × 10 , respectively. The average speedup over COMSOL is 25 .8×. MaxAE and MAE of CUTh-Solver are maintained below 0.20 and 0.06 °C, respectively. No OOM errors were encountered across all resolutions, confirming its efficiency, scalability, and numerical fidelity. 
+
+C. End-to-End Comparison with Sparse Solvers: Steady-State 
+
+Due to memory constraints observed in the previous com-parison, this subsection focuses on end-to-end comparisons using public sparse linear solvers for steady-state problems. For benchmarks CUTh 1 ∼ 4, NVIDIA cuDSS results serve as ground truth. For the larger cases CUTh 5 ∼ 7, PETSc IC(0)-PCG results are regarded as ground truth. Comparison results are presented in TABLE III. The Cholesky direct solver (NVIDIA cuDSS) exhibits the poorest scalability, encountering OOM earlier than iterative methods. Its one-time setup phase (symbolic analysis and numerical factorization) dominates the total cost, making it even slower than CPU-based IC(0)-PCG for single-RHS problems. However, since the solve phase itself is inexpensive, direct solvers remain advantageous for multiple-RHS scenar-ios where setup cost can be amortized. The GPU-accelerated IC(0)-PCG (cuSPARSE) achieves 
+
+11 .4 ∼ 20 .2× speedup ( 16 .8× in average) over its CPU coun-terpart (PETSc), yet remains the least efficient among GPU iterative methods. This is primarily due to the sequential nature of incomplete Cholesky factorization and triangular substitu-tions, which limit parallelism on SIMT architectures [52]. We also include aggregation-based AMG-PCG from NVIDIA AmgX for its relatively low setup cost and effec-tiveness in thermal simulation. AmgX achieves 20 .6 ∼ 40 .2×
+
+speedup ( 32 .5× in average) over the CPU baseline and the lowest iteration count, reflecting AMG’s superior convergence. However, the per-iteration cost of hierarchical relaxations and prolongations partially offsets its convergence advantage. CUTh-Solver achieves 52 .1 ∼ 70 .9× speedup ( 59 .5× on average) over the CPU baseline with error ∥e∥∞ ≤ 3.3×10 −4.Its setup cost (Lanczos algorithm) remains at the millisecond level. The high-degree Chebyshev polynomial preconditioner yields fewer iterations than IC(0)-PCG while offering superior parallelism. Although AMG-PCG provides stronger mathe-matical conditioning, the lower per-iteration cost of CUTh-Solver significantly compensates, resulting in shorter overall wall-clock time across all benchmarks. 
+
+D. End-to-End Comparison with Sparse Solvers: Transient 
+
+This subsection presents the end-to-end transient compar-ison, where Ax = b is solved across 50 time steps using backward Euler. The setup phase is performed once and reused for all steps. The results are summarized in TABLE IV. Unlike the steady-state case, Cholesky (NVIDIA cuDSS) achieves 5.9 ∼ 10 .7× speedup ( 8.4× in average) over the CPU baseline before OOM, as the factorization cost is amor-tized across multiple time steps, reducing each subsequent solve to efficient triangular substitutions. Another notable difference is that IC(0)-PCG (cuSPARSE) slightly outperforms AMG-PCG (AmgX), achieving 16 .1 ∼
+
+34 .3× (25 .9× on average) versus 14 .9 ∼ 27 .3× (21 .8×
+
+on average) speedup. As the system approaches thermal equilibrium, the solution between consecutive steps changes minimally, providing near-optimal initial guesses. In this regime, IC(0)-PCG converges within a few low-cost iterations, whereas AMG’s higher per-iteration cost offsets its stronger convergence properties. CUTh-Solver achieves 53 .8 ∼ 103 .4× speedup ( 73 .6× in average) over the CPU baseline with ∥e∥∞ ≤ 2.7 × 10 −4,delivering up to 3× improvement against both cuSPARSE and AmgX. This advantage stems from a favorable balance between preconditioning efficacy and per-iteration cost: In the early stages, its preconditioning ensures faster convergence than IC(0)-PCG; in later stages, its lower per-iteration cost provides superior throughput compared to AMG-PCG. 
+
+E. Ablation Study I: Quad-Diag and Coalesced SpMV 
+
+This subsection isolates the contributions of the Quad-Diag format and coalesced SpMV. We benchmark CUTh-Solver against a baseline PCG solver using standard CSR format with row-wise (irregular) SpMV. The adaptive mixed-precision 10 TABLE III The performance for one-time solving Ax = b from steady-state thermal simulation of 3D ICs. Four baselines are: IC(0)-PCG (PETSc 3.24.3 [45] on CPU), Cholesky direct solver (NVIDIA cuDSS 0.5.0 [46], [47] on GPU), IC(0)-PCG (NVIDIA cuSPARSE 12.5.4 [48], [49] on GPU), aggregation-based AMG-PCG (NVIDIA AmgX 2.5.0 [11], [50], [51] on GPU). BMs refers to the matrix benchmarks presented in TABLE I. Stopping criterion: ∥rk = b − Ax k∥2 ≤ ϵ = 1 .0e − 6.BMs IC(0)-PCG (PETSc) [45] Cholesky (cuDSS) [47] IC(0)-PCG (cuSPARSE) [49] AMG-PCG (AmgX) [51] CUTh-Solver                                                                                                                                                                                    
+
+> Nite Tsetup Tsol Ttot Tsetup Tsol Ttot Nite Tsetup Tsol Ttot Nite Tsetup Tsol Ttot Nite Tsetup Tsol Ttot ∥e∥∞
+> CUTh1 199 0.6 25.3 25.9 47.3 0.1 47.4 198 0.5 1.8 2.3 40.3 1.0 1.3 44 0.2 0.3 0.5 1.5e-4
+> CUTh2 250 1.6 55.8 57.5 86.2 0.1 86.3 249 1.0 2.8 3.8 50.3 2.0 2.3 56 0.2 0.6 0.8 2.3e-4
+> CUTh3 317 1.8 112.2 114.0 215.6 0.5 216.1 316 2.1 4.8 6.9 50.4 3.0 3.4 71 0.3 1.5 1.8 2.3e-4
+> CUTh4 351 2.2 159.6 161.8 317.9 1.1 373.0 349 3.1 6.5 9.6 60.4 4.9 5.3 76 0.4 2.3 2.7 2.3e-4
+> CUTh5 432 3.0 265.3 268.3 --OOM 430 5.0 10.2 15.2 60.5 6.4 6.9 91 0.5 4.2 4.7 2.9e-4
+> CUTh6 433 3.3 312.0 315.3 --OOM 430 5.8 10.3 16.1 60.6 7.4 7.8 96 0.5 5.2 5.7 3.3e-4
+> CUTh7 482 4.4 433.3 437.7 --OOM 480 8.0 13.6 21.6 70.8 10.6 11.5 107 0.6 7.1 7.7 2.5e-4
+> Avg.Spd ---1.0×--0.6×---16 .8×---32 .5×---59 .5×-
+
+TABLE IV The performance for 50-time solving Ax = b from transient thermal simulation of 3D ICs. Four baselines are: IC(0)-PCG (PETSc 3.24.3 [45] on CPU), Cholesky direct solver (NVIDIA cuDSS 0.5.0 [46], [47] on GPU), IC(0)-PCG (NVIDIA cuSPARSE 12.5.4 [48], [49] on GPU), aggregation-based AMG-PCG (NVIDIA AmgX 2.5.0 [11], [50], [51] on GPU). Stopping criterion for a single-step solution: ∥rk = b − Ax k∥2 ≤ ϵ = 1 .0e − 6.BMs IC(0)-PCG (PETSc) [45] Cholesky (cuDSS) [47] IC(0)-PCG (cuSPARSE) [49] AMG-PCG (AmgX) [51] CUTh-Solver                                                                                                                                                                                    
+
+> Nite Tsetup Tsol Ttot Tsetup Tsol Ttot Nite Tsetup Tsol Ttot Nite Tsetup Tsol Ttot Nite Tsetup Tsol Ttot ∥e∥∞
+> CUTh1 3900 0.6 507.6 508.2 48.6 6.8 55.4 3900 0.7 30.8 31.5 125 0.3 33.7 34.0 791 0.2 6.3 6.5 2.5e-4
+> CUTh2 4716 1.0 1022.5 1023.5 83.9 12.0 95.8 4716 1.2 48.3 49.5 134 0.3 57.5 57.8 948 0.2 9.7 9.9 2.5e-4
+> CUTh3 5740 2.0 2074.2 2076.2 214.0 47.2 261.2 5740 2.4 83.9 86.9 146 0.3 98.3 98.6 1166 0.3 24.3 24.6 2.7e-4
+> CUTh4 6337 2.3 2919.0 2921.3 380.7 113.7 494.4 6335 3.3 106.8 110.1 150 0.3 130.3 130.6 1243 0.4 39.4 39.8 2.6e-4
+> CUTh5 7542 2.8 4572.4 4574.2 --OOM 7558 5.3 161.8 167.1 157 0.4 188.3 188.7 1830 0.4 84.3 84.7 0.5e-4
+> CUTh6 7544 3.1 5467.0 5470.1 --OOM 7550 6.2 169.7 175.9 156 0.5 219.4 219.7 1858 0.5 101.2 101.7 0.6e-4
+> CUTh7 8251 5.2 7557.3 7562.5 --OOM 8261 8.3 212.1 220.4 164 1.0 276.0 277.0 1633 0.6 110.9 111.5 2.5e-4
+> Avg.Spd ---1.0×--8.4×---25 .9×---21 .8×---73 .6×-
+
+TABLE V Ablation study to demonstrate the individual contri-bution of Quad-Diag format and SpMV kernels with coalesced memory access. Mixed-precision strategy is turned off and fixed FP64 is used to ensure the comparison fairness. BMs NSpM V 
+
+CSR+Irregular SpMV Quad-Diag+Coalesced SpMV 
+
+TSpM V Tsol TSpM V Tsol 
+
+CUTh1 1334 0.6 1.0 0.3 0.6 
+
+CUTh2 1675 1.3 2.5 0.6 1.7 
+
+CUTh3 2078 2.8 5.5 1.3 3.9 
+
+CUTh4 4018 4.0 7.7 1.8 5.2 
+
+CUTh5 5918 5.9 11 .2 2.8 8.1 
+
+CUTh6 7408 7.4 14 .1 3.5 10.1 
+
+CUTh7 10232 10 .2 19 .1 4.7 13.7 
+
+Avg.Spd - 1.0× 1.0× 2.1× 1.5×
+
+strategy is disabled for both solvers to directly measure the gains from data-layout and memory-access optimizations. TABLE V presents the comparison results. Under identical 
+
+NSpM V , Quad-Diag with coalesced kernels delivers a consis-tent 2 ∼ 2.2× speedup over the CSR baseline in SpMV time across all benchmarks. This kernel-level gain translates into a 1.4 ∼ 1.7× speedup for the overall solve phase, as SpMV operations account for 70 ∼ 85% of total solve time in the Chebyshev-preconditioned PCG solver. The performance gain originates from transforming the irregular memory access patterns of CSR into coalesced ac-cesses, drastically reducing global memory transactions and mitigating the overhead of high-latency DRAM operations. This optimization is particularly effective because SpMV is fundamentally memory-bound [53]: its low arithmetic inten-sity means execution time is dominated by data movement rather than computation. Additionally, the direct addressing of Quad-Diag eliminates auxiliary index arrays, further im-proving instruction throughput. 
+
+F. Ablation Study II: Adaptive Mixed-Precision Strategy 
+
+This subsection quantifies the contribution of the adap-tive mixed-precision strategy by benchmarking it against fixed single-precision (FP32) and fixed half-precision (FP16) Chebyshev-preconditioned PCG solvers. Solutions from the fixed double-precision (FP64) solver serve as ground truth. As shown in TABLE VI, the fixed FP16 solver diverges across all benchmarks. The fixed FP32 solver maintains the same iteration count and delivers a 2.0 ∼ 2.7× speedup over FP64, but introduces a considerable numerical drift of ∥e∥∞ =0.64 , corresponding to a 0.64 °C deviation in the temperature field. In contrast, our mixed-precision strategy achieves solve time comparable to fixed FP32 while maintaining negligible errors ( ∥e∥∞ ≤ 3.1 × 10 −4). These results demonstrate that reckless use of low-precision arithmetic can cause significant numerical drift or total divergence in scientific computing. The numerical drift observed in the fixed FP32 solver originates from a low-precision representation of numerically sensitive quantities within the CG loop, particularly the resid-ual vector r. Rounding errors in r accumulate over iterations and corrupt the search directions in the Krylov subspace. Our adaptive strategy mitigates this by selectively employing FP64 for these critical components, preserving orthogonalization integrity. The incremental FP64 overhead is offset by the physics-aware heterogeneous FP16/32 SpMV kernel used in the preconditioning phase, yielding a solve time comparable to fixed FP32 with numerical accuracy comparable to FP64. 11 TABLE VI Ablation study to demonstrate the individual contribution of the adaptive mixed-precision strategy of PCG. The solution results using FP64 are regarded as the ground truth in the calculation of ∥e∥∞. Fixed FP16 fails to achieve convergence. BMs Fixed FP64 Fixed FP16 Fixed FP32 Adaptive Mixed-Precision 
+
+Nite Tsolve Nite Tsolve ∥e∥∞ Nite Tsolve ∥e∥∞ Nite Tsolve ∥e∥∞
+
+CUTh1 42 0.6 - - ∞ 42 0.3 4.0e-3 44 0.3 1.4e-4 
+
+CUTh2 53 1.6 - - ∞ 53 0.6 4.0e-2 56 0.6 2.7e-4 
+
+CUTh3 66 3.7 - - ∞ 66 1.5 0.2 71 1.5 3.1e-4 
+
+CUTh4 74 5.2 - - ∞ 74 2.4 8.0e-2 76 2.3 2.4e-4 
+
+CUTh5 85 7.9 - - ∞ 85 4.0 0.6 91 4.2 2.6e-4 
+
+CUTh6 85 10.1 - - ∞ 85 5.1 0.6 96 5.2 2.2e-4 
+
+CUTh7 98 13.6 - - ∞ 98 6.8 0.4 107 7.1 2.0e-4 
+
+Avg.Spd - 1.0× - - - - 2.2× - - 2.2× -TABLE VII Ablation study to quantify the synergy between the Chebyshev preconditioner and our optimization suite (Quad-Diag, coalesced SpMV, and mixed-precision strategy). The optimization is toggled on/off to isolate each component’s contribution. BMs Conjugate Gradient (CG) Jacobi-Preconditioned CG Chebyshev-Preconditioned CG Optimization Off Optimization On Optimization Off Optimization On Optimization Off Optimization On 
+
+Nite Ttot Nite Ttot Nite Ttot Nite Ttot Nite Ttot Nite Ttot 
+
+CUTh1 1192 1.3 1192 1.2 647 0.9 648 0.8 44 1.1 44 0.5 
+
+CUTh2 1523 2.6 1524 2.4 823 1.6 823 1.5 54 2.4 56 0.8 
+
+CUTh3 1939 5.8 1939 5.1 1034 3.6 1034 3.4 67 5.4 71 1.8 
+
+CUTh4 2187 8.2 2187 7.1 1150 5.0 1150 4.5 75 7.7 76 2.7 
+
+CUTh5 2493 12.3 2494 10.8 1427 8.2 1427 7.4 86 11.2 91 4.7 
+
+CUTh6 2710 16.6 2712 13.4 1428 9.5 1428 8.7 90 13.7 96 5.7 
+
+CUTh7 3024 21.5 3026 18.3 1593 13.0 1593 11.8 99 19.3 107 7.7 
+
+Avg.Spd - 1.0× - 1.1× - 1.6× - 1.7× - 1.1× - 2.9×
+
+G. Ablation Study III: Polynomial Preconditioning 
+
+This subsection presents an ablation study to evaluate the synergistic effects between the Chebyshev polynomial pre-conditioner and our proposed optimization framework (the Quad-Diag format, coalesced SpMV kernels, adaptive mixed-precision strategy). We establish two baseline configurations by replacing the Chebyshev preconditioner with either aJacobi preconditioner or an identity matrix (no precondition-ing). These two preconditioners were selected because they integrate seamlessly with our optimization framework. The optimization framework can be turned on/off to offer a clear demonstration of each solver’s synergy. The results are summarized in TABLE VII. In the absence of the optimization framework, the Jacobi-preconditioned CG achieves a 1.43 ∼ 1.75 × speedup ( 1.60 × in average) over the vanilla CG solver, whereas the Chebyshev preconditioner yields a modest 1.06 ∼ 1.21 × speedup ( 1.12 × in average), notably underperforming the Jacobi baseline. However, this performance hierarchy is completely inverted once the op-timization framework is enabled. Under the optimized con-figuration, the Chebyshev preconditioner achieves a substan-tial 2.20 ∼ 3.25 × speedup ( 2.86 × in average) over the vanilla CG solver, while the Jacobi-PCG gain is limited to 
+
+1.50 ∼ 1.91 × (1.74 × on average). Specifically, activating the optimization suite delivers an improvement in performance over 2.5× for the Chebyshev preconditioner, underscoring a significant synergistic effect. In contrast, the additional gains for the vanilla CG and Jacobi-PCG remain below 1.24 ×
+
+and 1.12 ×, respectively. These results demonstrate that the Chebyshev preconditioner, owing to its compute-intensive and SpMV-centric nature, uniquely capitalizes on our proposed optimization suite. In contrast, SpMV and preconditioning are less dominant in the vanilla CG and Jacobi-PCG solvers, so they benefit less from our optimization framework. VI. C ONCLUSION AND FUTURE WORK 
+
+Conclusion: This paper has presented CUTh-Solver , an open-source GPU-accelerated sparse solver framework tai-lored for high-resolution 3D IC thermal analysis. We have proposed a Quad-Diag storage format with coalesced SpMV kernels, a highly parallel Chebyshev preconditioning strategy, and an adaptive mixed-precision scheme. Extensive evalua-tions demonstrate that our proposed CUTh-Solver achieves significant speedups over the latest GPU-accelerated COM-SOL Multiphysics 6.4 and a wide range of NVIDIA’s native sparse libraries. 
+
+Future Work: CUTh-Solver targets 7-diagonal banded SPD linear systems, which arise from the popular 7-point finite difference/volume discretization of 3D IC thermal simulation. The main limitation of CUTh-Solver is that Quad-Diag does not support unstructured meshes (e.g., tetrahedral cells of FEM), where the diagonal regularity is lost. Extending the framework to hybrid DIA–ELL or DIA–COO for unstructured discretizations is left for future work. 12 VII. A CKNOWLEDGMENT 
+
+AI assistants were used for language polishing and partial code generation under the authors’ supervision. All research decisions and contributions were made by the authors. REFERENCES [1] J. Kim, L. Zhu, H. M. Torun, M. Swaminathan, and S. K. Lim, “A ppa study for heterogeneous 3-d ic options: Monolithic, hybrid bonding, and microbumping,” IEEE Transactions on Very Large Scale Integration (VLSI) Systems , vol. 32, no. 3, pp. 401–412, 2023. [2] M. Naeim, H. Oprins, S. Das, G. Van Der Plas, Y. Dai, P. Chen, C. Kao, D. Biswas, and D. Milojevic, “Thermal analysis of 3d stacking and beol technologies with functional partitioning of many-core risc-v soc,” in 2024 IEEE Computer Society Annual Symposium on VLSI (ISVLSI) .IEEE, 2024, pp. 33–38. [3] S. Venkateswarlu, S. Mishra, H. Oprins, B. Vermeersch, M. Brunion, J.-H. Han, M. R. Stan, P. Weckx, and F. Catthoor, “Thermal performance analysis of mempool risc-v multicore soc,” IEEE Transactions on Very Large Scale Integration (VLSI) Systems , vol. 30, no. 11, pp. 1668–1676, 2022. [4] X. Chang, H. Oprins, M. Lofrano, B. Vermeersch, I. Ciofi, O. V. Pedreira, Z. Tokei, and I. De Wolf, “Thermal analysis of advanced back-end-of-line structures and the impact of design parameters,” in 2022 21st IEEE Intersociety Conference on Thermal and Thermomechanical Phenomena in Electronic Systems (iTherm) . IEEE, 2022, pp. 1–8. [5] B. Vermeersch, S. Mishra, M. Brunion, O. Zografos, M. Lofrano, H. Oprins, J. Myers, Z. Tokei, and G. Hellings, “Multiscale thermal impact of bspdn: Soc hotspot challenges and partial mitigation,” in 2024 IEEE International Electron Devices Meeting (IEDM) , 2024, pp. 1–4. [6] Y. Li, J. Liu, D. Lu, W. Zhang, R. X.-K. Gao, E. Liu, M. D. Rotaru, D. Rahul, and N. Sridhar, “Rapid estimation of anisotropic thermal conductivity in rdl for 2.5 d chiplet design,” in 2025 IEEE 75th Electronic Components and Technology Conference (ECTC) . IEEE, 2025, pp. 1541–1546. [7] P. R. Chowdhury, A. Jain, D. Chidambarrao, K. Acharya, and A. Ogino, “Fast and accurate machine learning prediction of back-end-of-line thermal resistances in backside power delivery and chiplet architectures,” in 2025 IEEE 75th Electronic Components and Technology Conference (ECTC) . IEEE, 2025, pp. 1577–1582. [8] D. Atienza, K. Zhu, D. Huang, and L. Costero, “A 20-year retrospective on power and thermal modeling and management,” IEEE Design & Test ,2025. [9] Z. Yuan, P. Shukla, S. Chetoui, S. Nemtzow, S. Reda, and A. K. Coskun, “Pact: An extensible parallel thermal simulator for emerging integration and cooling technologies,” IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems , vol. 41, no. 4, pp. 1048–1061, 2021. [10] K. Zhu, D. Huang, L. Costero, and D. Atienza, “3d-ice 4.0: Accurate and efficient thermal modeling for 2.5 d/3d heterogeneous chiplet systems,” in 2026 Design, Automation & Test in Europe Conference (DATE) .IEEE, 2026, pp. 1–7. [11] M. Naumov, M. Arsaev, P. Castonguay, J. Cohen, J. Demouth, J. Eaton, S. Layton, N. Markovskiy, I. Reguly, N. Sakharnykh, V. Sellappan, and R. Strzodka, “Amgx: A library for gpu accelerated algebraic multigrid and preconditioned iterative methods,” SIAM Journal on Scientific Computing , vol. 37, no. 5, pp. S602–S626, 2015. [12] H. Qiu, C. Xu, J. Fang, J. Zhang, L. Deng, Z. Dai, Y. Ding, Y. Wang, Z. Han, Y. Che et al. , “Dcsolver: Accelerating sparse iterative solvers via divide-and-conquer on gpus,” ACM Transactions on Architecture and Code Optimization , vol. 22, no. 3, pp. 1–25, 2025. [13] N. Rai, “A technical survey of sparse linear solvers in electronic design automation,” Journal of Circuits, Systems and Computers , 2026. [14] M. Fan, X. Chen, D. Yang, Z. Jin, and W. Liu, “Recg: Reram-accelerated sparse conjugate gradient,” in Proceedings of the 61st ACM/IEEE Design Automation Conference (DAC) , 2024, pp. 1–6. [15] J.-H. Han, X. Guo, K. Skadron, and M. R. Stan, “From 2.5 d to 3d chiplet systems: Investigation of thermal implications with hotspot 7.0,” in IEEE Intersociety Conference on Thermal and Thermomechanical Phenomena in Electronic Systems (iTherm) . IEEE, 2022, pp. 1–6. [16] L. Pfromm, A. Kanani, H. Sharma, P. Solanki, E. Tervo, J. Park, J. Doppa, P. P. Pande, and U. Ogras, “Mfit: Multi-fidelity thermal mod-eling for 2.5 d and 3d multi-chiplet architectures,” ACM Transactions on Design Automation of Electronic Systems , 2024. [17] Z. Liu and W. Yu, “Randomized cholesky factorization with threshold-based multisampling for power grid simulation,” IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems , vol. 43, no. 9, pp. 2687–2691, 2024. [18] S. Liang, Z. Zhuang, K.-Y. Chao, B. Yu, and T.-Y. Ho, “Multi-layer package power/ground planes synthesis with balanced dc ir drops: A game-theoretic optimization approach,” IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems , 2025. [19] T.-H. Chen and C. C.-P. Chen, “Efficient large-scale power grid analysis based on preconditioned krylov-subspace iterative methods,” in Proceed-ings of the 38th annual Design Automation Conference (DAC) , 2001. [20] Z. Liu and W. Yu, “pgrass-solver: a parallel iterative solver for scalable power grid analysis based on graph spectral sparsification,” in 2021 IEEE/ACM International Conference On Computer Aided Design (IC-CAD) . IEEE, 2021, pp. 1–9. [21] COMSOL Multiphysics. [Online]. Available: https://www.comsol.com/ release/6.4/gpu-acceleration [22] SuperLU. [Online]. Available: https://portal.nersc.gov/project/sparse/ superlu/ [23] T. A. Davis and E. Palamadai Natarajan, “Algorithm 907: Klu, a direct sparse solver for circuit simulation problems,” ACM Transactions on Mathematical Software (TOMS) , vol. 37, no. 3, pp. 1–17, 2010. [24] M. A. Heroux, “Aztecoo user guide.” Sandia National Laboratories, Tech. Rep., 2004. [25] E. Bavier, M. Hoemmen, S. Rajamanickam, and H. Thornquist, “Ame-sos2 and belos: Direct and iterative solvers for large sparse linear systems,” Scientific Programming , vol. 20, no. 3, pp. 241–255, 2012. [26] N. Allec, Z. Hassan, L. Shang, R. P. Dick, and R. Yang, “Thermalscope: Multi-scale thermal analysis for nanometer-scale integrated circuits,” in 
+
+2008 IEEE/ACM International Conference on Computer-Aided Design (ICCAD) . IEEE, 2008, pp. 603–610. [27] S. Ladenheim, Y.-C. Chen, M. Mihajlovi´ c, and V. F. Pavlidis, “The mta: An advanced and versatile thermal simulator for integrated systems,” 
+
+IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems , vol. 37, no. 12, pp. 3123–3136, 2018. [28] R. D. Falgout, R. Li, B. Sj¨ ogreen, L. Wang, and U. M. Yang, “Porting hypre to heterogeneous computer architectures: Strategies and experi-ences,” Parallel Computing , vol. 108, p. 102840, 2021. [29] C. Yan, H. Zhu, D. Zhou, and X. Zeng, “An efficient leakage-aware thermal simulation approach for 3d-ics using corrected linearized model and algebraic multigrid,” in Design, Automation & Test in Europe Conference & Exhibition (DATE), 2017 . IEEE, 2017, pp. 1207–1212. [30] B.-W. Chen, Y.-H. Lin, C.-Y. Lin, and Y.-M. Lee, “Thpa: Thermal simulation for advanced ics,” in 2026 31st Asia and South Pacific Design Automation Conference (ASP-DAC) . IEEE, 2026, pp. 1407–1413. [31] P. Li, L. T. Pileggi, M. Asheghi, and R. Chandra, “Ic thermal simulation and modeling via efficient multigrid-based approaches,” IEEE Transac-tions on Computer-Aided Design of Integrated Circuits and Systems ,vol. 25, no. 9, pp. 1763–1776, 2006. [32] J. Xie and M. Swaminathan, “Fast electrical-thermal co-simulation using multigrid method for 3d integration,” in 2012 IEEE 62nd Electronic Components and Technology Conference (ECTC) . IEEE, 2012, pp. 651–657. [33] Z. Feng and P. Li, “Fast thermal analysis on gpu for 3d ics with integrated microchannel cooling,” IEEE Transactions on Very Large Scale Integration (VLSI) Systems , vol. 21, no. 8, pp. 1526–1539, 2012. [34] Y. Safari, A. Corbier, D. Al Saleh, F. R. Amik, and B. Vaisband, “Thermal simulator for advanced packaging and chiplet-based systems,” 
+
+IEEE Transactions on Very Large Scale Integration (VLSI) Systems ,2025. [35] C. Wang, Z. Zhuang, K. Zhu, D. Huang, L. Costero, R. Chen, D. Atienza, and T.-Y. Ho, “Etla-3d: Equivalent thin layer aggregation based thermal fem for hybrid bonding f2f 3d ics,” in 2026 Design, Automation & Test in Europe Conference (DATE) . IEEE, 2026. [36] A. Feldmann, C. Golden, Y. Yang, J. S. Emer, and D. Sanchez, “Azul: An accelerator for sparse iterative solvers leveraging distributed on-chip memory,” in 2024 57th IEEE/ACM International Symposium on Microarchitecture (MICRO) . IEEE, 2024, pp. 643–656. [37] Y. Saad, Iterative methods for sparse linear systems . SIAM, 2003. 
+
+13 [38] R. A. Horn and C. R. Johnson, Matrix analysis . Cambridge university press, 2012. [39] D. R. Kincaid and E. W. Cheney, Numerical analysis: mathematics of scientific computing . American Mathematical Soc., 2009, vol. 2. [40] G. H. Golub and C. F. Van Loan, Matrix computations . JHU press, 2013. [41] K. Ahmad, H. Sundar, and M. Hall, “Data-driven mixed precision sparse matrix vector multiplication for gpus,” ACM Transactions on Architecture and Code Optimization , vol. 16, no. 4, pp. 1–24, 2019. [42] H. Anzt, J. Dongarra, G. Flegar, N. J. Higham, and E. S. Quintana-Ort´ ı, “Adaptive precision in block-jacobi preconditioning for iterative sparse linear system solvers,” Concurrency and Computation: Practice and Experience , vol. 31, no. 6, p. e4460, 2019. [43] Z. Huang, H. Wang, W. Yang, M. Tang, D. Xie, T.-J. Lin, Y. Zhang, W. W. Xing, and L. He, “Self-attention to operator learning-based 3d-ic thermal simulation,” in 2025 62nd ACM/IEEE Design Automation Conference (DAC) . IEEE, 2025, pp. 1–7. [44] B. Zhang, W. Xing, X. Zhao, and Y. Sun, “T-fusion: Thermal modeling of 3d ics with multi-fidelity fusion,” in Proceedings of the 30th Asia and South Pacific Design Automation Conference (ASP-DAC) , 2025, pp. 1406–1412. [45] E. Bueler, PETSc For partial differential equations: Numerical solutions in C and Python . SIAM, 2020. [46] NVIDIA cuDSS. [Online]. Available: https://developer.nvidia.com/cudss [47] NVIDIA cuDSS direct solvers github. [Online]. Available: https: //github.com/NVIDIA/CUDALibrarySamples/tree/main/cuDSS [48] NVIDIA cuSPARSE. [Online]. Available: https://developer.nvidia.com/ cusparse [49] NVIDIA cuSPARSE ICC(0)-PCG solver github. [On-line]. Available: https://github.com/NVIDIA/CUDALibrarySamples/ tree/main/cuSPARSE/cg [50] NVIDIA AmgX. [Online]. Available: https://developer.nvidia.com/amgx [51] NVIDIA AmgX github. [Online]. Available: https://github.com/ NVIDIA/AMGX [52] R. Li and Y. Saad, “Gpu-accelerated preconditioned iterative linear solvers,” The Journal of Supercomputing , vol. 63, no. 2, pp. 443–466, 2013. [53] T. Gr¨ utzmacher, T. Cojean, G. Flegar, F. G¨ obel, and H. Anzt, “A customized precision format based on mantissa segmentation for accel-erating sparse linear algebra,” Concurrency and Computation: Practice and Experience , vol. 32, no. 15, p. e5418, 2020. 
+
+14
