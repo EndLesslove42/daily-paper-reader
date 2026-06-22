@@ -1,6 +1,9 @@
 * <a class="dpr-sidebar-root-link" href="#/">首页</a>
 * <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/tutorial/README">使用教程</a>
 * Daily Papers
+  * 2026-06-22 <!--dpr-date:20260622-->
+    * 速读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202606/22/2606.17766v1-operator-learning-for-pde-backstepping-control-of-parabolic-equations-on-time-varying-domains" data-sidebar-item="{&quot;title&quot;: &quot;Operator Learning for PDE Backstepping Control of Parabolic Equations on Time-Varying Domains&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2606.17766v1-operator-learning-for-pde-backstepping-control-of-parabolic-equations-on-time-varying-domains&quot;, &quot;score&quot;: &quot;6.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;aqac&quot;}], &quot;evidence&quot;: &quot;算子学习用于时变域上的PDE反步控制，与神经算子应用于传输问题相关&quot;}">Operator Learning for PDE Backstepping Control of Parabolic Equations on Time-Varying Domains</a>
   * 2026-06-21 <!--dpr-date:20260621-->
     * 精读区
       * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202606/21/2606.16602v1-physguard-fisher-guided-gradient-projection-for-sim-to-real-neural-pde-surrogates" data-sidebar-item="{&quot;title&quot;: &quot;PhysGuard: Fisher-Guided Gradient Projection for Sim-to-Real Neural PDE Surrogates&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2606.16602v1-physguard-fisher-guided-gradient-projection-for-sim-to-real-neural-pde-surrogates&quot;, &quot;score&quot;: &quot;8.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;aqac&quot;}], &quot;evidence&quot;: &quot;针对神经算子代理模型的物理保持框架，直接适用于空气质量代理模型&quot;}">PhysGuard: Fisher-Guided Gradient Projection for Sim-to-Real Neural PDE Surrogates</a>
