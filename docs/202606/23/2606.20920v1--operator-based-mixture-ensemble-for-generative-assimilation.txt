@@ -1,0 +1,2826 @@
+Title: Ω: Operator-based Mixture Ensemble for Generative Assimilation
+
+URL Source: https://arxiv.org/pdf/2606.20920v1
+
+Published Time: Tue, 23 Jun 2026 00:21:37 GMT
+
+Number of Pages: 42
+
+Markdown Content:
+# Ω: Operator-based Mixture Ensemble for Generative Assimilation 
+
+Pouria Behnoudfar a, Nan Chen a, ∗
+
+> aUniversity of Wisconsin-Madison, Department of Mathematics, Madison, WI, USA
+
+Abstract 
+
+Characterizing non-Gaussian posterior distributions in partially observed high-dimensional nonlinear sys-tems remains a fundamental challenge in data assimilation. Ensemble Kalman filters rely on Gaussian ap-proximations that can be inaccurate for strongly non-Gaussian posteriors, whereas particle filters suffer from severe scalability limitations. Recent score-based generative approaches improve posterior characterization but typically require supervised training with ground-truth posterior samples, which are unavailable in most practical applications. We introduce Ω (Operator-based Mixture Ensemble for Generative Assimilation), a scalable framework that integrates conditional Gaussian surrogate modeling, unsupervised score learning, and generative sampling. The conditional Gaussian surrogate provides a nonlinear non-Gaussian baseline approximation while admitting closed-form conditional posterior distributions for the unresolved variables. First, Ω exploits these closed-form conditional distributions to analytically recover the high-dimensional unobserved component, reducing computational cost and mitigating the curse of dimensionality. Second, 
+
+Ω learns only the residual discrepancy beyond an analytical baseline through denoising score matching us-ing ensemble trajectories alone, eliminating the need for ground-truth posterior samples and substantially reducing the learning burden. Third, Ω reconstructs the full non-Gaussian posterior distribution of both ob-served and unobserved variables through a Gaussian-mixture representation, enabling multimodal, skewed, and heavy-tailed statistics to be captured. Finally, Ω employs annealed Langevin sampling to iteratively refine ensemble members from the baseline toward the target posterior. The framework is validated on several turbulent models with intermittency and extreme events. Across all examples, Ω consistently im-proves posterior accuracy and the recovery of unobserved variables relative to the ensemble Kalman filter and conditional-Gaussian baselines, while remaining computationally tractable in high-dimensional settings. 
+
+Keywords: Operator Learning; Non-Gaussian Data Assimilation; Score-Based Generative Modeling; Conditional Gaussian Nonlinear Systems; Langevin Sampling 
+
+1. Introduction 
+
+Data assimilation (DA) is a framework for estimating the evolving state of a dynamical system by combining model forecasts with available observations [1, 2, 3, 4, 5]. It plays a central role in forecasting and uncertainty quantification across a wide range of applications, including geophysics, oceanography, and Earth science. At each assimilation time, the objective is to characterize the filtering posterior distribution and propagate this information forward through the dynamical model. A fundamental challenge is that the posterior distribution is often strongly non-Gaussian due to nonlinear dynamics, intermittency, regime transitions, and extreme events [6, 7]. This challenge becomes particularly severe in partially observed high-dimensional systems, where sparse observations and unresolved processes further complicate posterior inference [8, 9, 10, 11, 12]. Traditional DA methods seek to balance computational efficiency and statistical accuracy. The ensemble Kalman filter (EnKF) and its variants [13, 14, 15, 16] are among the most widely used approaches be-cause of their robustness, scalability, and success in large-scale applications such as meteorology [17, 18], 
+
+> ∗Corresponding author
+> arXiv:2606.20920v1 [cs.LG] 18 Jun 2026
+
+groundwater modeling [19], and other geophysical systems [20]. However, the EnKF relies on Gaussian approximations and linear covariance updates, which can introduce systematic errors when the posterior is strongly non-Gaussian and often require empirical tuning through inflation and localization [21, 22, 23, 24]. Particle filters (PF) and related sequential Monte Carlo methods [25, 26] can represent arbitrary posterior distributions, but their performance deteriorates rapidly in high-dimensional systems because of weight de-generacy and the associated curse of dimensionality [27]. Consequently, achieving accurate non-Gaussian posterior characterization while maintaining computational tractability remains a major open problem in DA. Recent advances in machine learning have motivated a new generation of DA methodologies based on deep generative models. Normalizing flows [28, 29, 30] provide flexible posterior representations but require tractable density evaluation and often scale poorly to high-dimensional state spaces. Variational autoencoders and related latent-variable models [31, 32, 33] have also been applied to state estimation, although they typically impose Gaussian latent representations that partially reintroduce the Gaussian bottleneck they seek to overcome. More recently, score-based and diffusion generative models [34, 35] have emerged as powerful tools for posterior sampling in inverse problems and DA because of their ability to represent complex multimodal distributions through iterative Langevin or reverse-diffusion refinement [36, 37]. Despite their success, existing score-based DA methods typically rely on supervised training using reference states or posterior samples that are unavailable in most practical applications [38, 39], incur substantial computational cost during inference [40, 36, 41], and often focus their non-Gaussian corrections on the observed variables, leaving the posterior distribution of unresolved variables largely governed by Gaussian approximations. In this work, we introduce Ω (Operator-based Mixture Ensemble for Generative Assimilation), a hy-brid framework that integrates conditional Gaussian surrogate modeling, unsupervised score learning, and generative sampling. The framework begins with a Conditional Gaussian Nonlinear System (CGNS) surro-gate [42, 43], which serves as a computationally efficient forecast model while providing closed-form condi-tional posterior distributions for the unresolved variables. Importantly, the CGNS is not a globally Gaussian approximation: the overall dynamics remain nonlinear and are capable of generating strongly non-Gaussian statistics, while the conditional distributions of the unresolved variables can still be obtained analytically. These closed-form conditional distributions therefore provide a principled baseline approximation of the pos-terior and enable analytical treatment of the unresolved variables. Building upon this baseline, a residual operator is trained through Noise2Noise denoising score matching (DSM) [44] using only ensemble tra-jectories, eliminating the need for ground-truth posterior samples and substantially reducing the learning burden. Finally, annealed Langevin sampling refines the ensemble toward the target posterior, and the cor-rected conditional distributions are assembled into a Gaussian-mixture representation of the full posterior distribution. The key advantages of Ω are fourfold. First, we reformulate the DA problem using an augmented state consisting of the observed variables and the CGNS conditional mean of the unresolved variables, which keeps the learning and sampling procedures out of the full unresolved-state space while retaining information about its posterior distribution (Section 3.1). Second, we train a non-Gaussian residual operator on this augmented state that goes beyond the linear covariance corrections of the EnKF, allowing observational information to propagate into the unresolved variables in a fully nonlinear manner (Section 4). Third, the residual operator is learned entirely through unsupervised Noise2Noise denoising score matching using ensemble trajectories alone, eliminating the need for paired training data or ground-truth posterior samples (Section 4.3). Fourth, annealed Langevin sampling refines the augmented ensemble toward the target posterior without learning the full posterior from scratch. After the Langevin correction, each unresolved-state sample is drawn analytically from a conditional Gaussian distribution parameterized by the corrected conditional mean. Marginalizing over the ensemble yields a Gaussian-mixture posterior that is fully non-Gaussian through the diversity of the learned corrections, enabling multimodal, skewed, and heavy-tailed statistics to be accurately captured without Langevin ever acting directly in the unresolved-state space (Section 4.4). 2The remainder of the paper is organized as follows. Section 2 reviews the CGNS filtering framework. Section 3 introduces the augmented-state formulation based on the EnKF and CGNS. Section 4 presents the joint residual operator, the CGNS analytical score baseline, the unsupervised Noise2Noise denoising score matching (DSM) training framework, and the annealed Langevin analysis step together with the analytical sampling procedure for the unresolved variables. Section 5 presents numerical experiments on a hierarchy of the turbulent systems with intermittency and extreme events. Finally, Section 6 concludes the paper and discusses future research directions. 
+
+2. Conditional Gaussian Nonlinear System (CGNS) 
+
+Conditional Gaussian nonlinear systems (CGNS) provide a broad class of nonlinear stochastic dynamical systems that retain an analytically tractable conditional structure [42]. A key feature of the framework is that the full system can exhibit strongly nonlinear, non-Gaussian, intermittent, and multiscale behavior, while the conditional distribution of a subset of variables remains Gaussian and admits closed-form filtering and smoothing formulae. Importantly, the conditional Gaussian structure does not imply that the joint distribution of the full system is Gaussian. In fact, CGNS models can generate highly non-Gaussian statistics, including intermittency, skewness, heavy tails, and regime transitions [42]. This unique combination of analytical tractability and nonlinear expressiveness makes CGNS an attractive building block for scalable uncertainty quantification and data assimilation in high-dimensional systems. The framework also serves as the foundation of the proposed Ω methodology, where the closed-form conditional distributions provide a principled baseline approximation of the posterior and enable analytical treatment of high-dimensional unresolved variables. Consider a dynamical system in which the state vector U = ( X, Y) ∈ RdX × RdY is partitioned into an observed component X ∈ RdX and an unobserved (or latent) component Y ∈ RdY . The CGNS is defined by the coupled stochastic differential equations [42]: 
+
+dX = [ A0(X, t ) + A1(X, t ) Y] dt + ΣX (X, t ) dWX (t), (2.1) 
+
+dY = [ a0(X, t ) + a1(X, t ) Y] dt + ΣY (X, t ) dWY (t), (2.2) where WX ∈ RdX and WY ∈ RdY are independent standard Wiener processes. The coefficient functions 
+
+A0, A1, a0, a1, ΣX , and ΣY may be arbitrary nonlinear functions of the observed state X and time t.Although the dynamics are conditionally linear in Y, the coupled system remains fully nonlinear and can generate strongly non-Gaussian statistics. 
+
+2.1. Closed-Form Posterior for the Latent Variables 
+
+The CGNS framework requires that the observed component X is available continuously in time. For-mally, the filtration generated by the observation path 
+
+FXt = {X(s) : 0 ≤ s ≤ t} (2.3) is assumed to be fully accessible up to the current time t. Then, conditioned on the observation path FXt ,CGNS provides the posterior distribution of the latent state Y(t) for all t:
+
+p Y(t) | F Xt
+
+ = N (μ(t), R(t)) . (2.4) The conditional mean μ(t) ∈ RdY and conditional covariance R(t) ∈ RdY ×dY evolve according to the following closed-form ODEs, driven by the observed path X(t) [45]: 
+
+dμ = ( a0 + a1μ)dt + RA ∗
+
+> 1
+
+(ΣX Σ∗ 
+
+> X
+
+)−1 [dX − (A0 + A1μ)dt ] , (2.5a) 
+
+dR = a1R + Ra ∗ 
+
+> 1
+
++ ΣY Σ∗ 
+
+> Y
+
+− (RA∗
+
+> 1
+
+)( ΣX Σ∗ 
+
+> X
+
+)−1(A1R) dt. (2.5b) 3Equation (2.5) is a matrix Riccati equation with a solution that depends on the model coefficients evaluated along X(t). Equation (2.5a) updates the posterior mean in response to innovations in the observed process 
+
+dX. The closed-form nature of these equations is a direct consequence of the conditional linearity of (2.2). In many geophysical and physical applications (see [42] for a comprehensive list of physical models), 
+
+X may represent a densely sampled observable (e.g., sea surface temperature, radar reflectivity, or high-frequency sensor measurements), while Y encodes the unresolved or slowly varying latent modes. 
+
+Remark 1 (Exact nonlinear filtering). The CGNS equations (2.5a)–(2.5b) constitute an exact solution to the nonlinear filtering problem for this system class, with no Monte Carlo approximation required for the latent component. The nonlinearity of the full system enters through the coefficient functions a0(X, t ),
+
+A1(X, t ), and ΣY (X, t ), which are evaluated pointwise along the observed trajectory X(t).
+
+2.2. Applications and Significance of the CGNS Framework 
+
+The broad applicability of the CGNS framework and the analytical tractability of its associated filtering equations provide a strong motivation for its use as the baseline model in Ω. In particular, the closed-form conditional distributions furnish a computationally efficient approximation of the posterior while retaining essential nonlinear and non-Gaussian features of the underlying dynamics. Many nonlinear stochastic dynamical systems fit naturally into the CGNS framework [42]. Representative examples include stochastic versions of the Lorenz models, low-order Charney-DeVore atmospheric models, topographic mean-flow interaction models, coupled reaction-diffusion systems in neuroscience and ecology, and multiscale models for geophysical fluid dynamics. These examples span a wide range of applications and demonstrate that the CGNS framework is not a specialized model class, but rather a broad modeling paradigm for nonlinear stochastic systems. The framework has also been used to develop realistic reduced-order models for phenomena such as the Madden-Julian Oscillation and Arctic sea ice variability [46, 47]. Beyond its modeling capability, the CGNS framework has enabled a wide range of theoretical and practi-cal developments. The closed-form data assimilation formulae have been exploited in nonlinear Lagrangian data assimilation, uncertainty quantification, state estimation, prediction of intermittent atmosphere and ocean phenomena, and efficient numerical solutions of high-dimensional Fokker-Planck equations [48, 49, 50]. These successes demonstrate that the analytical conditional structure of CGNS provides a powerful and ver-satile foundation for scalable inference in complex nonlinear systems. The analytical conditional structure underlying CGNS has also been exploited in stochastic superparameterization [51] and dynamic stochastic superresolution [52]. 
+
+3. Ensemble Kalman Filter with CGNS Forecast Model for a General Nonlinear System 
+
+The closed-form filtering equations in Section 2 require continuous-time observations of the observed variables. In practice, however, observations are available only at discrete times and the underlying dynamics may not exactly satisfy the CGNS assumptions. To bridge this gap, we embed a CGNS surrogate within an EnKF framework. The CGNS provides a computationally efficient forecast model together with analytical conditional distributions for the unresolved variables, while the EnKF handles discrete-time observations and serves as the baseline posterior approximation for the subsequent score-based correction. We consider a general dynamical system with a complex nonlinear model. The observations are available at discrete times t1 < t 2 < · · · < t K for only X. That is, at each observation time tk, we receive a noisy partial measurement, such that: 
+
+Zk = HU k + ηk, ηk ∼ N (0 , Robs ), (3.1) where Uk = U(tk) and H = [ HX , 0] ∈ Rdz ×d is an observation operator where d = dX + dY , HX ∈ Rdz ×dX
+
+is the restriction of H to the observed component, and 0 ∈ Rdz ×dY . Robs ∈ Rdz ×dz is the observation noise covariance. We denote the history of observations up to time tk as Z0: k = {Z1, . . . , Zk}.4To handle discrete observations while retaining the analytical structure of the CGNS, we embed the CGNS as the forecast model within an EnKF. Rather than tracking raw Y samples in the ensemble, we track the augmented state 
+
+V(i) 
+
+> k
+
+=
+
+
+
+X(i) 
+
+> k
+
+, μ(i)
+
+> k
+
+
+
+∈ RdX × RdY , (3.2) where μ(i) 
+
+> k
+
+is the CGNS conditional mean of Y(i) 
+
+> k
+
+given the i-th ensemble trajectory X(i)0: k. The CGNS conditional covariance R(i) 
+
+> k
+
+∈ RdY ×dY is tracked separately for each ensemble. The EnKF then operates in two steps: a forecast step, in which the augmented ensemble is propagated forward through the CGNS dynamics, and an analysis step, in which it is updated using the incoming partial observation Zk.The augmented-state formulation plays a central role in Ω. Rather than directly learning or sampling in the high-dimensional unresolved state space, we represent the unresolved variables through their CGNS conditional statistics. The conditional mean μ(i) 
+
+> k
+
+provides a compact representation of the unresolved-state posterior and serves as the target of the subsequent non-Gaussian correction. This formulation allows the score-learning and Langevin-sampling procedures to operate on the augmented state rather than directly on the full unresolved-state distribution. 
+
+3.1. Forecast Step: CGNS Propagation 
+
+Between observation times tk−1 and tk, the analysis augmented ensemble {V(i)
+
+> a,k −1
+
+}Ni=1 =
+
+{(X(i)
+
+> a,k −1
+
+, μ(i)
+
+> a,k −1
+
+)}Ni=1 , together with the analysis covariances {R(i)
+
+> a,k −1
+
+}Ni=1 , is propagated forward through the CGNS dynamics in three stages. 
+
+Stage 1: Propagation of the observed component.. For each ensemble member i = 1 , . . . , N , the observed component is propagated by integrating the SDE (2.1) from tk−1 to tk:
+
+dX(i) =
+
+h
+
+A0(X(i), t ) + A1(X(i), t ) Y(i)i
+
+dt + ΣX (X(i), t ) dW(i) 
+
+> X
+
+(t), t ∈ [tk−1, t k], (3.3) with initial condition X(i)(tk−1) = X(i)
+
+> a,k −1
+
+. Each realization W(i) 
+
+> X
+
+is an independent Wiener process, so the N trajectories {X(i) 
+
+> tk−1:tk
+
+}Ni=1 are statistically independent given the analysis ensemble at tk−1. The forecast ensembles X(i) 
+
+> f,k
+
+= X(i)(tk) approximate the marginal predictive distribution p(Xk | Z0: k−1), which is generally non-Gaussian due to the nonlinear drift A0.
+
+Stage 2: CGNS conditional forecast for the latent component. Given the trajectory X(i) 
+
+> tk−1:tk
+
+, following a similar approach, we solve (2.5a)–(2.5b) by starting from the analysis conditional at tk−1, considering Yk−1 |
+
+X(i)0: k−1 ∼ N 
+
+
+
+μ(i)
+
+> a,k −1
+
+, R(i)
+
+> a,k −1
+
+
+
+, the conditional mean μ(i)(t) and covariance R(i)(t) are evolved forward by integrating the CGNS forecast ODEs along X(i) 
+
+> tk−1:tk
+
+. The initial conditions are μ(i)(tk−1) = μ(i) 
+
+> a,k −1
+
+and 
+
+R(i)(tk−1) = R(i)
+
+> a,k −1
+
+. At t = tk we obtain the forecast conditional posterior 
+
+Yk | X(i) 
+
+> tk−1:tk
+
+∼ N 
+
+
+
+μ(i)
+
+> f,k
+
+, R(i)
+
+> f,k
+
+
+
+, (3.4) where μ(i) 
+
+> f,k
+
+= μ(i)(tk) and R(i) 
+
+> f,k
+
+= R(i)(tk). To generate latent trajectories consistent with the conditional distribution (3.4), we employ the martingale-based sampling procedure of [53]. The resulting stochastic differential equation preserves both the conditional Gaussian marginals and the temporal correlations implied by the CGNS: 
+
+dY(i) = dμ(i) +
+
+
+
+a1 − R(i)A∗ 
+
+> 1
+
+(ΣX Σ∗ 
+
+> X
+
+)−1 A1
+
+  
+
+Y(i) − μ(i)
+
+dt 
+
++
+
+
+
+ΣY Σ∗ 
+
+> Y
+
++ R(i)A∗ 
+
+> 1
+
+(ΣX Σ∗ 
+
+> X
+
+)−1 A1R(i)1/2
+
+dW(i) 
+
+> Y
+
+.
+
+(3.5) Equation (3.5) admits a natural interpretation. The first term tracks the evolution of the conditional mean, the second term provides a mean-reverting correction toward the conditional mean, and the third term injects stochastic fluctuations consistent with the conditional covariance. The second term is a mean-reverting drift that pulls Y(i) back toward μ(i) whenever it deviates: the matrix a1 − R(i)A∗ 
+
+> 1
+
+(ΣX Σ∗ 
+
+> X
+
+)−1 A1. The 5diffusion term 
+
+
+
+ΣY Σ∗ 
+
+> Y
+
++ R(i)A∗ 
+
+> 1
+
+(ΣX Σ∗ 
+
+> X
+
+)−1 A1R(i)
+
+1/2
+
+dW(i) 
+
+> Y
+
+injects the remaining stochastic fluctuation that is not explained by the mean.Together, these three terms ensure that integrating (3.5) forward from any initial draw Y(t0)(i) ∼ N (μ(t0)(i), R(i) 
+
+> f
+
+(t0)) produces a trajectory whose marginal distribution at every later time t matches N (μ(i)(t), R(i) 
+
+> f
+
+(t)) , while also preserving the correct temporal correlations along the path. The forward sampling procedure provides two practical benefits. First, the conditional Gaussian structure supplies the full distribution of the unresolved variables analytically, so generating trajectories incurs little additional computational cost beyond evolving the conditional statistics. Second, the unresolved trajectories inherit their distribution from the conditional posterior, avoiding direct Monte Carlo exploration of the full unresolved-state space while preserving the correct temporal correlations. 
+
+Remark 2 (Discrete-time propagation in CGNS). A key advantage of the CGNS framework is that it lets us update the conditional posterior statistics only at the observation times, without resolving the continuous dynamics on much smaller internal time steps. That is, instead of integrating these equations with a small internal step required for integrating (3.3) δt ≪ ∆tn, we propagate the conditional statistics directly from tn to tn+1 using the state transition map. Thus, in CGNS, the natural propagation step is simply the observation interval ∆tn = tn+1 − tn, avoiding the need for finer time discretization [54]. 
+
+Remark 3 (Forecast covariance evolution is conditionally deterministic). The forecast covariance ODE using (2.5b) depends on X(i)(t) only through the model coefficients A1(X(i), t ) and ΣY (X(i), t ), and not through the innovation process appearing in (2.5a). It can therefore be integrated in parallel with (3.3) indepndent of the assimilation process. By contrast, the mean equation (2.5a) depends explicitly on the observation increment dX(i) and must be integrated separately for each ensemble trajectory. 
+
+Stage 3: Augmented forecast ensemble. The forecast step produces the augmented forecast ensemble 
+
+n
+
+V(i)
+
+> f,k
+
+oNi=1 
+
+=
+
+n 
+
+X(i)
+
+> f,k
+
+, μ(i)
+
+> f,k
+
+o Ni=1 
+
+, (3.6) with forecast covariances {R(i)
+
+> f,k
+
+}Ni=1 retained separately for the latent sampling stage (Section 4.4). The marginal predictive distribution of Yk implied by the forecast ensemble is the Gaussian mixture 
+
+p(Yk | Z0: k−1) ≈ 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+N
+
+
+
+μ(i)
+
+> f,k
+
+, R(i)
+
+> f,k
+
+
+
+, (3.7) which deploys the diversity of the forecast means {μ(i)
+
+> f,k
+
+} and the nonlinear dependence of (2.5a) on X(i)(t).
+
+3.2. Analysis Step: EnKF Update on the Augmented State 
+
+EnKF analysis step updates the augmented forecast ensemble {V(i)
+
+> f,k
+
+}Ni=1 toward the posterior as: 
+
+V(i) 
+
+> a,k
+
+= V(i) 
+
+> f,k
+
++ Kk
+
+
+
+Zk − HV (i) 
+
+> f,k
+
++ ϵ(i)
+
+> k
+
+
+
+, (3.8) 
+
+Kk = Pf,k H⊤ HP f,k H⊤ + Robs 
+
+−1 , (3.9) where ϵ(i) 
+
+> k
+
+∼ N (0 , Robs ) are independent observation perturbations introduced to maintain ensemble spread [55], and Pf,k is the empirical forecast covariance of the augmented ensemble: 
+
+Pf,k = 1
+
+N − 1
+
+> N
+
+X
+
+> i=1
+
+
+
+V(i) 
+
+> f,k
+
+− ¯Vf,k 
+
+  
+
+V(i) 
+
+> f,k
+
+− ¯Vf,k 
+
+⊤
+
+, ¯Vf,k = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+V(i)
+
+> f,k
+
+. (3.10) The observation operator H remains unchanged since it is applied only to X(i). The EnKF update (3.8) yields the analysis augmented ensemble 
+
+n
+
+V(i)
+
+> a,k
+
+oNi=1 
+
+=
+
+n 
+
+X(i)
+
+> a,k
+
+, μ(i)
+
+> a,k
+
+o Ni=1 
+
+, (3.11) 6which delivers the joint posterior of the augmented state. Although the augmented-state EnKF provides a computationally efficient posterior approximation, the resulting distribution remains largely Gaussian and therefore cannot accurately capture strongly non-Gaussian statistics. The next section introduces a residual score operator that corrects this baseline posterior and drives the ensemble toward the target non-Gaussian distribution. 
+
+3.3. CGNS Surrogates for General Nonlinear Systems 
+
+The Ω framework does not require the true dynamics to exactly satisfy the CGNS structure. The role of the CGNS is to provide a tractable baseline approximation with closed-form conditional distributions for the unresolved variables. The subsequent score correction compensates for the discrepancy between this surrogate and the true posterior. When a natural CGNS representation is unavailable, several surrogate constructions are possible. Asimple approach is to linearize the latent dynamics and absorb unresolved nonlinear effects into an infla-tion noise term. More accurate approximations can be obtained through local polynomial expansions or sensitivity-based linearizations [49]. For highly nonlinear systems, Koopman-based lifting methods such as the Conditional Gaussian Koopman Network (CGKN) [56, 54] provide a systematic framework for construct-ing CGNS surrogates in a higher-dimensional feature space. Theorem 2 quantifies the effect of the surrogate approximation. A more accurate surrogate reduces the score discrepancy between the baseline and target posterior, thereby reducing the correction required from the residual operator and accelerating the convergence of the Langevin refinement. 
+
+4. Ω: Residual Operator Learning for Non-Gaussian Data Assimilation 
+
+This section introduces the Ω framework for non-Gaussian data assimilation. Figure 1 contains a sum-mary of the methodology. The main idea is to reinterpret the EnKF-CGNS analysis step as a Gaussian score approximation and then learn a nonlinear residual score that corrects the discrepancy between this Gaussian baseline and the true posterior. The learned score is used in an annealed Langevin analysis step on the augmented state Vk = ( Xk, μk), where μk is the CGNS conditional mean of the latent variable Yk.After the augmented state is corrected, the latent posterior is recovered analytically as a Gaussian mixture.                  
+
+> Fig. 1. Overview of the Ωframework. The EnKF-CGNS forecast produces an augmented ensemble {V(i)
+> f,k }={(X(i)
+> f,k ,μ(i)
+> f,k )}.A residual score operator sθtrained through Noise2Noise denoising score matching corrects the augmented state by annealed Langevin MCMC. The corrected conditional means {μ(i)
+> a,k }then parametrize Gaussian conditionals from which latent samples are drawn analytically, producing a non-Gaussian Gaussian-mixture posterior for Yk.
+
+74.1. Gaussian Baseline Score from the EnKF-CGNS 
+
+The goal of the analysis step is to correct the augmented forecast ensemble {V(i)
+
+> f,k
+
+}Ni=1 toward the posterior distribution 
+
+p(Vk | Z0: k) ∝ p(Zk | Vk) p(Vk | Z0: k−1). (4.1) Rather than viewing the EnKF update only as a covariance-based correction, we reinterpret it as an ap-proximation of the posterior score on the augmented state. Taking the gradient of the logarithm of (4.1) gives 
+
+∇Vk log p(Vk | Z0: k)
+
+| {z }  
+
+> sEnKF ,k (Vk)
+
+= ∇Vk log p(Vk | Z0: k−1)
+
+| {z }  
+
+> sprior ,k (Vk)
+
++ ∇Vk log p(Zk | Vk)
+
+| {z }  
+
+> slik ,k (Vk)
+
+. (4.2) Since observations act only on Xk, the likelihood score on the augmented state Vk = ( Xk, μk) is 
+
+slik ,k (Vk) = 
+
+H⊤ 
+
+> X
+
+R−1obs (Zk − HX Xk)
+
+0
+
+
+
+. (4.3) The EnKF-CGNS forecast approximates the prior distribution of the augmented state by 
+
+p(Vk | Z0: k−1) ≈ N ( ¯Vf,k , Pf,k ), (4.4) where ¯Vf,k and Pf,k are the empirical forecast mean and covariance. Therefore the Gaussian baseline posterior score is 
+
+sEnKF ,k (Vk) = −P−1
+
+> f,k
+
+(Vk − ¯Vf,k ) + H⊤R−1obs (Zk − HV k), (4.5) where H =  HX 0. Writing the forecast covariance blockwise as 
+
+Pf,k = PXX f,k PXμ f,k 
+
+PμX f,k Pμμ f,k 
+
+!
+
+, (4.6) shows that the Gaussian baseline propagates observational information into μk only through the linear cross-covariance blocks PXμ f,k and PμX f,k . This is the key limitation that motivates the nonlinear residual operator below. 
+
+4.2. Residual Operator Model 
+
+When the true posterior is non-Gaussian, the affine EnKF score (4.5) cannot represent higher-order posterior corrections. The role of the residual operator is therefore not to replace the EnKF-CGNS baseline, but to learn the missing nonlinear score component. We decompose the posterior score as 
+
+spost ,k (Vk) ≈ sEnKF ,k (Vk) + sθ (Vk, σ, Ck), (4.7) where σ > 0 is the score-matching noise level and sθ is a neural residual score operator. The residual operator is conditioned on the local filtering context 
+
+Ck =   ¯Vf,k , diag( Pf,k ), Zk
+
+. (4.8) More generally, Ck may include additional summary statistics of the forecast ensemble, such as selected covariance entries or low-dimensional features of Pf,k . The residual score acts on the full augmented state and is decomposed as 
+
+sθ (Vk, σ, Ck) = 
+
+sXθ (Vk, σ, Ck)
+
+sμθ (Vk, σ, Ck)
+
+
+
+. (4.9) The component sXθ learns non-Gaussian corrections in the observed subspace. The component sμθ is more important: it corrects the CGNS conditional mean beyond what can be captured by the linear cross-covariance in the EnKF baseline. Thus, Ω propagates non-Gaussian observational information into the latent conditional distribution through the corrected means μ(i)
+
+> a,k
+
+.84.3. Unsupervised Training via Noise2Noise Denoising Score Matching 
+
+The residual operator is trained without access to samples from the true posterior. Instead, we adopt denoising score matching (DSM) [57] on the augmented state Vk = ( Xk, μk). For a noise level σ > 0, define the perturbed augmented state 
+
+˜Vk = Vk + σϵ, ϵ ∼ N (0, IdX +dY ) , (4.10) where Vk is drawn from the forecast augmented ensemble (3.6). The perturbation kernel is pσ ( ˜Vk | Vk) = 
+
+N  Vk, σ 2I, whose score is 
+
+∇ ˜Vk log pσ ( ˜Vk | Vk) = − ϵ
+
+σ . (4.11) Following the standard DSM formulation, the residual operator is trained by minimizing 
+
+L(θ) = EVk ,ϵ,σ 
+
+
+
+σ2 sEnKF ,k ( ˜Vk) + sθ ( ˜Vk, σ, Ck) + ϵ
+
+σ
+
+> 2
+
+
+
+. (4.12) The expectation is taken over ensemble samples Vk, Gaussian perturbations ϵ, and noise levels σ ∼ p(σ). The factor σ2 follows the noise-conditioned score network (NCSN) construction [58] and balances contributions from different noise scales. In practice, we add a small regularization term λr ∥sθ ∥2 to stabilize training and prevent excessive score magnitudes. Theorem 1 establishes the consistency of (4.12) in an idealized setting where samples from the true posterior are available. The theorem provides the foundation for the subsequent Noise2Noise analysis, where training is performed using the EnKF-CGNS surrogate rather than the true posterior. 
+
+Theorem 1 (Ideal DSM Consistency on the Augmented State) . Let paug (Vk | Z0: k) be a continuously differentiable density on RdX +dY with finite Fisher information 
+
+I(paug ) := Epaug 
+
+h
+
+∥∇ Vk log paug (Vk | Z0: k)∥2i
+
+< ∞. (4.13) 
+
+Let 
+
+pσ ( ˜Vk | Vk) = N (Vk, σ 2I)
+
+and define the smoothed marginal 
+
+pσ ( ˜Vk) = 
+
+ˆ
+
+pσ ( ˜Vk | Vk) paug (Vk | Z0: k) dVk. (4.14) 
+
+Suppose 
+
+sEnKF ,k + sθ ∈ L2(pσ ).
+
+Then: 
+
+(i) The DSM objective satisfies 
+
+L(θ) = Epσ
+
+h
+
+σ2 ∥sEnKF ,k + sθ − ∇ log pσ ∥2i
+
++ C, (4.15) 
+
+where 
+
+C = Epσ
+
+σ2∥∇ log pσ ∥2 (4.16) 
+
+is finite and independent of θ.
+
+(ii) The unique minimizer satisfies 
+
+sEnKF ,k + sθ∗ = ∇ log pσ pσ -a.e. (4.17) (iii) As σ → 0,
+
+∇ log pσ → ∇ log paug (· | Z0: k) in L2(paug ), (4.18) 
+
+and consequently 
+
+sθ∗ → ∇ log paug (· | Z0: k) − sEnKF ,k in L2(paug ). (4.19) 9Proof sketch. The key step is Stein’s identity applied to the perturbed state 
+
+˜Vk = Vk + σϵ.
+
+Conditioning on ˜Vk gives 
+
+E
+
+h
+
+− ϵ
+
+σ ˜Vk
+
+i
+
+= ∇ log pσ ( ˜Vk),
+
+which converts the DSM objective into an L2(pσ ) distance between the total learned score and the score of the smoothed posterior. The minimizer therefore coincides with the posterior score of the smoothed distribution. The small-noise limit follows from the continuity of Gaussian smoothing under finite Fisher information. The full proof is given in Appendix A. Theorem 1 shows that DSM provides a rigorous surrogate for learning the posterior score on the aug-mented state. The training objective is equivalent to matching the score of the Gaussian-smoothed posterior, the minimizer is unique, and the learned residual converges to the true non-Gaussian correction as the noise level tends to zero. This ideal result serves as the foundation for the Noise2Noise analysis in Theorem 2, where the true posterior samples are replaced by samples from the EnKF-CGNS surrogate. 
+
+Theorem 2 (Noise2Noise Surrogate Consistency) . Let paug (Vk | Z0: k) denote the true augmented posterior, and let q(N )aug (Vk | Z0: k) denote the surrogate distribution induced by the EnKF-CGNS forecast ensemble (3.6) .We model this surrogate as the empirical Gaussian mixture 
+
+q(N )aug (Vk | Z0: k) = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+N
+
+
+
+V(i)
+
+> f,k
+
+, Pf,k 
+
+
+
+, (4.20) 
+
+where Pf,k is the shared empirical forecast covariance (3.10) . Define the Gaussian-smoothed distributions 
+
+pσ ( ˜Vk) = 
+
+ˆ
+
+N
+
+ ˜Vk; Vk, σ 2I
+
+
+
+paug (Vk | Z0: k)dVk, (4.21) 
+
+q(N ) 
+
+> σ
+
+( ˜Vk) = 
+
+ˆ
+
+N
+
+ ˜Vk; Vk, σ 2I
+
+
+
+q(N )aug (Vk | Z0: k)dVk. (4.22) 
+
+Assume that paug and q(N )aug have finite Fisher information and that 
+
+sEnKF ,k + sθ ∈ L2(q(N ) 
+
+> σ
+
+).
+
+For σ > 0, both pσ and q(N ) 
+
+> σ
+
+are strictly positive on RdX +dY and are mutually absolutely continuous with respect to Lebesgue measure. Let 
+
+pCGNS (Vk | Z0: k) := lim   
+
+> N→∞
+
+q(N )aug (Vk | Z0: k) (4.23) 
+
+denote the infinite-ensemble CGNS surrogate posterior, and let pCGNS ,σ denote its Gaussian smoothing. When the true dynamics do not exactly satisfy the CGNS structure (2.1) –(2.2) , define the CGNS misspeci-fication error 
+
+εCGNS := ∥∇ log pCGNS ,σ − ∇ log pσ ∥L2(paug ) . (4.24) 
+
+Then the following statements hold. 
+
+(i) Surrogate DSM identity. The DSM objective trained on surrogate samples Vk ∼ q(N )aug satisfies 
+
+Lq (θ) = Eq(N )
+
+> σ
+
+
+
+σ2 sEnKF ,k ( ˜Vk) + sθ ( ˜Vk) − ∇ ˜Vk log q(N ) 
+
+> σ
+
+( ˜Vk) 2
+
++ Cq , (4.25) 
+
+where 
+
+Cq = Eq(N )
+
+> σ
+
+
+
+σ2 ∇ log q(N ) 
+
+> σ
+
+( ˜Vk) 2
+
+(4.26) 
+
+is independent of θ.
+
+10 (ii) Minimizer characterization. The unique minimizer θ∗ of Lq (θ) over L2(q(N ) 
+
+> σ
+
+) satisfies 
+
+sEnKF ,k ( ˜Vk) + sθ∗ ( ˜Vk) = ∇ ˜Vk log q(N ) 
+
+> σ
+
+( ˜Vk) q(N ) 
+
+> σ
+
+-a.e. (4.27) (iii) Two-source error decomposition. Define the finite-ensemble sampling error 
+
+εsamp (N ) := ∇ log q(N ) 
+
+> σ
+
+− ∇ log pCGNS ,σ L2(paug )
+
+. (4.28) 
+
+Then the approximation error of the learned residual satisfies 
+
+∥sθ∗ − (∇ log pσ − sEnKF ,k )∥L2(paug ) ≤ εsamp (N )
+
+| {z }
+
+> finite-ensemble sampling
+
++ εCGNS 
+
+| {z } 
+
+> structural misspecification
+
+. (4.29) (iv) Elimination of sampling error as N → ∞ . Under standard EnKF consistency conditions, q(N )aug 
+
+converges to pCGNS as N → ∞ . Under the regularity assumptions used in Appendix B, this implies 
+
+εsamp (N ) → 0 as N → ∞ . (4.30) 
+
+Consequently, 
+
+lim   
+
+> N→∞
+
+∥sθ∗ − (∇ log pσ − sEnKF ,k )∥L2(paug ) ≤ εCGNS . (4.31) 
+
+Thus the infinite-ensemble residual error is determined entirely by the structural mismatch between the CGNS surrogate and the true posterior. 
+
+(v) Full convergence when CGNS is exact. If the true system dynamics exactly satisfy the CGNS structure (2.1) –(2.2) , then pCGNS = paug and εCGNS = 0 . Therefore 
+
+sθ∗ → ∇ log paug (· | Z0: k) − sEnKF ,k in L2(paug ) (4.32) 
+
+as N → ∞ and σ → 0.
+
+Theorem 2 addresses the practical reality that training samples are drawn from the EnKF–CGNS sur-rogate q(N )aug rather than from the unknown true posterior paug . It shows that the Noise2Noise setup is still principled: the DSM objective trained on surrogate samples recovers the surrogate score exactly, and the discrepancy from the true posterior score decomposes into two independent components. The first is a finite-ensemble sampling error that vanishes as N grows. The second is a structural CGNS misspecifica-tion error that persists even for infinite ensembles. Therefore, improving Ω requires identifying which error source dominates: increasing N reduces the sampling error, while improving the CGNS surrogate reduces the irreducible misspecification floor. 
+
+Proof sketch. Parts (i) and (ii) follow by repeating the proof of Theorem 1 with paug replaced by q(N )aug .The Stein identity applies because the Gaussian-smoothed surrogate density is continuously differentiable, strictly positive, and has finite Fisher information. For Part (iii), the minimizer identity gives 
+
+sθ∗ = ∇ log q(N ) 
+
+> σ
+
+− sEnKF ,k q(N ) 
+
+> σ
+
+-a.e. Since σ > 0, the Gaussian-smoothed densities are strictly positive and mutually absolutely continuous, so the identity can be compared on the support relevant to paug . Subtracting the target residual ∇ log pσ − sEnKF ,k 
+
+and inserting the intermediate score ∇ log pCGNS ,σ gives 
+
+∥sθ∗ − (∇ log pσ − sEnKF ,k )∥L2(paug )
+
+= ∇ log q(N ) 
+
+> σ
+
+− ∇ log pσ L2(paug )
+
+≤ ∇ log q(N ) 
+
+> σ
+
+− ∇ log pCGNS ,σ L2(paug )
+
++ ∥∇ log pCGNS ,σ − ∇ log pσ ∥L2(paug ) .
+
+11 This proves the two-source decomposition (4.29). For Part (iv), EnKF consistency gives convergence of q(N )aug toward pCGNS . Gaussian smoothing preserves this convergence and the regularity assumptions in Appendix B allow the convergence to be transferred to the corresponding smoothed scores. Hence εsamp (N ) → 0. Part (v) follows immediately: if pCGNS = paug ,then εCGNS = 0 , so the learned residual converges to the true posterior correction. The full proof is given in Appendix B. 
+
+Remark 4 (Mutual absolute continuity for σ > 0). The mutual absolute continuity assumption used in Theorem 2 is automatically satisfied for any σ > 0. Indeed, both pσ and qσ are obtained by convolving their respective base measures with the Gaussian kernel N (0 , σ 2I), which has full support on RdX +dY .Consequently, both smoothed distributions admit strictly positive densities on the entire state space and therefore share the same Lebesgue-null sets. It follows that pσ ∼ qσ , that is, the two measures are mutually absolutely continuous. Therefore any identity that holds qσ -almost everywhere, including the minimizer identity (4.27), also holds pσ -almost everywhere. This allows the learned surrogate score to be compared directly with the score of the smoothed target posterior. 
+
+Remark 5 (Two-source error decomposition: interpretation and diagnostics). The error bound (4.29) separates two fundamentally different sources of approximation error, each with a different prac-tical remedy. 
+
+• Sampling error εsamp (N ). This term arises from representing the CGNS surrogate posterior using a finite ensemble. By Theorem 2(iv), 
+
+εsamp (N ) → 0 as N → ∞ .
+
+In practice, finite-ensemble effects enter both the surrogate distribution and the Monte Carlo approx-imation of the DSM objective. They can therefore be reduced by increasing the ensemble size or by improving the sampling accuracy of the training procedure. 
+
+• CGNS misspecification error εCGNS . This term arises when the true dynamics do not exactly satisfy the CGNS structure (2.1)–(2.2). Unlike the sampling error, it does not vanish as N → ∞ 
+
+because it reflects a structural limitation of the surrogate model itself. The residual operator sθ is trained to recover the surrogate score ∇ log qσ . Consequently, it can correct finite-ensemble effects and nonlinear posterior structure represented by the surrogate, but it cannot remove the discrepancy between the surrogate posterior and the true posterior. When εCGNS is large, improving the CGNS surrogate directly is the only way to reduce the irreducible approximation floor. Although εCGNS is not directly observable, the innovation 
+
+νk := zk − H ¯Vf,k (4.33) provides a useful diagnostic. Under a well-specified CGNS surrogate and an approximately Gaussian forecast, 
+
+E[νk] = 0 , Cov( νk) = HP f,k H⊤ + Robs .
+
+Persistent innovation bias or covariance inflation therefore suggests that surrogate misspecification, rather than finite-ensemble error, is the dominant limitation. 
+
+Remark 6 (Component-wise stabilization). Learning the residual correction in the μ-subspace is gen-erally more difficult than in the observed X-subspace. The observed component Xk receives information directly from the likelihood term, whereas the conditional mean μk is influenced only indirectly through the 12 forecast cross-covariance PμX f,k . Consequently, the signal-to-noise ratio of the residual correction is typically weaker in the μ-subspace, making the corresponding score estimates more sensitive to sampling error and optimization noise. To improve training stability, we employ a weighted component-wise DSM objective: 
+
+Lw(θ) = E
+
+
+
+σ2 sX
+
+> tot ,k
+
+( ˜Vk) + ϵX
+
+σ
+
+> 2
+
++ λσ 2 sμ
+
+> tot ,k
+
+( ˜Vk) + ϵμ
+
+σ
+
+> 2
+
+
+
+, (4.34) where 
+
+ϵ = ( ϵX , ϵμ)
+
+denotes the decomposition of the perturbation noise into observed and conditional-mean components, 
+
+stot ,k = sEnKF ,k + sθ ,
+
+and λ ∈ (0 , 1] controls the relative strength of the μ-subspace correction. This weighting reflects the design philosophy of Ω. The EnKF-CGNS baseline already provides a stable first-order update for μk through the cross-covariance PμX f,k . The role of the residual operator is therefore not to replace this baseline correction, but to refine it by learning the remaining non-Gaussian component of the posterior score. Taking λ < 1 encourages the neural residual to act as a higher-order correction while preserving the robustness of the Gaussian baseline during the early stages of training. 
+
+4.4. Annealed Langevin Analysis on the Augmented State 
+
+Given the trained residual operator sθ , the analysis augmented ensemble is generated by annealed Langevin dynamics on the augmented state Vk = ( Xk, μk), initialized from the forecast ensemble {V(i)
+
+> f,k
+
+}Ni=1 .A key design choice in Ω is that the score correction is performed on the augmented state (Xk, μk)
+
+rather than on the full state (Xk, Yk). The variable μk parametrizes the CGNS conditional posterior of the latent state. Correcting μk therefore modifies the entire conditional distribution of Yk while preserving the closed-form Gaussian structure of the CGNS representation. For each ensemble member, the Langevin update at iteration ℓ is given by 
+
+V(i,ℓ +1)  
+
+> k
+
+= V(i,ℓ ) 
+
+> k
+
++ αℓ
+
+2
+
+h
+
+sEnKF ,k 
+
+
+
+V(i,ℓ )
+
+> k
+
+
+
++ sθ
+
+
+
+V(i,ℓ ) 
+
+> k
+
+, σ ℓ, Ck
+
+i 
+
++ √αℓ η(i) 
+
+> ℓ
+
+, η(i) 
+
+> ℓ
+
+∼ N (0 , I), (4.35) where αℓ > 0 is the step-size schedule and σℓ ↘ 0 is the annealed noise level. Under the assumptions of Theorem 3, the resulting chain converges to the smoothed surrogate posterior 
+
+qσ . In the exact-CGNS and infinite-ensemble limits discussed in Theorems 2 and 3, this target converges further to the true augmented posterior paug (Vk | Z0: k).After L Langevin iterations, the analysis augmented ensemble is 
+
+n
+
+V(i)
+
+> a,k
+
+oNi=1 
+
+=
+
+n 
+
+X(i)
+
+> a,k
+
+, μ(i)
+
+> a,k
+
+o Ni=1 
+
+. (4.36) 
+
+Remark 7 (Why Y is never updated by Langevin). The latent variable Yk is never evolved directly by the Langevin chain. Instead, the chain updates only the augmented state (Xk, μk), after which Yk is recovered analytically from the CGNS conditional posterior. This strategy exploits the conditional Gaussian structure of the CGNS representation. Direct Langevin sampling in the full space (Xk, Yk) would require exploring the potentially high-dimensional latent space and would destroy the closed-form conditional structure. By contrast, updating only (Xk, μk) allows the non-linear score correction to be applied where it is most informative while retaining an analytic representation of latent uncertainty. The resulting Gaussian-mixture reconstruction therefore combines the flexibility of score-based sampling with the dimensional scalability of conditional Gaussian filtering. 
+
+Theorem 3 (Langevin Convergence under Learned Surrogate Score) . Let qσ (Vk) denote the Gaussian-smoothed surrogate augmented posterior defined in Theorem 2, with σ > 0 fixed. Assume: 
+
+13 (i) qσ admits a continuously differentiable, strictly positive density on RdX +dY ;
+
+(ii) the score ∇Vk log qσ (Vk) is L-Lipschitz for some L > 0;
+
+(iii) the potential Uσ (V) := − log qσ (V) satisfies the dissipativity condition 
+
+∇Uσ (V), V ≥ m∥V∥2 − b, m > 0, b ≥ 0, (4.37) 
+
+and the associated Langevin diffusion is geometrically ergodic; 
+
+(iv) the learned residual operator sθ∗ satisfies the Noise2Noise minimizer identity 
+
+sEnKF ,k (Vk) + sθ∗ (Vk) = ∇Vk log qσ (Vk) qσ -a.e. (4.38) 
+
+and, by mutual absolute continuity of Gaussian-smoothed densities, also paug -a.e. Let {V(i,ℓ ) 
+
+> k
+
+}ℓ≥0 be generated by the Langevin recursion (4.35) , initialized at V(i, 0)  
+
+> k
+
+= V(i)
+
+> f,k
+
+. Denote 
+
+μℓ := Law( V(i,ℓ ) 
+
+> k
+
+).
+
+Then: 
+
+(i) Weak convergence to the surrogate posterior. For fixed σℓ ≡ σ and sufficiently small constant step size αℓ ≡ α, the Langevin chain is the unadjusted Langevin algorithm targeting qσ . Consequently, under the above regularity assumptions, 
+
+μℓ ⇒ qσ as ℓ → ∞ and α → 0. (4.39) (ii) Quantitative Wasserstein bound. If, in addition, the target satisfies the standard contractivity condition used in quantitative ULA theory, then for a constant step size 0 < α ≤ m/L 2,
+
+W2(μℓ, q σ ) ≤ ρℓW2(μ0, q σ ) + Bα, (4.40) 
+
+where 
+
+ρ = 1 − mα + L2α2
+
+2 ∈ (0 , 1) , (4.41) 
+
+and Bα is the ULA discretization bias satisfying 
+
+Bα = O(α) or O(√α), (4.42) 
+
+depending on the regularity assumptions used in the underlying ULA estimate. In particular, the first term in (4.40) gives geometric convergence toward the smoothed surrogate posterior, while the second term vanishes as α → 0.
+
+(iii) Convergence toward the true posterior in the exact-CGNS limit. Suppose additionally that the true dynamics exactly satisfy the CGNS structure (2.1) –(2.2) . Then pCGNS = paug and εCGNS = 0 .By Theorem 2, 
+
+sEnKF ,k + sθ∗ → ∇ log paug in L2(paug ) as N → ∞ . (4.43) 
+
+Moreover, 
+
+qσ = paug ∗ N (0 , σ 2I) ⇒ paug as σ → 0. (4.44) 
+
+Therefore, taking the limits sequentially, 
+
+W2
+
+ μℓ, p aug (Vk | Z0: k) → 0 as ℓ → ∞ , N → ∞ , α → 0, σ → 0. (4.45) 
+
+Under CGNS misspecification, the Langevin chain still targets qσ , and the residual gap to the true posterior is controlled by the surrogate misspecification error εCGNS .
+
+14 Theorem 3 establishes that the annealed Langevin step in Ω is mathematically well posed. The theorem says three things. First, once the learned score satisfies the Noise2Noise minimizer identity, the Ω analysis update is exactly the unadjusted Langevin algorithm targeting the smoothed surrogate posterior qσ . Second, quantitative ULA theory gives a Wasserstein bound with two terms: a geometrically decaying mixing term and a step-size-dependent discretization bias. Third, when the CGNS surrogate exactly represents the true dynamics, the infinite-ensemble and small-noise limits make the surrogate posterior converge to the true augmented posterior. Under surrogate misspecification, the chain still converges, but to the best posterior represented by the EnKF-CGNS surrogate. 
+
+Proof sketch. The key observation is that, by the Noise2Noise minimizer identity in Theorem 2, the total learned score satisfies 
+
+sEnKF ,k + sθ∗ = ∇ log qσ
+
+almost everywhere. Substituting this identity into the Langevin update (4.35) shows that Ω’s analysis step is precisely the unadjusted Langevin algorithm for the target density qσ . The weak convergence and the Wasserstein estimate then follow from standard convergence results for ULA under Lipschitz and dissipativity conditions; see, for example, [59]. The exact-CGNS claim follows by combining the score convergence from Theorem 2, the Gaussian smoothing limit qσ ⇒ paug as σ → 0, and the triangle inequality in Wasserstein distance. The full proof is given in Appendix D. 
+
+4.5. Analytic Gaussian Mixture Recovery of Y
+
+The Langevin correction is performed on the augmented state Vk = ( Xk, μk) rather than directly on the latent variable Yk. This is a key design feature of Ω. The conditional mean μk parametrizes the CGNS conditional posterior of Yk, so correcting μk modifies the entire latent distribution while avoiding direct sampling in the potentially high-dimensional latent space. Given the analysis augmented ensemble 
+
+n
+
+(X(i)
+
+> a,k
+
+, μ(i)
+
+> a,k
+
+)
+
+oNi=1 
+
+, the latent variable is recovered analytically through the CGNS conditional posterior: 
+
+Y(i) 
+
+> a,k
+
+∼ N 
+
+
+
+μ(i)
+
+> a,k
+
+, R(i)
+
+> f,k
+
+
+
+, i = 1 , . . . , N, (4.46) where the conditional covariance R(i) 
+
+> f,k
+
+is obtained from the CGNS forecast step (3.4). Consequently, 
+
+p(Yk | Z0: k) ≈ 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+N
+
+
+
+μ(i)
+
+> a,k
+
+, R(i)
+
+> f,k
+
+
+
+, (4.47) yielding a non-Gaussian Gaussian-mixture posterior. The non-Gaussianity arises from the ensemble diversity and from the nonlinear Langevin correction of the conditional means {μ(i)
+
+> a,k
+
+}. Unlike importance-sampling approaches, all ensemble members carry equal weight and latent uncertainty is incorporated analytically within each Gaussian component. 
+
+Remark 8 (Practical step-size choice). The Wasserstein estimate (4.40) reveals the classical bias-mixing tradeoff of Langevin sampling. Smaller step sizes reduce the discretization bias but slow geometric convergence through 
+
+ρ = 1 − mα + L2α2
+
+2 .
+
+Conversely, larger step sizes accelerate mixing but increase the asymptotic discretization error. A natural constant-step-size choice is α = O(m/L 2), which balances contraction and discretization effects. In practice, however, Ω employs an annealed schedule αℓ ↘ 0, and σℓ ↘ 0, so that early iterations explore the smoothed posterior while later iterations refine the ensemble near the target posterior. The convergence guarantees remain valid provided 
+
+> ∞
+
+X
+
+> ℓ=1
+
+αℓ = ∞,
+
+> ∞
+
+X
+
+> ℓ=1
+
+α2 
+
+> ℓ
+
+< ∞.
+
+15 Remark 9 (Beating the curse of dimensionality). A key theoretical advantage of Ω is that the Monte Carlo error of the Gaussian-mixture approximation does not grow with the latent dimension dY .The reason is that the integration over Yk is performed analytically within each conditional Gaussian component rather than by direct sampling in the latent space. Proposition 2.2 of [60] shows that when the conditional posterior p(Yk | X(i)0: k), i = 1 , . . . , N , is available in closed form, the resulting empirical mixture estimator is unbiased and has Monte Carlo error O(N −1/2), with variance determined entirely by the variability of the observed trajectories {X(i)0: k}Ni=1 . Importantly, this variance is independent of the latent dimension dY .Consequently, increasing the dimension of the latent state does not degrade the convergence rate of the Gaussian-mixture approximation (4.47). The ensemble size N controls the approximation error, while the latent dimension does not appear in the Monte Carlo rate. This provides a theoretical justification for performing Langevin dynamics only on the augmented state (Xk, μk) and recovering Yk analytically. We provide the supporting numerical reuslts in Appendix H. Finally, we show that the residual operator enriches the latent posterior beyond the affine EnKF-CGNS approximation and enables recovery of non-Gaussian posterior structures. 
+
+Theorem 4 (Non-Gaussian Recovery and Gaussian-Mixture Enrichment) . Let 
+
+spost ,k = ∇Vk log paug (Vk | Z0: k)
+
+denote the true augmented posterior score and let p∗(Yk | Z0: k) denote the true latent posterior. Let G denote the class of affine functions on RdX +dY and let Fθ denote the hypothesis class of the residual operator sθ . Assume that paug has finite second moment. Define the CGNS baseline mixture 
+
+pCGNS (Yk | Z0: k) = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+N
+
+
+
+μ(i)CGNS ,k , R(i)
+
+> f,k
+
+
+
+(4.48) 
+
+and the Ω mixture 
+
+pΩ(Yk | Z0: k) = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+N
+
+
+
+μ(i)
+
+> a,k
+
+, R(i)
+
+> f,k
+
+
+
+. (4.49) 
+
+Then: 
+
+(i) Fundamental limitation of the affine baseline. If spost ,k /∈ G , then 
+
+inf  
+
+> g∈G
+
+∥spost ,k − g∥L2(paug ) > 0. (4.50) 
+
+Hence no affine score correction can exactly recover a non-Gaussian posterior score. 
+
+(ii) Residual operator approximation. For every ε > 0 there exists sθ∗ ∈ F θ such that 
+
+∥spost ,k − sEnKF ,k − sθ∗ ∥L2(paug ) < ε. (4.51) 
+
+Moreover, the approximation error tends to zero as the network capacity increases. 
+
+(iii) Necessity of latent correction. Let 
+
+δμ = ∥sμ 
+
+> post ,k
+
+− sμ
+
+> EnKF ,k
+
+∥L2(paug ).
+
+If δμ > 0, then any residual operator satisfying (4.51) with ε < δ μ must satisfy 
+
+∥sμθ∗ ∥L2(paug ) ≥ δμ − ε > 0. (4.52) 
+
+Thus accurate posterior recovery requires a nontrivial correction in the latent conditional-mean sub-space. 
+
+16 (iv) Gaussian-mixture enrichment. 
+
+Suppose the residual operator is consistent in the sense of Theorems 2 and 3. Then, in the asymptotic regime 
+
+L → ∞ , N → ∞ , α → 0, σ → 0,
+
+the corrected mixture satisfies 
+
+pΩ(Yk | Z0: k) ⇒ p∗(Yk | Z0: k), (4.53) 
+
+whereas the CGNS baseline remains limited by its structural misspecification. Consequently, 
+
+DKL (p∗ ∥ pΩ) → 0, (4.54) 
+
+while DKL (p∗ ∥ pCGNS ) remains bounded below by the residual CGNS approximation error whenever the baseline mixture does not coincide with the true posterior. 
+
+Theorem 4 provides the main expressiveness result for Ω. Part (i) shows that affine score corrections are fundamentally incapable of representing non-Gaussian posterior structure. Part (ii) establishes that the residual operator can approximate the missing nonlinear score correction arbitrarily well. Part (iii) shows that recovering latent posterior information generically requires a nontrivial correction of the conditional mean μk. Finally, Part (iv) connects the learned score correction to the output of the method: the Langevin-corrected conditional means produce a Gaussian-mixture posterior that converges toward the true latent posterior and is asymptotically richer than the CGNS baseline. 
+
+Proof sketch. Part (i) follows from the orthogonal projection theorem in L2(paug ). Since G is a closed finite-dimensional subspace, a non-affine posterior score has a strictly positive distance from G. Part (ii) follows from the universal approximation theorem together with a standard tail-truncation argument using the finite second moment of paug . Part (iii) follows by projecting the approximation error onto the μ component and applying the triangle inequality. Part (iv) follows from the convergence of the learned score to the posterior score, the Langevin convergence result of Theorem 3, and the analytic Gaussian-mixture representation (4.47). The full proof is given in Appendix F. 
+
+4.6. Summary of Information Flow 
+
+Table 1 summarizes the main information pathways in one Ω assimilation cycle. The EnKF-CGNS baseline provides a stable Gaussian first-order approximation, the residual operator learns the missing nonlinear posterior score, the Langevin step transports the augmented ensemble toward the corrected posterior, and the latent variable is recovered analytically as a Gaussian mixture. This is the core mechanism by which Ω combines the stability of CGNS filtering with the flexibility of score-based non-Gaussian correction. 
+
+5. Numerical Validation in Nonlinear Systems with Intermittency and Extreme Events 
+
+We validate Ω on three nonlinear dynamical systems that span a range of complexity, intermittency, and model structure. The dyad model serves as a canonical testbed for strongly non-Gaussian filtering and allows detailed examination of posterior recovery in a low-dimensional setting. We next consider a topographic mean-flow interaction model, a physically motivated geophysical system that exhibits intermittent bursts, extreme events, and highly non-Gaussian statistics. Both systems satisfy the CGNS structure (2.1)–(2.2) exactly, enabling us to assess the performance of Ω when the analytical conditional-Gaussian framework is fully available for unresolved modes. Finally, we examine the stochastic Lorenz 96 system, a moderately high-dimensional nonlinear model that does not admit a natural CGNS representation. In this case, a surrogate CGNS is constructed, providing a stringent test of the robustness of Ω under model approximation. Across all experiments, we compare Ω against two baseline methods: the standard EnKF and the CGNS-EnKF. The latter applies the EnKF analysis step on the augmented CGNS state without any learned residual 17 Table 1. Information propagation pathways in the Ω framework at assimilation time tk . Vk = ( Xk , μk ) is the augmented state; R(i) 
+
+> f,k
+
+is CGNS forecast covariance for latent variable; Pf,k is the empirical augmented forecast covariance (3.10); Robs 
+
+is the observation noise covariance; Ck = ( ¯Vf,k , diag( Pf,k ), Zk ) is the context vector (4.8). Notation from Sections 3–4. 
+
+Pathway Mechanism Form Behavior 
+
+Zk → Xk EnKF likelihood score (4.3) 
+
+H∗ 
+
+> X
+
+R−1obs (Zk − HX Xk) Linear (Gaussian) 
+
+Zk → X(i) → μ(i) 
+
+> k
+
+via CGNS mean ODE CGNS filtering ODE (2.5a) driven by dX(i)
+
+dμ(i) =  a0(X(i), t ) + a1(X(i), t ) μ(i) dt 
+
++ R(i)A∗
+
+> 1
+
+(X(i), t ) ΣX Σ∗
+
+> X
+
+−1dX(i) −  A0(X(i), t ) +
+
+A1(X(i), t ) μ(i)dt 
+
+Linear in μ
+
+R(i) 
+
+> f,k
+
+evolution CGNS Riccati ODE (2.5b); conditionally deterministic (obs.-path-independent) 
+
+dR(i) = a1R(i) + R(i)a∗ 
+
+> 1
+
++ ΣY Σ∗ 
+
+> Y
+
+−
+
+R(i)A∗
+
+> 1
+
+(ΣX Σ∗ 
+
+> X
+
+)−1A1R(i) dt 
+
+Deterministic 
+
+Zk → Xk → μk via EnKF cross-covariance Kalman gain on the μ-block of Pf,k (3.8) 
+
+μ(i) 
+
+> a,k
+
+= μ(i) 
+
+> f,k
+
++ Kμ
+
+> k
+
+ Zk − HX X(i) 
+
+> f,k
+
++ ϵ(i)
+
+> k
+
+, Kμ 
+
+> k
+
+=
+
+PμXf,k H∗
+
+> X
+
+ HX PXX f,k H∗ 
+
+> X
+
++ Robs 
+
+−1
+
+Linear (Gaussian) 
+
+Vk → Xk via residual opera-tor Nonlinear score correction on the X-component (4.9) 
+
+sXθ
+
+ Vk, σ, Ck
+
+ Nonlinear 
+
+Vk → μk via residual opera-tor Nonlinear score correction on the μ-component (4.9) 
+
+sμ
+
+> θ
+
+ Vk, σ, Ck
+
+ Nonlinear Joint Langevin update of 
+
+(Xk, μk)
+
+Annealed Langevin MCMC on the augmented state (4.35) 
+
+V(i,ℓ +1)  
+
+> k
+
+= V(i,ℓ ) 
+
+> k
+
++ αℓ
+
+2
+
+sEnKF ,k 
+
+ V(i,ℓ )
+
+> k
+
+ + sθ
+
+ V(i,ℓ ) 
+
+> k
+
+, σ ℓ, Ck
+
+ +
+
+√αℓ η(i) 
+
+> ℓ
+
+, η(i) 
+
+> ℓ
+
+∼ N (0 , I)
+
+Nonlinear 
+
+μ(i) 
+
+> a,k
+
+→ Y(i) 
+
+> a,k
+
+Analytic Gaussian draw from corrected mean (4.46) 
+
+Y(i) 
+
+> a,k
+
+∼ N  μ(i)
+
+> a,k
+
+, R(i)
+
+> f,k
+
+ Exact (closed-form) 
+
+p(Yk | Z0: k) Gaussian mixture over the corrected ensemble (4.47) 
+
+1
+
+N
+
+> N
+
+X
+
+> i=1
+
+N μ(i)
+
+> a,k
+
+, R(i)
+
+> f,k
+
+ Non-Gaussian (mixture) 
+
+correction. These comparisons isolate the benefits of the analytical CGNS representation from those of the learned non-Gaussian correction. For the dyad model, we additionally include a particle filter (PF) benchmark, whose ability to accurately resolve the posterior distribution provides a reference for assessing how well Ω captures strongly non-Gaussian posterior structures. 
+
+5.1. Recovering Non-Gaussian Latent Dynamics in an Intermittent Dyad System 
+
+The dyad model is a canonical stochastic system for studying intermittency, nonlinear energy transfer, and non-Gaussian fluctuations in dynamical systems [49]. Despite its low dimensionality, the model ex-hibits many phenomena commonly associated with significantly more complex turbulent systems, including intermittent bursts, heavy-tailed statistics, and strong nonlinear interactions between observed and hidden variables [61]. These features make the dyad model an ideal testbed for assessing whether a data assimilation method can accurately reconstruct latent dynamics and characterize non-Gaussian posterior distributions beyond Gaussian approximations. The model describes the nonlinear interaction between an observed variable x and an unobserved variable 
+
+y:
+
+dx = ( −dxx + γxy + fx) dt + ηx dW x, (5.1) 
+
+dy =  −dy y − γx 2 + fy
+
+ dt + ηy dW y , (5.2) where dx, d y > 0 are damping coefficients, γ controls the nonlinear coupling strength, fx and fy are external forcings, and Wx and Wy are independent Wiener processes with amplitudes ηx and ηy . The hidden variable 
+
+y feeds back into the observed dynamics through the bilinear term γxy , while the observed variable drives the hidden dynamics through the quadratic term −γx 2. This bidirectional nonlinear coupling generates intermittent excursions and strongly non-Gaussian joint statistics. Observations are available only for the observed variable x:
+
+Zk = x(tk) + ϵk, ϵk ∼ N (0 , R obs ). (5.3) 18 Importantly, the dyad model satisfies the CGNS structure (2.1)–(2.2) exactly, with A1(x, t ) = γx and 
+
+a1(x, t ) = −dy . This allows us to isolate the effect of the learned residual correction without introducing surrogate-model error. The physical parameters are chosen as dx = 0 .5, dy = 0 .5, γ = 2 , fx = 0 .5, fy = 1 ,with noise amplitudes ηx = 0 .5 and ηy = 1 . The truth trajectory is generated using the Euler-Maruyama discretization. The initial condition is x0 = 2 and y0 = 0 , while the integration time step is ∆t = 0 .005 , and noisy observations of x are provided every 100 model time steps with observational noise standard deviation 
+
+0.2.We evaluate two annealed Langevin noise schedules: a fine-grained schedule with σ ∈ [0 .01 , 0.7] , which emphasizes accurate posterior refinement at small noise levels, and a coarser schedule with σ ∈ [0 .5, 1.0] ,which prioritizes stronger regularization. Both schedules produce qualitatively similar posterior estimates. The fine-grained schedule yields slightly lower latent-state RMSE at the expense of additional sampling steps and is therefore adopted throughout this subsection unless stated otherwise. Figure 2 shows the assimilation results for the observed variable x. Since x is directly observed, all methods are able to track the truth trajectory accurately. Differences become visible primarily during rapid transitions, where the EnKF exhibits a slightly more conservative response. The more stringent test concerns the hidden variable y, shown in Figure 3. Unlike x, the variable y
+
+is never observed directly and must be inferred solely through its nonlinear dynamical coupling with the observed state. Recovering y therefore requires the assimilation method to correctly propagate observational information across the latent-observed interface rather than simply fitting the available measurements. This setting provides a direct assessment of the ability of Ω to reconstruct hidden intermittent dynamics. The results in figure 3 show that Ω closely follows the true latent trajectory and achieves an accuracy comparable to the particle filter, while the EnKF exhibits noticeably larger deviations, particularly during intermittent excursions where the posterior departs most strongly from Gaussianity.     
+
+> Fig. 2. Closed-loop assimilation of the observed variable xfor the dyad model. Shown are the true trajectory (black), the Ω
+> posterior mean (red), the EnKF posterior mean (blue), and the particle filter posterior mean (green).
+
+The principal advantage of Ω is not reflected solely in posterior mean accuracy, but in its ability to recover the full posterior distribution. This distinction is particularly important in intermittent systems, where rare but dynamically significant events are encoded in the tails of the distribution rather than in its mean. Figure 4 compares the marginal probability density functions of x and y accumulated over the entire assimilation window. While the EnKF reproduces the central bulk of the distribution reasonably well, it substantially underestimates the probability of extreme excursions and fails to capture the asymmetric heavy-tailed structure generated by the nonlinear dynamics. This deficiency is particularly evident for the hidden variable y, whose statistics are strongly influenced by intermittent bursts and nonlinear energy exchange. In contrast, the Gaussian-mixture representation underlying Ω accurately reproduces both the central region and the tails of the particle-filter reference distribution, demonstrating its ability to preserve non-Gaussian information throughout the assimilation cycle. 19 Fig. 3. Reconstruction of the hidden variable y for the dyad model. The Ω posterior mean (red) and particle filter mean (green) both closely track the latent trajectory. Shading shows ±2 posterior standard deviations for Ω.       
+
+> Fig. 4. Marginal probability density functions of x(a) and y(b) accumulated over all assimilation times. The Gaussian-mixture posterior generated by Ωreproduces the asymmetric and heavy-tailed structure of the particle-filter reference distribution, whereas the EnKF shows larger errors in estimating the probability of extreme events.
+
+Figure 5 provides an even more stringent assessment by examining the instantaneous posterior distri-bution of the hidden variable at selected assimilation times. Visible errors appear in the EnKF solutions compared to the benchmark particle filter solution, not only in the variance but also in estimating the mean state (panel (b)). In contrast, Ω successfully recovers both probability peaks and closely matches the particle-filter reference solution. This result highlights the ability of the learned residual operator to restore posterior structures that cannot be represented through covariance corrections alone. More broadly, these results demonstrate that the benefit of Ω extends beyond improving the mean state estimates. The framework provides a substantially more faithful characterization of posterior uncertainty, including heavy tails and asymmetry. Such features play a central role in quantifying risk, diagnosing hidden dynamical regimes, and predicting intermittent extreme events, all of which are difficult to capture using Gaussian filtering approaches. 
+
+5.2. Recovering Hidden Intermittent Dynamics in a Topographic Geophysical Flow 
+
+The topographic model describes barotropic quasi-geostrophic flow over a rough bottom boundary and serves as a physically motivated prototype for large-scale atmosphere-ocean dynamics [62, 63, 64]. Unlike the dyad model, which is primarily used as a canonical test problem, the topographic model captures key mechanisms underlying geophysical variability, including topographic form stress, nonlinear energy exchange across spatial scales, and intermittent extreme events. The model has been extensively used to study predictability, uncertainty quantification, and rare-event dynamics in geophysical fluid systems. These features make it an ideal testbed for assessing whether Ω can accurately recover hidden intermittent dynamics in a realistic Earth-system setting. 20 Fig. 5. Conditional posterior distributions of the hidden variable y at three selected assimilation times. 
+
+The governing topographic barotropic flow equation reads [62] 
+
+dω = −∇ ⊥ψ · ∇ ω + f + D(∆) ψ dt, dU =
+
+
+
+− ∂h ∂x ψ′ − γU U + fU
+
+
+
+dt, (5.4) which is defined in a two-dimensional domain D : x = ( x, y ) ∈ [−π, π ]2 with double periodic boundary conditions. In (5.4), D(∆) is the dissipation operator, h is the topographic effect, γU is the dissipation coefficient, and f and fU are external forcings. The state variable U represents the large-scale zonal flow velocity, while ω and ψ are the potential vorticity and the stream function, respectively. These two fields are related using ω = ω′ + f = ∇2ψ′ + h + βy and ψ = −U (t)y + ψ′ with the prime terms denoting the fluctuation related to the large-scale mean flow. The averaged integration in the mean dynamics U is defined as ffl p d x = 1
+
+> |D|
+
+´ 
+
+> D
+
+p d x, with |D| being the domain’s total area. Therefore, the term ffl ∂h ∂x ψ′ mediates energy exchange between the large-scale flow and unresolved eddies and is responsible for generating strongly non-Gaussian fluctuations and intermittent bursts. Additionally, a passive tracer model that characterizes the advection-diffusion of the transport of a thermodynamic density field T (x, t ) evolves according to 
+
+dT = [ −u · ∇ T − γT T + κ∆T ] dt, (5.5) completing the coupled system. u = ∇⊥ψ, dT is the drag term and κ is the diffusion coefficient. A particu-larly interesting case of the barotropic model is the one with layered topography, where the topography and stream function have the following expansion form h(x, y ) = P 
+
+> k
+
+ˆhkeik l·x, and ψ(x, y, t ) = P 
+
+> k
+
+ˆψk(t)eik l·x.The expansion is along one characteristic wavenumber direction l = ( lx, l y ) with |l| = 1 . The full spectral formulation is summarized in Appendix G.1. After projecting onto four Fourier modes for both the vorticity and thermodynamic fields, the reduced-order state becomes 
+
+U =  U, ω 1, . . . , ω 4, T 1, . . . , T 4
+
+⊤. (5.6) The mean flow U constitutes the observed component, while all spectral coefficients ωk, T k remain hidden. From a data-assimilation perspective, this setting is considerably more challenging than the dyad model be-cause the observed variable represents only a coarse large-scale flow, whereas the hidden variables correspond to unresolved eddy and thermodynamic modes that directly govern the intermittent dynamics. Importantly, the reduced system satisfies the CGNS structure exactly. The drift of U is linear in the hidden modes through the topographic form stress, while the drifts of ωk and Tk remain conditionally linear given U ; see Appendix G.1. This allows us to isolate the impact of non-Gaussian posterior correction without introducing surrogate-model error. The model is integrated using RK4 with time step ∆t = 5 × 10 −4, and noisy observations of the mean flow are provided every 200 model time steps: 
+
+Zk = U (tk) + ϵk, ϵk ∼ N (0 , R obs ). (5.7) 21 All spectral modes remain completely unobserved. The parameters are chosen as 
+
+β = 1 .0, γω,k = 0 .0125 , k = 1 , . . . , 4, γU = 0 .0125 , (5.8) and 
+
+fT = fU = 0 , κT = 0 .001 , α = 1 .0, σU = 1
+
+√2 . (5.9) All Fourier modes are initialized at unity. Figure 6 compares the reconstructed trajectories of the observed variable U and several representative hidden modes. Since the hidden variables are never observed directly, successful recovery requires the assimilation algorithm to infer the slow-fast multiscale evolution of unresolved eddies and thermodynamic fluctuations solely from measurements of the large-scale mean flow. This problem closely mirrors practical geophysical applications, where sparse observations must constrain a much larger hidden state. The results demonstrate that Ω substantially improves the reconstruction of hidden dynamics relative to the EnKF. The improvement is particularly pronounced during intermittent bursts, where the EnKF systematically underestimates fluctuation amplitudes due to its Gaussian analysis assumption. In contrast, the learned residual correction in Ω allows observational information to propagate nonlinearly into the hidden modes, yielding more accurate reconstruction of extreme excursions and energetic events.     
+
+> Fig. 6. Posterior mean trajectories of representative hidden spectral modes. Ωmore accurately reconstructs intermittent fluctuations and extreme excursions than the EnKF, particularly during periods of enhanced nonlinear activity. The EnKF uncertainty band is omitted for visual clarity and overall easier interpretation.
+
+A more revealing comparison is provided by the posterior distributions. Figure 8 shows the posterior distribution of a representative hidden vorticity mode. The reference distribution exhibits clear asymmetry and heavy-tailed behavior arising from intermittent energy exchange between the mean flow and unresolved eddies. Such structures are important because they govern the probability of rare but dynamically significant events. The EnKF reproduces only the central bulk of the distribution and substantially underestimates the probability of extreme excursions. In contrast, the Gaussian-mixture representation underlying Ω more accurately captures both the asymmetric tail behavior and the overall shape of the reference distribution. This demonstrates that the benefits of Ω extend beyond improved state estimation and include substantially improved uncertainty quantification in intermittent geophysical systems. 22 Fig. 7. Snapshot of the reconstructed streamfunction field ψ(x, y, t ) at a representative time instance. The field is obtained from the Fourier-mode representation of the model and illustrates the spatial organization of the large-scale circulation and wave structures. 
+
+The large-scale flow structures can be visualized through the streamfunction field. Given the zonal mean flow U (t) and the Fourier mode amplitudes, the streamfunction is reconstructed as 
+
+ψ(x, y, t ) = −U (t), y + X
+
+> k∈K
+
+ϕk(t)ei(kxx+ky y), (5.10) where k = ( kx, k y ) denotes the wavevector and ϕk are the corresponding streamfunction Fourier coefficients. The resulting streamfunction field provides a spatial representation of the large-scale circulation and coherent structures generated by the model. Figure 7 displays two representative snapshots of the reconstructed streamfunction field obtained from the simulated dynamics. The top row shows a blocking-like pattern, while the bottom row illustrates a strong zonal jet corresponding to a nearly unblocked field.    
+
+> Fig. 8. Conditional distribution of a representative hidden vorticity mode. The asymmetric heavy-tailed structure associated with intermittent dynamics is accurately captured by Ωbut is significantly underestimated by the EnKF.
+
+Table 2 summarizes the reconstruction errors for representative hidden variables. Improvements are observed consistently across both vorticity and thermodynamic modes. While the reduction in RMSE is moderate, the distributional improvements shown in Figure 8 indicate a substantially more accurate representation of posterior uncertainty. This distinction is particularly important in geophysical applications, where accurate characterization of rare events and hidden regime transitions is often more important than small improvements in posterior mean estimates. These results demonstrate that the advantages of Ω persist beyond low-dimensional benchmark systems and extend to physically meaningful geophysical models with intermittent extreme events. The framework not only improves hidden-state reconstruction but also provides a substantially richer representation of pos-23 Table 2. RMSE for representative hidden variables of the topographic model. 
+
+Method ω1 T1 ω2 T2
+
+CGNS-EnKF 0.170 0.162 0.110 0.089 Standard EnKF 0.121 0.123 0.073 0.061 
+
+Ω 0.110 0.102 0.067 0.053 terior uncertainty, enabling more reliable quantification of rare events and unresolved dynamical variability. 
+
+5.3. Robustness Under Model Misspecification: Stochastic Lorenz 96 
+
+The stochastic Lorenz 96 system [65, 66] is a widely used benchmark for studying chaos, predictability, and data assimilation in high-dimensional nonlinear systems. Unlike the dyad and topographic models considered previously, the Lorenz 96 system does not satisfy the conditional Gaussian structure required by the CGNS framework. It therefore provides a stringent test of the robustness of Ω when the forecast model is only an approximate surrogate of the true dynamics. The stochastic Lorenz 96 model is given by 
+
+du j = [( uj+1 − uj−2)uj−1 − uj + F ] dt + σdW j (t), j = 1 , . . . , N, (5.11) where indices are interpreted modulo N , F = 8 is the forcing parameter that triggers strongly chaotic behavior of the system, and σ = 0 .5 is the stochastic forcing amplitude. To mimic a partially observed setting, we partition the state into observed and hidden components: 
+
+x = ( u1, u 3, u 5, . . . ), y = ( u2, u 4, u 6, . . . ), (5.12) where only the odd-indexed variables are observed at discrete times. A major challenge arises because the hidden-state dynamics contain nonlinear interactions among multi-ple hidden variables. In particular, terms involving products such as u2k+2 u2k−1 appear in the latent-state drift, violating the CGNS requirement that the hidden dynamics remain conditionally linear given the ob-served variables. Consequently, the Lorenz 96 system lies outside the exact CGNS class and cannot be treated analytically using the conditional Gaussian framework. To construct a tractable baseline model, we replace the hidden-hidden quadratic interactions with local linear approximations and introduce an additional inflation noise term to account for unresolved nonlinear effects. This leads to the surrogate CGNS model 
+
+dX k = [ −Xk−1Yk − (1 + γ)Xk + F ] dt + ( σ + σs)dW Xk , (5.13) 
+
+dY k = [ −Xk−1Yk−1 − Yk + XkXk−1 + F ] dt + σdW Yk , (5.14) where 
+
+γ = 0 .1, F = 8 , σ = 0 .5, σs = 5 . (5.15) The surrogate model satisfies the CGNS structure because the observed-state drift is linear in the hidden variables and the hidden-state drift is linear in (Yk−1, Y k). Details of the derivation, the verification of the CGNS conditions, and the role of the inflation noise are provided in Appendix H.1. This example is particularly important because it evaluates the applicability of Ω beyond exact CGNS systems. In contrast to the previous examples, the goal is not to demonstrate performance under ideal conditions, but rather to assess whether the framework remains effective when the conditional Gaussian model is only an approximation of the true dynamics. Figure 9 compares posterior mean trajectories for representative observed and hidden variables. The standard EnKF is implemented in a perfect-model setting and therefore has access to the true Lorenz 96 dynamics. In contrast, both the CGNS-EnKF and Ω deliberately employ the approximate surrogate model 24 (5.13)–(5.14). The CGNS-EnKF uses the surrogate forecast model together with the standard linear Kalman analysis step, whereas Ω augments the same surrogate with the learned residual correction. Visual inspec-tion reveals that the CGNS-EnKF suffers from systematic biases caused by the surrogate approximation, particularly in the hidden variables, where unresolved nonlinear interactions play a dominant role. The residual correction in Ω significantly reduces these biases and produces trajectories that remain consistently closer to the truth than those obtained using the surrogate model alone. This result demonstrates that the learned operator is capable of correcting a substantial fraction of the structural model error introduced by the approximate CGNS representation. This behavior remains the same across all other variables. Finally, in Figure 10, we present the Hovmöller diagrams of Ω, the EnKF using the perfect model, and the truth. Ω
+
+closely captures the system’s chaotic and wave propagating behavior and agrees well with the truth.         
+
+> Fig. 9. Posterior mean trajectories for representative observed and hidden variables of the stochastic Lorenz 96 system. The residual correction in Ωsubstantially improves the reconstruction of hidden variables relative to the surrogate-only CGNS-EnKF and is slosely comparble with the EnKF applied on the on the perfect model. The behavior is the same across all other variables Xi, Y i, i = 1 ,· · · ,10 .
+
+Table 3 reports RMSE values for representative hidden variables. Relative to the CGNS-EnKF baseline, 
+
+Ω consistently improves the reconstruction of all hidden variables, reducing the error by approximately 
+
+8–15% . Although the perfect-model EnKF achieves the lowest RMSE overall, this comparison should be interpreted in light of the fundamentally different forecast assumptions. The EnKF benefits from exact knowledge of the governing equations, whereas Ω relies only on a simplified surrogate model constructed to satisfy the CGNS structure. From this perspective, the relatively small performance gap between Ω and the perfect-model EnKF highlights the robustness of the framework under substantial model misspecification.  
+
+> Table 3. RMSE for representative hidden variables of the stochastic Lorenz–96 system.
+
+Method Y1 Y4 Y9
+
+CGNS-EnKF 0.525 0.608 0.633 Standard EnKF (Perfect Model) 0.451 0.459 0.440 
+
+Ω 0.474 0.548 0.540 More importantly, the Lorenz 96 experiment highlights several practical advantages of the Ω framework. 25 Fig. 10. Hovmőller diagram of mean trajectories of the stochastic Lorenz 96 system. The Ω results are very close to the truth and the EnKF applied on the perfect model. 
+
+First, the surrogate CGNS model provides an analytically tractable representation of the hidden variables and avoids propagating the full nonlinear latent dynamics within the assimilation procedure. This signif-icantly reduces computational cost relative to methods that require repeated integration of the complete nonlinear system. Second, unlike many operational implementations of the EnKF, which often rely on empir-ically tuned covariance inflation and localization strategies to maintain filter performance, the Ω framework does not require such ad hoc corrections. Instead, the learned residual operator provides a systematic mechanism for correcting both non-Gaussian posterior structures and structural model deficiencies. The Lorenz 96 results demonstrate that the applicability of Ω extends well beyond exact CGNS systems. Even when the conditional Gaussian representation is only a crude approximation of the true dynamics, the learned residual correction remains effective and systematically improves posterior recovery. Since the surrogate model employed here is intentionally simple, substantial additional gains are likely achievable through more sophisticated CGNS constructions, such as local higher-order approximations or Koopman-based lifting approaches. This suggests that Ω provides a flexible framework that combines the efficiency of analytical conditional-Gaussian surrogates with data-driven correction of model error, making it partic-ularly attractive for high-dimensional nonlinear systems where perfect forecast models are unavailable and computational efficiency is a primary concern. 
+
+6. Conclusions 
+
+We introduced Ω, an operator-based mixture ensemble framework for non-Gaussian data assimilation in partially observed nonlinear dynamical systems. The framework combines three ingredients: a CGNS 26 surrogate forecast, a learned residual score operator, and annealed Langevin sampling in an augmented state space. Together, these components provide a practical mechanism for enriching the Gaussian EnKF analysis while avoiding the weight degeneracy of particle filters and the supervised training requirements commonly associated with score-based data assimilation methods. The central idea of Ω is to reformulate data assimilation in an augmented state space consisting of the observed variables and the conditional means of the latent variables under a CGNS surrogate. This lifting preserves the essential posterior information needed for non-Gaussian correction while avoiding direct sampling in the potentially high-dimensional latent space. As a result, nonlinear score corrections can be learned and applied in a lower-dimensional representation, while latent uncertainty is retained analytically through the conditional Gaussian structure. The resulting Gaussian-mixture analysis naturally captures non-Gaussian posterior features in both observed and latent variables. On the theoretical side, we established a sequence of consistency and convergence results linking denoising score matching, Noise2Noise training on surrogate ensembles, Langevin sampling, and Gaussian-mixture pos-terior recovery. These results clarify the role of the residual operator, quantify the effects of finite-ensemble sampling and surrogate misspecification, and provide conditions under which the recovered posterior con-verges to the true posterior distribution. The analysis also explains why the framework remains scalable with respect to the latent dimension: the nonlinear correction is performed in the augmented filtering vari-ables, while integration over the latent state is carried out analytically within each conditional Gaussian component. Numerical experiments on three nonlinear systems demonstrate that Ω consistently improves posterior reconstruction and latent-state recovery relative to both the standard EnKF and the CGNS baseline. The framework remains effective not only when the underlying dynamics possess an exact CGNS structure, but also when the surrogate must be constructed through local linearization and model inflation, suggesting a broader range of applicability than exact conditional Gaussian systems alone. Several important challenges remain. The residual operator is currently trained offline, motivating future work on online and adaptive learning strategies capable of responding to evolving dynamics and observa-tion networks. Surrogate misspecification introduces an irreducible approximation floor, and developing adaptive mechanisms for surrogate refinement is a natural next step. In addition, extending Ω to truly high-dimensional geophysical applications will require combining the augmented-state formulation with lo-calization and scalable operator-learning architectures. More broadly, Ω illustrates how analytic structure and learned corrections can be integrated within a single data assimilation framework. Rather than replacing model-based inference with machine learning, the framework uses learning to correct precisely those aspects of the posterior that are inaccessible to the Gaussian approximation while retaining the computational efficiency and interpretability of the underlying dynamical model. This perspective offers a promising pathway toward scalable non-Gaussian data assimi-lation in complex multiscale systems. 
+
+7. Acknowledgment 
+
+N.C. is supported by the Office of Naval Research under Award No. N00014-24-1-2244 and by the Army Research Office under Award No. W911NF-23-1-0118. P.B. is partially supported by the aforementioned ONR award and partially by the University of Wisconsin-Madison Office of the Vice Chancellor for Research, with funding from the Wisconsin Alumni Research Foundation. 
+
+References 
+
+[1] K. Law, A. Stuart, K. Zygalakis, Data assimilation, Cham, Switzerland: Springer 214 (2015) 52. [2] A. J. Majda, J. Harlim, Filtering complex turbulent systems, Cambridge University Press, 2012. 27 [3] M. Asch, M. Bocquet, M. Nodet, Data assimilation: methods, algorithms, and applications, SIAM, 2016. [4] G. Evensen, F. C. Vossepoel, P. J. Van Leeuwen, Data assimilation fundamentals: A unified formulation of the state and parameter estimation problem, Springer Nature, 2022. [5] T. Poulet, P. Behnoudfar, Slip tendency analysis from sparse stress and satellite data using physics-guided deep neural networks, Geophysical Research Letters 51 (2024) e2024GL109524. [6] M. Bocquet, C. A. Pires, L. Wu, Beyond gaussian statistical modeling in geophysical data assimilation, Monthly Weather Review 138 (2010) 2997–3023. [7] P. J. Van Leeuwen, H. R. Künsch, L. Nerger, R. Potthast, S. Reich, Particle filters for high-dimensional geoscience applications: A review, Quarterly Journal of the Royal Meteorological Society 145 (2019) 2335–2365. [8] M. A. Freitag, R. W. E. Potthast, Synergy of inverse problems and data assimilation techniques, DE GRUYTER, 2013, pp. 1–54. doi: 10.1515/9783110282269.1 .[9] N. Chen, Stochastic Methods for Modeling and Predicting Complex Dynamical Systems, Springer, 2023. [10] B. Wang, X. Zou, J. Zhu, Data assimilation and its applications, Proceedings of the National Academy of Sciences 97 (2000) 11143–11144. [11] Y. Chen, S. N. Stechmann, Multi-model communication and data assimilation for mitigating model error and improving forecasts, Chinese Annals of Mathematics, Series B 40 (2019) 689–720. [12] T. Poulet, P. Behnoudfar, Physics-informed neural network reconciles australian displacements and tectonic stresses, Scientific Reports 13 (2023) 23095. [13] G. Evensen, Sequential data assimilation with a nonlinear quasi-geostrophic model using monte carlo methods to forecast error statistics, Journal of Geophysical Research: Oceans 99 (1994) 10143–10162. [14] G. Evensen, The ensemble kalman filter: Theoretical formulation and practical implementation, Ocean dynamics 53 (2003) 343–367. [15] P. L. Houtekamer, H. L. Mitchell, Ensemble Kalman filtering, Quarterly Journal of the Royal Meteoro-logical Society: A journal of the atmospheric sciences, applied meteorology and physical oceanography 131 (2005) 3269–3289. [16] P. Behnoudfar, N. Chen, Rl-daunce: Reinforcement learning-driven data assimilation with uncertainty-aware constrained ensembles, Journal of Computational Physics 562 (2026) 115035. doi: https://doi. org/10.1016/j.jcp.2026.115035 .[17] D. L. T. Anderson, J. Sheinbaum, K. Haines, Data assimilation in ocean models, Reports on Progress in Physics 59 (1996) 1209–1266. doi: 10.1088/0034-4885/59/10/001 .[18] E. Kalnay, Atmospheric modeling, data assimilation and predictability, Cambridge university press, 2003. [19] J. A. Vrugt, H. V. Gupta, W. Bouten, S. Sorooshian, A shuffled complex evolution metropolis algorithm for optimization and uncertainty assessment of hydrologic model parameters, Water resources research 39 (2003). [20] W. A. Lahoz, P. Schneider, Data assimilation: making sense of earth observation, Frontiers in Envi-ronmental Science 2 (2014) 16. 28 [21] J. L. Anderson, Localization and sampling error correction in ensemble Kalman filter data assimilation, Monthly Weather Review 140 (2012) 2359–2371. [22] J. L. Anderson, Exploring the need for localization in ensemble data assimilation using a hierarchical ensemble filter, Physica D: Nonlinear Phenomena 230 (2007) 99–111. [23] M. Buehner, M. Charron, Spectral and spatial localization of background-error correlations for data assimilation, Quarterly Journal of the Royal Meteorological Society: A journal of the atmospheric sciences, applied meteorology and physical oceanography 133 (2007) 615–630. [24] J. S. Whitaker, T. M. Hamill, Evaluating methods to account for system errors in ensemble data assimilation, Monthly Weather Review 140 (2012) 3078–3089. [25] R. Van Der Merwe, A. Doucet, N. De Freitas, E. Wan, The unscented particle filter, Advances in neural information processing systems 13 (2000). [26] F. Gustafsson, Particle filter theory and practice with positioning applications, IEEE Aerospace and Electronic Systems Magazine 25 (2010) 53–82. [27] J. Elfring, E. Torta, R. Van De Molengraft, Particle filters: A hands-on tutorial, Sensors 21 (2021) 438. [28] D. Rezende, S. Mohamed, Variational inference with normalizing flows, in: International conference on machine learning, PMLR, 2015, pp. 1530–1538. [29] I. Kobyzev, S. J. Prince, M. A. Brubaker, Normalizing flows: An introduction and review of current methods, IEEE transactions on pattern analysis and machine intelligence 43 (2020) 3964–3979. [30] G. Papamakarios, E. Nalisnick, D. J. Rezende, S. Mohamed, B. Lakshminarayanan, Normalizing flows for probabilistic modeling and inference, Journal of Machine Learning Research 22 (2021) 1–64. [31] D. P. Kingma, M. Welling, Auto-encoding variational bayes, arXiv preprint arXiv:1312.6114 (2013). [32] I. Khemakhem, D. Kingma, R. Monti, A. Hyvarinen, Variational autoencoders and nonlinear ica: A unifying framework, in: International conference on artificial intelligence and statistics, PMLR, 2020, pp. 2207–2217. [33] P. Behnoudfar, C. Moser, M. Bocquet, S. Cheng, N. Chen, Bridging idealized and operational models: an explainable ai framework for earth system emulators, npj Climate and Atmospheric Science (2026). [34] Y. Song, J. Sohl-Dickstein, D. P. Kingma, A. Kumar, S. Ermon, B. Poole, Score-based generative modeling through stochastic differential equations, arXiv preprint arXiv:2011.13456 (2020). [35] J. Ho, A. Jain, P. Abbeel, Denoising diffusion probabilistic models, Advances in neural information processing systems 33 (2020) 6840–6851. [36] P. Manshausen, Y. Cohen, P. Harrington, J. Pathak, M. Pritchard, P. Garg, M. Mardani, K. Kashinath, S. Byrne, N. Brenowitz, Generative data assimilation of sparse weather station observations at kilometer scales, Journal of Advances in Modeling Earth Systems 17 (2025) e2024MS004505. [37] Z. Xun, S. Gupta, E. Price, Posterior sampling by combining diffusion models with annealed langevin dynamics, Advances in Neural Information Processing Systems 38 (2026) 76108–76165. [38] F. Rozet, G. Louppe, Score-based data assimilation, Advances in Neural Information Processing Systems 36 (2023) 40521–40541. [39] G. Batzolis, J. Stanczuk, C.-B. Schönlieb, C. Etmann, Conditional image generation with score-based diffusion models, arXiv preprint arXiv:2111.13606 (2021). 29 [40] I. Price, A. Sanchez-Gonzalez, F. Alet, T. R. Andersson, A. El-Kadi, D. Masters, T. Ewalds, J. Stott, S. Mohamed, P. Battaglia, et al., Probabilistic weather forecasting with machine learning, Nature 637 (2025) 84–90. [41] M. R. Hasan, P. Behnoudfar, D. MacKinlay, T. Poulet, Pc-srgan: Physically consistent super-resolution generative adversarial network for general transient simulations, IEEE Transactions on Pattern Analysis and Machine Intelligence (2025). [42] N. Chen, A. J. Majda, Conditional gaussian systems for multiscale nonlinear stochastic systems: Prediction, state estimation and uncertainty quantification, Entropy 20 (2018) 509. [43] N. Chen, Y. Li, H. Liu, Conditional gaussian nonlinear system: A fast preconditioner and a cheap surrogate model for complex nonlinear systems, Chaos: An Interdisciplinary Journal of Nonlinear Science 32 (2022). [44] J. Lehtinen, J. Munkberg, J. Hasselgren, S. Laine, T. Karras, M. Aittala, T. Aila, Noise2noise: Learning image restoration without clean data, arXiv preprint arXiv:1803.04189 (2018). [45] R. S. Liptser, A. N. Shiryaev, Statistics of random processes II: Applications, volume 6, Springer Science & Business Media, 2013. [46] N. Chen, A. J. Majda, D. Giannakis, Predicting the cloud patterns of the Madden-Julian oscillation through a low-order nonlinear stochastic model, Geophysical Research Letters 41 (2014) 5612–5619. [47] N. Chen, S. Fu, G. E. Manucharyan, An efficient and statistically accurate Lagrangian data assimilation algorithm with applications to discrete element sea ice models, Journal of Computational Physics 455 (2022) 111000. [48] N. Chen, A. J. Majda, X. T. Tong, Information barriers for noisy Lagrangian tracers in filtering random incompressible flows, Nonlinearity 27 (2014) 2133. [49] A. J. Majda, N. Chen, Model error, information barriers, state estimation and prediction in complex multiscale systems, Entropy 20 (2018) 644. [50] N. Chen, A. J. Majda, Beating the curse of dimension with accurate statistics for the Fokker–Planck equation in complex turbulent systems, Proceedings of the National Academy of Sciences 114 (2017) 12864–12869. [51] I. Grooms, A. J. Majda, Efficient stochastic superparameterization for geophysical turbulence, Pro-ceedings of the National Academy of Sciences 110 (2013) 4464–4469. [52] M. Branicki, A. J. Majda, Dynamic stochastic superresolution of sparsely observed turbulent systems, Journal of Computational Physics 241 (2013) 333–363. [53] M. Andreou, N. Chen, A martingale-free introduction to conditional gaussian nonlinear systems, En-tropy 27 (2024) 2. [54] C. Chen, Z. Wang, N. Chen, J.-L. Wu, Modeling partially observed nonlinear dynamical systems and efficient data assimilation via discrete-time conditional gaussian koopman network, Computer Methods in Applied Mechanics and Engineering 445 (2025) 118189. [55] G. Burgers, P. Jan van Leeuwen, G. Evensen, Analysis scheme in the ensemble kalman filter, Monthly weather review 126 (1998) 1719–1724. [56] C. Chen, N. Chen, Y. Zhang, J.-L. Wu, Cgkn: A deep learning framework for modeling complex dynamical systems and efficient data assimilation, Journal of Computational Physics 532 (2025) 113950. 30 [57] P. Vincent, A connection between score matching and denoising autoencoders, Neural computation 23 (2011) 1661–1674. [58] Y. Song, S. Ermon, Improved techniques for training score-based generative models, Advances in neural information processing systems 33 (2020) 12438–12448. [59] A. Durmus, S. Majewski, B. Miasojedow, Analysis of langevin monte carlo via convex optimization, Journal of Machine Learning Research 20 (2019) 1–46. [60] C. Moser, N. Chen, M. Andreou, Mechanisms and pathways of extreme events in partially-observed stochastic dynamical systems, arXiv preprint arXiv:2605.22692 (2026). [61] A. J. Majda, J. Harlim, Physics constrained nonlinear regression models for time series, Nonlinearity 26 (2013) 201–217. [62] A. Majda, X. Wang, Nonlinear dynamics and statistical theories for basic geophysical flows, Cambridge University Press, 2006. [63] N. Chen, A. J. Majda, Predicting observed and hidden extreme events in complex nonlinear dynamical systems with partial observations and short training time series, Chaos: An Interdisciplinary Journal of Nonlinear Science 30 (2020). [64] G. K. Vallis, Atmospheric and oceanic fluid dynamics, Cambridge University Press, 2017. [65] E. N. Lorenz, Predictability: A problem partly solved, in: Proc. Seminar on predictability, volume 1, Reading, 1996, pp. 1–18. [66] H. Arnold, I. Moroz, T. Palmer, Stochastic parametrizations and model uncertainty in the Lorenz’96 system, Philosophical Transactions of the Royal Society A: Mathematical, Physical and Engineering Sciences 371 (2013). [67] C. M. Stein, Estimation of the mean of a multivariate normal distribution, The annals of Statistics (1981) 1135–1151. [68] M. Chen, K. Huang, T. Zhao, M. Wang, Score approximation, estimation and distribution recovery of diffusion models on low-dimensional data, in: International Conference on Machine Learning, PMLR, 2023, pp. 4672–4712. [69] J. Mandel, L. Cobb, J. D. Beezley, On the convergence of the ensemble kalman filter, Applications of Mathematics 56 (2011) 533–541. [70] B. Efron, Tweedie’s formula and selection bias, Journal of the American Statistical Association 106 (2011) 1602–1614. doi: 10.1198/jasa.2011.tm11181 .[71] M. Raphan, E. P. Simoncelli, Least squares estimation without priors or supervision, Neural Compu-tation 23 (2011) 374–420. doi: 10.1162/NECO_a_00076 .[72] E. A. Carlen, D. W. Stroock, An application of the bakry-emery criterion to infinite dimensional diffusions, in: Séminaire de Probabilités XX 1984/85: Proceedings, Springer, 2006, pp. 341–348. [73] A. Prékopa, On logarithmic concave measures and functions, Acta Sci. Math. 34 (1973) 335. [74] A. Wibisono, Proximal Langevin algorithm: Rapid convergence under isoperimetry, arXiv preprint arXiv:1911.01547 (2019). [75] A. J. Majda, D. Qi, Strategies for reduced-order models for predicting the statistical responses and uncertainty quantification in complex turbulent dynamical systems, SIAM Review 60 (2018) 491–549. 31 [76] A.-S. Sznitman, Topics in propagation of chaos, volume 1464 of lecture notes in mathematics, 1991. [77] P. Moral, Feynman-Kac formulae: genealogical and interacting particle systems with applications, Springer, 2004. [78] M. Leshno, V. Y. Lin, A. Pinkus, S. Schocken, Multilayer feedforward networks with a nonpolynomial activation function can approximate any function, Neural networks 6 (1993) 861–867. 
+
+Appendix A. Proof of Theorem 1 
+
+Proof. DSM identity. Write ˜Vk = Vk + σϵ with ϵ ∼ N (0 , I) and let stot ,k = sEnKF ,k + sθ . The DSM objective (4.12) is 
+
+L(θ) = EVk ,ϵ
+
+
+
+σ2 stot ,k ( ˜Vk) + ϵ
+
+σ
+
+> 2
+
+
+
+. (A.1) Since ∇ ˜Vk log pσ ( ˜Vk | Vk) = −ϵ/σ , taking the conditional expectation given ˜Vk and applying Stein’s identity [67] 
+
+
+
+E ˜V|V
+
+h
+
+( ˜V − V) h( ˜V)
+
+i
+
+= σ2E ˜V|V
+
+h
+
+∇ ˜Vh( ˜V)
+
+i
+
+with h being weakly differentiable 
+
+
+
+yields 
+
+E
+
+h
+
+− ϵ
+
+σ ˜Vk
+
+i
+
+= E
+
+h
+
+∇ ˜Vk log pσ ( ˜Vk | Vk) ˜Vk
+
+i
+
+= ∇ ˜Vk log pσ ( ˜Vk). (A.2) Expanding the squared norm in (A.1) and using (A.2) to evaluate the cross-term: 
+
+L(θ) = Epσ
+
+h
+
+σ2 ∥stot ,k − ∇ log pσ ∥2i
+
++ 2 Epσ
+
+h
+
+σ2 D
+
+stot ,k ( ˜Vk) − ∇ log pσ ( ˜Vk), ∇ log pσ ( ˜Vk) + ϵ
+
+σ
+
+Ei 
+
++ Epσ
+
+
+
+σ2 ∇ log pσ ( ˜Vk) 2
+
+. (A.3) Since stot ( ˜V ) − ∇ log pσ ( ˜V ) is measurable w.r.t. ˜V , conditioning on ˜Vk results in vanishing the cross-term as: 
+
+E
+
+h
+
+∇ log pσ ( ˜Vk) + ϵ
+
+σ ˜Vk
+
+i
+
+= ∇ log pσ ( ˜Vk) − ∇ log pσ ( ˜Vk) = 0, (A.4) by (A.2). Setting C = Epσ [σ2∥∇ log pσ ( ˜Vk)∥2], which is finite by the finite Fisher information assumption (4.13) and the smoothing inequality I(pσ ) ≤ I (paug ), establishes (4.15). 
+
+Uniqueness and characterization of the minimizer. The first term in (A.3) is the squared L2(pσ )
+
+norm of stot ,k − ∇ log pσ , which is a strictly convex functional of sθ (as an element of L2(pσ )). Its unique minimizer satisfies stot ,k = ∇ log pσ pσ -a.e., establishing (4.17). 
+
+Small-noise limit. The limit follows from standard properties of Gaussian mollification. Under finite Fisher information (4.13), the Gaussian-smoothed densities 
+
+pσ = paug ∗ N (0 , σ 2I)
+
+satisfy the score continuity property 
+
+∇ log pσ → ∇ log paug in L2(paug )
+
+as σ → 0; see, e.g., [68]. Combining this convergence with the minimizer identity (4.17), 
+
+sEnKF ,k + sθ∗ = ∇ log pσ ,
+
+and applying the triangle inequality yields (4.19). 32 Appendix B. Proof of Theorem 2 
+
+Proof. Parts (i) and (ii). The argument is identical to the proof of Theorem 1, with paug and pσ replaced throughout by qaug and qσ . Applicability of the Stein identity requires h = sEnKF ,k + sθ ∈ L2(qσ ), which is given by hypothesis. Since qaug is a finite Gaussian mixture with finite Fisher information, qσ satisfies all regularity conditions needed in the proof of Theorem 1. 
+
+Part (iii): two-source error decomposition. By Remark 4, paug ≪ qσ for σ > 0, so the minimizer identity (4.27) holds paug -almost everywhere. Therefore, for paug -almost every ˜Vk,
+
+sθ∗ ( ˜Vk) −  ∇ log pσ ( ˜Vk) − sEnKF ,k ( ˜Vk) = ∇ log qσ ( ˜Vk) − ∇ log pσ ( ˜Vk). (B.1) Taking the L2(paug ) norm of (B.1) and applying the triangle inequality with the intermediate term 
+
+∇ log pCGNS ,σ :
+
+sθ∗ −  ∇ log pσ − sEnKF ,k 
+
+ 
+
+> L2(paug )
+
+= ∇ log qσ − ∇ log pσ L2(paug ) (B.2) 
+
+≤ ∇ log qσ − ∇ log pCGNS ,σ L2(paug )
+
+| {z } 
+
+> εsamp (N)
+
++ ∇ log pCGNS ,σ − ∇ log pσ L2(paug )
+
+| {z }
+
+> εCGNS
+
+, (B.3) which is (4.29). The equality (B.2) is an exact equality (not merely an inequality) because the absolute continuity established in Remark 4 ensures that (B.1) holds paug -a.e. Part (iv): Elimination of sampling error as N → ∞ .
+
+We introduce two standing assumptions for this part, which hold under standard EnKF regularity con-ditions and are natural given the finite-ensemble setting. 
+
+Assumption 1 (Bounded ensemble) . The ensemble members satisfy sup N,i ∥V(i)
+
+> f,k
+
+∥ ≤ R < ∞ uniformly in 
+
+N .
+
+Assumption 2 (Bounded density ratio) . The Radon–Nikodym derivative wN := dp aug /dq (N ) 
+
+> σ
+
+satisfies 
+
+sup N ∥wN ∥L∞ ≤ M < ∞.Step 1: KL convergence. By standard EnKF consistency [69], the empirical mixture q(N )aug converges weakly to pCGNS as N → ∞ . Under Assumption 1, every ensemble member lies in the ball of radius R, so both q(N )aug and pCGNS are Gaussian mixtures with components bounded in ℓ2-norm. Hence the log-likelihood ratio log( q(N )aug /p CGNS ) is bounded uniformly in N , and weak convergence implies KL convergence: 
+
+DKL 
+
+
+
+q(N )aug ∥ pCGNS 
+
+
+
+→ 0 as N → ∞ . (B.4) 
+
+Step 2: Contraction under Gaussian smoothing. Gaussian convolution is a Markov kernel, so the data-processing inequality gives 
+
+DKL 
+
+
+
+q(N ) 
+
+> σ
+
+∥ pCGNS ,σ 
+
+
+
+≤ DKL 
+
+
+
+q(N )aug ∥ pCGNS 
+
+
+
+→ 0. (B.5) 
+
+Step 3: Score convergence in L2(paug ). Since ϕσ := N (0 , σ 2I) is a C∞ kernel with rapidly decaying deriva-tives, and q(N )aug ⇒ pCGNS weakly (Step 1), standard properties of convolution imply that q(N ) 
+
+> σ
+
+= q(N )aug ∗ ϕσ
+
+and pCGNS ,σ = pCGNS ∗ ϕσ are both C∞ densities, and that 
+
+q(N ) 
+
+> σ
+
+→ pCGNS ,σ , ∇q(N ) 
+
+> σ
+
+→ ∇ pCGNS ,σ (B.6) uniformly on compact subsets of RdX +dY . Since both densities are strictly positive everywhere (Remark 4), dividing by the density is continuous, and (B.6) gives pointwise convergence of the scores: 
+
+∇ log q(N ) 
+
+> σ
+
+(v) → ∇ log pCGNS ,σ (v) for every v. (B.7) 33 By the Tweedie–Miyasawa formula [70, 71], the score of any σ-smoothed Gaussian mixture with components bounded by R (Assumption 1) satisfies the uniform bound 
+
+∇ log q(N ) 
+
+> σ
+
+− ∇ log pCGNS ,σ L∞ ≤ 2Cσ , Cσ := Rσ2 + (dX + dY )1/2
+
+σ , (B.8) uniformly in N . Combining pointwise convergence (B.7) with the uniform bound (B.8) and applying domi-nated convergence to the L2(q(N ) 
+
+> σ
+
+) norm yields 
+
+∇ log q(N ) 
+
+> σ
+
+− ∇ log pCGNS ,σ    
+
+> 2
+> L2(q(N)
+> σ)
+
+=
+
+ˆ
+
+∇ log q(N ) 
+
+> σ
+
+− ∇ log pCGNS ,σ 
+
+> 2
+
+dq (N ) 
+
+> σ
+
+→ 0, (B.9) where dominated convergence applies because the integrand is bounded by 4C2 
+
+> σ
+
+uniformly in N and the measures q(N ) 
+
+> σ
+
+converge weakly to pCGNS ,σ .
+
+Step 4: Change of measure. Using Assumption 2, 
+
+εsamp (N )2 = ∇ log q(N ) 
+
+> σ
+
+− ∇ log pCGNS ,σ  
+
+> 2
+> L2(paug )
+
+=
+
+ˆ
+
+∇ log q(N ) 
+
+> σ
+
+− ∇ log pCGNS ,σ 
+
+> 2
+
+wN dq (N )
+
+> σ
+
+≤ M · ∇ log q(N ) 
+
+> σ
+
+− ∇ log pCGNS ,σ    
+
+> 2
+> L2(q(N)
+> σ)
+
+→ 0, (B.10) where the convergence uses (B.9). Substituting εsamp (N ) → 0 into (4.29) yields (4.31). 
+
+Remark 10 (Verification of assumptions). Assumption 1 holds in any finite-time EnKF implementa-tion where the ensemble spread is controlled, and is standard in practice. Assumption 2 follows from Assumption 1 whenever paug has sub-Gaussian tails: since all smoothed densities are then bounded away from zero on compact sets uniformly in N , the density ratio wN remains bounded. Both assumptions can be verified explicitly for a given forecast model. 
+
+Part (v): full convergence when CGNS is exact. If the true system exactly satisfies (2.1)–(2.2), then pCGNS = paug by definition, so εCGNS = 0 . Substituting into (4.31) gives (4.32). 
+
+Appendix C. Conditions for Theorem 3 
+
+Hypothesis (iii) in Theorem 3, strong log-concavity of qσ , is a genuine condition on the surrogate, not an automatic consequence of the Gaussian mixture structure. Three practically verifiable sufficient conditions are given below. Note that the implication runs as follows: strong log-concavity ( ∇2(− log qσ ) ≥ mI) implies a log-Sobolev inequality with constant ρLS ≥ m via the Bakry–Émery criterion [72], not the converse. 
+
+Large smoothing noise.. For fixed qaug , the Gaussian kernel N (0 , σ 2I) is itself strongly log-concave with parameter 1/σ 2. By the Prékopa–Leindler inequality, the convolution qσ = qaug ∗ N (0 , σ 2I) is log-concave whenever qaug is log-concave [73]. Moreover, for any qaug , the convolved density qσ satisfies 
+
+∇2(− log qσ )( v) ≥ 1
+
+σ2 I pointwise , (C.1) for σ large enough relative to the spread of qaug (see, e.g., [74]), so hypothesis (iii) holds with m = 1 /σ 2.This is practically the regime of early annealing steps (large σℓ), where the Langevin chain is initialized. 
+
+Well-separated Gaussian components.. If the ensemble means {V(i)
+
+> f,k
+
+} satisfy the separation condition 
+
+∥V(i) 
+
+> f,k
+
+− V(j)
+
+> f,k
+
+∥ ≤ c σ for all i̸ = j and a numerical constant c > 0, then qσ is approximately a single Gaussian and is strongly log-concave [74]. In the ensemble Kalman setting this holds whenever the ensemble spread is small relative to σ.34 Appendix D. Proof of Theorem 3 
+
+Proof. Part (i): Weak convergence. This follows immediately from Part (ii) by taking ℓ → ∞ in (4.40): the first term ρℓW2(μ0, q σ ) → 0 since ρ ∈ (0 , 1) , and the bias C2α/ (1 − ρ) is driven to zero by taking α → 0.
+
+Part (ii): Wasserstein-2 bound. By hypothesis (iv) and Remark 4, the total score satisfies sEnKF ,k +
+
+sθ∗ = ∇ log qσ both qσ -a.e. and paug -a.e. Substituting into the Langevin recursion (4.35) gives the Unadjusted Langevin Algorithm (ULA) targeting qσ :
+
+V(i,ℓ +1)  
+
+> k
+
+= V(i,ℓ ) 
+
+> k
+
++ α
+
+2 ∇Vk log qσ
+
+
+
+V(i,ℓ )
+
+> k
+
+
+
++ √α η(i) 
+
+> ℓ
+
+, (D.1) which is the Euler–Maruyama discretization of the overdamped Langevin SDE with invariant measure 
+
+qσ . Under hypotheses (ii) and (iii), Durmus & Moulines (2019), Theorem 6 [59] gives the one-step W2-contraction: 
+
+W2
+
+ μℓ+1 , q σ
+
+ ≤ ρ W 2
+
+ μℓ, q σ
+
+ + C2 α, (D.2) with contraction factor ρ = 1 − mα + L2α2/2 ∈ (0 , 1) for α < 2m/L 2, and constant C2 depending on L, m,and dimension. Iterating (D.2) ℓ times gives (4.40). For the bias rate (4.42), note that for α ≤ m/L 2:
+
+1 − ρ = mα − 12 L2α2 ≥ 12 mα, (D.3) so C2 α
+
+1 − ρ ≤ C2 α 
+
+> 12
+
+mα = 2C2
+
+m , (D.4) which is O(1 /m ) and independent of α. The bias therefore does not shrink as O(√α) but rather remains bounded by 2C2/m for all small α, and the overall W2 error is driven to zero by first taking ℓ → ∞ 
+
+(exponential decay of the transient term) and then α → 0 (which drives C2α → 0 in the one-step bound (D.2), and hence the steady-state bias to zero). 
+
+Part (iii): Convergence toward the true posterior. Under exact CGNS ( εCGNS = 0 ), Theorem 2(v) gives 
+
+sEnKF ,k + sθ∗ − ∇ log paug L2(paug ) → 0 as N → ∞ . (D.5) Let ˜q(N ) 
+
+> σ
+
+denote the invariant measure of the ULA using the N -approximate total score. By Assumption 2 and mutual absolute continuity (Remark 4), convergence in L2(paug ) implies convergence in L2(qσ ), so the 
+
+W2 perturbation bound for ULA (Durmus & Moulines 2019, Proposition 4 [59]) gives: 
+
+W2
+
+
+
+˜q(N ) 
+
+> σ
+
+, q σ
+
+
+
+≤ 1
+
+m sEnKF ,k + s(N ) 
+
+> θ∗
+
+− ∇ log qσ L2(qσ ) → 0 as N → ∞ . (D.6) Therefore ˜q(N ) 
+
+> σw
+
+−→ qσ as N → ∞ . Separately, since qσ = paug ∗ N (0 , σ 2I) and N (0 , σ 2I) w
+
+−→ δ0 as σ → 0,standard properties of weak convergence under convolution give qσw
+
+−→ paug . Combining with the W2 bound (4.40) (with α → 0 driving the one-step bias C2α → 0) and applying the triangle inequality for W2 gives (4.45). 
+
+Appendix E. On the affinity of CGNS and recovering the true joint Lemma 1 (Affinity of the EnKF–CGNS Baseline Score) . The Gaussian baseline score sEnKF ,k defined in 
+
+(4.5) is affine in Vk:
+
+sEnKF ,k (Vk) = AkVk + bk, (E.1) 
+
+where 
+
+Ak = −P−1 
+
+> f,k
+
+− H⊤R−1obs H ∈ R(dX +dY )×(dX +dY ), (E.2) 
+
+bk = P−1 
+
+> f,k
+
+¯Vf,k + H⊤R−1obs Zk ∈ RdX +dY . (E.3) 
+
+In particular, sEnKF ,k ∈ G , where G is the class of affine functions on RdX +dY , and Ak is negative definite since both P−1 
+
+> f,k
+
+and H⊤R−1obs H are positive semi-definite. 
+
+35 Proof. Direct substitution of (4.5): 
+
+sEnKF ,k (Vk) = −P−1
+
+> f,k
+
+(Vk − ¯Vf,k ) + H⊤R−1obs (Zk − HV k)=
+
+
+
+−P−1 
+
+> f,k
+
+− H⊤R−1obs H
+
+| {z }
+
+> Ak
+
+Vk + P−1 
+
+> f,k
+
+¯Vf,k + H⊤R−1obs Zk
+
+| {z }
+
+> bk
+
+.
+
+The coefficients Ak and bk depend on the forecast statistics ( ¯Vf,k , Pf,k ) and the observation Zk but not on 
+
+Vk, confirming affinity. Negative definiteness of Ak follows since P−1 
+
+> f,k
+
+≻ 0 and H⊤R−1obs H ⪰ 0.
+
+Corollary 1 (Recovery of the True Joint Posterior) . Under the assumptions of Theorems 1–3, suppose the step sizes {αℓ} satisfy αℓ ≡ α with 0 < α < 2m/L 2, and the noise schedule satisfies σℓ ↘ 0. Suppose further that the CGNS exactly represents the true system dynamics, so that pCGNS = paug and εCGNS = 0 (4.24) .Then: 
+
+(i) Score convergence. As N → ∞ and σ → 0 sequentially, Theorem 2(v) gives 
+
+sEnKF ,k + sθ∗ → ∇ Vk log paug (Vk | Z0: k) in L2(paug ). (E.4) (ii) Langevin convergence. For N sufficiently large and α sufficiently small, the annealed Langevin chain (4.35) satisfies, by Theorem 3(iii): 
+
+W2
+
+
+
+Law 
+
+
+
+V(i,ℓ )
+
+> k
+
+
+
+, p aug (Vk | Z0: k)
+
+
+
+→ 0 as ℓ → ∞ , N → ∞ , α → 0, σ → 0, (E.5) 
+
+where W2 denotes the Wasserstein-2 distance. 
+
+(iii) Joint posterior recovery. As N, ℓ → ∞ and α, σ → 0, the particles {(X(i)
+
+> a,k
+
+, Y (i) 
+
+> a,k
+
+)} become asymptot-ically exchangeable and their empirical measure converges weakly to p∗. Specifically, for any bounded continuous test function ϕ,
+
+1
+
+N
+
+> N
+
+X
+
+> i=1
+
+ϕ
+
+
+
+X(i)
+
+> a,k
+
+, Y (i)
+
+> a,k
+
+ N, ℓ →∞ 
+
+−−−−−→ Ep∗ [ϕ(Xk, Y k)] , (E.6) 
+
+where p∗(Xk, Y k | Z0: k) is the true joint posterior. The marginal posterior of Yk is recovered as the Gaussian mixture 
+
+1
+
+N
+
+> N
+
+X
+
+> i=1
+
+N
+
+
+
+μ(i)
+
+> a,k
+
+, R(i)
+
+> f,k
+
+ w
+
+−→ p∗(Yk | Z0: k) as N, ℓ → ∞ , (E.7) 
+
+where R(i) 
+
+> f,k
+
+→ Rk(Xk) as N → ∞ by CGNS consistency [75]. 
+
+(iv) Approximate recovery under surrogate misspecification. When εCGNS > 0, Theorem 3(i)–(ii) gives Law( V(i,ℓ ) 
+
+> k
+
+) w
+
+−→ qσ as ℓ → ∞ , and the W2 distance to the true posterior satisfies 
+
+W2
+
+
+
+Law 
+
+
+
+V(i,ℓ )
+
+> k
+
+
+
+, p aug 
+
+
+
+≤ W2
+
+
+
+Law 
+
+
+
+V(i,ℓ )
+
+> k
+
+
+
+, q σ
+
+
+
++ W2(qσ , p aug ) , (E.8) 
+
+where the first term satisfies 
+
+W2
+
+
+
+Law 
+
+
+
+V(i,ℓ )
+
+> k
+
+
+
+, q σ
+
+
+
+≤ ρℓ W2
+
+ μ0, q σ
+
+ + C2 α
+
+1 − ρ → 0 (E.9) 
+
+as ℓ → ∞ and α → 0 by Theorem 3(ii), and the second term is the irreducible surrogate quality gap: 
+
+W2(qσ , p aug ) ≤ 1
+
+m εCGNS , (E.10) 
+
+controlled entirely by the CGNS misspecification and independent of N , ℓ, and α. Consequently 
+
+lim  
+
+> ℓ→∞ , α →0
+
+W2
+
+
+
+Law 
+
+
+
+V(i,ℓ )
+
+> k
+
+
+
+, p aug 
+
+
+
+≤ εCGNS 
+
+m , (E.11) 
+
+so that the residual approximation error is determined entirely by the structural surrogate gap, not by 
+
+N , ℓ, or α.
+
+36 Proof. Part (i). Immediate from Theorem 2(v) under εCGNS = 0 .
+
+Part (ii). By (E.4), the total learned score converges to ∇ log paug in L2(paug ) as N → ∞ . The Langevin chain (4.35) therefore targets paug in the limit. Convergence in W2 then follows from Theorem 3(iii), which gives W2(Law( V(i,ℓ ) 
+
+> k
+
+), p aug ) → 0 as ℓ → ∞ , N → ∞ , α → 0, and σ → 0 sequentially. 
+
+Part (iii). By (E.5), the single-particle law Law( V(i,ℓ ) 
+
+> k
+
+) w
+
+−→ paug as ℓ, N → ∞ . Since the particles 
+
+{(X(i)
+
+> a,k
+
+, Y (i) 
+
+> a,k
+
+)}Ni=1 are constructed from an exchangeable ensemble with shared forecast statistics ( ¯Vf,k , Pf,k ),they form an exchangeable sequence. Under EnKF consistency [69], the ensemble is asymptotically i.i.d. as 
+
+N → ∞ in the sense of propagation of chaos [76, 77]: for any fixed k, the k-particle marginal of the joint ensemble law converges to the k-fold product p⊗k
+
+> aug
+
+. The convergence (E.6) then follows from the weak law of large numbers applied to the asymptotically i.i.d. particles. For (E.7), marginalize (E.6) over Xk: since the sampling map μ(i) 
+
+> a,k
+
+7 → Y (i) 
+
+> a,k
+
+∼ N (μ(i)
+
+> a,k
+
+, R(i)
+
+> f,k
+
+) is continuous in μ(i)
+
+> a,k
+
+, and R(i) 
+
+> f,k
+
+→ Rk(Xk) as N → ∞ by CGNS consistency [75], the continuous mapping theorem gives weak convergence of the empirical mixture to p∗(Yk | Z0: k).
+
+Part (iv). The triangle inequality for W2 gives (E.8) directly. For the first term (E.9), apply Theo-rem 3(ii) with the contraction factor ρ = 1 − mα + L2α2/2 ∈ (0 , 1) : the transient term ρℓW2(μ0, q σ ) → 0
+
+exponentially in ℓ, and the discretization bias C2α/ (1 − ρ) ≤ 2C2/m → 0 as α → 0 by (D.4). For the second term (E.10), note that qσ is the invariant measure of the ULA targeting the surrogate score ∇ log qσ = sEnKF ,k + sθ∗ , while paug has score ∇ log paug . By the W2 perturbation bound for ULA (Durmus & Moulines 2019, Proposition 4 [59]) and the definition of εCGNS (4.24): 
+
+W2(qσ , p aug ) ≤ 1
+
+m ∇ log qσ − ∇ log paug L2(paug ) ≤ εCGNS 
+
+m , (E.12) which is (E.10). Combining (E.9) and (E.10) in (E.8) and taking ℓ → ∞ , α → 0 gives (E.11). 
+
+Appendix F. Proof of Theorem 4 
+
+Proof. Parts (i) and (ii). Since G is a closed subspace of L2(paug ), the orthogonal projection theorem gives the infimum in (4.50) as ∥(I − ΠG )spost ,k ∥L2 , which is strictly positive by hypothesis spost ,k /∈ G . Since 
+
+sEnKF ,k ∈ G by Lemma 1, for any g ∈ G :
+
+spost ,k − sEnKF ,k − g L2 ≥ (I − ΠG )spost ,k L2 > 0, (F.1) since sEnKF ,k + g ∈ G and the infimum over G is the projection distance. This establishes the necessity of the nonlinear residual. For Part (ii), fix ε > 0. Choose R large enough so that ´ 
+
+> ∥v∥>R
+
+∥spost ,k − sEnKF ,k ∥2 dp aug < ε 2/2,which is possible since paug has finite second moment. On the compact ball BR, apply the universal approximation theorem [78] to find sθ∗ ∈ F θ with ∥spost ,k − sEnKF ,k − sθ∗ ∥L∞(BR) < δ , where δ is chosen so that δ2paug (BR) < ε 2/2. Combining the two contributions gives (4.51). 
+
+Part (iii). Suppose for contradiction that sμ 
+
+> θ∗
+
+≡ 0. Since Vk = ( Xk, μk) are coordinate blocks and the 
+
+L2(paug ) inner product decomposes over coordinate subspaces: 
+
+spost ,k − sEnKF ,k − sθ∗ 
+
+> 2
+> L2
+
+= sX 
+
+> post ,k
+
+− sX 
+
+> EnKF ,k
+
+− sXθ∗ 
+
+> 2
+> L2
+
++ sμ 
+
+> post ,k
+
+− sμ 
+
+> EnKF ,k
+> 2
+> L2
+
+, (F.2) where the second term equals δ2 
+
+> μ
+
+when sμ 
+
+> θ∗
+
+≡ 0. Hence ∥spost ,k − sEnKF ,k − sθ∗ ∥L2 ≥ δμ, contradicting (4.51) for ε < δ μ. The bound (4.52) follows from the reverse triangle inequality applied to the μ-block: 
+
+δμ ≤ sμ 
+
+> post ,k
+
+− sμ 
+
+> EnKF ,k
+
+− sμ  
+
+> θ∗L2
+
++ sμ  
+
+> θ∗L2
+
+≤ ε + sμ  
+
+> θ∗L2
+
+. (F.3) 
+
+Part (iv). 
+
+The Langevin-corrected means satisfy 
+
+μ(i) 
+
+> a,k
+
+= μ(i)CGNS ,k + ∆ μ(i) 
+
+> k
+
+, (F.4) 37 where ∆μ(i) 
+
+> k
+
+is the net displacement accumulated by the Langevin chain (4.35) over L steps. When δμ > 0,Part (iii) guarantees ∥sμ 
+
+> θ∗
+
+∥L2(paug ) ≥ δμ − ε > 0, so sμ 
+
+> θ∗
+
+is nonzero on a set of positive paug -measure. Since the Langevin chain converges to qσ by Theorem 3(i)–(ii), and qσ is mutually absolutely continuous with respect to paug for σ > 0 (Remark 4), the score sμ 
+
+> θ∗
+
+is also nonzero on a set of positive qσ -measure. Therefore, (F.4) follows from the Langevin recursion initialized at V(i, 0)  
+
+> k
+
+= V(i)
+
+> f,k
+
+.Establishing pΩ̸ = pCGNS for large L. By Part (iii), sμ 
+
+> θ∗
+
+is nonzero in L2(paug ), hence nonzero on a set A
+
+with paug (A) > 0. By mutual absolute continuity of qσ and paug (Remark 4), qσ (A) > 0 as well. Since the Langevin chain converges weakly to qσ by Theorem 3(i)–(ii), the time-averaged occupation measure of the chain converges to qσ [59], so the accumulated displacement 
+
+∆μ(i) 
+
+> k
+
+=
+
+> L−1
+
+X
+
+> ℓ=0
+
+αℓ
+
+2 sμ
+
+> θ∗
+
+
+
+V(i,ℓ )
+
+> k
+
+
+
++ (EnKF and noise terms) (F.5) satisfies ∥∆μ(i) 
+
+> k
+
+∥L2(qσ ) > 0 as L → ∞ , since the drift integrand is nonzero on a qσ -positive set. Hence 
+
+μ(i)
+
+> a,k
+
+̸ = μ(i)CGNS ,k in distribution for some i, and since Gaussian distributions with the same covariance differ if and only if their means differ, pΩ̸ = pCGNS for L sufficiently large. Asymptotic KL improvement. Under exact CGNS and as L, N → ∞ , α, σ → 0, Corollary 1(iii) gives 
+
+pΩ
+
+> w
+
+−→ p∗ and hence DKL (p∗∥pΩ) → 0. When p∗̸ = pCGNS , the right-hand side of (4.54) is strictly positive since KL divergence vanishes if and only if the two measures coincide. This gives (4.54). 
+
+Remark 11 (When does δμ > 0 hold?). The condition δμ > 0 holds whenever the μ-component of the true posterior score sμ 
+
+> post ,k
+
+= ∇μk log paug (Vk | Z0: k) is non-affine in μk. Since sμ 
+
+> EnKF ,k
+
+is affine by Lemma 1, their L2 difference is nonzero whenever this non-affinity holds. This is implied by, but strictly weaker than, the true posterior being non-Gaussian: the degenerate case δμ = 0 occurs when the μ-score component happens to be affine, which holds in particular when the true posterior is Gaussian, but may also hold for certain non-Gaussian posteriors whose non-Gaussianity is concentrated entirely in the X-marginal. 
+
+Appendix G. Numerical details of experiments 
+
+Appendix G.1. Topographic Model: Spectral Equations and CGNS Structure 
+
+To discretize the system (5.4)-(5.5) in space, we project the system using the Fourier spectral modes. 
+
+Spectral projection 
+
+Expanding all fields in Fourier modes eikx and using ψk = −ωk/λ 2
+
+> m
+
+, we reformulate the system(5.4)-(5.5) for the layered topographic model as 
+
+dω k =
+
+
+
+−iℓ 
+
+
+
+U k − βk
+
+
+
+ωk − iℓkh kU − γkωk + fk
+
+
+
+dt + σk dW k, (G.1) 
+
+dU =
+
+"
+
+2ℓ Im X
+
+> k
+
+¯hk ωk
+
+k
+
+!
+
+− γU U + fU
+
+#
+
+dt + σU dW U , (G.2) 
+
+dT k =
+
+
+
+(−γT − ikU ) Tk + iαk λ2
+
+> m
+
+ωk
+
+
+
+dt, (G.3) where ℓ is a geometric scaling factor. dW k and dW U are Wiener processes with diffusion coefficients σk and 
+
+σU , respectively. 
+
+CGNS structure 
+
+With X = U and Y = ( ω1, . . . , ω K , T 1, . . . , T K ), equations (G.2)–(G.3) constitute a CGNS. The drift of U in (G.2) is linear in ωk (with coefficient 2ℓ Im( ¯hk/k )), satisfying (2.1). The drifts of ωk and Tk in (G.1)–(G.3) are linear in their respective components (with coefficients depending on U ), satisfying (2.2). 38 CGNS filter and EnKF baseline 
+
+Figure G.11 shows the EnKF posterior with discrete observations of U every 200 time steps, using the CGNS as the forecast model. These serve as the Gaussian baseline (3.11) against which Ω’s residual correction is evaluated in Section 5.2.      
+
+> Fig. G.11. EnKF posterior for the topographic model with discrete observations of Uevery 200 time steps, using the CGNS as the forecast model. This is the Gaussian baseline (3.11) that Ωcorrects in Section 5.2.
+
+Appendix H. Dimensional Robustness of Conditional Gaussian Inference 
+
+A central advantage of the CGNS framework is that the Monte Carlo error in recovering the latent posterior does not grow with the dimension of Y. As discussed in 9, the factorization p(X, Y) = p(Y |
+
+X) p(X) and the closed form of p(Yk | X0: k) through the CGNS filtering equations (2.5a)–(2.5b) imply that the integration over Y is performed analytically inside each ensemble component, and the sampling error is governed entirely by the observed process X. This appendix provides numerical evidence for this dimensional robustness using the barotropic topographic turbulence model at increasing Fourier truncation levels. We consider the topographic model (G.1) with Fourier truncation level kmax , giving a latent state con-sisting of the Fourier coefficients 
+
+Y = ( vk, ¯vk, T k, ¯Tk), k = 1 , · · · , k max dY = 4 kmax , (H.1) where dY is the latent dimension. For each value of kmax , truth trajectories are generated and the CGNS filter is applied using observations of the large-scale variable X = U . Two complementary experiments 39 10 1 10 2         
+
+> Number of samples M
+> 10 1
+> Relative mean error
+> dY= 8
+> dY= 16
+> dY= 32
+> dY= 48
+> dY= 64
+> M1/2 trend
+
+(a) Relative error between the sampled and true latent vari-able as a function of the number of independent realizations 
+
+M for latent dimensions dY ∈ { 8, 16 , 32 , 48 , 64 }. All curves closely follow the reference rate M −1/2 and nearly overlap, confirming that convergence is insensitive to the latent di-mension. 8 16 24 32 40 48 56 64  
+
+> Latent dimension dY
+> 0.575
+> 0.600
+> 0.625
+> 0.650
+> 0.675
+> 0.700
+> 0.725
+> 0.750
+> Normalized RMSE
+
+(b) Relative error as a function of latent dimension dY =4kmax . The reconstruction error does not grow systematically as dY increases from 4 to 64 , demonstrating robustness of the CGNS conditional Gaussian closure in high-dimensional latent spaces. 
+
+Fig. H.12. Numerical investigation of dimensional robustness in CGNS-based latent inference. (a) The O(M −1/2) Monte Carlo convergence rate is maintained across all tested latent dimensions. (b) Reconstruction accuracy remains stable as the latent dimension grows. Together, these results confirm that the dominant sampling burden is associated with the observed process X, while the latent variables Y are efficiently recovered through the conditional Gaussian closure. 
+
+are reported in Figure H.12. The first varies the number of independent realizations M of the process for fixed latent dimensions dY ∈ { 8, 16 , 32 , 48 , 64 }, measuring the convergence rate of the error beteewn the sampled Y using the CGNS and the truth with M . The second varies dY from 4 to 64 , measuring how the reconstruction quality changes as the latent space grows. The quality of the recovered latent statistics is measured by the normalized error between the true latent state and the CGNS conditional posterior mean 
+
+μf,k as ∥Ytruth −μf ∥2 
+
+> ∥Ytruth ∥2
+
+.In Figure H.12 (a), all curves closely follow the reference Monte Carlo rate M −1/2 and remain nearly close across latent dimensions ranging from dY = 8 to dY = 64 . This indicates that increasing the latent dimension does not increase the number of ensemble members required to achieve a given accuracy. Figure H.12(b) shows the error between the conditional posterior mean and latent variable does not exhibit systematic growth as dY increases from 4 to 64 , more than an order of magnitude increase in the latent space size. The absence of dimensional degradation confirms that the conditional Gaussian closure (2.5a)–(2.5b) efficiently absorbs the latent complexity, and later leaving the Ω ensemble approximation quality unaffected by dY .
+
+Appendix H.1. Lorenz-96: CGNS Structure Failure and Surrogate Construction 
+
+Partitioning the L96 state into odd variables x = ( u1, u 3, . . . ) and even variables y = ( u2, u 4, . . . ), the equation for a representative pair centered on j = 2 k is 
+
+du 2k−1 = (u2k+1 − u2k−3) u2k−2 − u2k−1 + F  dt + σ dW 2k−1, (H.2) 
+
+du 2k = (u2k+2 − u2k−2) u2k−1 − u2k + F  dt + σ dW 2k. (H.3) The hidden-state equation (H.3) contains the term u2k+2 u2k−1, a product of a hidden variable ( u2k+2 ,even-indexed) with an observed variable ( u2k−1, odd indexed). This is bilinear, however, it also contains 
+
+u2k−2 u2k−1, which is a product of a hidden variable ( u2k−2) with an observed variable. Moreover, the same hidden variable u2k+2 appears in both the observed equation (H.2) (through u2k−2 = u2( k−1) , i.e., a hidden neighbor) and the hidden equation, making the effective drift of y nonlinear in y: the term (u2k+2 −
+
+u2k−2) u2k−1 is a product of two hidden-state components u2k+2 and u2k−1 viewed from the perspective 40 of the hidden-state equation (since u2k−2 is even-indexed and hence hidden). This violates the linear-in-y
+
+requirement (2.2). 
+
+Surrogate CGNS 
+
+The surrogate (5.13)–(5.14) restores conditional Gaussianity by two modifications: (i) products of hidden variables replace the quadratic hidden cross-products in the hidden equation with the observed neighbor, which are linear in y; and (ii) an inflation noise σs = 5 is added to the observed-state diffusion to compensate for the discarded nonlinear terms. The verification of the two CGNS structural conditions and the role of 
+
+σs are described in Section 5.3. Figure H.13 shows the surrogate CGNS posterior for representative hidden variables under continuous observations, confirming that the surrogate captures the dominant dynamics of the hidden state despite the approximation.        
+
+> Fig. H.13. Surrogate CGNS posterior for representative hidden variables Yk=u2kof the stochastic Lorenz-96 system under continuous observations. The posterior mean tracks the reference with uncertainty bands that correctly reflect the inflation noise σs.
+
+Figure H.14 shows how the learned residual score complements the surrogate model. We compare the residual score based on normalized input values for two cases: the accurate surrogate CGNS used in this experiment and a version with smaller inflation noise, σs = 4 .41 Fig. H.14. The learned residual score corresponding to the first-indexed observed variable (a) and conditioned mean (b) for the cases: the less accurate surrogate model with σs = 4 and the accurate surrogate model σs = 5 . The residual score is more pronounced when the surrogate model is less accurate. 
+
+42
