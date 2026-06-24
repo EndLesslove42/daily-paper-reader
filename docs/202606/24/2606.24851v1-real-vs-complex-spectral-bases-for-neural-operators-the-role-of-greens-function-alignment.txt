@@ -1,0 +1,867 @@
+Title: Real vs. Complex Spectral Bases for Neural Operators: The Role of Green's Function Alignment
+
+URL Source: https://arxiv.org/pdf/2606.24851v1
+
+Published Time: Wed, 24 Jun 2026 01:20:25 GMT
+
+Number of Pages: 21
+
+Markdown Content:
+# Real vs. Complex Spectral Bases for Neural Operators: The Role of Green’s Function Alignment ∗
+
+Jason Sulskis jason.sulskis@gtri.gatech.edu Department of Computer Science University of Illinois at Chicago Electronic Systems Laboratory, Applied Embedded Systems Division Georgia Tech Research Institute 
+
+Sathya Ravi sathya@uic.edu Department of Computer Science University of Illinois at Chicago 
+
+# Abstract 
+
+Fourier Neural Operators (FNO) learn solution operators of partial differential equations by parameterizing global convolutions in the complex Fourier domain. For real-valued PDE solutions the complex FFT carries representational redundancy through conjugate symmetry. We introduce the Hartley Neural Operator (HNO), the exact real-valued mirror of FNO: it replaces the FFT with the purely real Discrete Hartley Transform and learns a single real multiplier per retained spectral mode, with no complex arithmetic. Because the real Hartley spectrum is not halved by conjugate symmetry, HNO retains twice as many frequency corners as FNO but one real weight where FNO carries a complex pair, so the two operators are iso-parametric at equal width and differ only in spectral basis. Our central thesis is that the best basis is a property of the operator. Self-adjoint elliptic operators (Poisson, biharmonic) have real, symmetric Green’s functions that the real Hartley multiplier diagonalizes exactly; HNO is favored there. Time-dependent operators carry phase—oscillation in the wave equation, transport in advection, Burgers, and Navier-Stokes— which a real diagonal multiplier structurally cannot represent; FNO is favored there, and increasingly so with the operator’s phase content, leaving the (phaseless) heat equation as the borderline case. We train both operators with an identical optimizer, schedule, and regularization so that any difference in accuracy is attributable to the basis alone, and we benchmark across PDE classes, three initial-condition families, and both periodic and Dirichlet boundary conditions. The resulting elliptic-versus-time-dependent split, monotone in operator phase content, matches the Green’s-function theory we develop. Rather than a universal winner, our findings give a predictive rule: match the spectral basis to the symmetry of the solution operator. 
+
+# 1 Introduction 
+
+Solving PDEs is hard. PDEs govern fundamental physics, from seismic wave propagation to heat diffusion and quantum mechanical evolution. Classical numerical methods—finite differences (LeVeque, 2007), finite elements (Johnson, 2009), and spectral methods (Canuto et al., 2006)—have enabled remarkable progress, yet each faces limitations in accuracy, stability, or computational cost for complex, high-dimensional, or real-time applications. Parabolic equations like the heat equation smooth initial discontinuities but cause high-frequency decay. Hyperbolic equations such as the wave equation preserve information without dissipation, but numerical schemes suffer dispersion errors—problematic for seismology, acoustics, and electromagnetics. Nonlinear equations like Burgers’ equation develop steep gradients and shocks that challenge fixed-basis representations.  
+
+> ∗Code available at https://github.com/jaysulk/hartley-neural-operator
+
+1
+
+> arXiv:2606.24851v1 [cs.LG] 23 Jun 2026
+
+Fluid dynamics governed by the Navier-Stokes equations introduce vorticity transport and turbulent cascades across scales. Elliptic equations (Poisson, biharmonic) impose global coupling where solutions depend on the entire domain. Traditional solvers share a bottleneck: each new initial condition or parameter requires computation from scratch. For uncertainty quantification, inverse problems, or real-time forecasting (Pathak et al., 2022), this per-instance cost becomes prohibitive. Neural operators (Li et al., 2020b; Lu et al., 2021; Kovachki et al., 2023) address this by learning the solution operator, amortizing cost across problem families and evaluating in milliseconds once trained. Neural operators offer a powerful alternative to traditional PDE solvers by learning mappings directly between function spaces. The Fourier Neural Operator (FNO) (Li et al., 2020b) has emerged as particularly effective, parameterizing convolutional filters in the frequency domain via the Fast Fourier Transform. FNO applies spectral layers that lift inputs to higher-dimensional representations, apply truncated Fourier convolutions retaining only low-frequency modes, and project back to the output dimension. Because convolution in frequency space is mesh-independent, FNO generalizes across discretizations. The theoretical foundation traces to the universal approximation theorem for operators (Chen & Chen, 1995), with DeepONet (Lu et al., 2021) providing an alternative branch-trunk architecture, and wavelet-based variants (Tripura & Chakraborty, 2022; Gupta et al., 2021) offering improved time-frequency localization for multiscale phenomena. However, a question that has received insufficient attention is whether the FFT itself is the optimal spectral basis for neural operator learning. For real-valued PDE solutions—the vast majority of physical systems—the complex-valued FFT introduces representational redundancy through conjugate symmetry: half the spectrum is determined by the other half, yet the learnable weight matrices must implicitly discover this constraint. We propose the Hartley Neural Operator (HNO), replacing the FFT with the purely real-valued Discrete Hartley Transform (Hartley, 1942; Bracewell, 1983). Unlike Fourier, every Hartley coefficient is independent, requiring explicit treatment of all frequency quadrants but eliminating complex arithmetic and conjugate redundancy. For PDEs with symmetric Green’s functions, the Hartley convolution theorem simplifies to elementwise multiplication, making HNO directly analogous to FNO in learning complexity while operating entirely in the real domain. Through a systematic evaluation across PDE classes, three initial-condition families, and both periodic and Dirichlet boundary conditions, with identical training for both operators, we establish the following contributions: 1. A clean real-valued mirror of FNO. We formulate HNO as the exact real counterpart of FNO: one real multiplier per retained mode, no even/odd decomposition and no complex arithmetic. Because the real Hartley spectrum is not halved by conjugate symmetry, HNO retains twice as many corners as FNO but a single real weight each, making the two iso-parametric at equal width . This coincides with the parameter-efficient shared-real-weight design of Wong et al. (2023; 2025) and isolates the basis as the only variable. 2. A basis–operator alignment principle with theoretical backing. We prove that self-adjoint elliptic operators have real, symmetric Green’s functions whose Hartley spectrum is real, so a single real multiplier per mode represents them exactly (Appendix E). The same real restriction makes HNO structurally unable to represent operators whose symbol carries phase. Basis preference is therefore determined by the symmetry of the solution operator, not by PDE class labels alone. 3. An operator-phase ordering that predicts the empirical split. The benchmark exhibits a clean division—HNO favored on the elliptic operators, FNO on the time-dependent ones—that is monotone in the operator’s phase content: the most self-adjoint operator (biharmonic) yields the largest HNO advantage, the most transport-dominated (advection, Burgers) the largest FNO advantage, and the phaseless heat equation sits at the borderline. The initial-condition family modulates magnitude but not the sign of the effect. 4. Benchmarks and cost analysis. We provide Burgers’ and 2D Navier-Stokes vorticity benchmarks for Hartley-based operators, and an arithmetic-cost analysis with radix-4 FHT measurements showing 2that the residual wall-clock overhead is a property of the emulated-DHT backend, not of the Hartley transform itself (Appendix D). The practical guidance is a rule rather than a ranking: choose the real Hartley basis when the solution operator is (near) self-adjoint and phaseless—elliptic solves, diffusion—and the complex Fourier basis when it carries oscillation or transport. 
+
+# 2 Background 
+
+The Discrete Hartley Transform. The DHT (Bracewell, 1983) of a sequence f [n] of length N is: 
+
+Hk = 
+
+> N−1
+
+∑
+
+> n=0
+
+f [n] · cas 
+
+( 2πkn N
+
+)
+
+(1) where cas (θ) = cos (θ) + sin (θ). A key property is that the DHT is self-inverse: applying it twice recovers the original signal (up to normalization by 1/N ). For real-valued inputs, the DHT and DFT are related by 
+
+H{f }(k) = Re {F {f }(k)} − Im {F {f }(k)}, (2) a relationship that is central to our implementation: we compute the DHT via torch.fft and extract 
+
+Re − Im , obtaining GPU-accelerated Hartley transforms without a custom kernel. The Hartley convolution theorem (Bracewell, 1984) states that for real signals x and y with Hartley spectra 
+
+X and Y , the circular convolution x ⊛ y has spectrum: 
+
+Zk = 12 [Xk(Yk + Y−k) + X−k(Yk − Y−k)] (3) where Y−k = YN −k mod N . Unlike Fourier convolution (elementwise complex multiplication), Hartley con-volution couples frequencies k and −k—however, for symmetric filters satisfying Yk = Y−k, this reduces to elementwise multiplication Zk = Xk · Yk. This simplification is significant for elliptic PDEs, whose Green’s functions are real and symmetric (Theorem E.7 in Appendix E). 
+
+Comparison to other transforms. The Hartley transform occupies a middle ground between the FFT and localized transforms like wavelets (Daubechies, 1988) or the DCT (Ahmed et al., 1974). Like the FFT, it provides global frequency decomposition with O(N log N ) complexity; unlike the FFT, it operates entirely in the real domain. Wavelets offer time-frequency localization advantageous for transient or multiscale phenomena, but require choosing an appropriate mother wavelet and can suffer from shift variance. The DCT concentrates energy effectively for smooth signals but introduces blocking artifacts at discontinuities. For PDEs with smooth, periodic solutions and real-valued dynamics, the Hartley transform provides a natural representation without complex arithmetic overhead. In preliminary experiments, the Multiwavelet Transform operator (MWT) (Tripura & Chakraborty, 2022; Gupta et al., 2021) consistently trailed both FNO and HNO by factors of 2–4 × across all six PDEs, consistent with the observation that smooth, periodic solutions with global frequency content favor spectral bases over compactly-supported wavelets (see Appendix B for a detailed comparison of the Hartley transform with wavelet and cosine transforms). Recent work has further explored alternative spectral bases for neural operators: the Walsh-Hadamard Neural Operator (Cavallazzi et al., 2025) uses rectangular wave functions suited for discontinuous coefficients, and Convolutional Neural Operators (Raonić, 2023) bypass spectral representations entirely through bandlimited convolutions. These developments support our central thesis that spectral basis selection is an active design choice with significant performance implications, not a settled default. Concurrently, Wong et al. (2023) and Wong et al. (2025) applied Hartley-based neural operators to 3D medical image segmentation, demonstrating that replacing the FFT with the DHT enables nonlinear operations in the frequency domain (impossible with complex-valued spectra) and achieves state-of-the-art resolution robustness with fewer than 35k parameters. Their work uses a single shared real frequency-domain weight per mode, and our clean HNO coincides with that design: one real multiplier per retained mode rather than per-quadrant even/odd weight pairs. Our theoretical framework (Green’s function symmetry and operator phase content) provides explanatory power for why Hartley-based operators succeed on some operators and fail on others. Our focus on FNO versus HNO thus isolates the question of real versus complex spectral representations for this important problem class. 3Data-driven neural operator training. We train HNO using supervised learning on input-output pairs generated by numerical solvers. This data-driven approach learns the solution operator directly from examples without requiring automatic differentiation through the PDE, avoiding optimization difficulties associated with balancing multiple loss terms (Wang et al., 2020). Crucially, we generate ground truth for time-dependent PDEs using finite difference methods rather than spectral solvers, ensuring no implicit bias toward Fourier-based representations in the training data. For elliptic PDEs (Poisson, biharmonic), we use spectral solvers since the neural operator learns the source-to-solution mapping rather than time evolution, and the spectral solve is exact. This allows us to isolate the effect of spectral basis choice: any performance differences between HNO and FNO reflect the suitability of the underlying transform for the PDE structure, not artifacts of data generation. 
+
+Matched training for a basis-only comparison. Because HNO is iso-parametric with FNO at equal width, we train both with an identical optimizer, learning rate, schedule, weight decay, gradient clipping, and width. This is the fair comparison that attributes any accuracy difference to the spectral basis rather than to tuning. We note that an earlier, over-parameterized Hartley variant—placing separate even/odd weight pairs on every frequency quadrant—did appear to require its own training recipe, but that behavior was an artifact of the redundant parameterization; the clean real-diagonal HNO trains stably under FNO’s settings, and matched hyperparameters are both fairer and sufficient. 
+
+# 3 Experiments 
+
+We evaluate the Hartley Neural Operator (HNO) against the Fourier Neural Operator (FNO) (Li et al., 2020b;a) across canonical PDEs spanning five classes: parabolic (heat), hyperbolic (wave), advective (advection-diffusion), nonlinear (Burgers, and 2D Navier-Stokes in vorticity form), and elliptic (Poisson, biharmonic). To separate basis alignment from data distribution, we test three initial-condition families, and to test boundary sensitivity we evaluate both periodic and homogeneous Dirichlet boundary conditions. Both operators are iso-parametric at equal width and trained identically (Section 3.4), implemented in PyTorch (Paszke et al., 2019). 
+
+3.1 Initial Condition Families 
+
+We test across three IC types to disentangle basis alignment from data distribution effects, following the fair comparison protocol of Lu et al. (2022). 
+
+Gaussian Random Fields (GRFs). Stochastic ICs sampled with Matérn covariance (Matérn, 1986; Gneiting et al., 2010) ( ν = 2 .5, ℓ = 0 .15 , σ = 1 .0) via the spectral method. GRFs provide broadband spectral content with power-law decay S(k) ∝ (1 + ℓ2|k|2)−(ν+d/ 2) , representing realistic scenarios in turbulence and stochastic forcing. This family emerges as the most informative test case, as its broadband frequency content stresses both spectral representations across the full mode range. 
+
+Eigenfunction Expansions. Superpositions of Laplacian eigenfunctions with Sobolev-weighted coefficients (Canuto et al., 2006): u0(x, y ) = ∑ 
+
+> k,ℓ
+
+ˆukℓ (1 + k2 + ℓ2)−s sin (πkx ) sin (πℓy ). These are Fourier modes by construction, providing a test case where FNO’s native basis is structurally aligned with the data. 
+
+Gaussian Bump Superpositions. Spatially localized ICs: 2–5 Gaussian bumps with random centers in [0 .2, 0.8] 2, widths σ ∈ [0 .06 , 0.15] , and amplitudes a ∈ [−1, 1] . This family has rapidly decaying spectral content, concentrating energy in few low-frequency modes. 
+
+3.2 Ground Truth Generation 
+
+We generate time-dependent ground truth on a 64 × 64 grid (Lu et al., 2022), evaluating at Nt = 51 
+
+time points over t ∈ [0 , 0.5] . Heat and wave equations admit exact closed-form solutions in Fourier space (ˆu(k, t ) = ˆu0(k)e−ν|k|2t and ˆu(k, t ) = ˆu0(k) cos (c|k|t) respectively); we use these exact solutions as ground truth since they introduce no discretization error. For Burgers and Navier-Stokes, where no such closed form 4exists, we use finite difference methods to avoid implicit bias toward Fourier-based representations in the training data. Burgers uses first-order upwind advection with central diffusion and adaptive CFL subcycling. Navier-Stokes uses upwind vorticity transport with a spectral streamfunction solve and adaptive subcycling. Advection-diffusion uses an upwind/spectral transport solver with speed cadv = 1 .5 and diffusivity νadv = 0 .01 ,evaluated under both boundary conditions. Elliptic problems are solved exactly: ˆuk,ℓ = ˆfk,ℓ /(4 π2(k2 + ℓ2)) for Poisson and ˆuk,ℓ = ˆfk,ℓ /(16 π4(k2 + ℓ2)2) for biharmonic. We test three parameter values per time-dependent PDE: νheat ∈ { 0.005 , 0.01 , 0.05 }, cwave ∈ { 0.5, 1.0, 2.0}, νBurgers ∈ { 0.01 , 0.02 , 0.05 }, νNS ∈ { 0.001 , 0.005 , 0.01 }.All solutions are normalized to unit maximum amplitude. We generate 200 samples per configuration, using 160 for training and 40 for testing. 
+
+3.3 Network Architectures 
+
+FNO and HNO. Both FNO and HNO share identical architectural skeletons to ensure fair comparison, following the framework established by Li et al. (2020b). Time-dependent PDEs use three spectral convolution blocks with residual connections (via 1×1 convolutions on flattened spatial dimensions) and GELU activations (Hendrycks & Gimpel, 2023), preceded by an input projection and followed by an output projection. Elliptic PDEs use four spectral convolution blocks. The input for time-dependent PDEs is [u0, x, y, t ] (4 channels), where u0 is the initial condition broadcast across all spatial locations, x and y are coordinate grids, and t is a scalar target time broadcast across the spatial grid; the network is trained to predict u(·, t ) at each of the 
+
+Nt = 51 target times independently, with each (u0, t ) pair treated as a separate training example. For elliptic PDEs the input is [f, x, y ] (3 channels). 5u0, x, y, t 
+
+P : Rdin → Rdv 
+
+H
+
+W (i) (real) 
+
+H−1
+
+> 1×1
+
++
+
+GELU 
+
+Q : Rdv → Rdout 
+
+# u(x, y, t )
+
+# Hartley Spectral Conv 
+
+H = H[v]              
+
+> [: m, :m][: m, −m:]
+> [−m:,:m][−m:,−m:]
+
+ˆH(i) = W (i) ·H(i)
+
+(one real weight / corner) 
+
+ˆHout 
+
+vout = H−1[ ˆH]
+
+Figure 1: Hartley Neural Operator architecture. Left: Network structure with input projection, spectral convolution blocks (3 for time-dependent, 4 for elliptic PDEs), residual 1×1 bypass, and output projection. 
+
+Right: the Hartley spectral convolution keeps the low-frequency corners of the full real Hartley spectrum— four in two dimensions, eight octants in three—and applies one real weight matrix W (i) per corner, the real-valued mirror of FNO’s complex per-mode multiplier. There is no even/odd decomposition and no k/−k
+
+coupling. 
+
+FNO Spectral Convolution. FNO uses the real FFT ( rFFTn ), which exploits conjugate symmetry for real inputs to store only the positive-frequency half-space (Oppenheim & Schafer, 1999): FNO : y = F−1[R · F [x]] (4) where R ∈ Cdv ×dv ×kmax operates on the truncated positive-frequency half-space and the inverse transform automatically reconstructs the full spectrum via conjugate symmetry. 
+
+HNO Spectral Convolution. The Hartley transform of a real field is real but carries no conjugate symmetry: Hk and H−k are independent, so HNO reduces no axis and retains the low-frequency corners of the full spectrum—four in two dimensions, eight in three. Where FNO learns one complex multiplier per retained mode, HNO is its exact real mirror, learning one real multiplier per retained mode: HNO : y = H−1[W · H [x]] , W ∈ Rdv ×dv ×kmax , (5) a single real weight matrix W (i) on each retained corner, with no even/odd decomposition and no k/−k
+
+coupling term. By Theorem E.7 this is the faithful realization of the Hartley convolution theorem in the symmetric case: the elliptic Green’s function is real and even, the DHT diagonalizes it, and one real multiplier 6per mode represents it exactly. The coupling term a general (asymmetric, phase-carrying) convolution would require is deliberately absent—HNO cannot represent operators with phase content (Appendix E.7), which is precisely the inductive bias toward real, self-adjoint operators that the comparison isolates. Because a complex weight stores two real parameters and a real weight stores one, while HNO retains twice as many corners as FNO (the full spectrum versus the rfft half), the two operators carry equal real parameters at equal width: in two dimensions FNO’s two complex corners and HNO’s four real corners both contribute 
+
+4d2 
+
+> v
+
+m2 real weights, and in three dimensions both contribute 8d2 
+
+> v
+
+m3. We therefore set dFNO  
+
+> v
+
+= dHNO  
+
+> v
+
+, making the comparison iso-parametric with the spectral basis the only difference. 
+
+3.4 Training Protocol 
+
+Both operators are trained with an identical configuration so that the comparison reflects the spectral basis rather than tuning. We use Adam with learning rate 10 −3, weight decay 10 −4, gradient clipping at norm 1.0,and a step schedule halving the learning rate every quarter of training. Both use the same channel width and the same number of retained modes per axis; since HNO is iso-parametric with FNO at equal width (Equation 5), this equalizes real trainable parameters as well as width. The loss is the standard relative-L2
+
+(per-sample normalized) objective, which prevents the constant-output collapse that an unnormalized MSE can induce on small-amplitude, zero-mean targets. We deliberately avoid per-method hyperparameter search: the clean real-diagonal HNO trains stably under FNO’s settings, so matched hyperparameters are both the fair and the sufficient protocol. 
+
+3.5 Evaluation Metrics 
+
+Following standard practice in neural operator evaluation (Li et al., 2020b; Lu et al., 2022), we report the relative L2 error averaged over test samples: Rel L2 = 1
+
+Ntest 
+
+> Ntest
+
+∑
+
+> i=1
+
+∥u(i) 
+
+> θ
+
+− u(i)true ∥2
+
+∥u(i)true ∥2
+
+(6) To assess spatial derivative accuracy—critical for computing physical quantities such as fluxes, stresses, and forces (Kovachki et al., 2023)—we also compute gradient error: Grad Error = ∥∇ uθ − ∇ utrue ∥2
+
+∥∇ utrue ∥2
+
+(7) where gradients are computed via central finite differences on the output grid. We additionally report per-sample error distributions to assess consistency beyond mean performance. 
+
+3.6 Computational Setup 
+
+All experiments run on a single NVIDIA A100 GPU with 40GB memory via Google Colab Pro. Training runs take 20–40 minutes per method for time-dependent PDEs and 3–5 minutes for elliptic PDEs. 
+
+# 4 Results 
+
+We evaluate HNO against FNO across the PDE suite using three initial-condition families and both boundary conditions, with both operators iso-parametric and identically trained. We report relative L2 error; the headline pattern is the elliptic-versus-time-dependent split predicted by the operator-symmetry theory of Appendix E. 74.1 FNO vs HNO: Overall Performance 
+
+Figure 2: HNO/FNO relative-L2 ratio across PDEs (rows) and initial-condition/boundary combinations (columns). Green indicates HNO wins, red FNO; bold rows are the elliptic operators. The elliptic rows are green and the time-dependent rows red, with the FNO margin increasing from heat (phaseless) through wave to the transport-dominated operators. This figure reports the full relative-L2 comparison. The results divide cleanly along operator symmetry (Figure 2), and the division is monotone in phase content rather than binary. 
+
+Elliptic PDEs: HNO favored. On Poisson and biharmonic—self-adjoint operators with real, symmetric Green’s functions—HNO attains lower error, and the advantage is largest on biharmonic, the most strongly self-adjoint operator in the suite. This is the most theoretically grounded result: by Corollary E.11 a single real multiplier per mode reproduces a symmetric kernel exactly, so HNO’s hypothesis class contains the target while FNO must drive its imaginary parameters to zero (Theorem E.8). Periodic boundaries, which keep the operator exactly Hartley-diagonal, show a larger edge than Dirichlet. 
+
+Time-dependent PDEs: FNO favored, monotone in phase. On heat, wave, advection-diffusion, Burgers, and Navier-Stokes, FNO is favored, by a margin that grows with the operator’s phase content (Corollary E.17). Transport-dominated operators (advection-diffusion, Burgers) show the largest FNO advantage; the wave equation, oscillatory but undamped, is intermediate; and the heat equation—whose propagator e−ν|k|2t is real and phaseless—is the closest to a tie and the case where HNO occasionally edges ahead on smooth inputs. This gradient is itself evidence for the mechanism: FNO’s advantage tracks how much phase the propagator carries, not the PDE’s textbook class. 
+
+Initial conditions modulate magnitude, not sign. Across the eigenfunction, GRF, and Gaussian-bump families the sign of each cell is stable; the IC family changes how pronounced the gap is. The smooth Gaussian bump yields near-radial, low-rank solutions that both bases resolve well, so its ratios sit closest to unity and are the least diagnostic. 8Figure 3: Spatial error advantage |FNO err | − | HNO err | per cell (green: HNO closer to truth; pink: FNO closer). Annotations give the HNO/FNO ratio and the fraction of the domain where HNO is better. Elliptic panels are diffusely green (a global basis match); time-dependent panels are pink with structured error that traces transport direction and vortices. 
+
+# 5 Discussion 
+
+Our experiments support a single organizing principle: the optimal spectral basis is determined by the symmetry of the solution operator. Real, self-adjoint, phaseless operators favor the real Hartley basis; operators that carry phase favor the complex Fourier basis. The subsections below give the mechanism on each side of the split, the computational cost, and connections to related real-basis operators. 95.1 Green’s Function Alignment Explains Elliptic Dominance 
+
+HNO’s advantage on elliptic PDEs is explained by Green’s function symmetry. Self-adjoint elliptic operators have real, symmetric Green’s functions with ˆG(k) ∈ R and H{ G}(k) = ˆG(k) (Theorem E.7 in Appendix E). The Hartley convolution simplifies to elementwise multiplication for symmetric kernels (Corollary E.11), giving HNO the same structure as FNO with purely real arithmetic. FNO must discover Im {W } = 0 during training, doubling its effective search space from M to 2M dimensions (Theorem E.8). 
+
+5.2 Phase Content Explains the Time-Dependent Ordering 
+
+The complement of the elliptic argument explains FNO’s advantage on time-dependent PDEs, and explains why that advantage is graded rather than uniform. A real Hartley diagonal multiplier can realize exactly the operators whose symbol is real and even—the phaseless operators (Proposition E.16). Time evolution generically introduces phase: the wave propagator oscillates, and advective transport contributes a pure imaginary symbol e−ic ·k t . HNO cannot represent these, so FNO wins, and by more as the propagator carries more phase (Corollary E.17). The heat equation is the informative borderline: its propagator e−ν|k|2t is real and even, phaseless like an elliptic solve, so the two bases are closest there and HNO can even edge ahead on smooth inputs. The initial-condition family changes the magnitude of each gap but not its sign, because the symbol’s phase is a property of the operator, not of the data—rather than a property of the initial condition’s spectral content, as an earlier account of these experiments had proposed. 
+
+5.3 Computational Cost 
+
+The clean real-diagonal layer performs a single real multiply per retained corner—no even/odd pair and no negative-frequency gather—so its per-mode arithmetic is lighter than FNO’s complex multiply. The residual wall-clock overhead comes from computing the DHT as Re {F} − Im {F} on top of a full complex 
+
+fftn , forgoing the rfft symmetry FNO enjoys. This is a property of the emulated-DHT backend, not of the Hartley transform: a native fast Hartley transform performing purely real arithmetic would remove it, and our radix-4 FHT benchmarks (Appendix D, Table 1) show a 40–131 × transform-level speedup over radix-2, indicating substantial headroom. The overhead is modest relative to the accuracy differences the basis choice produces. 
+
+5.4 Related Real-Basis Operators 
+
+Recent work on Walsh-Hadamard transforms for discontinuous coefficients (Cavallazzi et al., 2025) and convolutional neural operators (Raonić, 2023) supports our thesis that spectral basis selection is an active design choice. The HNOSeg line of work (Wong et al., 2023; 2025) provides independent evidence from a different domain: in 3D medical image segmentation, Hartley-based operators outperform Fourier-based ones in accuracy while achieving extreme parameter efficiency ( <35k parameters vs. >16M for CNNs/transformers). Their finding that real-valued frequency domains enable stacked nonlinear operations (impossible with complex spectra) is complementary to our finding that the real-valued spectral diagonal exactly matches—and is exactly limited to—real, symmetric solution operators. 
+
+5.5 Limitations 
+
+All experiments use square domains with periodic and homogeneous Dirichlet boundary conditions at 64 × 64 
+
+resolution, which may not capture all high-resolution phenomena. Our Burgers and Navier-Stokes viscosities prevent true shock formation. Our HNO implementation uses torch.fft rather than a native FHT kernel, leaving efficiency gains unrealized. 10 6 Conclusion 
+
+We introduced the Hartley Neural Operator (HNO) as the exact real-valued mirror of FNO—one real multiplier per retained mode, iso-parametric at equal width—and used it to ask a clean question: when does a real spectral basis beat a complex one? Our answer is a rule, not a ranking. 1. Elliptic operators favor HNO. Self-adjoint elliptic operators have real, symmetric Green’s functions that the real Hartley multiplier diagonalizes exactly, so HNO contains the target operator in its hypothesis class while FNO must learn that its imaginary part vanishes. The advantage is largest for the most self-adjoint operator (biharmonic). 2. Time-dependent operators favor FNO, monotonically in phase. A real diagonal cannot represent phase, so FNO wins on operators that oscillate or transport, by a margin that grows with phase content—from the borderline phaseless heat equation through the wave equation to the transport-dominated advective and nonlinear PDEs. 3. The basis is a property of the operator, not the data. Initial-condition family and boundary condition modulate the magnitude of each gap but not its sign; the determining quantity is the symmetry of the solution operator’s symbol. The principle is simple: match the basis to the symmetry of the operator . Real, self-adjoint, phaseless problems—elliptic solves and diffusion—call for the real Hartley basis; oscillatory and advective problems call for the complex Fourier basis. We hope this reframes the spectral-operator design question away from a search for a universal transform and toward choosing the basis whose structure matches the physics. Several directions follow naturally: a native Fast Hartley Transform kernel to remove the emulated-DHT overhead; an adaptive operator that selects its basis from detected operator symmetry; and a broader comparison situating both spectral operators against non-spectral baselines such as DeepONet (Lu et al., 2021) and convolutional neural operators (Raonić, 2023), to quantify the spectral-versus-non-spectral gap alongside the real-versus-complex one studied here. 
+
+# References 
+
+N. Ahmed, T. Natarajan, and K. R. Rao. Discrete cosine transform. IEEE Transactions on Computers , 100 (1):90–93, 1974. Ali N Akansu and Richard A Haddad. Multiresolution Signal Decomposition: Transforms, Subbands, and Wavelets . Academic Press, 1992. R. N. Bracewell. Discrete Hartley transform. Journal of the Optical Society of America , 73(12):1832–1835, 1983. doi: 10.1364/JOSA.73.001832. R. N. Bracewell. The Hartley Transform . Oxford University Press, 1984. Claudio Canuto, M. Yousuff Hussaini, Alfio Quarteroni, and Thomas A. Zang. Spectral Methods: Fundamentals in Single Domains . Springer, 2006. Giorgio M. Cavallazzi, Miguel Pérez Cuadrado, and Alfredo Pinelli. Walsh-hadamard neural operators for solving PDEs with discontinuous coefficients. arXiv preprint arXiv:2511.07347 , 2025. Tianping Chen and Hong Chen. Universal approximation to nonlinear operators by neural networks with arbitrary activation functions and its application to dynamical systems. IEEE Transactions on Neural Networks , 6(4):911–917, 1995. Ingrid Daubechies. Orthonormal bases of compactly supported wavelets. Communications on Pure and Applied Mathematics , 41(7):909–996, 1988. 11 Tilmann Gneiting, William Kleiber, and Martin Schlather. Matérn cross-covariance functions for multivariate random fields. Journal of the American Statistical Association , 105(491):1167–1177, 2010. doi: 10.1198/ jasa.2010.tm09420. Gaurav Gupta, Xiongye Xiao, and Paul Bogdan. Multiwavelet-based operator learning for differential equations. In A. Beygelzimer, Y. Dauphin, P. Liang, and J. Wortman Vaughan (eds.), Advances in Neural Information Processing Systems , 2021. URL https://openreview.net/forum?id=LZDiWaC9CGL .R.V.L. Hartley. A more symmetrical Fourier analysis applied to transmission problems. Proceedings of the IRE , 30(3):144–150, 1942. doi: 10.1109/JRPROC.1942.234333. Dan Hendrycks and Kevin Gimpel. Gaussian error linear units (GELUs), 2023. Claes Johnson. Numerical Solution of Partial Differential Equations by the Finite Element Method . Dover Publications, 2009. Gerald Kaiser. A Friendly Guide to Wavelets . Birkhäuser, 1994. Nikola Kovachki, Zongyi Li, Burigede Liu, Kamyar Azizzadenesheli, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. Neural operator: Learning maps between function spaces with applications to PDEs. Journal of Machine Learning Research , 24(89):1–97, 2023. Randall J. LeVeque. Finite Difference Methods for Ordinary and Partial Differential Equations . SIAM, 2007. Zongyi Li, Nikola Kovachki, Kamyar Azizzadenesheli, Burig Liu, Kirthevasan Bhattacharya, Andrew Stuart, and Anima Anandkumar. Fourier neural operator for parametric partial differential equations. In Proceedings of the 37th International Conference on Machine Learning (ICML) , 2020a. Zongyi Li, Nikola Kovachki, Kamyar Azizzadenesheli, Burigede Liu, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. Fourier neural operator for parametric partial differential equations. arXiv preprint arXiv:2010.08895 , 2020b. Lu Lu, Pengzhan Jin, Guofei Pang, Zhongqiang Zhang, and George Em Karniadakis. Learning nonlinear operators via DeepONet based on the universal approximation theorem of operators. Nature Machine Intelligence , 3(3):218–229, 2021. Lu Lu, Xuhui Meng, Shengze Cai, Zhiping Mao, Somdatta Goswami, Zhongqiang Zhang, and George Em Karniadakis. A comprehensive and fair comparison of two neural operators (with practical extensions) based on FAIR data. Computer Methods in Applied Mechanics and Engineering , 393:114778, 2022. Bertil Matérn. Spatial Variation . Springer New York, 1986. doi: 10.1007/978-1-4615-7892-5. Alan V. Oppenheim and Ronald W. Schafer. Discrete-Time Signal Processing . Prentice Hall, 2nd edition, 1999. Adam Paszke, Sam Gross, Francisco Massa, Adam Lerer, James Bradbury, Gregory Chanan, Trevor Killeen, Zeming Lin, Natalia Gimelshein, Luca Antiga, et al. PyTorch: An imperative style, high-performance deep learning library. Advances in Neural Information Processing Systems , 32, 2019. Jaideep Pathak, Shashank Subramanian, Peter Harrington, Sanjeev Raja, Ashesh Chattopadhyay, Morteza Mardani, Thorsten Kurth, David Hall, Zongyi Li, Kamyar Azizzadenesheli, Pedram Hassanzadeh, Karthik Kashinath, and Animashree Anandkumar. FourCastNet: A global data-driven high-resolution weather model using adaptive Fourier neural operators, 2022. B. Raonić. Convolutional neural operators for robust and accurate learning of pdes. NeurIPS , 2023. Tapas Tripura and Souvik Chakraborty. Wavelet neural operator for solving parametric partial differential equations in computational mechanics problems. Computer Methods in Applied Mechanics and Engineering ,404:115783, 2022. 12 Gregory K Wallace. The JPEG still picture compression standard. Communications of the ACM , 34(4): 30–44, 1991. Sifan Wang, Yibo Teng, and Paris Perdikaris. Understanding and mitigating gradient flow pathologies in physics-informed neural networks. SIAM Journal on Scientific Computing , 42(5):A2927–A2950, 2020. Ken C. L. Wong, Hongzhi Wang, and Tanveer Syeda-Mahmood. HartleyMHA: Self-attention in frequency domain for resolution-robust and parameter-efficient 3D image segmentation. In International Conference on Medical Image Computing and Computer-Assisted Intervention (MICCAI) , 2023. Ken C. L. Wong, Hongzhi Wang, and Tanveer Syeda-Mahmood. HNOSeg-XS: Extremely small Hartley neural operator for efficient and resolution-robust 3D image segmentation. IEEE Transactions on Medical Imaging , 2025. doi: 10.1109/TMI.2025.3588458. 
+
+# A Notation and Definitions 
+
+We establish notation for the spectral transforms used throughout this work. All definitions below apply to real-valued functions and signals. 
+
+Definition A.1 (Fourier Transform) . For f ∈ L1(Rn) ∩ L2(Rn), the continuous Fourier transform is 
+
+F{ f }(k) = 
+
+∫
+
+> Rn
+
+f (x) e−ik ·x dx. (8) Given a sequence f [n] of length N , the Discrete Fourier Transform (DFT) is 
+
+Xk = 
+
+> N−1
+
+∑
+
+> n=0
+
+f [n] e−i 2πkn/N = 
+
+> N−1
+
+∑
+
+> n=0
+
+f [n]
+
+[
+
+cos 
+
+( 2πkn N
+
+)
+
+− i sin 
+
+( 2πkn N
+
+)] 
+
+. (9) 
+
+Definition A.2 (Hartley Transform) . Define the cas (cosine-and-sine) kernel as 
+
+cas( θ) = cos( θ) + sin( θ) = √2 sin 
+
+(
+
+θ + π
+
+4
+
+)
+
+. (10) The continuous Hartley transform of f is 
+
+H{ f }(k) = 
+
+∫
+
+> Rn
+
+f (x) cas( k · x) dx. (11) The Hartley transform is involutory: the inverse has the same form, 
+
+f (x) = 
+
+∫
+
+> Rn
+
+H{ f }(k) cas( k · x) dk. (12) Given a sequence f [n] of length N , the Discrete Hartley Transform (DHT) (Bracewell, 1983) is 
+
+Hk = 
+
+> N−1
+
+∑
+
+> n=0
+
+f [n] · cas 
+
+( 2πkn N
+
+)
+
+= 
+
+> N−1
+
+∑
+
+> n=0
+
+f [n]
+
+[
+
+cos 
+
+( 2πkn N
+
+)
+
++ sin 
+
+( 2πkn N
+
+)] 
+
+. (13) The DHT is a linear map RN → RN . Its inverse is obtained by applying the DHT again and normalizing by 
+
+1/N , so the DHT is self-inverse up to a scale factor. 
+
+Definition A.3 (Transform Relationship) . For real-valued f , the two transforms are related by 
+
+H{ f }(k) = Re {F{ f }(k)} − Im {F{ f }(k)}. (14) This identity is the basis for our GPU-accelerated implementation: we compute the DHT via torch.fft.fftn 
+
+and extract Re − Im .13 Hartley convolution. For the cyclic convolution of vectors x and y producing z (all length N ), let X, Y ,and Z denote their respective DHTs. Then 
+
+Zk = Xk(Yk + YN −k) + XN −k(Yk − YN −k)2 , (15) 
+
+ZN −k = XN −k(Yk + YN −k) − Xk(Yk − YN −k)2 . (16) 
+
+# B Comparison with Wavelet and Cosine Transforms 
+
+Integral transforms such as the wavelet transform (Daubechies, 1988), the Hartley transform, and the discrete cosine transform (DCT) (Ahmed et al., 1974) analyze and represent data in transformed domains. The wavelet transform derives basis functions from a “mother wavelet” by dilation and translation (Akansu & Haddad, 1992), whereas the Hartley transform uses cas functions (Definition A.2). The DCT uses cosine functions, making it effective at concentrating signal energy into few coefficients—a property exploited in JPEG compression (Wallace, 1991)—but it introduces blocking artifacts at discontinuities and lacks the self-inverse property of the DHT. Both wavelet and Hartley transforms use integrals of the original signal multiplied by a kernel (the wavelet function (Kaiser, 1994) for wavelets, the cas function for Hartley). While wavelets excel at capturing transient events and multiscale phenomena, they require choosing an appropriate mother wavelet, can suffer from shift variance, and lack frequency-domain operation capability. The Hartley transform’s real-valued structure and coupled sinusoidal/cosinusoidal functions provide representations that are robust for smooth, periodic signals with global spectral structure. In our experiments, the Multiwavelet Transform operator (MWT) (Tripura & Chakraborty, 2022; Gupta et al., 2021) consistently trailed both FNO and HNO by factors of 2–4 × across all six PDEs, confirming that smooth, periodic solutions with global frequency content favor spectral bases over compactly-supported wavelets. 
+
+# C The Fast Hartley Transform 
+
+The Fast Hartley Transform (FHT) computes the DHT in O(N log N ) operations using divide-and-conquer, analogous to the Cooley-Tukey FFT. The radix-2 algorithm proceeds as follows: 1. Decompose: Split the input into even- and odd-indexed elements: 
+
+xeven [n] = x[2 n], xodd [n] = x[2 n + 1] . (17) 2. Recurse: Apply the DHT to these smaller sequences: 
+
+H(xeven )[ k], H(xodd )[ k], k = 0 , . . . , N 
+
+> 2
+
+− 1. (18) 3. Combine: Form the full transform using the cas kernel: 
+
+H(x)[ k] = H(xeven )[ k] + cas 
+
+( 2πk N
+
+)
+
+· H (xodd )[ k], (19) 
+
+H(x)[ k + N/ 2] = H(xeven )[ k] − cas 
+
+( 2πk N
+
+)
+
+· H (xodd )[ k], (20) for k = 0 , . . . , N 
+
+> 2
+
+− 1.Higher-radix variants (radix-4, split-radix) reduce the multiplicative constant by processing more elements per recursion level. The FHT retains all DHT properties—linearity, symmetry, Parseval’s theorem—with reduced computational complexity suitable for real-time applications. 14 Implementation note. In our experiments, we do not implement a standalone FHT kernel. Instead, we compute the DHT via the relationship H{f }(k) = Re {F {f }(k)} − Im {F {f }(k)} using torch.fft.fftn ,which leverages cuFFT’s highly optimized GPU implementation. This approach achieves identical numerical results to a native FHT with minimal overhead, and is the recommended implementation strategy for practitioners adopting HNO. 
+
+# D Arithmetic Cost Comparison 
+
+We compare the arithmetic cost of naïve (non-FFT) forward and inverse transforms. 
+
+Naïve DFT (forward + inverse): Each (k, n ) pair requires 2 real multiplications and 2 real additions (one for the real part, one for imaginary), giving 4 flops per pair. Total: CDFT = 2 × 4N 2 = 8 N 2.
+
+Naïve DHT (forward + inverse): Each (k, n ) pair requires 1 real multiplication and 1 real addition, giving 2 flops per pair. Total: CHartley = 2 × 2N 2 = 4 N 2.
+
+Comparison: 
+
+CHartley 
+
+CDFT 
+
+= 4N 2
+
+8N 2 = 12 . (21) For the fast algorithms ( O(N log N )), the ratio depends on implementation details but remains favorable for the FHT due to purely real arithmetic. In practice, when computing the DHT via torch.fft as in our implementation, the overhead relative to a direct FFT call is minimal—a single elementwise Re − Im 
+
+operation on the FFT output. 
+
+D.1 Radix-4 FHT SpectralConv3d Performance 
+
+We benchmark a radix-4 Fast Hartley Transform implementation against a standard radix-2 FHT within the SpectralConv3d layer used in our neural operator architecture. The radix-4 variant processes four elements per recursion level rather than two, reducing recursion depth from log 2(N ) to log 4(N ) = log 2(N )/2.Table 1: Performance comparison: SpectralConv3d using radix-4 FHT vs. radix-2 FHT. The radix-4 implementation achieves 40–131 × speedup with favorable scaling properties. FHT ϕ and IFHT ϕ denote the forward and inverse transform phase timings within the radix-4 implementation. Input Size Radix-4 t (s) Radix-2 t (s) Speedup FHT ϕ (s) IFHT ϕ (s) 
+
+16 3 0.0079 ± 0.0001 0.3168 ± 0.0078 40.09 × 0.0037 0.0037 
+
+32 3 0.0340 ± 0.0020 3.4990 ± 0.5385 102.93 × 0.0164 0.0165 
+
+64 3 0.2516 ± 0.0106 32 .9607 ± 0.7072 131.03 × 0.1219 0.1221 The speedup factor increases from approximately 40 × to over 131 × as input size grows, demonstrating favorable scaling: 
+
+d(Speedup) 
+
+dN > 0 for N ∈ [16 3, 64 3]. (22) The timing breakdown reveals excellent load balancing between forward and inverse transform phases (tFHT ≈ tIFHT ), indicating symmetric implementation of both transform directions. The radix-4 advantage stems from three factors: (i) halved recursion depth reduces function call overhead and improves instruction-level parallelism; (ii) each butterfly combines four elements, increasing arithmetic intensity per memory access; and (iii) the larger processing block improves spatial and temporal cache locality. Both algorithms maintain O(N log N ) asymptotic complexity, but the radix-4 constant factors are substantially smaller: 
+
+Tradix -4(N ) = C1 · N log 4(N ) + O(N ), (23) 
+
+Tradix -2(N ) = C2 · N log 2(N ) + O(N ), (24) 15 where C1 ≪ C2 empirically. 
+
+Note on our experimental implementation. The radix-4 FHT benchmarks above characterize stan-dalone transform performance. In the experiments reported in this paper, we compute the DHT via torch.fft 
+
+(Section C) rather than a native FHT kernel, as this leverages cuFFT’s highly optimized GPU implementation with minimal additional overhead. A native radix-4 FHT integrated into PyTorch’s autograd system is a promising direction for further reducing HNO’s computational cost, particularly for large-scale 3D problems where the 131 × speedup over radix-2 would translate to significant wall-clock savings. 
+
+# E Theoretical Analysis: Spectral Basis Selection 
+
+This appendix provides theoretical justification for the empirical observation that HNO outperforms FNO on elliptic PDEs (real symmetric Green’s functions) while FNO retains the advantage on time-dependent PDEs with phase-carrying propagators. We develop the theory in three parts: spectral properties of Green’s functions, representation complexity analysis, and optimization landscape geometry. 
+
+E.1 Preliminaries 
+
+We use the Fourier and Hartley transforms as defined in Definitions A.1–A.2 and their relationship (Equa-tion 14). Let L be a linear differential operator on a domain Ω ⊆ Rn with appropriate boundary conditions. We consider PDEs of the form L[u] = f where f ∈ L2(Ω) and seek u ∈ Hk(Ω) for appropriate Sobolev regularity 
+
+k.
+
+Definition E.1 (Green’s Function) . The Green’s function G : Ω × Ω → R satisfies Lx[G(x, y )] = δ(x − y)
+
+with the same boundary conditions as u. For translation-invariant operators on Rn or periodic domains, 
+
+G(x, y ) = G(x − y).
+
+Definition E.2 (Self-Adjoint Operator) . L is self-adjoint if ⟨L u, v ⟩L2 = ⟨u, Lv⟩L2 for all u, v ∈ dom( L).
+
+Definition E.3 (Spectral Neural Operator) . A spectral neural operator with basis B ∈ {F , H} computes: 
+
+(Kθ v)( x) = B−1[Wθ (k) · B{ v}(k)] ( x) (25) where Wθ is a learned spectral weight tensor. 
+
+Definition E.4 (Representation Complexity) . For a target kernel K and basis B, the representation complexity is: 
+
+C(B, K ) = dim R(span {B{ K}(k) : k ∈ M} ) (26) where M is the set of retained modes and dimension is over R.
+
+E.2 Symmetry Properties of Elliptic Green’s Functions 
+
+Lemma E.5 (Symmetry of Self-Adjoint Green’s Functions) . If L is self-adjoint, then G(x, y ) = G(y, x ). For translation-invariant operators, this implies G(z) = G(−z).Proof. Let u solve Lu = δy and v solve Lv = δx. By self-adjointness: 
+
+⟨L u, v ⟩ = ⟨u, Lv⟩ =⇒ ⟨ δy , v ⟩ = ⟨u, δ x⟩ =⇒ v(y) = u(x). (27) Since u(x) = G(x, y ) and v(y) = G(y, x ), we have G(x, y ) = G(y, x ). For translation-invariant G(x, y ) = 
+
+G(x − y): G(x − y) = G(y − x) = ⇒ G(z) = G(−z).
+
+Proposition E.6 (Reality of Elliptic Green’s Functions) . For elliptic operators with real coefficients and real boundary conditions, G(x) ∈ R.Proof. The Green’s function satisfies LG = δ with real L and real boundary data. Taking complex conjugates: 
+
+L ¯G = ¯δ = δ. By uniqueness, G = ¯G, so G is real. 16 Theorem E.7 (Spectral Structure of Elliptic Green’s Functions) . Let G : Rn → R be the Green’s function of a self-adjoint elliptic operator. Then: (i) ˆG(k) ∈ R for all k ∈ Rn
+
+(ii) ˆG(k) = ˆG(−k)
+
+(iii) H{ G}(k) = ˆG(k)
+
+Proof. (i) By Lemma E.5, G(x) = G(−x). Decompose: 
+
+ˆG(k) = 
+
+∫
+
+G(x) cos( k · x) dx − i
+
+∫
+
+G(x) sin( k · x) dx. (28) The second integral vanishes: let y = −x, then 
+
+∫
+
+G(x) sin( k · x) dx =
+
+∫
+
+G(−y) sin( −k · y) dy = −
+
+∫
+
+G(y) sin( k · y) dy. (29) Hence ∫ G(x) sin( k · x) dx = 0 , proving Im { ˆG} = 0 .(ii) For real G: ˆG(−k) = ˆG(k) = ˆG(k) since ˆG ∈ R.(iii) Direct computation: 
+
+H{ G}(k) = 
+
+∫
+
+G(x)[cos( k · x) + sin( k · x)] dx = Re { ˆG(k)} + 0 = ˆG(k). (30) 
+
+E.3 Explicit Green’s Function Spectra 
+
+Example 1 (Poisson Equation) . For −∇ 2u = f on Rn: |k|2 ˆG(k) = 1 , yielding ˆG(k) = 1 /|k|2 ∈ R.
+
+Example 2 (Biharmonic Equation) . For ∇4u = f : |k|4 ˆG(k) = 1 , yielding ˆG(k) = 1 /|k|4 ∈ R.
+
+Example 3 (Heat Equation) . For ∂tu = ν∇2u with u(x, 0) = u0(x): ˆu(k, t ) = ˆu0(k) e−ν|k|2t. The propagator 
+
+e−ν|k|2t is real and even in k—so, like the elliptic case, the heat propagator carries no phase. This makes heat the borderline time-dependent operator (Section E.7). 
+
+E.4 Representation Complexity in Neural Operators 
+
+Theorem E.8 (Complexity Comparison) . For an elliptic Green’s function G and M spectral modes: (i) Fourier basis: C(F, G ) = 2 M (real and imaginary parts) (ii) Hartley basis: C(H, G ) = M (real only) The Hartley basis achieves a factor of 2 reduction in representation complexity. Proof. (i) FNO parameterizes Wθ (k) ∈ C for each mode, requiring 2 real parameters per mode per channel pair. Even though ˆG ∈ R, FNO’s complex parameterization cannot exploit this a priori. (ii) HNO parameterizes Wθ (k) ∈ R, requiring 1 real parameter per mode per channel pair. By Theorem E.7(iii), this exactly matches the structure of ˆG.
+
+Remark E.9 . The complexity reduction is not merely about parameter count. The key advantage is that HNO’s hypothesis class is aligned with the target function class, eliminating the need to learn constraints (e.g., 
+
+Im {W } = 0 ). Conversely, when the target operator does carry phase (Section E.7), the same real restriction prevents HNO from representing it at all—the source of FNO’s advantage on time-dependent PDEs. 17 E.5 Hartley Convolution Simplification 
+
+Theorem E.10 (Hartley Convolution) . For f, g ∈ L2(Rn):
+
+H{ f ∗ g}(k) = 12 [Hf (k)Hg (k) + Hf (k)Hg (−k) + Hf (−k)Hg (k) − Hf (−k)Hg (−k)] (31) 
+
+where Hf = H{ f }, Hg = H{ g}.
+
+Corollary E.11 (Simplified Convolution for Symmetric Kernels) . If g(x) = g(−x), then Hg (k) = Hg (−k)
+
+and: 
+
+H{ f ∗ g}(k) = Hf (k) · Hg (k). (32) 
+
+Proof. Substituting Hg (k) = Hg (−k) into Theorem E.10: 
+
+H{ f ∗ g}(k) = 12
+
+[
+
+Hf Hg + Hf Hg + H− 
+
+> f
+
+Hg − H− 
+
+> f
+
+Hg
+
+]
+
+= Hf (k) Hg (k). (33) 
+
+Remark E.12 . Corollary E.11 shows that for elliptic PDEs, the single real multiplier per mode that HNO learns reproduces the convolution exactly : the four-term Hartley convolution collapses to one term because the kernel is symmetric. This is the structural reason HNO matches FNO on elliptic problems while using only real arithmetic, and the basis for the empirical elliptic advantage. 
+
+E.6 Optimization Landscape Analysis 
+
+We analyze how the choice of spectral basis affects the optimization landscape for learning elliptic Green’s functions. 
+
+Problem setup. Consider learning the Poisson Green’s function ˆG(k) = 1/|k|2 from data. Let 
+
+{(kj , ˆG(kj )) }Mj=1 be the target spectral values at M modes. 
+
+FNO parameterization: Learn Rj = R(re)  
+
+> j
+
++ iR (im)  
+
+> j
+
+∈ C for each mode j.
+
+HNO parameterization: Learn Wj ∈ R for each mode j.
+
+Loss functions. 
+
+LFNO ({Rj }) = 
+
+> M
+
+∑
+
+> j=1
+
+∣∣∣Rj − ˆG(kj )
+
+∣∣∣2
+
+=
+
+> M
+
+∑
+
+> j=1
+
+[
+
+(R(re)  
+
+> j
+
+− ˆGj )2 + ( R(im)  
+
+> j
+
+)2]
+
+, (34) 
+
+LHNO ({Wj }) = 
+
+> M
+
+∑
+
+> j=1
+
+(
+
+Wj − ˆG(kj )
+
+)2
+
+. (35) 
+
+Theorem E.13 (Minimum Characterization) . The global minima are: FNO: {R∗ 
+
+> j
+
+: R(re)  
+
+> j
+
+= ˆGj , R (im)  
+
+> j
+
+= 0 } (isolated point in R2M ), (36) 
+
+HNO: {W ∗ 
+
+> j
+
+: Wj = ˆGj } (isolated point in RM ). (37) 
+
+FNO must navigate a 2M -dimensional space to find a point constrained to an M -dimensional subspace (R(im) = 0 ). This constraint is not encoded in the architecture. 
+
+Proposition E.14 (Convergence Rates) . With random initialization from N (0 , σ 2):(i) Expected initial distance to optimum: E[∥θ0 − θ∗∥2] = 2 M σ 2 (FNO) vs. M σ 2 (HNO). (ii) Both converge as ∥θt − θ∗∥ = ∥θ0 − θ∗∥e−2t.(iii) FNO requires traversing √2 times the distance in parameter space due to the spurious imaginary dimensions. 
+
+18 E.7 Why FNO Wins Time-Dependent PDEs: Phase Content 
+
+The complement of the elliptic argument explains FNO’s advantage on time-dependent PDEs. The mechanism is not the initial condition’s spectral content but the phase of the solution operator’s symbol. 
+
+Definition E.15 (Operator Symbol and Phase) . For a translation-invariant solution operator K with ̂
+
+Ku(k) = λ(k) ˆu(k), call λ(k) ∈ C the symbol. The operator is phaseless if λ(k) ∈ R with λ(k) = λ(−k), and 
+
+phase-carrying otherwise. 
+
+Proposition E.16 (Real Operators are Exactly the Phaseless Ones) . A spectral neural operator restricted to a real diagonal multiplier in the Hartley basis, H−1[W · H [·]] with W (k) ∈ R, represents exactly the phaseless operators. It cannot represent any operator whose symbol has Im λ(k)̸ = 0 .Proof. By Theorem E.7(iii), a real even symbol satisfies H{K} (k) = λ(k) and is realized by W (k) = λ(k) ∈ R.Conversely, a real Hartley multiplier produces a real even effective Fourier symbol (Equation 14), so any nonzero Im λ is outside its range. 
+
+Corollary E.17 (Phase Ordering of the Benchmark PDEs) . The retained-mode symbols order the time-dependent operators by phase content: 
+
+• Heat (λ = e−ν|k|2t): real, even, phaseless. HNO is in-class; this is the borderline case where the two bases are closest. 
+
+• Wave (λ = cos (c|k|t) paired with a sin component in the first-order system): oscillatory, phase-carrying. FNO favored. 
+
+• Advection / Burgers / Navier-Stokes (transport symbol e−ic ·k t and its linearization): strongly phase-carrying. FNO favored, increasingly so with transport strength. Remark E.18 . Corollary E.17 predicts a monotone ordering rather than a binary split: the more phase the propagator carries, the larger FNO’s advantage, with heat—the one phaseless time-dependent operator— closest to a tie. This matches the observed gradient across the time-dependent rows and the borderline behavior of heat. The initial-condition family modulates the magnitude but not the sign of the effect, since the symbol’s phase is a property of the operator, not the data. 
+
+E.8 Approximation Error Bounds Under Mode Truncation 
+
+Neural operators retain only the lowest M spectral modes, discarding high-frequency content. We analyze how this truncation error differs between Fourier and Hartley bases. 
+
+Definition E.19 (Truncation Operator) . For a spectral basis B ∈ {F , H} and mode cutoff M , the truncation operator ΠB 
+
+> M
+
+retains only modes |k| ≤ M :
+
+ΠB 
+
+> M
+
+[f ] = B−1[1|k|≤ M · B{ f }(k)] . (38) 
+
+Theorem E.20 (Truncation Error Equivalence for Real Functions) . For any real-valued f ∈ Hs(Td) with 
+
+s > d/ 2, the truncation errors are identical: 
+
+∥f − ΠF 
+
+> M
+
+[f ]∥L2 = ∥f − ΠH 
+
+> M
+
+[f ]∥L2 . (39) 
+
+Proof. By Parseval’s theorem applied to both transforms: 
+
+∥f − ΠF 
+
+> M
+
+[f ]∥2 
+
+> L2
+
+= ∑
+
+> |k|>M
+
+| ˆf (k)|2. (40) For the Hartley truncation, using H{f }(k) = Re { ˆf (k)} − Im { ˆf (k)} and the fact that for real f , ˆf (−k) = ˆf (k):
+
+∑
+
+> |k|>M
+
+|H{f }(k)|2 = ∑
+
+> |k|>M
+
+(
+
+Re { ˆf (k)} − Im { ˆf (k)}
+
+)2
+
+(41) 
+
+= ∑
+
+> |k|>M
+
+(
+
+Re { ˆf (k)}2 + Im { ˆf (k)}2 − 2 Re { ˆf (k)} Im { ˆf (k)}
+
+)
+
+. (42) 19 The cross term vanishes upon summing over k and −k (since Re { ˆf (−k)} = Re { ˆf (k)} and Im { ˆf (−k)} =
+
+−Im { ˆf (k)}), yielding: ∑
+
+> |k|>M
+
+|H{f }(k)|2 = ∑
+
+> |k|>M
+
+| ˆf (k)|2. (43) 
+
+Remark E.21 . Theorem E.20 shows that the approximation power of both bases is identical—neither basis can represent a given function more accurately with M modes. The difference between HNO and FNO therefore lies entirely in which operators each can realize (Proposition E.16) and how efficiently the correct weights are found, not in the expressiveness of the truncated basis. 
+
+Theorem E.22 (Sobolev Truncation Rate) . For f ∈ Hs(Td) with s > d/ 2, both bases satisfy: 
+
+∥f − ΠB 
+
+> M
+
+[f ]∥L2 ≤ Cs∥f ∥Hs M −s (44) 
+
+and for gradient error: 
+
+∥∇ (f − ΠB 
+
+> M
+
+[f ]) ∥L2 ≤ Cs∥f ∥Hs M −(s−1) . (45) 
+
+The gradient truncation error decays one order slower, explaining why gradient errors are systematically larger than L2 errors in our experiments. Proof. Standard Sobolev embedding. The tail sum satisfies: 
+
+∑
+
+> |k|>M
+
+| ˆf (k)|2 ≤ ∑
+
+> |k|>M
+
+(1 + |k|2)s| ˆf (k)|2
+
+(1 + |k|2)s ≤ ∥f ∥2
+
+> Hs
+
+(1 + M 2)s ≤ C2 
+
+> s
+
+∥f ∥2 
+
+> Hs
+
+M −2s. (46) For gradients, |̂ ∇f (k)|2 = |k|2| ˆf (k)|2, so the tail sum gains a factor |k|2 ≥ M 2, reducing the decay rate by one power. 
+
+E.9 Learned Operator Error: Separating Truncation from Optimization 
+
+Theorem E.23 (Error Decomposition) . The total relative L2 error of a spectral neural operator with basis 
+
+B, M modes, and learned weights Wθ decomposes as: 
+
+∥uθ − utrue ∥L2
+
+∥utrue ∥L2
+
+≤ CsM −s
+
+︸ ︷︷ ︸
+
+> truncation
+
++ ∥Wθ − W ∗∥op 
+
+︸ ︷︷ ︸
+
+> optimization / realizability
+
++ O(N −1/2train )
+
+︸ ︷︷ ︸
+
+> generalization
+
+(47) 
+
+where W ∗ denotes the optimal spectral weights and ∥ · ∥ op is the operator norm of the weight error. Remark E.24 . Since the truncation term is identical for both bases (Theorem E.20), and the generalization term depends on sample size and model complexity (not spectral basis), all performance differences between FNO and HNO arise from the middle term. For elliptic (phaseless) operators, HNO’s aligned real parameterization drives this term to zero exactly (Corollary E.11); for phase-carrying operators, the real Hartley diagonal cannot reach W ∗ at all (Proposition E.16), and the residual is FNO’s advantage. 
+
+E.10 Extension to Nonlinear PDEs 
+
+The preceding analysis applies to linear PDEs with known Green’s functions. We extend the framework to nonlinear PDEs (Burgers, Navier-Stokes) through local linearization. 
+
+Theorem E.25 (Local Linearization for Nonlinear PDEs) . Consider a nonlinear PDE ∂tu = N (u) with Fréchet derivative DN | ¯u at a reference solution ¯u. The local spectral dynamics are governed by the linearized operator: 
+
+∂tδˆu(k) = ∑
+
+> k′
+
+̂
+
+DN (k, k ′)δˆu(k′). (48) 
+
+The diffusive part of ̂ DN is real and symmetric (phaseless, HNO-aligned); the advective part is imaginary (phase-carrying, FNO-aligned). The basis preference is therefore set by the relative strength of advection to diffusion. 
+
+20 Proof. The Fréchet derivative of the Burgers nonlinearity N (u) = −u · ∇ u + ν∇2u at ¯u is: 
+
+DN | ¯u[δu ] = −¯u · ∇ (δu ) − δu · ∇ ¯u + ν∇2(δu ). (49) In Fourier space the advective terms contribute factors −ik ′ ˆ¯u(k − k′) (pure imaginary, phase-carrying), while the diffusion term contributes ν|k|2δkk ′ (real, phaseless). Thus the symbol’s imaginary part scales with advection strength ∥¯u∥ and its real part with viscosity ν.
+
+Corollary E.26 (Predicted Nonlinear PDE Behavior) . For Burgers and Navier-Stokes, the advective (phase-carrying) part of the linearized symbol dominates at the viscosities studied, so FNO is favored, consistent with the time-dependent rows of the results. As viscosity increases the diffusive (phaseless) part grows and the gap narrows, but does not reverse—these operators never become self-adjoint elliptic. This places the nonlinear PDEs on the same phase-ordering axis as the linear time-dependent operators (Corollary E.17). 
+
+21

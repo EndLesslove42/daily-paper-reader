@@ -1,0 +1,2081 @@
+Title: A Physics-Informed Fourier-Wavelet Transformer for Multiscale Computational Fluid Dynamics Surrogate Modeling
+
+URL Source: https://arxiv.org/pdf/2606.24696v1
+
+Published Time: Wed, 24 Jun 2026 01:21:21 GMT
+
+Number of Pages: 45
+
+Markdown Content:
+# A Physics-Informed Fourier-Wavelet Transformer for Multiscale Computational Fluid Dynamics Surrogate Modeling 
+
+Somyajit Chakraborty a, Ming Pan a, Xizhong Chen a, ∗
+
+> aShanghai Jiao Tong University, Department of Chemistry and Chemical Engineering 800 Dongchuan Road, Minhang District, Shanghai, 200240, China
+
+Abstract 
+
+Physics-informed surrogate models can accelerate computational fluid dynamics simulations. However, many existing methods reproduce global flow patterns more reliably than localized multiscale structures. This study presents a physics-informed Fourier-wavelet transformer for next-step velocity-field reconstruction in real-world flow benchmarks. The proposed formulation combines hybrid Fourier-wavelet spectral encoding with physics-biased self-attention based on partial differential equation residual diagnostics. It also uses self-supervised pretraining through masked physics prediction and equation consistency prediction. The experiments are conducted on two real benchmark cases: cylinder-wake flow and fluid-structure interaction. All approaches are evaluated under a shared local protocol and compared with spectral, transformer-based, operator-learning, and physics-informed neural-network baselines. On the cylinder-wake benchmark, the proposed model achieves the best aggregate accuracy, with an all-channel normalized mean-squared error of 0.05875 and an all-channel Pearson correlation coefficient of 0.97019 . On the fluid-structure-interaction benchmark, it again gives the lowest all-channel normalized mean-squared error of 2.70 × 10 −4, compared with 
+
+4.02 × 10 −4 for the strongest baseline. Component-wise field comparisons and scale-separated diagnostics further show stronger recovery of localized wake structures, including near-body, wake-core, and far-wake features. This indicates that the proposed model captures turbulence-associated multiscale flow behavior more effectively than the compared baselines. Overall, these results show that the proposed model improves real-world flow reconstruction while maintaining a practical accuracy-cost tradeoff. 
+
+Keywords: Physics-informed artificial intelligence, Transformers, Surrogate modeling, Computational fluid dynamics, Neural operators, Multiscale flow reconstruction 
+
+1. Introduction 
+
+Partial differential equations (PDEs) lie at the heart of scientific computing, governing dynamic processes across disciplines including fluid mechanics, climate modeling, materials engineering, and chemical reaction systems. A central example is computational fluid       
+
+> ∗Corresponding author
+> Email addresses: chksomyajit@sjtu.edu.cn (Somyajit Chakraborty), panming@sjtu.edu.cn (Ming Pan), chenxizh@sjtu.edu.cn (Xizhong Chen)
+> arXiv:2606.24696v1 [physics.flu-dyn] 23 Jun 2026
+
+dynamics (CFD), where resolving multiscale flow systems often requires fine spatial meshes and small time steps. Many of these systems are characterized by multiscale phenomena, where solution behavior varies across widely separated spatial and temporal scales. For example, in subsurface transport, slow background flow coexists with sharp concentration fronts, while in turbulence, coherent structures span orders of magnitude in frequency and scale. Traditional numerical solvers, while highly accurate, often require prohibitively fine meshes and small time steps to resolve such behavior [ 1]. As a result, solving multiscale PDEs with conventional methods can become computationally expensive, especially when parameter sweeps, uncertainty quantification, or real-time inference are needed. To alleviate this burden, the field has increasingly turned to machine learning-based surrogates that aim to approximate PDE solutions with learned models. Recent engineer-ing surrogate-modeling studies have shown that physics-informed surrogates can improve extrapolative flow prediction, while neural-operator transformers can provide high-fidelity surrogates for time-dependent nonlinear PDEs [ 2, 3 ]. Among these approaches, physics-informed neural networks (PINNs) have received significant attention [ 4]. By embedding the governing equations into the loss function, PINNs enforce physical laws without requiring large datasets, offering a mesh-free alternative to finite difference or finite element methods. However, while elegant in theory, vanilla PINNs face major practical challenges. Their basic architecture primarily involves a single multilayer perceptron (MLP) acting on coordinate inputs. This often limits the model’s capacity to represent complex solution manifolds [ 5]. Training becomes especially fragile when addressing stiff systems, chaotic attractors, or nonlocal dependencies, due to gradient pathologies and ill-conditioned loss landscapes [ 6]. These issues are further compounded in multiscale settings, where the model must learn to represent both global structure and localized, high-frequency features from the same signal. Despite numerous enhancements (e.g., adaptive loss balancing [ 7], domain decomposition, causal training [ 8]), PINNs still struggle to scale to high-dimensional or highly nonlinear PDEs [9]. Parallel studies in neural operator learning have proposed an alternative formulation – rather than solving a specific PDE instance, neural operators learn mappings between function spaces, enabling generalization across a family of problems [ 10 ], [ 11 ], [ 12 ]. Models such as the Fourier Neural Operator (FNO) have demonstrated success in learning parametric solution operators, with applications in weather forecasting, fluid dynamics, and porous media flows [13 ]. By leveraging global spectral representations, these methods achieve zero-shot super-resolution and fast inference. Nonetheless, operator-based models are largely data-driven. They often require substantial training data and do not explicitly incorporate physics beyond solution input-output pairs [ 14 ]. Furthermore, their global representations may overlook localized effects or fine-scale structures unless augmented with specialized embeddings [15]. Against this backdrop, transformer architectures have emerged as a promising bridge between expressiveness and inductive bias. Originally developed for sequence modelling in natural language processing, transformers excel at capturing long-range dependencies through self-attention mechanisms [ 16 ]. In the context of PDE learning, this property makes them well-suited for modelling interactions across distant spatial or temporal locations. This is crucial in systems where far-field behavior is influenced by localised dynamics or boundary conditions. Early applications of transformers in physics-informed learning such as PINNsFormer in 2023 [ 17 ], and more recently PITT [ 18 ], have demonstrated improvements 2over MLP-based PINNs and even operator networks, particularly in time-dependent or chaotic regimes. Furthermore, recent advances in self-supervised masked pretraining for PDEs suggest that transformer-based models can learn general-purpose latent representations of physics, enabling transfer to new equations or domains [15]. Despite these promising developments, current transformer-based PDE frameworks often remain limited in scope. Most focus on a single enhancement such as temporal attention or next token prediction. Moreover, few address the multiscale nature of PDEs head-on by explicitly modeling both local and global structures in the input field. There remains a clear gap: how can we design a transformer-based model that (i) faithfully captures multiscale solution features, (ii) respects the structure of the governing PDEs, and (iii) learns generalizable physics priors without heavy reliance on labeled data? In this work, we introduce the Physics-Informed Bidirectional Encoder Representation Transformer, abbreviated as PIBERT, to address this challenge. Our core objective is to develop a unified framework that embeds multiscale physics knowledge directly into the architecture, training strategy, and inference pipeline of a transformer model. PIBERT is designed from the ground up to handle systems with rich multiscale behavior and complex domain geometries, aiming to serve as a high-fidelity, generalizable surrogate for PDE simulations. To this end, our research is guided by the following questions: 
+
+• RQ1: Can a hybrid spectral representation (combining Fourier and Wavelet embeddings) improve the model’s ability to capture both global structure and fine-scale local dynamics in PDE solutions? 
+
+• RQ2: How can we incorporate the geometry and operator structure of PDEs into the transformer’s attention mechanism to bias it toward physically meaningful interactions? 
+
+• RQ3: Does self-supervised pretraining on physics-inspired tasks—such as masked point prediction and edge continuity prediction—enable more robust generalization, especially in data-scarce or extrapolative regimes? Through these questions, we seek to improve predictive accuracy and further advance the interpretability, scalability, and trustworthiness of physics-informed deep learning. The main empirical study is performed on the real cases of RealPDEBench cylinder-wake and fluid-structure-interaction-real (FSI) benchmarks [ 19 ], evaluated under shared local next-step velocity-prediction protocols with explicit provenance, multiscale diagnostics, and cost disclosure. Additional supplementary analyses on CFDBench cylinder, tube, and cavity cases [ 20 ], a fluorocarbon ICP plasma dataset [ 21 ], and the EAGLE turbulent-flow dataset [ 22 ]are included to examine whether the same architectural behavior persists across broader flow and physics settings. These supplementary studies are used as supporting evidence for robustness and multiscale representation quality, while the primary benchmark ranking is based on the RealPDEBench protocols. We next review recent advances in physics-informed learning and operator surrogates to situate our contribution (Section 2). We then introduce PIBERT , including its hybrid Fourier-wavelet encoder, physics-biased attention mechanism, masked physics prediction (MPP), equation consistency prediction (ECP) pretraining strategy and summarize the supporting mathematical analysis (Sections Appendix A and 3). Datasets, the evaluation 3protocol, and reproducibility details are presented in Section 4. We then report results on cylinder and FSI in Section 5, discuss implications and limitations in Section 6, and conclude in Section 7. Benchmark provenance and local learning pipelines are documented in Section Appendix C. The supplementary material provides additional supporting evidence across two levels. Sections S1–S3 report broader analyses on CFDBench, ICP Plasma, EAGLE, Tube, and Cavity cases, including cross-dataset comparisons, embedding-physics alignment, and spectral diagnostics. Sections S4–S5 provide additional RealPDEBench diagnostics for cylinder-real and FSI-real, including multiscale summaries, temporal traces, timestep predictions, and additional cross-sections. This organization addresses three issues that frequently weaken surrogate-model com-parisons: contour-only evidence, ambiguous benchmark provenance, and missing cost or scale-separated analysis. Accordingly, the paper places aggregate quantitative evidence first and treats visual panels as supporting examples rather than decisive evidence. It also separates benchmark-source facts from the local tensorized learning protocol used by the models. 
+
+2. Related Works 
+
+Over the last decade, the integration of deep learning with physical modeling has become a transformative approach in scientific computing, particularly for solving complex partial differential equations (PDEs). This integration has sparked the development of a wide array of physics-informed machine learning (PIML) techniques, which have evolved in parallel with advancements in deep learning architectures, particularly neural networks, transformers, and self-supervised learning. In this section, we explore the key recent developments (2023–2025) in the field, emphasizing the challenges and innovations that have led to the creation of frameworks like PIBERT. 
+
+2.1. Physics-Informed Neural Networks (PINNs) and Early Challenges 
+
+PINNs, introduced by Raissi et al. [ 23 ] in 2019, were a groundbreaking development that integrated physics constraints directly into the loss function of neural networks to solve PDEs. These networks utilize the physics of the problem (e.g., conservation laws, boundary conditions) to inform the training process. In engineering field prediction, Roy and Guha [ 24 ]showed that physics-constrained deep learning can embed mechanical constraints through multi-objective loss terms. Despite their early success, recent reviews by Raissi et al. [ 4] and Abbasi et al. [ 9] highlighted several limitations of PINNs, including difficulty handling stiff equations, poor performance with shock capturing, and struggles with multiscale phenomena. Recent studies have therefore explored residual-based attention and other adaptive weighting mechanisms to improve the stability and accuracy of physics-informed training [ 25 ]. These issues are partly due to the point-wise evaluation of PINNs, which make it challenging to model long-range dependencies in spatial and temporal domains. PINNs also fail to leverage the full spectrum of physical symmetries inherent in the problems they aim to solve. 
+
+2.2. Neural Operators for Parametric PDEs 
+
+A promising advancement beyond PINNs is the development of neural operators , which aim to improve generalization across a wide range of physical configurations. An early milestone 4in operator learning is DeepONet , which models mappings between function spaces with a branch–trunk architecture. This provided early evidence for the universal approximation of nonlinear operators from sparse sensor measurements [ 26 ]. This operator-centric viewpoint set the stage for later neural-operator designs. Two recent studies have also extended this direction through vision-transformer operators and geometry-aware neural operators, showing that attention-based and geometry-conditioned architectures are increasingly central to operator learning for PDE-governed fields [27, 28]. The Fourier Neural Operator (FNO), introduced by Li et al. [ 29 ], marked a paradigm shift by learning mappings between function spaces instead of point-wise solutions, thus offering better generalization across different boundary conditions and physical parameters. FNO and its variants have seen significant enhancements, such as the U-FNO by Wen et al. [ 30 ], which incorporated multiphase flow problems, and physics-embedded FNOs developed by Xu et al. [ 31 ] that integrate physics constraints directly within the Fourier layers. These developments demonstrate improved flexibility and efficiency in solving parametric PDEs. The move to wavelet-based methods has also been significant in dealing with localized features and discontinuities. Deep Wavelet Neural Networks (DWNNS) introduced by Li et al. [ 32 ] leverage wavelet bases for the solution of PDEs with sharp discontinuities. More recent advancements by Su et al. [ 33 ] integrated multiscale attention wavelet operators , which proved effective in biochemical systems with steep gradients, thus broadening the scope of spectral methods in PIML. However, the trade-off between global pattern recognition (via Fourier-based methods) and local feature extraction (via wavelets) remains an ongoing challenge. Hybrid models that can balance these two domains are now a key area of research. Recent advances have further integrated spectral representations into deep learning frame-works for PDEs. FourierFlow addresses spectral bias in fluid dynamics through a generative framework that incorporates frequency-aware weighting and surrogate feature alignment, demonstrating improved performance in turbulence modeling [ 34 ]. While primarily designed for generative forecasting, its architecture emphasizes explicit control over frequency compo-nents—a direction complementary to our hybrid spectral embedding approach. Similarly, WaveDiff leverages wavelet transforms within a diffusion-based framework to enable high-fidelity super-resolution of PDE solutions, exploiting the multi-scale localization properties of wavelets for enhanced detail recovery [ 35 ]. These works highlight the growing impor-tance of incorporating domain-specific signal priors—such as scale separation and frequency structure—into neural solvers. In contrast to these methods, PIBERT unifies both Fourier and wavelet representations within a single transformer architecture, enabling simultaneous global and local field modeling, while enforcing physical consistency through physics-informed attention and self-supervised pretraining. 
+
+2.3. Transformers in Scientific Computing 
+
+Transformers, originally developed for natural language processing (NLP) tasks, have increasingly been adapted for scientific computing, particularly for solving PDEs and modeling long-range dependencies in physical systems. For example, Hemmasian and Barati Fari-mani [ 36 ] used transformer architectures for multi-scale PDE time-stepping, demonstrating their ability to reduce accumulated temporal error in dynamical systems. Recent work by Lorsung et al. [ 18 ] also introduced the Physics-Informed Token Transformer (PITT) , which applies self-attention mechanisms to PDE solution fields. This architecture is specifically 5designed to capture spatiotemporal dependencies across large datasets, demonstrating signifi-cant improvements in modeling long-range correlations in systems such as fluid dynamics and heat transfer. More recently, Liu et al. [ 3] introduced a sequential neural-operator transformer for high-fidelity surrogates of time-dependent nonlinear PDEs, reinforcing the relevance of transformer-operator architectures for engineering simulation. However, PITT and similar approaches have encountered computational challenges in scaling to high-resolution problems, with attention complexity growing quadratically. The work of Luo et al. [ 16 ] further refined this by introducing physics-aware attention ,which modulates attention weights to respect the physical symmetries of the underlying system. This method ensures that the model better adheres to principles such as conservation laws and energy balance, thus making the model more physically interpretable and reliable. Additionally, Yang et al. [ 37 ] explored combining autoencoders with attention mechanisms, demonstrating that enforcing physical priors (such as known dynamics or boundary conditions) within transformer architectures can substantially improve generalization in high-dimensional physical systems. One critical insight from these works is that while transformers are highly effective in capturing long-range dependencies, they often fail to respect the inherent physical structures of scientific problems unless explicitly designed to do so. Recent function-space analysis strengthens this view by formulating attention directly as an operator between infinite-dimensional spaces, providing a principled bridge between transformer interactions and neural-operator learning [ 38 ]. Related operator-theoretic analysis has also shown that transformer-style architectures can be interpreted in projection-based terms, which helps explain why attention mechanisms can be meaningful for PDE operator approximation beyond sequence modeling analogies [ 39 ]. Related studies have also advocated attention mechanisms with stronger physical structure or operator-aware inductive bias, which can improve transformer performance on PDE problems by better aligning token interactions with the underlying physics [40, 38]. 
+
+2.4. Self-Supervised Learning for Physical Systems 
+
+The application of self-supervised learning (SSL) in physical systems is an area that has rapidly gained attention, particularly for leveraging unlabeled simulation data. In 2023, Berend et al. [ 41 ] demonstrated that masked latent semantic modeling , a technique inspired by SSL in NLP, could be adapted to pre-train models for physical systems. This work marked a significant shift toward unsupervised learning approaches in PIML, offering the potential to leverage abundant unlabeled data from simulations and experiments. In 2025, Garnier et al. [ 42 ] proposed the Mesh-Mask framework, which integrates masked graph neural networks (GNNs) for physics-based simulations. This approach was particularly effective for incomplete observational data, allowing models to learn physical consistency directly from the structure of the data. By learning the underlying patterns of physical systems without relying on labeled training data, this method improves robustness, especially when dealing with sparse or noisy datasets. The development of masked prediction models in physical systems represents a crucial step forward, as it enables the model to generate physically consistent outputs even when labeled data is limited or unavailable. These innovations point to a new era of self-supervised 6pretraining for scientific machine learning, with the potential to reduce dependence on labeled datasets and broaden the practical use of simulation and experimental data. 
+
+2.5. Benchmarking and Evaluation Frameworks 
+
+As the PIML field matures, standardized benchmarking and evaluation frameworks have become essential for comparing different models. The CFDBench benchmark, introduced by Luo et al. [ 20 ], remains an important synthetic testbed for spatiotemporal generalization in fluid dynamics and helped establish shared evaluation practice for surrogate models. More recent benchmark design has moved toward paired real-world datasets with doc-umented release protocols. RealPDEBench extends this direction by assembling complex physical systems with measured or experimentally grounded observations together with official split metadata [ 19 ]. For such benchmarks, clear reporting requires a clear separation between benchmark-source facts and the local learning representation actually passed to the models. That distinction directly affects how modality, spatial resolution, split usage, and the availability of numerical details should be reported. Building on this, Wang et al. [ 15 ] emphasized that credible CFD benchmarking should evaluate both accuracy and efficiency under transparent reporting conventions. In practice, this means that convincing surrogate-model comparisons should not rely on contour agreement alone: they should disclose split provenance, target channels, scale-separated diagnostics, and any limits on cost comparability or baseline reproduction. 
+
+2.6. Bridging Current Gaps 
+
+Despite these advances, several critical gaps remain in the literature. First, while methods like FNO and PITT have demonstrated effectiveness in capturing global structures or long-range dependencies, they often fail to adequately capture localized features or sharp discontinuities. Second, while self-supervised learning holds promise for enhancing model robustness, few methods have been developed specifically for the unique challenges of physical systems, such as maintaining physical consistency in learned representations. PIBERT, introduced in this work, addresses these gaps by combining Fourier and wavelet embeddings to capture both global smooth structures and sharp localized features. In addition, PIBERT incorporates physics-constrained attention mechanisms, which bias interactions toward physically meaningful patterns, ensuring that the model respects the symmetries and conservation laws inherent in the physical system. Furthermore, PIBERT’s novel self-supervised pretraining objectives, such as Masked Physics Prediction and Equation Consistency Prediction, are specifically designed to address the challenges of physics-informed learning, providing a framework that is both scalable and robust. The central empirical question is therefore narrower and more concrete: under a shared local protocol on real-world benchmarks, does this architecture provide consistent gains in aggregate accuracy, local multiscale fidelity, and physically meaningful diagnostics, and how do those gains trade off against optimization cost relative to recent baselines? 
+
+3. PIBERT 
+
+3.1. Mathematical Foundations of BERT 
+
+BERT (Bidirectional Encoder Representations from Transformers), introduced in 2019, is a language representation model based on deep bidirectional self-attention that captures 7contextual relationships between tokens [ 43 ],[ 44 ]. Unlike unidirectional models, BERT employs a masked language model objective whereby a portion of the tokens in the input are randomly masked and the model is trained to predict the original token from its surrounding context. The architecture is based on the Transformer encoder and relies on the self-attention mechanism that is mathematically defined as Attention (Q, K, V) = softmax  
+
+> (
+
+QK T
+
+√dk
+
+> )
+
+V,
+
+where Q, K, and V are the query, key, and value matrices, respectively, and dk is the dimensionality of the keys. This formulation enables the model to consider both left and right context simultaneously. In addition, BERT uses a next sentence prediction task that further enhances its ability to capture relationships between sentence pairs, making it suitable for a wide range of natural language processing tasks. The overall design, which unifies pre-training and fine-tuning within the same architecture, has been critical in setting new benchmarks in language understanding. 
+
+3.2. PIBERT Architecture 
+
+The PIBERT architecture extends the conventional transformer-based BERT framework by incorporating physics-informed embeddings, constraints, and attention mechanisms. Unlike natural language processing models, where positional encoding is used to capture sequence order, PIBERT integrates domain knowledge directly into its embedding space, attention mechanism, and loss function to ensure that the learned representations adhere to fundamental physical principles. Figure 1 shows the detailed architectural overview of PIBERT. The following sections outline the core components of PIBERT, detailing the mathematical formulations that underpin its architecture. 
+
+3.3. Physics-Informed Hybrid Spectral Embeddings 
+
+We embed grid fields with a hybrid Fourier–wavelet encoder that provides global spectral context and local feature sensitivity. This hybridization is also motivated by recent spectral analyses showing that purely Fourier neural operators can favor dominant low-frequency content while under-representing weaker or more localized components [45]. 
+
+3.3.1. Fourier branch (per-frequency mixing) 
+
+Given x ∈ RB×C×H×W , define X = rfft2 (x) and apply a per-frequency channel mix on the kept half-plane; inverse rFFT returns yft ∈ RB×D×H×W . When the per-frequency mixing is column-unitary on the kept band, the map is nonexpansive (an isometry on band-limited inputs). 
+
+Proposition 3.1 (Energy preservation of the Fourier branch) . If the per-frequency mixing matrices satisfy W (h, w )⊤W (h, w ) = I on the modes and non-kept modes are zeroed, then the Fourier branch is 1-Lipschitz in ℓ2; if inputs are band-limited to the set, it is an isometry. 
+
+8Figure 1: PIBERT architecture and training objectives. (a) Raw CFD fields and PDE parameters defined on a spatial grid are encoded into a sequence of tokens using a gated combination of Fourier- wavelet embeddings, yielding multiscale, physics-aware token representations. (b) The token sequence is processed by PIBERT N
+
+stacked bidirectional transformer encoder. (c) Two auxiliary heads branch from the encoder: Masked Physics Prediction (MPP), which reconstructs masked field values, and Equation Consistency Prediction (ECP), which classifies physically valid versus invalid PDE solutions with parameter adaptation. (d) A token-to-grid decoder reconstructs the predicted physical field ˆy and diagnostic quantities. 
+
+9Table 1: Core symbols used in Sec. 3.3. Units in parentheses.                                        
+
+> Symbol Meaning (units)
+> ΩSpatial domain (–)
+> (x, y ), t Spatial coordinates, time ( [L],[T])
+> H, W Grid height, width (px)
+> PPatch size (px)
+> N=HW/P 2Number of tokens (–)
+> u, v, u= ( u, v )Velocity components / vector ( [L/T ])
+> pPressure ( [M/ (L T 2)] )
+> ρ, ν Density ( [M/L 3]), kinematic viscosity ( [L2/T ])
+> ω=∂xv−∂yuVorticity ( [1 /T ])
+> ∇,∆Gradient; Laplacian (–)
+> αFFourier–wavelet fusion gate (–)
+> λatt Attention-bias strength (–)
+> Q, K, V Attention queries, keys, values (–)
+> Lij , α ij Attention logits; softmax weights (–)
+> Lrecon ,Lphys Data loss; physics penalties (–)
+> F,F−1Discrete Fourier transform and inverse (–)
+> rfft2 ,irfft2 Real 2-D FFT and inverse (–)
+
+3.3.2. Tight-frame branch (undecimated local filters) 
+
+We use four translation-invariant filters {KLL , K LH , K HL , K HH } whose discrete Fourier responses form a partition of unity on the torus, yielding exact energy partition and perfect reconstruction (Parseval frame). 
+
+Proposition 3.2 (Parseval tight frame, exact energy partition) . For all x, ∑ 
+
+> s
+
+∥Ks ∗ x∥22 =
+
+∥x∥22 and x = ∑ 
+
+> s
+
+K∨ 
+
+> s
+
+∗ (Ks ∗ x); analysis and synthesis are 1-Lipschitz. 3.3.3. Hybrid fusion by a scalar softmax gate 
+
+Let E = αF yft + (1 − αF ) ytf where αF = exp( γF )/(exp( γF ) + exp( γW )) ∈ [0 , 1] .
+
+Lemma 3.3 (Nonexpansive hybrid for fixed gates) . Assuming the Fourier and tight-frame branches are 1-Lipschitz maps in x. Then, for any fixed gate field αF with values in 
+
+[0 , 1] (treated as constant with respect to perturbations in x), the hybrid map x 7 → E(x) = 
+
+αF ⊙ yft (x) + (1 − αF ) ⊙ ytf (x) is 1-Lipschitz in x. If in addition the input is band-limited and the frame branch reduces to the identity, the hybrid is an isometry on that subspace. In practice, αF is produced by a small network that depends on x; we therefore regard this result as a conditional nonexpansiveness of the fusion step given the gate, rather than a global Lipschitz bound for the entire gated block. Proof sketches and constructions for theorems 3.1 to 3.3 are given in Appendix A. 
+
+10 3.3.4. Physics-Constrained Self-Attention 
+
+Standard attention uses logits Lij = ⟨Qi, K j ⟩/√dk and αij = softmax j (Lij ). We introduce a physics bias by subtracting a nonnegative proxy Rij ≥ 0 derived from PDE diagnostics, 
+
+˜Lij = Lij − λatt Rij , αij (λatt ) = exp ( ˜Lij  
+
+> )∑
+> m
+
+exp ( ˜Lim  
+
+> )
+
+, (3.1) By subtracting localized PDE residuals from the attention logits, we penalize attention directed toward tokens associated with larger physical violations. This encourages the transformer to rely more strongly on physically consistent latent features during bidirectional information mixing. In general, Rij can be pairwise, for example by depending on relative position, geometry, or the physical states associated with both tokens. In this work, we use the following separable, key-dependent instance: 
+
+Rij = rj , rj ≥ 0, (3.2) where rj is the pooled physical residual associated with the attended key token j. The resulting bias is Pij = −λatt rj and is broadcast across all query positions and attention heads. Thus, an explicit dense pairwise residual matrix does not need to be stored. The residual rj
+
+is obtained by pooling grid-level diagnostics, such as divergence and momentum-style proxies, over the receptive-field support of token j, yielding the R_tok vector used in Algorithm 1. A query-only shift Rij = ri is not used because it is constant across all keys within row i and therefore cancels exactly under rowwise softmax: 
+
+softmax j (Lij − λatt ri) = softmax j (Lij ) . (3.3) Consequently, the operative residual bias must vary with the key index j, or more generally with both i and j, in order to modify the relative attention weights. 
+
+Lemma 3.4 (Softmax ratio monotonicity) . For fixed row i, αij 1 /α ij 2 = exp (
+
+(Lij 1 − Lij 2 ) −
+
+λatt (Rij 1 − Rij 2 ))
+
+; hence if Rij 1 > R ij 2 the ratio decreases monotonically with λatt .
+
+Lemma 3.5 (Rowwise Lipschitz control) . Let αi(λ) denote row-i weights under (3.1) . Then 
+
+∥αi(λ) − αi(0) ∥1 ≤ λatt  
+
+> 2
+
+∥Ri·∥∞.
+
+Proposition 3.6 (Translation equivariance on the torus) . Index tokens by lattice sites 
+
+r(i) ∈ ZH × ZW (periodic). If Rij = ρ(
+
+p, r (i) − r(j))
+
+depends only on relative position and parameters, then attention with bias (3.1) is translation-equivariant. 
+
+Theorem 3.7 (Continuum (kernel) limit) . Placing tokens on a regular grid with spacing 
+
+h → 0 and using Riemann sums, the biased attention converges uniformly to a nonlocal kernel operator (T v )( x) = ∫ 
+
+> Ω
+
+wλ(x, y )v(y) dy with wλ(x, y ) ∝ exp( ⟨q(x), k (y)⟩ − λr (x, y )) .Proofs for theorems 3.4 to 3.7 are given in the Appendix A 
+
+11 Instantiation for incompressible Navier–Stokes. With velocity u = ( u, v ), pressure p, density 
+
+ρ, viscosity ν, define diagnostics 
+
+R(div) =
+
+> ∣∣∣
+
+∇· u
+
+> ∣∣∣
+
+, R(mom) =
+
+> ∥∥∥∥∥
+
+∂tu + ( u · ∇ )u + 1
+
+ρ∇p − ν ∆u
+
+> ∥∥∥∥∥2
+
+, R = αdiv R(div) +αmom R(mom) .
+
+We evaluate R on the grid via central differences and pool it to the token level. Only the token-level residual vector is stored and broadcast across query positions, preserving the 
+
+O(BN 2d) cost of attention. All theoretical statements above hold for general Rij ; our actual implementation corresponds to the separable special case Rij = rj , i.e. a key-dependent scalar bias derived from pooled PDE diagnostics. In this paper, that bias is instantiated for incompressible-flow diagnostics. For other PDE families, the same architecture can still be used, but the design of Rij must be rebuilt around the appropriate residuals, invariants, and boundary constraints of the target system. 
+
+3.3.5. Self-Supervised Objectives (MPP/ECP) and Physics Coupling 
+
+With mask M ∈ { 0, 1}H×W and input ˜x = M ⊙ x, the MPP loss is 
+
+Lmpp = 1
+
+|{ (i, j ) : Mij = 0 }|  
+
+> ∑
+> Mij =0
+
+∥fθ(˜ x, p )ij − xij ∥22. (3.4) 
+
+Proposition 3.8 (Population minimizer) . Under MSE risk, the population minimizer is the conditional mean f ⋆(˜ x, p ) = E[x | ˜x, p ].Divergence-aware regularization for incompressible flows. Define the penalized population risk Rλ(g) = E∥x − g(˜ x)∥22 + λ E∥D g (˜ x)∥22 where D is the discrete divergence. 
+
+Theorem 3.9 (Oracle inequality toward the solenoidal class) . If H = ker (D) is the discrete divergence-free subspace and dist( u, H) ≤ cH ∥Du ∥2, then any minimizer gλ of Rλ satisfies 
+
+E∥x − gλ(˜ x)∥22 ≤ E∥x − g⋆(˜ x)∥22 + c2
+
+> H
+
+λ E∥D g λ(˜ x)∥22
+
+for all g⋆ with Dg ⋆ ≡ 0.
+
+In this section, we have established the theoretical foundations of PIBERT, providing rigorous derivations of its physics-informed embeddings, attention mechanism, and loss function. By integrating Fourier and wavelet embeddings, enforcing physics-based constraints within self-attention, and minimizing PDE residuals in the loss function, PIBERT represents a significant advancement in transformer-based scientific modeling. 
+
+3.3.6. Physics-Inspired Regularization Terms 
+
+We combine a data fidelity loss with physics-inspired regularizers that bias the model toward incompressibility and smoothness, rather than enforcing the full Navier–Stokes momentum residual explicitly: 
+
+Lrecon = 1
+
+|Ω|
+
+> ∑
+> (i,j )∈Ω
+> ∥∥∥
+
+ˆyij − ytrue ,ij 
+
+> ∥∥∥22
+
+, (3.5) 12 Ldiv = 1
+
+|Ω|
+
+> ∑
+> (i,j )∈Ω
+> (
+
+∇· ˆu)2 
+
+> ij
+
+, (3.6) 
+
+Llap = 1
+
+|Ω|
+
+> ∑
+> (i,j )∈Ω
+> (∥∥∥
+
+∆ˆ u∥∥∥22 + ∥∥∥∆ˆ v∥∥∥22
+
+> )
+> ij
+
+, (3.7) 
+
+Lreg = λdiv Ldiv + λlap Llap . (3.8) 
+
+Lbnd = 1
+
+|M |
+
+> ∑
+> (i,j )∈M
+> ∥∥∥
+
+ˆuij − utrue ,ij 
+
+> ∥∥∥22
+
+. (3.9) 
+
+Ltotal = Lrecon + λreg Lreg + λbnd Lbnd . (3.10) Discrete Green/sum-by-parts identities used for analyzing these regularizers are stated in Theorem Appendix A.4. A standard quadratic boundary penalty enforces Dirichlet data in the 
+
+μ → ∞ limit; see Theorem Appendix A.5. We emphasize that, in the current implementation, these terms act as physics-guided regularization rather than a full Navier–Stokes residual penalty. 
+
+3.4. Masked Physics Prediction (MPP) 
+
+The Masked Physics Prediction (MPP) task in PIBERT is inspired by the masked language modeling (MLM) approach used in BERT, but adapted to the physics domain, where missing field values must adhere to governing physical laws. In NLP, MLM randomly masks a fraction of input tokens, and the model is trained to reconstruct them using contextual information [ 41 ]. In physics-informed learning, however, missing field values cannot be arbitrarily inferred based solely on data correlations; instead, they must conform to differential equations and boundary conditions that govern physical systems [ 46 ]. PIBERT extends the MLM concept by randomly masking portions of a continuous physical field, such as velocity, pressure, or temperature, and requiring the model to infer these missing values in a way that respects the underlying physics. The motivation for MPP is to encourage PIBERT to develop embeddings that capture both local and global physical dependencies. Unlike PINNs and standard PDE solvers that require direct access to governing equations at all points, PIBERT learns to fill in missing physics values by leveraging self-attention mechanisms, which propagate information across spatial-temporal domains. This results in a model that generalizes better across different boundary conditions and PDE structures. To ensure that PIBERT does not simply interpolate missing values based on statistical patterns, but rather learns to respect physical constraints, the masking process is carefully structured. Instead of uniformly dropping values, PIBERT applies a structured masking scheme where missing values are informed by physics constraints. In this approach, 80% of the masked values are completely removed from the input, forcing the model to reconstruct them solely from its learned representations. Another 10% of the masked values are replaced with random noise drawn from a physics-aware distribution, challenging the model to denoise and enforce physically consistent predictions. The remaining 10% of the masked values are 13 left unchanged, ensuring that PIBERT remains aware of absolute field values and does not learn to ignore known information. A natural question arises: why is random masking an effective strategy in physics-informed learning? In conventional PDE solvers, missing values are typically interpolated using explicit numerical schemes, while in generative models such as variational autoencoders (VAEs) [ 37 ]and physics-informed GANs, missing data is imputed via sampling from a learned latent space [42 ], [ 47 ], [ 48 ]. PIBERT takes a different approach—it does not explicitly enforce numerical interpolation but instead learns physics-aware embeddings through self-attention, leveraging long-range dependencies across a field. This enables PIBERT to capture the fundamental physics of the system without requiring explicit PDE constraints during inference. 
+
+3.5. Equation Consistency Prediction (ECP) 
+
+In addition to reconstructing missing field values, PIBERT is pre-trained to ensure that its learned representations comply with the governing equations of physical systems. This is achieved through Equation Consistency Prediction (ECP), a self-supervised classification task designed to reinforce physical validity within the model’s learned embeddings. In most PDE-driven physical processes, solutions must satisfy strict mathematical con-straints, including conservation laws, balance equations, and boundary conditions. Traditional solvers explicitly enforce these constraints, while PINNs incorporate them as soft constraints in the loss function [ 6]. PIBERT, however, learns an implicit understanding of these con-straints by classifying whether a given physics field satisfies its corresponding governing equation. This enables the model to internalize the difference between physically plausible and non-physical solutions, improving robustness and generalization. Mathematically, let N (u) be the differential operator that governs a system, such that a valid solution must satisfy: 
+
+N (u) ≈ 0 (3.11) where N (u) could represent equations such as: 
+
+∂u ∂t + u · ∇ u + 1
+
+ρ∇p − ν∇2u = 0 (Navier-Stokes) (3.12) 
+
+∂u ∂t − α∇2u = 0 (Heat Equation) (3.13) 
+
+∂2u∂t 2 − c2∇2u = 0 (Wave Equation) (3.14) To construct a dataset for training ECP, we generate solution pairs (uvalid , u invalid ). The valid solutions are obtained from numerical solvers that exactly satisfy the governing equations, while invalid solutions are generated by perturbing valid solutions through random noise, incorrect boundary conditions, or omitted PDE terms. PIBERT is then trained as a binary classifier, minimizing the equation consistency loss: 
+
+LECP = − ∑
+
+> i
+> (
+
+yi log ˆ yi + (1 − yi) log(1 − ˆyi)
+
+> )
+
+. (3.15) where yi = 1 if the sample is a valid physics solution, and yi = 0 otherwise. 14 A key challenge in designing ECP is ensuring that the incorrect PDE solutions are sufficiently realistic. If the incorrect solutions are overly simplistic (e.g., random noise), PIBERT may simply learn to classify based on superficial artifacts rather than understanding true physics consistency. To mitigate this, PIBERT incorporates a gradient-based adversarial perturbation strategy [ 49 ], where incorrect solutions are generated by making minimal modifications that still violate the PDE constraints. This forces PIBERT to learn deep physics-informed features, rather than relying on simple pattern recognition. Unlike conventional regression-based loss functions, which directly minimize deviations from known PDE solutions, ECP provides an additional layer of self-supervised validation that is particularly useful when working with sparse or incomplete physics datasets. PIBERT learns not only to reconstruct missing values but also to ensure that its predictions remain physically plausible. 
+
+3.6. PIBERT algorithm and complexity 
+
+PIBERT embeds grid fields with a hybrid spectral encoder (Fourier branch + tight-frame branch), fuses them via a softmax gate, projects to the model width, tokenizes (with optional parameter token), and applies L transformer encoder layers with physics-biased attention. A lightweight decoder maps tokens back to grids, training minimizes a data term plus physics regularizers and (optionally) MPP/ECP. Algorithm 1 provides a detailed implementation guide on training and preparing the model from scratch. Now let H×W be the grid, P the patch size so N ≈ HW/P 2 tokens, width d, FFN width 
+
+dff ≈ 4d, and D the pre-token feature channels. Per layer, the transformer dominates for moderate N :
+
+O(
+
+BN 2d)︸ ︷︷ ︸
+
+> self-attn
+
++ O(
+
+BN d 2 + BN d d ff   
+
+> )︸︷︷ ︸
+> QKV/out + MLP
+
+.
+
+The hybrid encoder adds 
+
+O(
+
+BC HW log( HW ) + BD HW log( HW ))︸ ︷︷ ︸
+
+> rFFT/irFFT
+
++ O(
+
+BC s k 2HW )︸ ︷︷ ︸
+
+> tight-frame filters
+
++ O(
+
+BHW D d )︸ ︷︷ ︸ 
+
+> 1×1proj
+
+,
+
+with per-frequency mixing O(BmCD ) negligible when the kept spectral area m ≪ HW .Computing the residual proxy on-grid and pooling to tokens is O(BHW ) + O(BN ) and is small vs. attention. Peak activation memory is O(BN 2) for vanilla attention (or O(BN d )
+
+with a memory-efficient kernel); hybrid-encoder activations are O(B(D+C)HW ) 1.                     
+
+> 1Dominant cost: for large N(small P), attention O(LBN 2d)dominates. The Fourier branch dominates only when Nis small, the kept band m≈HW , and C, D are large. The tight-frame cost is linear in Cand
+> HW for fixed s, k , and the 1×1projection is comparable to or cheaper than one attention/MLP pass.
+
+15 Algorithm 1 PIBERT training step algorithm 
+
+Require: Batch x ∈ RB×C×H×W ; params p ∈ Rq; (optional) targets ytrue .Patch size P (N =HW/P 2); encoder width d; layers L; bias λatt .
+
+Ensure: Prediction ˆy, total loss Ltotal .
+
+1: Hybrid spectral encoding: F ← FourierEncode (x); W ← WaveletFrame (x);
+
+2: Fuse & project: E ← Fuse (F, W ; αF ) (Section 3.3); Z ← Conv 1×1(E) ∈ RB×d×H×W ;
+
+3: Tokenize & condition: X(0) ← Patchify (Z, P ); X(0) ←
+
+AppendParamToken (X(0) , p );
+
+4: Physics bias (once per step or periodically): Rgrid ← PhysicsResidual (x)
+
+(Section 3.3.4); Rtok ← Pool P ×P (Rgrid ); P (1) ← − λatt Rtok ;
+
+5: for ℓ = 1 to L do ▷ Transformer encoder with physics-biased attention 
+
+6: Q, K, V ← QKV (LN (X(ℓ−1) )) ;
+
+7: α ← Softmax 
+
+( QK ⊤ 
+
+> √dk
+
++ P (ℓ)
+
+)
+
+; H ← αV ;
+
+8: X′ ← X(ℓ−1) + HW O; X(ℓ) ← X′ + MLP (LN (X′)) ;
+
+9: refresh P (ℓ+1) ← − λatt Rtok ;
+
+10: Decode to grid: ˆy ← Decode (X(L));
+
+11: Losses: Lsup from Section 3.3.6 (uses Equations (3.5) and (3.8)); Lmpp from Equa-tion (3.4); Lecp from ECP (Section 3.3.5); 
+
+12: Total & update: Ltotal = Lsup (if ytrue ) + λmpp Lmpp + λecp Lecp ; θ ←
+
+OptStep (∇θLtotal );
+
+Notes: Rgrid uses divergence/momentum diagnostics; token bias is the pooled residual. 16 4. Methodology 
+
+We aim to learn scalable and physics-faithful computational surrogates for multiscale mechanics-governed flow fields under sparse supervision. PIBERT addresses this goal through three components. First, it uses a hybrid Fourier-wavelet spectral encoder to capture both global structure and localized features. Second, it uses physics-biased self-attention based on PDE residual diagnostics to favor physically meaningful interactions. Third, it uses self-supervised pretraining through Masked Physics Prediction (MPP) and Equation Consistency Prediction (ECP) before task-specific fine-tuning. Together, these components improve data efficiency, stability, and multiscale field reconstruction. 
+
+4.1. Datasets Benchmark-source overview.. This empirical study uses the RealPDEBench releases [ 19 ]. We study exactly two official real-world benchmarks: cylinder-real and FSI-real. Throughout the paper, benchmark-source facts reported by the official release are kept separate from the local learning representation used by the experiments, so that modality, resolution, split protocol, and preprocessing are not conflated. 
+
+Cylinder-real. RealPDEBench cylinder-real packages bluff-body wake measurements built from real PIV velocity observations and associated benchmark metadata [ 19 ]. At the benchmark-source level, the release reports real PIV (u, v ) observations at 128 × 256 , paired simulated (u, v, p ) fields at 64 × 128 , 92 trajectories, 23 ,990 frames, 400 Hz sampling, 20 sduration, and Reynolds numbers from 1800 to 12000 . In the local data copy used for learning, the released real velocity stream decodes to tensors of shape (T, 2, 64 , 128) per trajectory. We treat that decoded representation as the start of the learning pipeline, sample it every 20 native steps, resize each sampled frame to (2 , 64 , 64) , and train all compared models on the same next-step real-velocity prediction task. The resulting trajectory-level split is 73 /9/10 
+
+for train/validation/test, yielding 14 ,527 /1,791 /1,990 paired samples. 
+
+FSI-real. The FSI benchmark is the official real split of the tandem-cylinder vortex-induced-vibration setting from RealPDEBench [ 19 ]. The source release provides benchmark fields at 
+
+128 × 128 together with released physical metadata for the tandem-cylinder configuration and vibration setting. In the local learning pipeline, we use the released real-only velocity channels (u, v ), resize them to 64 × 64 , and evaluate all six models on the same next-step tensorized prediction task. 
+
+Source benchmark versus local learning representation. For both benchmarks, the manuscript reports benchmark-source numerical provenance only when it is explicitly provided by the official release. The local learning problem is then stated separately in terms of tensor decoding, channel selection, resizing, sampling stride, and split protocol. We do not infer solver order, mesh order, or time-integration details when those quantities are not specified by the source benchmark documentation. This distinction is necessary for clarity and for separating benchmark-source facts from the local learning pipeline used in this study. The study-wide benchmark inventory is summarized in Table 2, and the benchmark-source facts together with the explicit provenance limits are itemized in Table 3. 17 Table 2: Benchmark summary for the two RealPDEBench benchmarks and the local learning representation used in this study.                                           
+
+> Benchmark Physical sce-nario Source modali-ties Source resolu-tion Local learning rep-resentation Split summary
+> Cylinder-real Real bluff-body wake behind acylinder Real PIV (u, v )
+> plus paired sim-ulated (u, v, p )in the official bench-mark package Real 128 ×
+> 256 ;simu-lated 64 ×
+> 128
+> Released real velocity tensors decode to 64 ×
+> 128 , are sampled every 20 native steps, resized to 64 ×64 , and used for one-step (u, v )predic-tion Seed-42 tra-jectory split
+> 73 /9/10 , yielding
+> 14 ,527 /1,791 /1,990
+> sampled pairs FSI-real Official tandem-cylinder vortex-induced-vibration bench-mark with real observations Official real split with released flow fields and physical meta-data
+> 128 ×128 Real-only (u, v )chan-nels resized to 64 ×
+> 64 for the shared six-model comparison Official real split reused as released, with the same tensorized protocol across all models
+
+4.2. Model selection and Training 
+
+The active comparison set is exactly six models: PIBERT, FourierFlow, FNO2d, PITT, DeepONet2d, and PINN. These models span physics-informed networks, spectral operators, and recent transformer-style surrogates. PIBERT keeps the same core architecture described in earlier section 3 we do not modify the theorem/proof or algorithmic parts of the method for this study. All compared models consume the local real-velocity tensor at time t and predict the next sampled real-velocity tensor at time t + 1 within the learning sequence. PIBERT uses the MPP/ECP-pretrained encoder followed by supervised fine-tuning with the physics-guided losses described in Section 3.3.6. For the benchmark-accuracy summaries, we use one complete run per model from the finalized comparison manifests under the same split and tensorized protocol, including PITT and FourierFlow. This supports a protocol-matched accuracy comparison, but it does not justify a blanket claim that every reported auxiliary quantity comes from identical optimization budgets or identical training histories. Accordingly, the appendix cost table is reported only as a compact disclosure of model size and observed runtime. The logged FSI validation convergence is shown in Figure 2. These curves provide optimization context only and the reported results below remain tied to held-out test metrics. 
+
+4.3. Evaluation protocol 
+
+All comparisons reported use fixed train/validation/test partitions. For cylinder-real, this means the seed-42 trajectory-level split described above; for FSI-real, this means the official real split distributed with the benchmark. The shared supervised target is the real velocity field (u, v ) at the next sampled time step. Derived quantities such as speed magnitude |u| and vorticity ω are diagnostic views only and are not trained as separate targets. For cylinder-real, the local protocol samples every 20 native time steps, uses up to 200 frames per trajectory, 18 Table 3: Benchmark-source facts used in the manuscript and the provenance limits kept explicit.                                                      
+
+> Benchmark Operating param-eters Duration /frequency Source grid Available chan-nels Released metadata / provenance note
+> Cylinder-real Reynolds-number range 1800 –12000 20 s at 400 Hz Real 128 ×
+> 256 ;simu-lated 64 ×
+> 128
+> Real (u, v ); simu-lated (u, v, p )
+> The official release documents 92 tra-jectories and 23 ,990
+> frames. The local experiments use the released real velocity tensor only; solver order and mesh or-der are not reported by the source bench-mark. FSI-real Tandem-cylinder vortex-induced-vibration setting; released physical-parameter metadata accompanies the benchmark Official real split as re-leased
+> 128 ×128 Released real flow fields; local study uses real-only (u, v )
+> The benchmark release provides the governing physical scenario and split metadata. Missing solver, mesh, or numerical-scheme details are not re-ported here unless they appear in the official release.
+
+and resizes each sampled frame from 64 × 128 to 64 × 64 . For FSI-real, the local protocol uses the official real split, the released real-only (u, v ) fields, and the same 64 × 64 learning representation across all six models. We report four dataset-wide metrics in this paper: local mean absolute error (LMAE), local Pearson correlation coefficient (LPCC), coefficient of determination ( R2), and normalized mean-squared error (NMSE). The definitions used in this study are summarized in Table 4. The reported local diagnostics include component-wise field panels, slice-based relative ℓ2
+
+errors in the near-body, wake-core, and far-wake regions, and the FSI scale-separated summary. The detailed FSI optimization-cost table is reported in the appendix. The supplementary material is divided into broader supporting analyses and RealPDEBench-specific diagnostics. Sections S1–S3 examine additional datasets and diagnostic settings, including CFDBench, ICP Plasma, EAGLE, Tube, and Cavity cases. Sections S4–S5 provide additional RealPDEBench results and diagnostics for cylinder-real and FSI-real, including temporal traces, timestep predictions, multiscale summaries, and additional cross-sections. Aggregate figures and tables in this paper are dataset-wide. The field panels show deterministically selected held-out samples. The multiscale panels also use deterministic selection from the multiscale summary. These selections are reported explicitly so that the visual evidence remains auditable and is not used as the sole basis for any quantitative claim. 19 0 50 100 150 
+
+Fine-tuning epoch 
+
+10 −3 
+
+10 −2 
+
+10 −1 
+
+10 0
+
+> Validation NMSE
+
+(a) 
+
+0 50 100 150 
+
+Fine-tuning epoch 
+
+10 −1 
+
+10 0
+
+> Relative error
+
+(b) 
+
+PIBERT 
+
+FNO2d 
+
+DeepONet2d 
+
+PITT 
+
+FourierFlow 
+
+PINN Figure 2: FSI-real validation convergence for the comparison runs. Panel (a) shows the logged fine-tuning validation NMSE for all models on FSI Benchmark. Panel (b) reports the corresponding relative-error view from the same validation checkpoints. Table 4: Evaluation metrics used for dataset-wide comparison. Here yi and ˆyi denote the ground-truth and predicted values over the same test index set I, ¯y and ¯ˆy denote their means, all summations are over i ∈ I ,and ε is a small numerical-stability constant. 
+
+Metric Definition Purpose Direction 
+
+LMAE 1
+
+|I| 
+
+∑
+
+> i
+
+|ˆyi − yi| Mean absolute prediction error over the evaluated field values Lower is bet-ter LPCC 
+
+∑
+
+> i
+
+(ˆ yi − ¯ˆy)( yi − ¯y)
+
+√∑
+
+> i
+
+(ˆ yi − ¯ˆy)2√∑ 
+
+> i
+
+(yi − ¯y)2 + ε
+
+Linear agreement between predicted and true field patterns Higher is bet-ter 
+
+R2 1 −
+
+∑
+
+> i
+
+(ˆ yi − yi)2
+
+∑
+
+> i
+
+(yi − ¯y)2 + ε Explained variance relative to the test-set mean Higher is bet-ter NMSE 
+
+∑
+
+> i
+
+(ˆ yi − yi)2
+
+∑ 
+
+> i
+
+y2 
+
+> i
+
++ ε Scale-normalized squared reconstruction error Lower is bet-ter 
+
+20 4.4. Reproducibility 
+
+The cylinder-real experiments use the seed-42 split described above, and the FSI-real experiments use the official real split. The reported runs were produced primarily with mixed precision on an NVIDIA RTX GPU with 24 GB VRAM and a 12th-generation Intel Core i9 CPU. An A100-based local server, also paired with a 12th-generation Intel Core i9 CPU, was used only for auxiliary development checks and is not part of the reported results. The source code, preprocessing scripts, model configurations, and checkpoint records are maintained in the project repository and can be shared for review and reproduction purposes upon request. 
+
+5. Benchmark and Results 
+
+The empirical study is organized hierarchically: aggregate metrics first, then selected component-wise fields, then scale-separated and local diagnostics. This ordering is deliberate. Aggregate figures and tables carry the primary quantitative claims, while the field panels serve as interpretable examples of the same ranking. 
+
+5.1. Cylinder-real benchmark ux uy |u| All                
+
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> LMAE
+> (a)
+> uxuy|u|All
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> LPCC
+> (b)
+> uxuy|u|All
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> R2
+> (c)
+> uxuy|u|All
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> NMSE
+> (d)
+> PIBERT
+> FNO2d
+> DeepONet2d
+> PITT
+> FourierFlow
+> PINN
+> Figure 3: Aggregate performance on the RealPDEBench cylinder-real benchmark for PIBERT, FNO2d, DeepONet2d, PITT, FourierFlow, and PINN. Panel (a) reports LMAE, panel (b) reports LPCC, panel (c) reports R2, and panel (d) reports NMSE for ux,uy,|u|, and the aggregate “All” score over the cylinder-real test set. Lower is better for LMAE and NMSE, while higher is better for LPCC and R2.
+
+21 Figure 3 gives the dataset-wide ranking on cylinder-real. PIBERT achieves the best aggregate accuracy with All NMSE 0.05875 and All LPCC 0.97019 , and it is also the top model on aggregate LMAE and R2. The advantage is especially clear in the cross-stream component, where PIBERT reaches uy NMSE 0.08984 versus 0.73364 for PINN. The best baselines remain competitive on selected sub-metrics. For example, FourierFlow is slightly better on the isolated ux NMSE, and FNO2d is close on uy but the full aggregate ranking favors PIBERT once both velocity components and |u| are considered jointly.      
+
+> Table 5: Dataset-wide aggregate accuracy summary for the RealPDEBench cylinder-real comparison set. Values are transcribed from the finalized summary used for Figure 3.
+> Model All NMSE All LMAE All LPCC All R2
+
+PIBERT 0.05875 0.11448 0.97019 0.94123 
+
+FourierFlow 0.05931 0.11797 0.96989 0.94066 FNO2d 0.06003 0.13216 0.96959 0.93995 PITT 0.11729 0.19095 0.94118 0.88267 DeepONet2d 0.19846 0.26190 0.89658 0.80146 PINN 0.39938 0.29292 0.77492 0.60046     
+
+> Table 6: Cylinder-real component comparison between PIBERT and PINN. This table isolates the largest component-wise contrast in the benchmark summary.
+> Component PIBERT NMSE PINN NMSE PIBERT LPCC PINN LPCC
+
+ux 0.02993 0.08954 0.98490 0.95413 
+
+uy 0.08984 0.73364 0.95407 0.51642 
+
+|u| 0.03051 0.18036 0.94085 0.63154 All 0.05875 0.39938 0.97019 0.77492 Tables 5 and 6 summarize the cylinder-real ranking and highlight PIBERT’s stronger recovery of the cross-stream component and overall correlation structure relative to PINN. Table 7 makes the inference-side tradeoff explicit for cylinder-real. PIBERT has the highest per-sample inference time in this comparison at 5.85 ms/sample, versus 3.77 for FourierFlow, 3.31 for FNO2d, 1.98 for PITT, 0.62 for DeepONet2d, and 0.47 for PINN. The cylinder-real ranking should therefore still be read as an accuracy comparison rather than an efficiency claim. We do not report a separate cylinder optimization table because the most complete optimization logs are available for FSI-real. The corresponding optimizer-side disclosure is moved to Appendix Table C.13. The selected field panels in Figures 4 and 5 make the component-wise differences visible. PIBERT preserves the recirculation bubble, the downstream velocity deficit, and the cross-stream wake structure with smaller signed errors than the weaker baselines. Several operator-style baselines remain visually competitive on parts of the wake, whereas the weaker models 22 PIBERT 
+
+Ground truth 
+
+1.0 
+
+1.5 
+
+2.0 
+
+|u| Prediction 
+
+1.0 
+
+1.5 
+
+2.0 
+
+|u| NMSE=0.0005 
+
+Signed error 
+
+-0.25 
+
+0.00 
+
+0.25 
+
+Δ| u|
+
+> FNO2d
+
+1.0 
+
+1.5 
+
+2.0 
+
+|u|
+
+1.0 
+
+1.5 
+
+2.0 
+
+|u| NMSE=0.0108 
+
+-0.25 
+
+0.00 
+
+0.25 
+
+Δ| u|
+
+> DeepONet2d
+
+1.0 
+
+1.5 
+
+2.0 
+
+|u|
+
+1.0 
+
+1.5 
+
+2.0 
+
+|u| NMSE=0.0062 
+
+-0.25 
+
+0.00 
+
+0.25 
+
+Δ| u|
+
+> PITT
+
+1.0 
+
+1.5 
+
+2.0 
+
+|u|
+
+1.0 
+
+1.5 
+
+2.0 
+
+|u| NMSE=0.0053 
+
+-0.25 
+
+0.00 
+
+0.25 
+
+Δ| u|
+
+> FourierFlow
+
+1.0 
+
+1.5 
+
+2.0 
+
+|u|
+
+1.0 
+
+1.5 
+
+2.0 
+
+|u| NMSE=0.0008 
+
+-0.25 
+
+0.00 
+
+0.25 
+
+Δ| u|
+
+> PINN
+
+1.0 
+
+1.5 
+
+2.0 
+
+|u|
+
+1.0 
+
+1.5 
+
+2.0 
+
+|u| NMSE=0.0029 
+
+-0.25 
+
+0.00 
+
+0.25 
+
+Δ| u|Figure 4: Comparison of ground truth, prediction, and signed error on a held-out RealPDEBench cylinder-real test sample across PIBERT, FNO2d, DeepONet2d, PITT, FourierFlow, and PINN for |u|.
+
+23 ux
+
+Ground truth 
+
+-2.0 
+
+-1.5 
+
+ux
+
+Prediction 
+
+-2.0 
+
+-1.5 
+
+ux
+
+Signed error 
+
+-0.2 
+
+0.0 
+
+0.2 
+
+Δux
+
+> uy
+
+-1 
+
+0
+
+1
+
+uy
+
+-1 
+
+0
+
+1
+
+uy
+
+-0.25 
+
+0.00 
+
+0.25 
+
+Δuy
+
+> |u|
+
+1.5 
+
+2.0 
+
+|u|
+
+1.5 
+
+2.0 
+
+|u|
+
+-0.2 
+
+0.0 
+
+0.2 
+
+Δ| u|
+
+> ω
+
+-0.5 
+
+0.0 
+
+0.5 
+
+ω
+
+-0.5 
+
+0.0 
+
+0.5 
+
+ω
+
+-0.2 
+
+0.0 
+
+0.2 
+
+ΔωFigure 5: PIBERT prediction against ground truth, with signed error, for ux, uy , |u|, and ω on the same held-out RealPDEBench cylinder-real sample. 
+
+24 Table 7: Per-sample inference times for the cylinder-real comparison set. Values are reported in milliseconds per sample and are transcribed from the finalized cylinder-real accuracy–cost summary used for the supplementary performance-scatter figure.  
+
+> Model Inference time (ms/sample)
+
+PIBERT 5.85 FourierFlow 3.77 FNO2d 3.31 PITT 1.98 DeepONet2d 0.62 PINN 0.47 more often smear or distort the wake-core structure. These panels are shown only to explain where the aggregate advantage appears. They do not replace the dataset-wide ranking in Figure 3. The same interpretation is also supported by the supplementary Cylinder-real diagnostics. Figures S5.1–S5.3 show that PIBERT follows local phase and amplitude changes more consistently and preserves coherent wake structure across consecutive sampled steps. Figure S5.6 further shows that this pattern is not limited to isolated frames. Figure 6 makes the multiscale claim more explicit than a contour plot alone can. On the selected |u| sample, PIBERT gives the lowest slice error in all three displayed regions and tracks the wake-line velocity and vorticity curves closely. The displayed baselines remain competitive on portions of the wake, but PIBERT is best on the three shown slice errors for this selected sample. Across the full cylinder-real test set of 1,990 pairs, PIBERT wins 86 .9% 
+
+of near-body slices, 40 .7% of wake-core slices, and 49 .7% of far-wake slices, with top-two rates of 98 .4% , 68 .3% , and 76 .3% , respectively. The frequency-band story is intentionally more nuanced: PIBERT wins 40 .8% of low-band cases, 34 .7% of mid-band cases, and 23 .8% 
+
+of high-band cases, so the manuscript does not claim universal spectral or high-frequency dominance. The same caution applies to strict physics proxies. In the supplementary drag-proxy analysis, the ground-truth mean drag proxy is 0.05773 , while PIBERT reaches 0.06253 . This is strong and competitive, but FourierFlow ( 0.06236 ) and FNO2d ( 0.06000 ) are slightly closer on that single proxy. Accordingly, our cylinder-real claim is that PIBERT is the strongest aggregate-accuracy model with very strong near-body and wake-core fidelity, not that it dominates every strict spectral or wake-integral diagnostic. 
+
+5.2. FSI-real benchmark 
+
+On FSI-real, PIBERT again leads the dataset-wide comparison. Figure 7 shows All NMSE 0.00026954 for PIBERT versus 0.00040231 for the best baseline FourierFlow, with the remaining baselines trailing further behind. The advantage is consistent across the two velocity components, and the same official real split and shared local 64 × 64 learning representation are used for all six models. This result indicates best accuracy under the stated protocol, not blanket superiority on every auxiliary diagnostic. 25 -0.05 0.00 0.05 0.10 0.15 
+
+Streamwise position x (m) 
+
+-0.050 
+
+-0.025 
+
+0.000 
+
+0.025 
+
+0.050 
+
+> Cross-stream y (m)
+
+Near-body Wake-core Far-wake 
+
+(a) 
+
+Near Mid Far 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+> Rel.  ℓ2 error
+
+(b) Slice error 
+
+-0.05 0.00 0.05 
+
+Cross-stream y (m) 
+
+0.5 
+
+1.0 
+
+> |u|
+
+(c) Large-scale / 
+
+near-body 
+
+-0.05 0.00 0.05 
+
+Cross-stream y (m) 
+
+2
+
+4
+
+(d) Intermediate / 
+
+wake-core 
+
+-0.05 0.00 0.05 
+
+Cross-stream y (m) 
+
+1
+
+2
+
+3
+
+(e) Fine-scale / 
+
+far-wake 
+
+0
+
+5
+
+(f) 
+
+> y = 0.005 m
+
+Velocity 
+
+0.0 0.1 
+
+Streamwise x (m) 
+
+-2.5 
+
+0.0 
+
+2.5 
+
+(g) Vorticity 
+
+2
+
+4
+
+6
+
+|u|
+
+PIBERT 
+
+FNO2d 
+
+DeepONet2d 
+
+PITT 
+
+FourierFlow 
+
+PINN 
+
+GT PIBERT FNO2d Figure 6: Scale-separated and wake-line diagnostics for the RealPDEBench cylinder-real |u| sample: (a) slicing layout, (b) slice relative ℓ2 error, (c) near-body profile, (d) wake-core profile, (e) far-wake profile, (f) wake-line velocity, and (g) wake-line vorticity. Table 8: Dataset-wide aggregate accuracy summary for the RealPDEBench FSI-real comparison set. Values are transcribed from the finalized summary used for Figure 7. 
+
+Model All NMSE All LMAE All LPCC All R2 All RelL2 
+
+PIBERT 0.000270 0.008640 0.999864 0.999729 0.016418 
+
+FourierFlow 0.000402 0.010626 0.999797 0.999595 0.020058 PINN 0.000580 0.011629 0.999708 0.999416 0.024076 FNO2d 0.002248 0.027409 0.998873 0.997736 0.047416 PITT 0.046901 0.101337 0.976101 0.952772 0.216566 DeepONet2d 0.105176 0.172149 0.945567 0.894091 0.324309 26 ux uy |u| All 
+
+0.00 
+
+0.05 
+
+0.10 
+
+0.15 
+
+0.20 
+
+> LMAE
+
+(a) 
+
+ux uy |u| All 
+
+0.00 
+
+0.25 
+
+0.50 
+
+0.75 
+
+1.00 
+
+> LPCC
+
+(b) 
+
+ux uy |u| All 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> R2
+
+(c) 
+
+ux uy |u| All 
+
+0.00 
+
+0.05 
+
+0.10 
+
+0.15 
+
+> NMSE
+
+(d) 
+
+PIBERT 
+
+FNO2d 
+
+DeepONet2d 
+
+PITT 
+
+FourierFlow 
+
+PINN Figure 7: Aggregate performance on the RealPDEBench FSI-real benchmark for PIBERT, FNO2d, Deep-ONet2d, PITT, FourierFlow, and PINN. Panel (a) reports LMAE, panel (b) reports LPCC, panel (c) reports 
+
+R2, and panel (d) reports NMSE for ux, uy , |u|, and the aggregate “All” score over the FSI-real test set. Lower is better for LMAE and NMSE, while higher is better for LPCC and R2.Table 9: FSI-real component comparison between PIBERT and the strongest baseline FourierFlow. “NMSE gain” reports the relative reduction of PIBERT with respect to FourierFlow.          
+
+> Component PIBERT NMSE FourierFlow NMSE NMSE gain PIBERT LPCC FourierFlow LPCC PIBERT R2FourierFlow R2
+
+ux 0.000143 0.000197 27.2% 0.999926 0.999898 0.999851 0.999796 
+
+uy 0.000381 0.000584 34.7% 0.999809 0.999708 0.999619 0.999416 
+
+|u| 0.000149 0.000226 34.2% 0.999829 0.999739 0.999657 0.999479 All 0.000270 0.000402 33.0% 0.999864 0.999797 0.999729 0.999595 
+
+27 Tables 8 and 9 confirm that PIBERT is first on the benchmark-wide accuracy metrics and that its gain over FourierFlow remains visible on both velocity components, on speed magnitude, and on the aggregate score. The FSI-real panels in Figures 8 and 9 are visually consistent with the aggregate metrics: PIBERT preserves the local wake structure around the tandem-cylinder configuration with the smallest signed-error footprint among the compared models. The stronger operator baselines remain visually competitive on parts of the field, while weaker baselines show larger structural distortions. As in the cylinder-real case, these panels explain where the dataset-wide advantage appears and are not used as a stand-alone performance evidence. Figure 10 localizes the FSI-real multiscale advantage on a held-out sample. On the displayed slices, PIBERT gives the lowest relative ℓ2 error in all three shown regions: 0.0104 
+
+near-body, 0.0167 wake-core, and 0.0106 far-wake, versus 0.0134 , 0.0255 , and 0.0188 for the strongest displayed baseline FourierFlow. The same pattern appears on the wake-line traces, where PIBERT reaches velocity relative ℓ2 0.0149 versus 0.0219 for FourierFlow and vorticity relative ℓ2 0.0350 versus 0.0475 . As with the cylinder-real multiscale figure, the panel is selected and is included to show where the dataset-wide scale-separated advantage appears, not to replace the aggregated FSI-real evidence. We report the scale-separated benchmark table in our main text because it is the quantity most directly tied to the multiscale reconstruction claim while the optimizer-side is added in Appendix Table C.13. 
+
+> Table 10: Scale-separated and diagnostic summary for the FSI-real comparison set. Values are taken from the finalized FSI experiment logs and summary tables.
+
+Metric PIBERT value Best model Best value 
+
+Scale-1 NMSE 0.00026954 PIBERT 0.00026954 Scale-2 NMSE 0.00014469 PIBERT 0.00014469 Scale-4 NMSE 0.00006776 PIBERT 0.00006776 Scale-8 NMSE 0.00002994 PIBERT 0.00002994 Vorticity MSE 0.00018599 PIBERT 0.00018599 Boundary MSE 1.02852666 PIBERT 1.02852666 Divergence MSE 0.04030116 DeepONet2d 0.01261038 Spectral L2 0.00017580 FourierFlow 0.00000198 Spectral slope error 0.00100403 PINN 0.00014111 Table 10 makes the dataset-wide multiscale claim explicit. PIBERT is best on all four coarse-to-fine aggregated NMSEs and also best on vorticity and boundary errors, while FourierFlow remains strongest on strict spectral L2 and PINN is best on the spectral-slope error. PIBERT also achieves the lowest first-level directional wavelet-detail NMSEs reported in the comparison set ( u-LH1 0.01003125 , u-HL1 0.00265505 , u-HH1 0.02804489 , v-LH1 
+
+0.00297122 , v-HL1 0.00435680 , v-HH1 0.01495957 ), which makes the scale-explicit advantage visible in FSI-real. The dataset-wide slice diagnostics align with the selected panel in Figure 10. On the FSI multiscale evaluation set, PIBERT wins 87 .9% of near-body slices, 76 .3% of wake-core slices, 28 PIBERT 
+
+Ground truth 
+
+2
+
+4
+
+|u| Prediction 
+
+2
+
+4
+
+|u| NMSE=0.0000 
+
+Signed error 
+
+-1 
+
+0
+
+1
+
+Δ| u|
+
+> FNO2d
+
+2
+
+4
+
+|u|
+
+2
+
+4
+
+|u| NMSE=0.0002 
+
+-1 
+
+0
+
+1
+
+Δ| u|
+
+> DeepONet2d
+
+2
+
+4
+
+|u|
+
+2
+
+4
+
+|u| NMSE=0.0237 
+
+-1 
+
+0
+
+1
+
+Δ| u|
+
+> PITT
+
+2
+
+4
+
+|u|
+
+2
+
+4
+
+|u| NMSE=0.0139 
+
+-1 
+
+0
+
+1
+
+Δ| u|
+
+> FourierFlow
+
+2
+
+4
+
+|u|
+
+2
+
+4
+
+|u| NMSE=0.0001 
+
+-1 
+
+0
+
+1
+
+Δ| u|
+
+> PINN
+
+2
+
+4
+
+|u|
+
+2
+
+4
+
+|u| NMSE=0.0001 
+
+-1 
+
+0
+
+1
+
+Δ| u|Figure 8: Comparison of ground truth, prediction, and signed error on a held-out RealPDEBench FSI-real test sample across PIBERT, FNO2d, DeepONet2d, PITT, FourierFlow, and PINN for |u|.
+
+29 ux
+
+Ground truth 
+
+-2 
+
+0
+
+2
+
+ux
+
+Prediction 
+
+-2 
+
+0
+
+2
+
+ux
+
+Signed error 
+
+-0.02 
+
+0.00 
+
+0.02 
+
+Δux
+
+> uy
+
+-2 
+
+0
+
+2
+
+uy
+
+-2 
+
+0
+
+2
+
+uy
+
+-0.05 
+
+0.00 
+
+0.05 
+
+Δuy
+
+> |u|
+
+1
+
+2
+
+3
+
+4
+
+|u|
+
+1
+
+2
+
+3
+
+4
+
+|u|
+
+-0.05 
+
+0.00 
+
+0.05 
+
+Δ| u|
+
+> ω
+
+-2 
+
+0
+
+2
+
+ω
+
+-2 
+
+0
+
+2
+
+ω
+
+-0.05 
+
+0.00 
+
+0.05 
+
+ΔωFigure 9: PIBERT prediction against ground truth, with signed error, for ux, uy , |u|, and ω on the same held-out RealPDEBench FSI-real sample. 
+
+30 0 10 20 30 40 50 60 
+
+Flow-direction x position 
+
+0
+
+20 
+
+40 
+
+60 
+
+> Cross-stream y position
+
+Near-body Wake-core Far-wake 
+
+(a) 
+
+Near Mid Far 
+
+0.0 
+
+0.1 
+
+0.2 
+
+> Rel.  ℓ2 error
+
+(b) Slice error 
+
+0 25 50 
+
+Cross-stream y position 
+
+2
+
+4
+
+> |u|
+
+(c) Large-scale / 
+
+near-body 
+
+0 25 50 
+
+Cross-stream y position 
+
+1
+
+2
+
+3
+
+(d) Intermediate / 
+
+wake-core 
+
+0 25 50 
+
+Cross-stream y position 
+
+2
+
+4
+
+6
+
+(e) Fine-scale / 
+
+far-wake 
+
+0
+
+5
+
+(f) 
+
+> y = 39
+
+Velocity 
+
+0 50 
+
+> Flow-direction (x)
+
+-2 
+
+0
+
+(g) Vorticity 
+
+2
+
+4
+
+6
+
+|u|
+
+PIBERT 
+
+FNO2d 
+
+DeepONet2d 
+
+PITT 
+
+FourierFlow 
+
+PINN 
+
+GT PIBERT FourierFlow Figure 10: Scale-separated and wake-line diagnostics for the RealPDEBench FSI-real |u| sample: (a) slicing layout, (b) slice relative ℓ2 error, (c) near-body profile, (d) wake-core profile, (e) far-wake profile, (f) wake-line velocity, and (g) wake-line vorticity. 
+
+31 and 91 .4% of far-wake slices, with corresponding top-two rates of 97 .8% , 94 .9% , and 98 .6% . Its band win rates remain balanced across low, mid, and high bands ( 48 .5% , 55 .4% , and 49 .3% ), with top-two rates of 85 .2% , 86 .0% , and 78 .9% . This is the appropriate nuanced statement for FSI-real: PIBERT is the strongest model on the scale-separated reconstruction and local slice diagnostics, while FourierFlow remains the best strict spectral baseline. The supplementary FSI-real diagnostics show the same pattern in time. Figures S5.7–S5.10 show more consistent temporal tracking and more coherent spatial progression across consecutive sampled steps for PIBERT. Figures S5.11–S5.13 further show that the local-structure advantage remains visible across additional difficult held-out cases. 
+
+5.3. Cross-benchmark multiscale interpretation 
+
+Figures 6 and 10 and table 10 show where PIBERT performs better, especially in the near-body, wake-core, and multiscale flow regions. Across both benchmarks, the common pattern is more reliable reconstruction of the near-body region, wake-core organization, and downstream multiscale structure. On cylinder-real, this appears primarily as stronger recovery of separated wake geometry and cross-stream variation, while on FSI-real the same tendency becomes more systematic and extends across coarse-to-fine scale summaries, vorticity, and boundary-sensitive behavior. This distinction is physically important. In both benchmarks, we observe the hardest errors are not global amplitude mismatches. Rather, they arise in regions where advection, shear, recirculation, and geometry-induced interactions produce localized but dynamically important distortions. PIBERT performs best precisely on these diagnostics of local multiscale fidelity, whereas lighter baselines can still remain competitive on narrower spectral or integral-style summaries. Thus we conclude that in the cylinder-real benchmark PIBERT is strongest on aggregate accuracy and wake-local reconstruction, even though FourierFlow and FNO2d remain highly competitive on selected spectral or drag-proxy-style checks. By contrast, the FSI-real evidence is stronger because the advantage persists not only in selected slices but also in the benchmark-level scale-separated summaries, indicating better preservation of coupled wake structure under a more spatially heterogeneous flow configuration. The cross-benchmark consistency also aligns with the methodological novelty of PIBERT. The hybrid Fourier-wavelet encoder represents both global oscillatory structure and localized distortions. The physics-aware tokenization and residual-biased self-attention then guide the model toward interactions that remain meaningful in physically active regions of the field. The MPP/ECP pretraining stage then reduces the dependence on learning these cross-scale relationships from limited supervised data alone. Overall, the results suggest that PIBERT’s main contribution is that it more consistently preserves the physically consequential multiscale structure of real flow fields across two distinct benchmarks. The supplementary evidence extends this interpretation beyond the two main RealPDEBench benchmarks. The additional CFDBench, ICP Plasma, and EAGLE comparisons show lower error distributions and more localized error behavior for PIBERT relative to PINN in several non-identical physical settings. The Tube and Cavity embedding analyses further show that PIBERT maintains stronger fine-scale embedding–physics alignment, while the supplementary spectral diagnostics indicate better preservation of mid-to-high wavenumber content. These results are not used to replace the main RealPDEBench ranking, but they support the broader 32 conclusion that the hybrid Fourier-wavelet encoder and physics-biased attention improve multiscale physical representation rather than only fitting two selected benchmark cases. 
+
+6. Implications and Limitations 
+
+The evidence now supports a narrower but stronger empirical claim. Across two Re-alPDEBench benchmarks, PIBERT is the best-accuracy model in the comparison once aggregate metrics, component-wise fields, multiscale slices, and local traces are considered together. On cylinder-real, the aggregate advantage is driven in large part by cross-stream structure recovery and near-body wake fidelity. On FSI-real, the gains persist under the official real split and remain visible across both field components and scale-separated diagnostics. The evidence does not support a claim that PIBERT is universally best on every diagnostic or that it is the cheapest model to run. Some narrow physics or frequency-domain summaries still favor lighter baselines, such as the cylinder-real drag proxy and the FSI strict spectral metrics. However, these isolated advantages do not change the main empirical pattern: PIBERT provides the strongest aggregate reconstruction and more consistent multiscale flow fidelity across the principal RealPDEBench metrics and diagnostics. The cost disclosure should therefore be interpreted as an accuracy-physics tradeoff rather than a weakness alone. PIBERT requires additional computation, but the added cost is tied to the model components that improve localized and scale-separated flow reconstruction. The architectural template is also more general than the current PDE instantiation, but the residual bias itself is PDE-specific. For incompressible flow we use divergence and momentum-style residual diagnostics. For compressible flow, the same framework would need bias terms tied to mass, momentum, and energy balance, together with an equation-of-state closure and shock-aware diagnostics. For wave equations, the bias should reflect propagation structure, boundary reflections, and dispersion. For reaction–diffusion systems, the bias would need to encode reaction/diffusion imbalance together with conservation or positivity structure where appropriate. In that sense, the transformer scaffold is transferable, whereas the specific Rij construction must be redesigned for each PDE family. 1. L1. Structured-grid dependence. The experiments still operate on tensorized structured grids, even when the source benchmark is more complex than the local learning representation. 2. L2. Accuracy-cost tradeoff. PIBERT requires more computation than lighter baselines, but this additional cost is associated with stronger aggregate reconstruction and better preservation of localized multiscale flow structures. Future work should reduce this cost while retaining the same physics-sensitive reconstruction behavior. 3. L3. PDE-specific residual bias. The current attention bias is designed around incompressible-flow diagnostics and is therefore not a drop-in universal residual prior. 4. L4. Main benchmark scope and rollout horizon. The primary claim-bearing evaluation is based on the cylinder-real and FSI-real RealPDEBench protocols, while supplementary CFDBench, ICP Plasma, EAGLE, Tube, and Cavity analyses provide broader supporting evidence. Longer-horizon rollout, direct structural-state prediction, and additional real-world engineering benchmarks remain open directions. 33 Matched future directions. 
+
+1. L1 → mesh-aware extensions. Extend the current tensorized encoder to geometry-aware or unstructured discretizations so that the multiscale attention mechanism can operate on meshes and irregular domains without first collapsing them to a regular image grid. 2. L2 → sparse or hierarchical attention. Reduce optimization cost through sparse, local, or hierarchical attention blocks, together with lighter multiscale fusion modules, so that the best-accuracy behavior is preserved at lower compute budgets. 3. L3 → modular PDE-family bias adapters. Replace the single incompressible-flow residual module with modular bias terms tailored to compressible flow, waves, reaction–diffusion systems, and other PDE families. 4. L4 → coupled FSI states and longer rollouts. Move beyond one-step flow reconstruction toward coupled flow–structure prediction, longer-horizon rollout, and uncertainty-aware trajectory modeling on real-world benchmarks. 
+
+7. Conclusion 
+
+We introduced PIBERT as a transformer surrogate that integrates a hybrid Fourier-wavelet spectral encoder, physics-biased self-attention, and self-supervised MPP/ECP pretraining within a single architecture. These components remain the core methodological contribution of PIBERT. The empirical framing is anchored to the RealPDEBench cylinder-real and FSI-real protocols and replaces contour-only arguments with a dataset-wide evidence hierarchy built from aggregate metrics, component-wise fields, multiscale slice diagnostics, local traces, and explicit cost disclosure. Under these protocols, PIBERT is the best-accuracy model in the comparison: on cylinder-real it reaches All NMSE 0.05875 and All LPCC 0.97019 , and on FSI-real it reaches All NMSE 0.00026954 versus 0.00040231 for the best baseline FourierFlow. Additional supplementary analyses on CFDBench, ICP Plasma, EAGLE, Tube, and Cavity cases support the same interpretation: PIBERT’s hybrid spectral encoding and physics-biased attention improve multiscale physical representation beyond global field fitting. At the same time, we observe PIBERT is not the cheapest method in the comparison set, and strict spectral leadership is not universal even when the overall multiscale reconstruction is strongest. The central conclusion is therefore that PIBERT offers an physical accuracy advantage. It uses additional computation to recover localized and scale-separated flow structures more faithfully than lighter baselines under the studied protocols. Future work should preserve this multiscale reconstruction behavior while reducing cost through mesh-aware extensions, efficient attention mechanisms, PDE-family-specific residual adapters, and coupled FSI and longer-horizon prediction. 
+
+Appendix A. Extended Proofs Assumption Appendix A.1 (2-D DFT/IFFT normalization) . For x ∈ CH×W ,̂ x[k, ℓ ] =   
+
+> ∑H−1
+> m=0
+> ∑W−1
+> n=0
+
+x[m, n ] e−2πi ( mk H + nℓ W ) and x[m, n ] = 1 
+
+> HW
+> ∑
+> k,ℓ ̂
+
+x[k, ℓ ] e2πi ( mk H + nℓ W ). For real x,̂ x is Hermitian; we use rFFT/irFFT storing the half-plane. 34 Proposition Appendix A.2 (Energy accounting with residual multiplier) . For any filter bank {Ks}, ∑ 
+
+> s
+
+∥x ∗ Ks∥22 = 1 
+
+> HW
+> ∑
+> ω
+> ( ∑
+> s
+
+|̂Ks(ω)|2)
+
+|̂x(ω)|2. If S(ω) = ∑ 
+
+> s
+
+|̂Ks(ω)|2, then  
+
+> ∣∣∣ ∑
+> s
+
+∥x ∗ Ks∥22 − ∥ x∥22 
+
+> ∣∣∣
+
+≤ ∥ S − 1∥∞ ∥x∥22.
+
+Lemma Appendix A.3 (Partition of unity) . Let g0(ω) = cos θ(ω) and g1(ω) = sin θ(ω)
+
+with even C1 θ : [ −π, π ] → [0 , π/ 2] , and define separable windows ̂ KLL = g0(ωx)g0(ωy),̂ KLH =
+
+g0(ωx)g1(ωy),̂ KHL = g1(ωx)g0(ωy),̂ KHH = g1(ωx)g1(ωy). Then ∑ 
+
+> s∈{ LL ,LH ,HL ,HH }
+
+|̂Ks(ωx, ω y)|2 ≡
+
+1.
+
+Lemma Appendix A.4 (Discrete Green identity (periodic)) . For scalars f, g on the 2-D torus, ∑ f (∆ g) = − ∑ ∇f · ∇ g with central differences. 
+
+Proposition Appendix A.5 (Quadratic boundary penalty enforces Dirichlet) . Let Jμ(u) = 
+
+∥Au − f ∥22 + μ∥Bu − g∥22. Any minimizer uμ converges, as μ → ∞ , to the least-squares solution of Au = f subject to Bu = g.Appendix A.1. Fourier branch: 1-Lipschitz and isometry Proof of Theorem 3.1. Adopt Theorem Appendix A.1. Let ̂ x(ω) ∈ CC be the channel vector at frequency ω = ( k, ℓ ). The layer acts per-mode as ̂
+
+y(ω) = 
+
+> 
+
+W (ω)̂ x(ω), ω ∈ Ωkeep ,
+
+0, otherwise , W (ω)⊤W (ω) = I. 
+
+By Parseval, ∥y∥22 = 1 
+
+> HW
+> ∑
+> ω
+
+∥̂ y(ω)∥22 = 1 
+
+> HW
+> ∑
+> ω∈Ωkeep
+
+∥W (ω)̂x(ω)∥22 = 1 
+
+> HW
+> ∑
+> ω∈Ωkeep
+
+∥̂x(ω)∥22 ≤ 
+
+> 1
+> HW
+> ∑
+> ω
+
+∥̂x(ω)∥22 = ∥x∥22. Hence the operator norm is ≤ 1 (nonexpansive). If x is band-limited to Ωkeep then the inequality is an equality, i.e., an isometry. 
+
+Appendix A.2. Residual energy accounting and tight frame Proof of Theorem Appendix A.2. For any filter Ks, Parseval gives ∥x∗Ks∥22 = 1 
+
+> HW
+> ∑
+> ω
+
+|̂Ks(ω)|2|̂x(ω)|2.
+
+Summing s yields the stated identity and 
+
+> ∣∣∣∣∑
+> s
+
+∥x ∗ Ks∥22 − ∥ x∥22 
+
+> ∣∣∣∣
+
+= 1
+
+HW 
+
+> ∑
+> ω
+> ∣∣∣
+
+S(ω) − 1∣∣∣ |̂ x(ω)|2 ≤ ∥ S − 1∥∞ ∥x∥22.
+
+Proof of Theorem 3.2. By Theorem Appendix A.3, ∑ 
+
+> s
+
+|̂Ks|2 ≡ 1. Thus ∑ 
+
+> s
+
+∥x ∗ Ks∥22 = ∥x∥22
+
+by Parseval. Let A be the analysis map x 7 → (Ks ∗ x)s and S the synthesis S(ys) = ∑ 
+
+> s
+
+K∨ 
+
+> s
+
+∗ ys.In the DFT basis, A∗A has symbol ∑ 
+
+> s
+
+|̂Ks|2 ≡ 1, hence A is an isometry and SA = I; i.e., 
+
+x = ∑ 
+
+> s
+
+K∨ 
+
+> s
+
+∗ (Ks ∗ x). Both analysis and synthesis are 1-Lipschitz. 
+
+Appendix A.3. Hybrid fusion nonexpansiveness Proof of Theorem 3.3. Let F, W satisfy ∥F∥ ≤ 1, ∥W∥ ≤ 1 and Gα = αF + (1 − α)W with 
+
+α ∈ [0 , 1] (pointwise or spatially varying). For any x, y ,
+
+∥Gαx − Gαy∥ ≤ α∥F (x − y)∥ + (1 − α)∥W (x − y)∥ ≤ α∥x − y∥ + (1 − α)∥x − y∥ = ∥x − y∥.
+
+If both branches are isometries on the relevant subspace (e.g., band-limited input and W = I), then ∥Gαx∥ = ∥x∥.35 Appendix A.4. Biased attention: ratio and Lipschitz bounds Proof of Theorem 3.4. For a fixed row i, αij = exp ( ˜Lij 
+
+> )
+
+/ ∑ 
+
+> m
+
+exp ( ˜Lim 
+
+> )
+
+with ˜Lij = Lij −
+
+λatt Rij . Then 
+
+αij 1
+
+αij 2
+
+= exp ( ˜Lij 1 − ˜Lij 2
+
+> )
+
+= exp (
+
+(Lij 1 − Lij 2 ) − λatt (Rij 1 − Rij 2 ))
+
+,
+
+which is strictly decreasing in λatt whenever Rij 1 > R ij 2 .
+
+Proof of Theorem 3.5. Let α(λ) = softmax (z − λr ) with row vectors z, r . The Jacobian of softmax at u is J(u) = Diag (σ(u)) − σ(u)σ(u)⊤. By the mean value theorem, α(λ) − α(0) = ∫ λ 
+
+> 0
+
+J(z−tr )( −r) dt . Using the operator norm ∥·∥ ∞→ 1, ∥α(λ)−α(0) ∥1 ≤ ∫ λ 
+
+> 0
+
+∥J(·)∥∞→ 1 dt ∥r∥∞.
+
+One checks (e.g., by column sums) ∥J(·)∥∞→ 1 = max j 2σj (1 −σj ) ≤ 12 , hence ∥α(λ)−α(0) ∥1 ≤ 
+
+> λ
+> 2
+
+∥r∥∞. Apply rowwise with r = Ri· and λ = λatt .
+
+Appendix A.5. Translation equivariance and continuum limit Proof of Theorem 3.6. Let τs be the lattice shift by s. If Rij = ρ(p, r (i) − r(j)) , then Lij 
+
+and Rij shift compatibly: L ◦ τs = Π sLΠ⊤ 
+
+> s
+
+and likewise for R, with permutation matrix Πs.Rowwise softmax commutes with the same permutation, so α(τsx) = Π sα(x)Π ⊤ 
+
+> s
+
+. Hence the mapping is translation-equivariant. 
+
+Proof of Theorem 3.7. Assume a periodic, compact Ω and bounded continuous q(·), k (·), r (·, ·).On a grid of spacing h, the row i softmax weights are wh(xi, y j ) = exp( ⟨q(xi),k (yj )⟩− λr (xi,y j )) ∑  
+
+> mexp( ⟨q(xi),k (ym)⟩− λr (xi,y m))
+
+.Then (Thv)( xi) = ∑ 
+
+> j
+
+wh(xi, y j )v(yj ) hd is a Riemann sum for (T v )( x) = ∫ 
+
+> Ω
+
+wλ(x, y )v(y) dy 
+
+with the same normalized exponential kernel. Uniform boundedness and continuity yield uniform convergence by dominated convergence; the normalization enforces ∫ wλ(x, y ) dy =1.
+
+Appendix A.6. Discrete Green identity and quadratic penalty Proof of Theorem Appendix A.4. For periodic central differences, D⊤ 
+
+> x
+
+= −Dx and D⊤ 
+
+> y
+
+= −Dy.With ∆ = −(D⊤ 
+
+> x
+
+Dx + D⊤ 
+
+> y
+
+Dy),
+
+> ∑
+
+f (∆ g) = − ∑
+
+f D ⊤ 
+
+> x
+
+Dxg − ∑
+
+f D ⊤ 
+
+> y
+
+Dyg = − ∑
+
+(Dxf ) ( Dxg) − ∑
+
+(Dyf ) ( Dyg).
+
+Proof of Theorem Appendix A.5. The minimizer uμ satisfies the normal equations (A⊤A +
+
+μB ⊤B)uμ = A⊤f + μB ⊤g. If u⋆ solves Au = f with Bu = g (in the least-squares sense), then uμ → u⋆ as μ → ∞ by standard quadratic-penalty arguments: Bu μ → g and Au μ → f ;any limit point solves the constrained problem. 36 Appendix A.7. Divergence-aware oracle inequality Proof of Theorem 3.9. Define Rλ(g) = E∥x − g∥22 + λE∥Dg ∥22 and let gλ be a minimizer. For any g⋆ ∈ ker D, E∥x − gλ∥2 + λE∥Dg λ∥2 ≤ E∥x − g⋆∥2. Rearrange to obtain E∥x − gλ∥2 ≤
+
+E∥x − g⋆∥2 − λE∥Dg λ∥2. Now, by dist (u, ker D) ≤ cH ∥Du ∥2, take u = gλ( ˜x) pointwise and average to get E dist (gλ, ker D)2 ≤ c2 
+
+> H
+
+E∥Dg λ∥2. Using dist (a, H)2 ≤ ∥ a − b∥2 with b ∈ H and choosing b = g⋆ yields 
+
+E∥x − gλ∥2 ≤ E∥x − g⋆∥2 + c2
+
+> H
+
+λ E∥Dg λ∥2,
+
+which matches the stated bound. 
+
+Appendix B. Fourier and Wavelet Derivatives 
+
+Fourier branch. Let y = F−1(̂ 
+
+y)
+
+with ̂ y(ω) = W (ω)̂ x(ω) on the kept half-plane and ̂ y(ω) = 0 
+
+otherwise. For a real x we store the rFFT half-plane and enforce Hermitian symmetry. Given an upstream spatial gradient g = ∂L/∂y and its DFT ̂ g = F(g):
+
+∂L
+
+∂̂ x(ω) = W (ω)Ĥ g(ω), ∂L
+
+∂W (ω) =̂ g(ω)̂ x(ω)H
+
+, ω ∈ Ωkeep .
+
+The spatial gradient is ∂L/∂x = F−1(
+
+∂L/∂ ̂ x)
+
+. For rFFT, mirror the gradients to satisfy Hermitian symmetry and zero out non-kept modes. 
+
+Tight-frame branch. Analysis coefficients zs = Ks ∗x and (optionally) synthesis ˜x = ∑ 
+
+> s
+
+K∨ 
+
+> s
+
+∗zs.For any branch loss L(zs) with upstream gradients hs = ∂L/∂z s:
+
+∂L
+
+∂x = ∑
+
+> s
+
+K∨ 
+
+> s
+
+∗ hs, ∂L
+
+∂K s
+
+= hs ∗ x∨.
+
+In the Fourier domain: 
+
+∂L
+
+∂̂ x = ∑
+
+> ŝ
+
+Ks ⊙̂ hs, ∂L
+
+∂̂ Ks
+
+=̂ x ⊙̂ hs.
+
+Wavelet windows. With ̂ KLL = g0(ωx)g0(ωy),̂ KLH = g0(ωx)g1(ωy),̂ KHL = g1(ωx)g0(ωy),̂
+
+KH = g1(ωx)g1(ωy), g0 = cos θ, g1 = sin θ:
+
+∂g 0
+
+∂θ = − sin θ, ∂g 1
+
+∂θ = cos θ, ∂̂ KLL 
+
+∂θ x
+
+= (
+
+− sin θx
+
+> )
+
+g0(ωy), . . . 
+
+Chain with ∂θ/∂ϕ if θ(ω; ϕ) is parametrized. To preserve the partition-of-unity ∑ 
+
+> s
+
+|̂Ks|2 ≡ 1,either (i) parametrize via a single angle field θ(ω) as above, or (ii) renormalize Ks by S(ω)−1/2
+
+with S = ∑ 
+
+> s
+
+|̂Ks|2 after each update. 
+
+Gating and fusion. For E = αF F + (1 − αF )W with scalar or spatially varying αF =softmax( γF , γ W ), the gradients are 
+
+∂L
+
+∂F = αF
+
+∂L
+
+∂E , ∂L
+
+∂W = (1 − αF ) ∂L
+
+∂E , ∂L
+
+∂γ F
+
+= αF (1 − αF ) 
+
+> 〈
+
+∂L
+
+∂E , F − W
+
+> 〉
+
+.
+
+37 Notes on rFFT bookkeeping. (i) Handle DC/NYQUIST lines once (no mirroring). (ii) When enforcing column-unitarity on W (ω), apply it only on the kept set; set others to zero. (iii) Gradients on mirrored bins must be conjugate. 
+
+Appendix C. Benchmark Provenance and Local Learning Pipeline 
+
+This appendix documents only the two RealPDEBench benchmarks used in the manuscript [19]. 
+
+Provenance note. Benchmark-source numerical provenance is reported only as provided by the RealPDEBench release [ 19 ]. The local learning pipeline then uses the released benchmark fields and explicitly states any tensorization, resizing, or channel-selection choices made by the local experiments. When the source benchmark does not document solver order, mesh order, or related numerical-scheme details, we do not invent them here. The benchmark inventory is summarized in Table C.11, the source-versus-local separation is detailed in Table C.12, model metadata are collected in Table C.14, and the two benchmark schematics are collected in Figure C.11. The individual panels Figures C.11a and C.11b correspond to the cylinder-real and FSI-real cases, respectively. 
+
+> Table C.11: Appendix benchmark summary for the two RealPDEBench benchmarks studied in this paper.
+
+Benchmark Source bench-mark scenario Source channels / grid Local learning task Split used here 
+
+Cylinder-real Real bluff-body wake benchmark in RealPDEBench Real PIV (u, v ),with paired sim-ulated (u, v, p )
+
+available in the official package; benchmark de-scription reports real 128 × 256 
+
+and simulated 
+
+64 × 128 
+
+One-step prediction of real (u, v ) after lo-cal decoding, stride-20 sampling, and re-sizing to 64 × 64 
+
+Seed-42 split with 73 /9/10 
+
+trajectories and 
+
+14 ,527 /1,791 /1,990 
+
+train/val/test pairs FSI-real Official tandem-cylinder vortex-induced-vibration benchmark with real observations Released real flow fields at 128 × 128 
+
+with benchmark metadata for the physical setting One-step prediction of real-only (u, v ) af-ter resizing to 64 ×64 
+
+Official real split shared across all six models 
+
+Model metadata. The experiment preserves parameter counts for all six comparison models, while the explicit hyperparameter block is reported for the finalized PIBERT configuration. We therefore report a hyperparameter table in Table C.14. 38 Table C.12: Appendix provenance details separating benchmark-source facts from the local learning pipeline. 
+
+Benchmark Benchmark-source facts used in the manuscript Local learning pipeline used in the experiments What is intentionally not claimed 
+
+Cylinder-real 
+
+92 trajectories, 23 ,990 
+
+frames, 20 s at 
+
+400 Hz, Reynolds numbers 1800 –12000 ,benchmark-level real 
+
+(u, v ) and paired simulated (u, v, p )
+
+modalities [19] Released real velocity tensors decode to 
+
+(3990 , 2, 64 , 128) per trajectory in the local experiments, are sampled every 20 native steps, resized to (2 , 64 , 64) , and paired as xt 7 → xt+1 .The local parameter branch is zero-filled when a benchmark parameter JSON is not present in the released dataset. We do not claim solver order, mesh order, or undisclosed CFD-generation details for the source benchmark because these are not specified in the official release. FSI-real Official real split of the tandem-cylinder vortex-induced-vibration benchmark, with released physical metadata and 128 ×128 
+
+source fields [19] Local study uses the released real-only ve-locity channels (u, v ),resized to 64 × 64 ,under the same six-model next-step pre-diction protocol. We do not infer missing discretization or solver de-tails beyond the source benchmark documenta-tion, and we do not reinterpret the released physical metadata be-yond what the benchmark states.     
+
+> Table C.13: Appendix optimization-cost for the FSI-real comparison set.
+> Model Parameters Checkpoint MB Last logged epoch (s) Wall time (min)
+
+PIBERT 8,714,248 99.51 49.2 13.9 FourierFlow 2,777,282 31.85 9.6 27.7 FNO2d 1,054,082 12.12 7.7 22.8 PITT 216,898 2.54 8.1 23.1 DeepONet2d 150,674 1.77 3.1 8.4 PINN 21,250 0.29 2.9 6.7 
+
+39 Table C.14: PIBERT hyperparameters for FSI and Cylinder. All reported configurations use the same model size of 1.560 M parameters. 
+
+Group Hyperparameters / values 
+
+Architecture channels 2 → 2; image size 64 ; patch size 4; embedding width 128 ; depth 4;heads 4; MLP ratio 4.0; Fourier modes 16 ; parameter-token dim 16 ;residual skip on; refinement hidden 32 
+
+Physics bias λatt = 0 .12 ; αdiv = 1 .0; αmom = 1 .0; dropout 0.02 
+
+Loss weights λdiv = 1 .0; λlap = 0 .12 ; λbnd = 0 .002 ; λreg = 5 × 10 −5; λMPP = 1 .0;
+
+λECP = 0 .1
+
+Optimization batch size 256 ; micro-batch size 128 ; learning rate 5 × 10 −5; minimum learning rate 1 × 10 −7; warmup 3; pretraining 50 epochs; fine-tuning 120 
+
+epochs; patience 45 ; mask ratio 0.15 
+
+Data protocol process cylinder-real; data type real; image size 64 ; stride 20 ; max frames per trajectory 200 ; train/val ratios 0.8/0.1; normalization on 
+
+Cylinder-real  
+
+> Uin
+> flow direction wake
+> (a) Simplified cylinder-real wake schematic used as a visual benchmark summary. Detailed source and local-protocol meta-data are reported in Tables C.11 and C.12.
+
+FSI-real 
+
+> Uin
+> transverse vibration wake interaction (b) Simplified FSI-real tandem-cylinder schematic highlighting downstream-body vibration and wake interaction. Detailed benchmark metadata are reported in Tables C.11 and C.12.
+
+Figure C.11: Benchmark schematics used in the manuscript. Left: simplified cylinder-real wake configuration. Right: simplified tandem-cylinder vortex-induced-vibration FSI-real configuration. These panels are visual summaries only; benchmark-source metadata and local learning-pipeline details are reported in Tables C.11 and C.12. 
+
+Local learning pipeline Cylinder-real local protocol. The cylinder-real experiments use trajectory-level splits with seed 42 . Each decoded trajectory contains 3990 native frames with two velocity channels and spatial size 64 × 128 . The local benchmark script samples every 20 native steps, keeps at most 200 frames per trajectory, resizes each frame to 64 × 64 , and forms consecutive one-step prediction pairs on the sampled sequence. This produces 14 ,527 training pairs, 1,791 
+
+validation pairs, and 1,990 test pairs. 
+
+FSI-real local protocol. The FSI-real experiments follow the official real split and use the released real-only velocity channels (u, v ) as the shared supervised target. For uniform comparison across PIBERT, FourierFlow, FNO2d, PITT, DeepONet2d, and PINN, the local protocol resizes the source fields to 64 × 64 and evaluates all models on the same next-step tensorized prediction task. 40 References 
+
+[1] Y. Liu, J. N. Kutz, S. L. Brunton, Hierarchical deep learning of multiscale differential equation time-steppers, Philosophical Transactions of the Royal Society A 380 (2229) (2022) 20210200. [2] Y. Wang, N. Ye, Z. Li, Physics-informed surrogate for cardiovascular flow extrapolation through transductive learning, Engineering Applications of Artificial Intelligence 159 (2025) 111458. doi:10.1016/j.engappai.2025.111458 .[3] Q. Liu, W. Zhong, S. Koric, H. Meidani, Sequential neural operator transformer for high-fidelity surrogates of time-dependent non-linear partial differential equations, Engineering Applications of Artificial Intelligence 172 (2026) 114428. doi:10.1016/j.engappai. 2026.114428 .[4] M. Raissi, P. Perdikaris, N. Ahmadi, G. E. Karniadakis, Physics-informed neural networks and extensions, arXiv preprint arXiv:2408.16806 (2024). [5] L. Yi, S. Yang, Y. Cui, Z. Lai, Transforming physics-informed machine learning to convex optimization, Engineering Applications of Artificial Intelligence 161 (2025) 112149. 
+
+doi:https://doi.org/10.1016/j.engappai.2025.112149 .URL https://www.sciencedirect.com/science/article/pii/S0952197625021578 
+
+[6] W. Zhang, W. Suo, J. Song, W. Cao, Physics informed neural networks (pinns) as intelligent computing technique for solving partial differential equations: Limitation and future prospects, arXiv preprint arXiv:2411.18240 (2024). [7] E.-Z. Rui, Z.-W. Chen, Y.-Q. Ni, L. Yuan, G.-Z. Zeng, Reconstruction of 3d flow field around a building model in wind tunnel: a novel physics-informed neural network frame-work adopting dynamic prioritization self-adaptive loss balance strategy, Engineering Applications of Computational Fluid Mechanics 17 (1) (2023) 2238849. [8] M. Penwarden, A. D. Jagtap, S. Zhe, G. E. Karniadakis, R. M. Kirby, A unified scalable framework for causal sweeping strategies for physics-informed neural networks (pinns) and their temporal decompositions, Journal of Computational Physics 493 (2023) 112464. [9] J. Abbasi, A. D. Jagtap, B. Moseley, A. Hiorth, P. Østebø Andersen, Challenges and advancements in modeling shock fronts with physics-informed neural networks: A review and benchmarking study, Neurocomputing 657 (2025) 131440. doi:https: //doi.org/10.1016/j.neucom.2025.131440 .URL https://www.sciencedirect.com/science/article/pii/S0925231225021125 
+
+[10] N. Kovachki, Z. Li, B. Liu, K. Azizzadenesheli, K. Bhattacharya, A. Stuart, A. Anand-kumar, Neural operator: Learning maps between function spaces with applications to pdes, Journal of Machine Learning Research 24 (89) (2023) 1–97. [11] L. Serrano, L. Le Boudec, A. Kassaï Koupaï, T. X. Wang, Y. Yin, J.-N. Vittaut, P. Gallinari, Operator learning with neural fields: Tackling pdes on general geometries, Advances in Neural Information Processing Systems 36 (2023) 70581–70611. 41 [12] B. Raonic, R. Molinaro, T. De Ryck, T. Rohner, F. Bartolucci, R. Alaifari, S. Mishra, E. de Bézenac, Convolutional neural operators for robust and accurate learning of pdes, Advances in Neural Information Processing Systems 36 (2023) 77187–77200. [13] G. Wen, Z. Li, K. Azizzadenesheli, A. Anandkumar, S. M. Benson, U-fno—an enhanced fourier neural operator-based deep-learning model for multiphase flow, Advances in Water Resources 163 (2022) 104180. [14] S. Sinha, B. Benton, P. Emami, On the effectiveness of neural operators at zero-shot weather downscaling, Environmental Data Science 4 (2025) e21. [15] H. Wang, Y. Cao, Z. Huang, Y. Liu, P. Hu, X. Luo, Z. Song, W. Zhao, J. Liu, J. Sun, et al., Recent advances on machine learning for computational fluid dynamics: A survey, arXiv preprint arXiv:2408.12171 (2024). [16] Q. Luo, W. Zeng, M. Chen, G. Peng, X. Yuan, Q. Yin, Self-attention and transformers: Driving the evolution of large language models, in: 2023 IEEE 6th International Confer-ence on Electronic Information and Communication Technology (ICEICT), IEEE, 2023, pp. 401–405. [17] Z. Zhao, X. Ding, B. A. Prakash, Pinnsformer: A transformer-based framework for physics-informed neural networks, arXiv preprint arXiv:2307.11833 (2023). [18] C. Lorsung, Z. Li, A. Barati Farimani, Physics informed token transformer for solving partial differential equations, Machine Learning: Science and Technology 5 (1) (2024) 015032. doi:10.1088/2632-2153/ad27e3 .URL https://dx.doi.org/10.1088/2632-2153/ad27e3 
+
+[19] P. Hu, H. Feng, H. Liu, T. Yan, W. Deng, T. Gao, R. Zheng, H. Zheng, C. Yu, C. Wang, K. Li, Z.-M. Ma, D. Zhou, X. Lu, D. Fan, T. Wu, RealPDEBench: A benchmark for complex physical systems with real-world data, in: The Fourteenth International Conference on Learning Representations, 2026. URL https://openreview.net/forum?id=y3oHMcoItR 
+
+[20] Y. Luo, Y. Chen, Z. Zhang, Cfdbench: A large-scale benchmark for machine learning methods in fluid dynamics, arXiv preprint arXiv:2310.05963 (2023). [21] G. Daly, J. Fieldsend, G. Hassall, G. Tabor, Data-driven plasma modelling: Fluorocarbon icp data set, dataset (2023). doi:10.5281/zenodo.7704879 .[22] S. Janny, A. Bénéteau, M. Nadri, J. Digne, N. Thome, C. Wolf, Eagle: Large-scale learning of turbulent fluid dynamics with mesh transformers, in: International Conference on Learning Representations, 2023, dataset and benchmark. [23] M. Raissi, P. Perdikaris, G. E. Karniadakis, Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations, Journal of Computational physics 378 (2019) 686–707. 42 [24] A. M. Roy, S. Guha, A data-driven physics-constrained deep learning computational framework for solving von mises plasticity, Engineering Applications of Artificial Intelli-gence 122 (2023) 106049. doi:10.1016/j.engappai.2023.106049 .[25] S. J. Anagnostopoulos, J. D. Toscano, N. Stergiopulos, G. E. Karniadakis, Residual-based attention in physics-informed neural networks, Computer Methods in Applied Mechanics and Engineering 421 (2024) 116805. doi:10.1016/j.cma.2024.116805 .[26] L. Lu, P. Jin, G. Pang, Z. Zhang, G. E. Karniadakis, Learning nonlinear operators via deeponet based on the universal approximation theorem of operators, Nature Machine Intelligence 3 (3) (2021) 218–229. doi:10.1038/s42256-021-00302-5 .URL https://doi.org/10.1038/s42256-021-00302-5 
+
+[27] O. Ovadia, A. Kahana, P. Stinis, E. Turkel, D. Givoli, G. E. Karniadakis, Vito: Vision transformer-operator, Computer Methods in Applied Mechanics and Engineering 428 (2024) 117109. doi:10.1016/j.cma.2024.117109 .[28] W. Zhong, H. Meidani, Physics-informed geometry-aware neural operator, Computer Methods in Applied Mechanics and Engineering 434 (2025) 117540. doi:10.1016/j. cma.2024.117540 .[29] Z. Li, N. B. Kovachki, K. Azizzadenesheli, B. liu, K. Bhattacharya, A. Stuart, A. Anand-kumar, Fourier neural operator for parametric partial differential equations, in: Interna-tional Conference on Learning Representations, 2021. URL https://openreview.net/forum?id=c8P9NQVtmnO 
+
+[30] G. Wen, Z. Li, K. Azizzadenesheli, A. Anandkumar, S. M. Benson, U-fno—an enhanced fourier neural operator-based deep-learning model for multiphase flow, Advances in Water Resources 163 (2022) 104180. doi:https://doi.org/10.1016/j.advwatres. 2022.104180 .URL https://www.sciencedirect.com/science/article/pii/S0309170822000562 
+
+[31] Q. Xu, N. Thuerey, Y. Shi, J. Bamber, C. Ouyang, X. X. Zhu, Physics-embedded fourier neural network for partial differential equations, arXiv preprint arXiv:2407.11158 (2024). [32] Y. Li, L. Xu, S. Ying, Dwnn: Deep wavelet neural network for solving partial differential equations, Mathematics 10 (12) (2022). doi:10.3390/math10121976 .URL https://www.mdpi.com/2227-7390/10/12/1976 
+
+[33] J. Su, J. Ma, S. Tong, E. Xu, M. Chen, Multiscale attention wavelet neural operator for capturing steep trajectories in biochemical systems, Proceedings of the AAAI Conference on Artificial Intelligence 38 (13) (2024) 15100–15107. doi:10.1609/aaai.v38i13.29432 .URL https://ojs.aaai.org/index.php/AAAI/article/view/29432 
+
+[34] H. Wang, J.-S. Pan, H. Wu, F. Zhang, T. Wu, Fourierflow: Frequency-aware flow matching for generative turbulence modeling (2026). URL https://openreview.net/forum?id=a3sRspQ62b 
+
+43 [35] P. Hu, R. Wang, X. Zheng, T. Zhang, H. Feng, R. Feng, L. Wei, Y. Wang, Z.-M. Ma, T. Wu, Wavelet diffusion neural operator, in: The Thirteenth International Conference on Learning Representations, 2025. URL https://openreview.net/forum?id=FQhDIGuaJ4 
+
+[36] A. Hemmasian, A. Barati Farimani, Multi-scale time-stepping of partial differential equations with transformers, Computer Methods in Applied Mechanics and Engineering 426 (2024) 116983. doi:10.1016/j.cma.2024.116983 .[37] T.-Y. Yang, J. Rosca, K. Narasimhan, P. J. Ramadge, Learning physics constrained dynamics using autoencoders, Advances in Neural Information Processing Systems 35 (2022) 17157–17172. [38] E. Calvello, N. B. Kovachki, M. E. Levine, A. M. Stuart, Continuum attention for neural operators, Journal of Machine Learning Research 26 (300) (2025) 1–52. [39] S. Cao, Choose a transformer: Fourier or galerkin, Advances in neural information processing systems 34 (2021) 24924–24940. [40] H. Wu, H. Luo, H. Wang, J. Wang, M. Long, Transolver: A fast transformer solver for pdes on general geometries, in: International Conference on Machine Learning, PMLR, 2024, pp. 53681–53705. [41] G. Berend, Masked latent semantic modeling: an efficient pre-training alternative to masked language modeling, in: Findings of the Association for Computational Linguistics: ACL 2023, 2023, pp. 13949–13962. [42] P. Garnier, V. Lannelongue, J. Viquerat, E. Hachem, Meshmask: Physics-based simula-tions with masked graph neural networks, in: The Thirteenth International Conference on Learning Representations, 2025. URL https://openreview.net/forum?id=bFHR8hNk4I 
+
+[43] J. Devlin, M.-W. Chang, K. Lee, K. Toutanova, Bert: Pre-training of deep bidirectional transformers for language understanding, in: Proceedings of the 2019 conference of the North American chapter of the association for computational linguistics: human language technologies, volume 1 (long and short papers), 2019, pp. 4171–4186. [44] M. V. Koroteev, Bert: a review of applications in natural language processing and understanding, arXiv preprint arXiv:2103.11943 (2021). [45] S. Qin, F. Lyu, W. Peng, D. Geng, J. Wang, X. Tang, S. Leroyer, N. Gao, X. Liu, L. L. Wang, Toward a better understanding of fourier neural operators from a spectral perspective, arXiv preprint arXiv:2404.07200 (2024). arXiv:2404.07200 .[46] Z. Hao, S. Liu, Y. Zhang, C. Ying, Y. Feng, H. Su, J. Zhu, Physics-informed machine learn-ing: A survey on problems, methods and applications, arXiv preprint arXiv:2211.08064 (2022). 44 [47] A. Zhou, A. B. Farimani, Masked autoencoders are PDE learners, Transactions on Machine Learning Research (2024). URL https://openreview.net/forum?id=rZNuiFwXVs 
+
+[48] M. Taghizadeh, M. A. Nabian, N. Alemazkoor, Multi-fidelity physics-informed generative adversarial network for solving partial differential equations, Journal of Computing and Information Science in Engineering 24 (11) (2024) 111003. [49] H. Xue, A. Araujo, B. Hu, Y. Chen, Diffusion-based adversarial sample generation for improved stealthiness and controllability, Advances in Neural Information Processing Systems 36 (2023) 2894–2921. 45

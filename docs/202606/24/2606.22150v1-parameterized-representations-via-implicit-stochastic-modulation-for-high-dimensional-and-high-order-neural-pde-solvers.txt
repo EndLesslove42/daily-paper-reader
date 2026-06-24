@@ -1,0 +1,3478 @@
+Title: Parameterized Representations via Implicit Stochastic Modulation for High-Dimensional and High-Order Neural PDE Solvers
+
+URL Source: https://arxiv.org/pdf/2606.22150v1
+
+Published Time: Tue, 23 Jun 2026 01:48:03 GMT
+
+Number of Pages: 40
+
+Markdown Content:
+# Parameterized Representations via Implicit Stochastic Modulation for High-Dimensional and High-Order Neural PDE Solvers ⋆,⋆⋆ 
+
+## Zhangyong Liang a, Huanhuan Gao b,∗
+
+> a
+
+National Center for Applied Mathematics, Tianjin University, Tianjin, 300072, PR China 
+
+> b
+
+School of Mechanical and Aerospace Engineering, Jilin University, Changchun, 130025, PR China 
+
+A R T I C L E I N F O 
+
+Keywords :High-dimensional and high-order PDEs Neural PDE solvers Stochastic derivative estimators Implicit Stochastic Modulation Zero-shot extrapolation 
+
+A B S T R A C T 
+
+Solving high-dimensional and high-order partial differential equations (PDEs) is fundamentally challenged by the coupled growth of spatial dimensionality and derivative order. Recent stochas-tic derivative estimators have successfully reduced this burden by scaling neural PDE solvers to extreme dimensions and high-order differential operators. However, these solvers are strictly confined to a single, fixed-parameter environment and require retraining from scratch for every new physical parameter, exposing a critical theoretical gap when generalizing to continuous 
+
+parameterized PDEs for zero-shot physical extrapolation. In this paper, we show that applying standard conditional architectures to high-order stochastic solvers entangles the physical param-eters with the automatic differentiation (AD) computation graph, leading to prohibitive memory growth. We further show that this coupling can amplify the variance of stochastic derivative estimators under extreme physical conditions, which may cause optimization instability and divergence. To address these issues, we propose Parameterized Representations via Implicit 
+
+Stochastic Modulation ( PRISM ), a universal, plug-and-play architecture for high-dimensional and high-order stochastic PDE solvers. PRISM orthogonally decouples parameter encoding from the spatial AD graph. A hyper-generator processes physical parameters to output affine modulators, which implicitly scale and shift a purely spatial continuous latent manifold. We prove that PRISM achieves zero-overhead AD decoupling through compiler-level constant folding, while its multiplicative modulators provide variance-aware Lipschitz damping across the con-tinuous parameter space. Extensive experiments demonstrate that PRISM-empowered stochastic solvers seamlessly scale highly non-linear parameterized PDEs up to 100,000 dimensions on a single GPU. With an orthogonal low-rank SVD fine-tuning mechanism, PRISM supports zero-shot extrapolation and efficient physical inversion while avoiding the AD memory growth and gradient instability observed in conventional conditional architectures. 
+
+## 1. Introduction 
+
+Solving high-dimensional and high-order partial differential equations (PDEs) is a fundamental challenge across various scientific domains, from stochastic optimal control to mathematical finance, quantum mechanics, and nonlinear wave propagation. Historically, grid-based numerical solvers have been stymied by the curse of dimensionality (CoD), as their computational and memory costs scale exponentially with the spatial dimension. In recent years, Scientific Machine Learning (SciML) [1] has catalyzed a transformative paradigm shift. Notably, Physics-Informed Neural Networks (PINNs) [2, 3] approximate PDE solutions in a continuous, mesh-free manner by incorporating physical governing laws into the loss function. By leveraging the universal approximation capabilities of deep neural networks, PINNs bypass grid generation and can gracefully handle complex geometries in high-dimensional spaces [4–6]. However, standard PINNs inevitably encounter their own CoD when scaled to high-dimensional and high-order PDEs. Evaluating exact high-dimensional differential operators via backward-mode automatic differentiation (AD) incurs an exponential explosion in both memory footprint and computation graph size. For critical high-dimensional systems—such as Hamilton-Jacobi-Bellman (HJB) equations in optimal control, Fokker-Planck equations in stochastic analysis, and Black-Scholes equations in mathematical finance—computing the exact AD graph for even a single collocation point can instantaneously exhaust GPU memory limits. To break this deterministic AD bottleneck, recent breakthroughs have introduced a class of stochastic derivative estimators . Rather than computing the exact full-order spatial derivatives, state-of-the-art stochastic solvers—such as 
+
+> ∗
+
+Corresponding author. 
+
+Email address: gao_huanhuan@jlu.edu.cn (H. Gao) 
+
+> ORCID
+
+(s): 
+
+Z. Liang et al.: Preprint submitted to Elsevier Page 1 of 40 
+
+> arXiv:2606.22150v1 [cs.LG] 20 Jun 2026 PRISM for high-dimensional and high-order PDEs
+
+Stochastic Dimension Gradient Descent (SDGD) [7], Hutchinson Trace Estimators (HTE) [8], and Stochastic Taylor Derivative Estimators (STDE) [9]—utilize randomized sampling to construct unbiased stochastic directional derivative estimators. By amortizing the massive AD operations over random sampling directions or spatial dimensions, these solvers successfully circumvent memory bottlenecks, enabling the scalable training of high-dimensional and high-order PDEs on a single GPU. Despite their monumental success, these high-dimensional stochastic solvers exhibit a critical theoretical gap: they are strictly formulated to solve a single, fixed physical environment . In practical digital twin, inverse design, and multi-query scenarios, it is imperative to solve parameterized PDEs —a continuous family of governing equations controlled by varying physical parameters. Current stochastic solvers require computationally prohibitive retraining from scratch for every new parameter configuration, lacking the capacity for zero-shot physical extrapolation. Extending high-dimensional stochastic solvers to parameterized physical domains might intuitively be achieved via conventional conditional neural networks [10], wherein spatial coordinates and physical parameters are encoded independently and merged via additive feature concatenation in the hidden layers. However, our theoretical analysis reveals that exposing this naive feature concatenation architecture to high-order stochastic derivative estimators triggers two catastrophic mathematical conflicts within the underlying AD computation graph. The first conflict is AD Graph Entanglement (Differentiation Overhead Explosion). In modern AD frameworks, spatial derivative computation heavily relies on Faà di Bruno’s high-order chain rule. Although the spatial derivatives of the physical parameters are identically zero, additive concatenation irreversibly entangles the parameter embeddings with the spatial features through early non-linear activations. Consequently, modern AD compilers (e.g., JAX/XLA) cannot prune the parameter sub-network via dead-code elimination. The entire parameter encoder is forcibly dragged into the highly expensive stochastic derivative graph as active nodes, exponentially inflating the differentiation overhead and destroying the memory efficiency of the stochastic solver. The second conflict is Stochastic Variance Explosion (Optimization Divergence). The convergence of randomized solvers is strictly bounded by the variance of their stochastic estimators. When evaluating extreme or out-of-distribution physical parameters (e.g., high convective or reaction coefficients [11]), the concatenated parameter embeddings act as massive bias shifts, forcefully pushing the activation functions into high-curvature regions. Driven by the non-linear chain rule, this spatial curvature distortion is exponentially amplified across deep layers, completely submerging the true physical gradients in exploding random sampling noise and inevitably leading to training divergence. These two failures motivate an architecture that parameterizes the PDE family without exposing the parameter encoder to the spatial derivative tape. To this end, we propose Parameterized Representations via Implicit Stochastic 
+
+Modulation ( PRISM ), a universal plug-and-play architecture for high-dimensional and high-order stochastic PDE solvers. PRISM abandons feature concatenation and reconstructs the surrogate as an implicitly modulated spatial manifold : a parameter hyper-generator maps the physical parameters to affine scale and shift modulators, which condition a purely spatial backbone while remaining decoupled from spatial AD. Figure 1 previews this design principle by testing whether a solver trained at limited parameter settings can infer solutions at unseen physical coefficients. This setting directly reflects the motivation for PRISM: high-dimensional stochastic solvers are efficient for a fixed PDE instance, but they lack a reusable parameterized representation when the governing coefficient changes. The single-parameter STDE, HTE, and SDGD baselines therefore exhibit clear error growth under coefficient shifts, indicating that retraining-free parameter transfer is not obtained by stochastic derivative estimation alone. In contrast, PRISM learns a continuously modulated solution manifold, maintaining substantially lower absolute and relative errors across convection, reaction, convection–diffusion, and reaction–diffusion equations. These results provide an early empirical confirmation that implicit stochastic modulation enables zero-shot parameter generalization while preserving compatibility with high-dimensional stochastic PDE solvers.   
+
+> Z. Liang et al.: Preprint submitted to Elsevier Page 2 of 40
+
+PRISM for high-dimensional and high-order PDEs STDE HTE SDGD PRISM  
+
+> (ours)
+> 10 1
+> 10 0
+> Error
+
+HDConv ( )     
+
+> Abs.
+> Rel.
+> STDE HTE SDGD PRISM
+> (ours)
+> 10 2
+> 10 1
+
+HDReac ( )    
+
+> STDE HTE SDGD PRISM
+> (ours)
+> 10 1
+> 10 0
+> Error
+
+HDConv-Diff ( , )     
+
+> STDE HTE SDGD PRISM
+> (ours)
+> 10 2
+> 10 1
+
+HDReac-Diff ( , )
+
+a b
+
+c d
+
+Figure 1: PRISM enables zero-shot parameter generalization across high-dimensional PDE families. This differentiation-decoupled manifold design provides supreme computational and statistical advantages. First, PRISM achieves strict zero-overhead AD decoupling . During the evaluation of spatial stochastic derivatives, the AD compiler mathematically recognizes the implicit parameter modulators as absolute constant nodes, triggering perfect compiler-level constant folding . The highly expensive stochastic AD paths are strictly confined to the spatial domain, incurring exactly zero extra differentiation overhead for parameterization. Second, PRISM’s multiplicative scale modulation acts as an intrinsic, variance-aware Lipschitz damper . It analytically bounds the spatial curvature of the network, inherently regularizing the variance of the high-order stochastic estimators globally across the continuous parameter space, thereby ensuring robust convergence even under extreme physical conditions. We seamlessly integrate PRISM as a universal component into state-of-the-art stochastic engines, yielding unified solvers such as PRISM-STDE [9] and PRISM-SDGD [7]. Extensive experiments demonstrate that PRISM flawlessly enables the rapid training and zero-shot extrapolation of complex, highly non-linear parameterized PDEs in up to 100,000 dimensions on a single commercial GPU. To sum up, our main contributions are as follows: 
+
+• We propose PRISM, a novel and universal neural architecture that successfully extends high-dimensional and high-order stochastic PDE solvers to continuous parameterized physical domains, overcoming the fundamental barrier of single-environment restrictions. 
+
+• We theoretically and empirically demonstrate that PRISM achieves strict zero-overhead automatic differentiation via architectural decoupling and constant folding, completely eliminating the intractable memory explosion caused by AD graph entanglement. 
+
+• We mathematically establish that PRISM’s implicit modulation acts as an adaptive Lipschitz damper. It explicitly prevents stochastic variance explosion under extreme physical parameters, overcoming the fatal instability of randomized estimators. 
+
+• We demonstrate that PRISM significantly outperforms existing parameterization baselines, achieving mesh-free, stable training and real-time zero-shot physical inference for parameterized PDEs across up to 100,000 dimensions on a single GPU. The rest of this paper is arranged as follows. We present related work in Section 2, the mathematical bottleneck of naive parameterization and our main architecture PRISM in Section 3. The algorithmic implementation for various 
+
+Z. Liang et al.: Preprint submitted to Elsevier Page 3 of 40 PRISM for high-dimensional and high-order PDEs 
+
+stochastic solvers is detailed in Section 4. We provide extensive numerical experiments in Section 5, and the conclusion in Section 6. In the Appendices, we include more details of our method and corresponding theoretical proofs. 
+
+## 2. Related Work 
+
+2.1. Physics-Informed Machine Learning 
+
+This paper builds upon the foundational concepts of Physics-Informed Machine Learning [3]. Specifically, Physics-Informed Neural Networks (PINNs) [2] utilize deep neural networks as surrogate solutions for PDEs, optimizing boundary and residual losses to approximate the underlying physical laws without relying on classical grid generation. Concurrently, operator learning frameworks such as DeepONet [12] and Fourier Neural Operators (FNO) [13–15] leverage universal approximation theorems to directly learn infinite-dimensional operator mappings in a data-driven or physics-informed manner [16]. Since their inception, PINNs and their variants have achieved remarkable success across diverse computational science domains, including nonlinear dynamics [17], solid mechanics [18], uncertainty quantification [19], inverse water wave problems [20], fluid mechanics [21], and stiff chemical kinetics [22–24]. The empirical success of PINNs has also inspired extensive theoretical analysis. Luo et al. [25] explored prior and posterior generalization bounds and utilized the neural tangent kernel to demonstrate global convergence. Mishra et al. [26] derived rigorous generalization error estimates considering both training error and sample complexity. Shin et al. [27] adapted the Schauder approach and the maximum principle to prove that the PINN minimizer converges to the true solution in both 𝐶 0 and 𝐻 1 spaces. Furthermore, Lu et al. [28] and Hu et al. [29] employed Barron spaces and Rademacher complexity, respectively, to establish strict generalization bounds for PINNs and extended domain-decomposition variants (e.g., XPINNs [30] and APINNs [31]). 
+
+2.2. High-Dimensional and High-Order Neural PDE Solvers 
+
+Breaking the curse of dimensionality (CoD) in PDEs is a long-standing fundamental challenge. In the PINN literature, Wang et al. [32] demonstrated the necessity of the 𝐿 ∞ loss for high-dimensional Hamilton-Jacobi-Bellman (HJB) equations. He et al. [33] proposed optimizing Gaussian-smoothed PINNs without back-propagation via Stein’s identity, thereby avoiding exact high-dimensional differentiations. Cho et al. [34] introduced Separable PINNs using per-axis sampling, though this topological separation becomes intractable in extremely high dimensions. Beyond continuous PINNs, Han et al. [5, 35] proposed the DeepBSDE solver, transforming high-dimensional parabolic PDEs into backward stochastic differential equations. This paradigm has inspired numerous extensions for optimal stopping and splitting methods [4, 36–41]. Similarly, the multilevel Picard method [42–46] reformulates PDEs into stochastic fixed-point equations solved via nonlinear Monte-Carlo. While highly effective, these methods [4–6] are predominantly restricted to specific classes of parabolic PDEs and are typically confined to predicting the solution at a single spatial point. For eigenvalue problems, tensor neural networks [47, 48] have been proposed for high-dimensional Schrödinger equations. Other notable approaches include weak adversarial networks [49], the Deep Galerkin Method (DGM) [50], and the Deep Ritz Method [51]. Recently, to scale general mesh-free PINNs to arbitrary high-dimensional and high-order PDEs, a new class of stochastic derivative estimators has emerged. Methods such as Stochastic Dimension Gradient Descent (SDGD) [7], Hutchinson Trace Estimators (HTE) [8], and Stochastic Taylor Derivative Estimators (STDE) [9] utilize randomized sampling to construct unbiased estimators of high-order differential operators. These methods successfully bypass the deterministic AD memory bottlenecks, enabling PINN training in up to 100,000 dimensions. However, a critical theoretical gap remains: these high-dimensional and high-order solvers are exclusively designed for a single, fixed physical environment, lacking the capability to generalize across continuously parameterized physical domains. 
+
+2.3. Stochastic Optimization and Variance Control 
+
+The successful scaling of high-dimensional neural PDE solvers intrinsically relies on the theoretical guarantees of stochastic optimization. As an iterative algorithm, stochastic gradient descent (SGD) introduces stochasticity by com-puting gradients on random subsets (e.g., mini-batches of spatial dimensions or random tangent directions), enabling efficient optimization. The theoretical convergence of SGD [52–54] establishes critical mathematical prerequisites. Specifically, Lei et al. [53] highlighted the necessity of Lipschitz continuity of the gradient estimator. Concurrently, Fehrman et al. [52] and Mertikopoulos et al. [54] demonstrated that convergence in non-convex landscapes necessitates a strictly bounded variance of the stochastic gradient.   
+
+> Z. Liang et al.: Preprint submitted to Elsevier Page 4 of 40 PRISM for high-dimensional and high-order PDEs
+
+When extending high-dimensional and high-order solvers to parameterized PDEs, controlling this stochastic variance becomes the paramount challenge. Exposing standard conditional neural architectures (i.e., naive feature concatenation) to extreme physical parameters inevitably violates these variance bounds, leading to gradient explosion and divergence. The PRISM architecture proposed in this paper is mathematically grounded in these optimization theories: by establishing an adaptive Lipschitz damper via implicit modulation, PRISM intrinsically guarantees the bounded variance required for robust convergence across the continuous parameter space. 
+
+## 3. Preliminaries 
+
+In this section, we formalize the mathematical abstraction of solving high-dimensional and high-order PDEs via neural networks and introduce the framework of unbiased stochastic derivative estimators, which lays the foundation for our parameterized analysis. 
+
+3.1. High-Dimensional and High-Order PDE Solvers via PINNs 
+
+PINNs [2] approximate the latent solution of a PDE by minimizing a composite physics-informed loss: 
+
+𝐿 (Θ) = 𝑤 1𝐿 𝑢 + 𝑤 2𝐿 𝑓 + 𝑤 3𝐿 𝑏 , (1) where 𝐿 𝑢 , 𝐿 𝑏 , and 𝐿 𝑓 enforce the initial conditions, boundary conditions, and the governing PDE residual, respectively, with balancing weights 𝑤 1, 𝑤 2, 𝑤 3 ∈ ℝ. Fundamentally, PINN training dictates an optimization problem where the physical loss involves complex differential operators evaluated over the spatial domain: 
+
+arg min  
+
+> Θ
+
+𝔼 𝐱 
+
+[
+
+𝑓 
+
+(
+
+𝐱 , 𝑢 Θ(𝐱 ), 𝛼 (1) 
+
+𝑢 Θ(𝐱 ), … , 𝛼 (𝐾 )
+
+𝑢 Θ(𝐱 )
+
+)] 
+
+, 𝑢 Θ ∶ ℝ𝑑 𝑥 → ℝ, (2) where 𝛼 = 𝜕 |𝛼 | 
+
+> 𝜕𝑥 𝛼 11⋯𝜕𝑥 𝛼 𝑑𝑥 𝑑𝑥
+
+is a multi-index differential operator, and 𝐾 = |𝛼 | is the derivative order. When the differentiation order 𝐾 or the spatial dimensionality 𝑑 𝑥 is extremely large, the computational cost explodes. Evaluating the derivative tensor via standard backward-mode automatic differentiation (AD) scales as (𝑑 𝐾 𝑥 ) in memory, and the underlying AD computation graph expands as (2 𝐾 −1 𝐿 ) [8], rendering deterministic evaluation computationally intractable. 
+
+3.2. Unbiased Stochastic Derivative Estimators 
+
+To overcome the dimensional bottleneck in Eq. (2), state-of-the-art high-dimensional and high-order solvers— including SDGD [7], HTE [8], and STDE [9]—share a unified mathematical abstraction: they transform a determin-istically intractable high-order differential operator 𝑥 into an unbiased stochastic directional derivative estimator ̂
+
+𝐾 
+
+> 𝐱 ,𝑣
+
+.By introducing an isotropic, zero-mean random vector 𝑣 ∼ 𝑝 (𝑣 ) satisfying 𝔼 [𝑣𝑣 ⊤] = 𝐼 𝑑 𝑥 (e.g., a Rademacher or standard Gaussian distribution), the deterministic high-dimensional PDE residual is seamlessly replaced by a scalable Monte Carlo expectation: 
+
+𝑥 
+
+[𝑢 Θ(𝐱 )] = 𝔼 𝑣 ∼𝑝 (𝑣 )
+
+[̂
+
+𝐾 
+
+> 𝐱 ,𝑣
+
+[𝑢 Θ(𝐱 )]]
+
+≈ 1
+
+𝑉 
+
+> 𝑉
+
+∑
+
+> 𝑚 =1
+
+𝐾 ⋅ 𝑑 𝐾 𝑢 Θ(𝐱 )( 𝑣 𝑚 ), (3) where 𝑑 𝐾 𝑢 Θ(𝐱 )( 𝑣 𝑚 ) denotes the 𝐾 -th order directional derivative of the surrogate model evaluated along the sampled random tangent 𝑣 𝑚 , 𝐾 is the estimator-specific normalization constant, and 𝑉 is the number of Monte Carlo tangent samples. This paradigm enables extreme high-dimensional training (e.g., 𝑑 𝑥 ∼ 10 5) on a single GPU by shifting the bottleneck from full-tensor AD to randomized directional pushforwards. 
+
+3.3. The Challenge of Parameterized PDEs 
+
+Despite the success of stochastic derivative estimators, they are mathematically formulated for a single, static physical environment. In practical digital twin, optimal control, and multi-query scenarios, it is imperative to solve 
+
+parameterized PDEs —a continuous family of governing equations defined on a spatial domain Ω ⊂ ℝ𝑑 𝑥 and controlled by continuously varying physical parameters 𝜇 𝜇 𝜇 ∈  ⊂ ℝ𝑑 𝜇 :
+
+𝐱 ,𝜇 𝜇 𝜇 
+
+[𝑢 (𝐱 , 𝑡 ; 𝜇 𝜇 𝜇 )] = 𝑅 (𝐱 , 𝑡 ; 𝜇 𝜇 𝜇 ) in Ω × [0 , 𝑇 ], 𝐱 ,𝜇 𝜇 𝜇 
+
+[𝑢 (𝐱 , 𝑡 ; 𝜇 𝜇 𝜇 )] = 𝐵 (𝐱 , 𝑡 ; 𝜇 𝜇 𝜇 ) on Γ. (4)   
+
+> Z. Liang et al.: Preprint submitted to Elsevier Page 5 of 40
+
+PRISM for high-dimensional and high-order PDEs 
+
+The ultimate objective is to construct a universal neural operator 𝑢 Θ(𝐱 , 𝑡 ; 𝜇 𝜇 𝜇 ) that maps the continuous parameter space 
+
+ to the corresponding solution manifolds, thereby enabling zero-shot physical extrapolation without retraining. Constructing this universal surrogate requires injecting the physical parameter 𝜇 𝜇 𝜇 into the neural network architec-ture. However, this injection must be meticulously designed. As will be rigorously analyzed in the subsequent section, applying conventional conditional network architectures to high-order stochastic estimators destructively entangles the physical parameters with the spatial AD computation graph, resulting in unmanageable memory explosions and stochastic variance divergence. 
+
+## 4. Methodology 
+
+To physically realize the parameterized latent space motivated in Section 4.1 within an extremely high-dimensional space, one must integrate parameterization with high-dimensional stochastic solvers (e.g., SDGD [7]). In this section, we analyze the theoretical failure of naive neural parameterization and subsequently propose the PRISM architecture as the definitive mathematical solution. 
+
+4.1. Motivation: Empirical Failure of Naive Feature Concatenation 
+
+Before diving into the rigorous mathematical analysis, we first empirically verify the two catastrophic failures predicted for naive feature concatenation (Eqn. (6)) on the parameterized high-dimensional Sine-Gordon equation: 
+
+Δ𝐱 𝑢 (𝐱 ; 𝛽 ) + 𝛽 sin( 𝑢 (𝐱 ; 𝛽 )) = 𝑓 (𝐱 ; 𝛽 ), 𝐱 ∈ ℝ𝑑 𝑥 , 𝛽 ∈ [0 .1, 10] , (5) where the reaction coefficient 𝛽 acts as a continuous physical parameter. We train three representative architectures on the same training budget and evaluate zero-shot across 6 held-out parameter values 𝛽 ∈ {0 .1, 2.1, 4.1, 6.1, 8.1, 10 .0} 
+
+at dimension 𝑑 𝑥 = 100 :
+
+• Baseline (retrain/ 𝛽 ): Independent STDE solver trained from scratch for each 𝛽 .
+
+• Baseline-p (Naive Concat) : Single STDE network with additive feature concatenation of 𝛽 into all hidden layers. 
+
+• PRISM (ours) : Single PRISM-STDE network with implicit stochastic modulation (Section 4). 0 2000 4000 6000 8000 10000          
+
+> Epoch
+> 10 2
+> 10 1
+> 10 0
+> 10 1
+> Relative  L2 Error
+> a
+> = 0.1
+> = 1.0
+> = 5.0
+> = 10.0
+> = 30.0
+> = 50.0
+> 02000 4000 6000 8000 10000
+> Epoch
+> 10 2
+> 10 1
+> 10 0
+> 10 1
+> b
+
+Figure 2: Motivation results on the parameterized high-dimensional Sine-Gordon equation. The combined overview in Figure 2 and Table 1 reveal two critical observations: 1. AD graph entanglement is already observable at moderate 𝛽 : Even at 𝑑 𝑥 = 100 , Naive Concat shows a noticeable accuracy degradation at large 𝛽 (error jumps from 6.63 × 10 −3 at 𝛽 = 4 .1 to 7.84 × 10 −3 at 𝛽 = 10 .0), while PRISM’s error remains stable across the full parameter range. 2. PRISM outperforms all baselines in mean error: With an average error of 6.48 × 10 −3 versus 6.78 × 10 −3 
+
+(retrain) and 6.93 × 10 −3 (Naive Concat), PRISM achieves the best overall zero-shot accuracy, demonstrating that its parameter hyper-generator learns a smoother continuous solution manifold. These empirical results motivate the rigorous mathematical analysis in the following subsection and justify the design of PRISM. 
+
+Z. Liang et al.: Preprint submitted to Elsevier Page 6 of 40 PRISM for high-dimensional and high-order PDEs 
+
+Table 1 
+
+Zero-shot relative 𝐿 2 error on the parameterized high-dimensional Sine-Gordon equation ( 𝑑 𝑥 = 100 , 10 ,000 epochs). Values are the final test error averaged over 6 held-out 𝛽 values. 
+
+Method 𝛽 = 0 .1 𝛽 = 2 .1 𝛽 = 4 .1 𝛽 = 6 .1 𝛽 = 8 .1 𝛽 = 10 .0 Mean 
+
+Baseline (retrain/ 𝛽 ) 7.03E-3 6.78E-3 6.73E-3 6.71E-3 6.71E-3 6.71E-3 6.78E-3 Baseline-p (Naive Concat) 6.79E-3 6.69E-3 6.63E-3 6.80E-3 6.82E-3 7.84E-3 6.93E-3 
+
+PRISM (ours) 6.62E-3 6.31E-3 6.22E-3 6.33E-3 6.78E-3 6.66E-3 6.48E-3 
+
+4.2. Failure of Naive Parameterization 
+
+A naive intuition to encode the continuous latent space of parameterized PDEs is to adopt conventional conditional neural networks. In this standard feature-concatenation paradigm, the spatial coordinates 𝐱 , time 𝑡 , and physical parameters 𝜇 𝜇 𝜇 are individually encoded by separate networks and then their hidden representations are additively concatenated in the shared manifold network: 
+
+𝑧 (𝑙 )(𝐱 , 𝑡 ; 𝜇 𝜇 𝜇 ) = 𝑊 (𝑙 ) 
+
+> 𝑥
+
+ℎℎℎ(𝑙 −1) 
+
+> coord
+
+(𝐱 , 𝑡 ; 𝜇 𝜇 𝜇 ) ⊕ 𝐔 (𝐥 ) 
+
+> 𝜇
+
+ℎℎℎparam + 𝑏 (𝑙 ), ℎ(𝑙 ) = 𝜎 (𝑧 (𝑙 )). (6) However, exposing this naive concatenation architecture to high-order stochastic derivative estimators triggers two catastrophic failures in the underlying automatic differentiation (AD) computation graph: 
+
+• AD Graph Entanglement (Differentiation Overhead Explosion): In Taylor-mode AD or high-order back-propagation, calculating spatial derivatives relies on Faà di Bruno’s high-order chain rule. Although the spatial derivatives of the parameter are strictly zero ( ∇𝐱 𝜇 𝜇 𝜇 ≡ 𝟎 ), the additive concatenation forces the massive parameter embedding ℎℎℎparam to deeply entangle with the non-linear activation evaluation 𝜎 (𝐾 )(𝑧 (𝑙 )). Consequently, AD compilers cannot execute dead-code elimination on the parameter branch. The entire parameter encoder becomes a fully active node forced into the highly expensive stochastic AD tape, causing the computational complexity to explode from purely spatial (𝑑 𝐾 𝑥 ) to an intractable (( 𝑑 𝑥 + 𝑑 𝜇 )𝐾 ).
+
+• Stochastic Variance Explosion: The convergence of randomized high-dimensional and high-order solvers is strictly bounded by the variance of their stochastic estimators. Under the feature concatenation paradigm, evaluating out-of-distribution or extreme physical parameters 𝜇 𝜇 𝜇 (e.g., massive convection 𝛽 or reaction 𝜌 
+
+coefficients) causes the embedding ℎℎℎparam to act as a huge additive shift. This forcefully pushes the activation functions 𝜎 into high-curvature regions where max |𝜎 (𝐾 )| → ∞. Driven by the non-linear chain rule, this curvature distortion is exponentially amplified, rupturing the Lipschitz continuity of the spatial manifold. The true physical gradients are thereby entirely overwhelmed by exploding random sampling noise, guaranteeing optimization divergence. 
+
+4.3. PRISM: Implicit Stochastic Modulation on Manifolds 
+
+To fundamentally sever the non-linear differentiation entanglement and prevent variance explosion while fully preserving the representational power of the continuous latent space, we propose the PRISM method. PRISM entirely abandons feature concatenation ⊕ and reconstructs the surrogate model Θ = { 𝜃 𝑝 , 𝜃 𝑐 , 𝜃 𝑔 } into an implicitly modulated spatial manifold .The important design choice is that we explicitly encode the PDE parameters into a hidden representation, but fuse them via scale-and-shift modulation rather than treating them merely as concatenated features. PRISM consists of three modular components. Lx,μ μμ[u(x , t ; μμμ)] = R(x , t ; μμμ)    
+
+> Bx,μ μμ[u(x , t ;μμμ)] = B(x , t ;μμμ)High-dimensional and high-order PDEs
+> PDE parameters
+> μμμ∈ P
+> Spatial / temporal coordinates
+> (x, t )
+
+ˆu(x , t ; μμμ) = gθg ([ISM γ,β (hparam ), h coord ]) 
+
+> gθp
+> hparam
+> γ(μμμ), β (μμμ)
+> affine modulators
+> gθc
+> hcoord
+
+ISM     
+
+> γ⊙(·) + βgθg
+> hconcat
+
+ˆu                       
+
+> High-dimensional sampling I⊂[dx]
+> High-order Taylor estimator ̂Dk
+> x,ξ
+> Lu:ˆu(x ,0; μμμ)−u(x ,0; μμμ)
+> Lb:Bx,μ μμˆu−B(x , t ;μμμ)
+> Lf:̂Dk
+> x,ξ [ˆ u] + Nμμμ(ˆ u)
+> −R(x , t ;μμμ)
+
+Z. Liang et al.: Preprint submitted to Elsevier Page 7 of 40 PRISM for high-dimensional and high-order PDEs 
+
+Figure 3: Overview of the proposed PRISM framework for implicit stochastic modulation of parameterized high-dimensional and high-order PDEs. As illustrated in Figure 3, PRISM separates parameter processing from the spatial AD tape: the parameter branch produces affine modulators 𝛾 (𝜇 𝜇 𝜇 ) and 𝛽 (𝜇 𝜇 𝜇 ), the coordinate branch constructs the spatial manifold, and ISM fuses the two streams before the stochastic residual estimators are evaluated. This architecture is the key mechanism by which PRISM preserves zero-shot parameterization while avoiding the AD graph entanglement of naive concatenation. 
+
+4.3.1. Parameter Hyper-Generator 
+
+Consider a parametric PDE family defined on a high-dimensional spatial domain Ω ⊂ ℝ𝑑 𝑥 and continuously parameterized by 𝜇 𝜇 𝜇 ∈  ⊂ ℝ𝑝 :
+
+𝑥 
+
+[𝑢 (𝐱 ; 𝜇 𝜇 𝜇 )] = 𝑓 (𝐱 ; 𝜇 𝜇 𝜇 ), 𝐱 ∈ Ω , 𝜇 𝜇 𝜇 ∈ , (7) where 𝑥 denotes a 𝑘 -th order spatial differential operator. Contemporary stochastic high-dimensional and high-order solvers [7, 9] reformulate Eqn. (1) through an unbiased stochastic differential estimator ̂ 𝑘  
+
+> 𝐱 ,𝜉
+
+:
+
+𝑥 𝑢 (𝐱 ; 𝜇 𝜇 𝜇 ) = 𝔼 𝜉 ∼𝑝 (𝜉 )
+
+[̂
+
+𝑘 
+
+> 𝐱 ,𝜉
+
+[𝑢 Θ(𝐱 ; 𝜇 𝜇 𝜇 )]]
+
+, (8) where 𝜉 denotes a random variable (e.g., Gaussian 𝑘 -jets or Rademacher vectors). The optimization objective is 
+
+min Θ 𝔼 𝐱 ,𝜇 𝜇 𝜇,𝜉 ‖̂𝑘  
+
+> 𝐱 ,𝜉
+
+[𝑢 Θ] − 𝑓 ‖2.Under the naive feature concatenation paradigm ( 𝑃 2INN), the (𝑙 )-th layer forward pass reads 
+
+𝑧 (𝑙 )(𝐱 , 𝜇 𝜇 𝜇 ) = 𝑊 (𝑙 ) 
+
+> 𝑥
+
+ℎ(𝑙 −1)  
+
+> 𝑥
+
+(𝐱 ) + 𝑊 (𝑙 ) 
+
+> 𝜇
+
+ℎ(𝑙 −1)  
+
+> 𝜇
+
+(𝜇 𝜇 𝜇 ) + 𝑏 (𝑙 ), (9) 
+
+ℎ(𝑙 )(𝐱 , 𝜇 𝜇 𝜇 ) = 𝜎 
+
+(
+
+𝑧 (𝑙 )(𝐱 , 𝜇 𝜇 𝜇 )
+
+)
+
+. (10) When high-order stochastic derivatives ̂ 𝑘  
+
+> 𝐱 ,𝜉
+
+are applied to Eqn. (3), the Faá di Bruno chain rule forces the parameter branch 𝑊 (𝑙 ) 
+
+> 𝜇
+
+ℎ(𝑙 −1)  
+
+> 𝜇
+
+to non-linearly couple into all higher-order derivative terms 𝜎 (𝑚 )(⋅), 𝑚 ≥ 1. Specifically, the second-order spatial Jacobian becomes 
+
+∇2
+
+> 𝐱
+
+ℎ(𝑙 ) = diag 
+
+(
+
+𝜎 ′′ (𝑧 (𝑙 ))
+
+)
+
+⊙
+
+(
+
+𝑊 (𝑙 ) 
+
+> 𝑥
+
+∇𝐱 ℎ(𝑙 −1) 
+
+> 𝑥
+
+)⊗2
+
++ diag 
+
+(
+
+𝜎 ′(𝑧 (𝑙 ))
+
+)
+
+⊙
+
+(
+
+𝑊 (𝑙 ) 
+
+> 𝑥
+
+∇2
+
+> 𝐱
+
+ℎ(𝑙 −1) 
+
+> 𝑥
+
+)
+
+, (11) which implies that the parameter embedding matrix 𝑊 (𝑙 ) 
+
+> 𝜇
+
+cannot be pruned from the stochastic AD tape. Consequently, the computational complexity of 𝑘 -th order stochastic differentiation explodes from (𝑑 𝑘 𝑥 ) to (( 𝑑 𝑥 + 𝑑 𝜇 )𝑘 ). Moreover, for extreme parameter instances 𝜇 𝜇 𝜇 extreme , the additive bias 𝑊 𝜇 ℎ𝜇 drives activations into high-curvature regions where 
+
+max |𝜎 (𝑘 )(𝑧 )| → ∞, yielding an uncontrolled variance explosion: 
+
+𝕍 𝜉 
+
+[̂
+
+𝑘  
+
+> 𝐱 ,𝜉
+
+[𝑢 naive ]
+
+]
+
+∝ ‖‖‖∇𝑘  
+
+> 𝐱
+
+𝑢 naive 
+
+‖‖‖ 
+
+> 2
+> 𝐹
+
+≤  
+
+( 𝐿 ∏
+
+> 𝑙 =1
+
+‖‖‖𝑊 (𝑙 )
+
+> 𝑥
+
+‖‖‖ 
+
+> 2𝑘
+> 2
+
+⋅ max |||𝜎 (𝑘 )(⋯ + 𝑊 𝜇 ℎ𝜇 )|||
+
+> 2
+
+)
+
+→ ∞. (12) Strictly isolated from the spatial AD computation graph, the parameter encoder 𝑔 𝜃 𝑝 acts as a hyper-generator. It reads the PDE parameters 𝜇 𝜇 𝜇 and generates a hidden representation ℎℎℎparam , which is then linearly projected into affine modulation operators (diagonal scale matrices 𝛾 (𝑙 ) and shift vectors 𝛽 (𝑙 )) for the hidden layers of the spatial manifold: 
+
+ℎℎℎparam = 𝜎 (𝐹 𝐶 𝐷 𝑝 ⋯ (𝜎 (𝐹 𝐶 2(𝜎 (𝐹 𝐶 1(𝜇 𝜇 𝜇 )))))) , (13) where 𝜎 denotes a non-linear activation and 𝐷 𝑝 is the number of FC layers. 
+
+4.3.2. Spatiotemporal Coordinate Encoder 
+
+The spatial and temporal coordinate encoder 𝑔 𝜃 𝑐 generates an initial hidden representation ℎℎℎcoord for (𝐱 , 𝑡 ), strictly processing spatial coordinates without any parameter injection: 
+
+ℎℎℎcoord = 𝜎 (𝐹 𝐶 𝐷 𝑐 ⋯ (𝜎 (𝐹 𝐶 2(𝜎 (𝐹 𝐶 1(𝐱 , 𝑡 )))))) , (14) where 𝐷 𝑐 denotes the number of FC layers. 
+
+Z. Liang et al.: Preprint submitted to Elsevier Page 8 of 40 PRISM for high-dimensional and high-order PDEs 
+
+4.3.3. Modulated Manifold Network 
+
+The manifold network 𝑔 𝜃 𝑔 reads the two hidden representations and infers the parameterized solution ̂ 𝑢 (𝐱 , 𝑡 ; 𝜇 𝜇 𝜇 ).Setting ℎ(0)  
+
+> 𝑐
+
+= ℎℎℎcoord , the 𝑙 -th layer operates via a “spatial projection → implicit parameter modulation → non-linear activation” topology: Linear Projection: 𝑧 (𝑙 ) 
+
+> 𝑐
+
+= 𝑊 (𝑙 ) 
+
+> 𝑐
+
+ℎ(𝑙 −1)  
+
+> 𝑐
+
+(𝐱 , 𝑡 ; 𝜇 𝜇 𝜇 ) + 𝑏 (𝑙 ) 
+
+> 𝑐
+
+,
+
+Implicit Modulation: ̃ 𝑧 (𝑙 ) 
+
+> 𝑐
+
+= diag (𝛾 (𝑙 )(𝜇 𝜇 𝜇 )) 𝑧 (𝑙 )
+
+> 𝑐
+
+⏟⏞⏞⏞⏞⏞⏞⏞⏞⏟⏞⏞⏞⏞⏞⏞⏞⏞⏟ 
+
+> Scale Modulation
+
++ 𝛽 (𝑙 )(𝜇 𝜇 𝜇 )
+
+⏟⏟⏟
+
+> Shift Modulation
+
+,
+
+Activation: ℎ(𝑙 ) 
+
+> 𝑐
+
+= 𝜎 
+
+(̃𝑧 (𝑙 )
+
+> 𝑐
+
+)
+
+.
+
+(15) The PDE parameters are explicitly utilized to linearly scale and shift the hidden representation of the spatial manifold, dynamically modulating the Lipschitz continuity and ensuring absolute differentiation decoupling. 
+
+Theorem 1 (Strict Zero-Overhead Automatic Differentiation). In PRISM, when a 𝑘 -th order spatial stochastic tangent vector sequence 𝑣 1, … , 𝑣 𝑘 ∼ 𝑝 (𝜉 ) is pushed through the AD engine, the parameters satisfy ∇𝐱 𝛾 (𝑙 )(𝜇 𝜇 𝜇 ) ≡ 𝟎 and 
+
+∇𝐱 𝛽 (𝑙 )(𝜇 𝜇 𝜇 ) ≡ 𝟎 . Consequently, the first-order Jacobian at layer 𝑙 collapses to 
+
+𝐽 (𝑙 ) 
+
+> 𝐱
+
+= diag 
+
+(
+
+𝜎 ′(̃𝑧 (𝑙 ) 
+
+> 𝑐
+
+)
+
+)
+
+⋅ diag 
+
+(
+
+𝛾 (𝑙 )(𝜇 𝜇 𝜇 )
+
+)
+
+⏟⏞⏞⏞⏞⏞⏟⏞⏞⏞⏞⏞⏟ 
+
+> constant node
+
+⋅𝑊 (𝑙 ) 
+
+> 𝑐
+
+⋅ 𝐽 (𝑙 −1)  
+
+> 𝐱
+
+, (16) and all higher-order stochastic derivative operators ̂ 𝑘  
+
+> 𝐱 ,𝜉
+
+exclusively traverse the narrow spatial network 𝑊 (𝑙 ) 
+
+> 𝑐
+
+, with the parameter modulator 𝛾 (𝑙 )(𝜇 𝜇 𝜇 ) acting as a frozen constant in the AD graph. Hence, the additional computational overhead introduced by the parameter encoder is (0) .
+
+4.4. Training and Fast Fine-tuning 
+
+Mini-Batch Training. Model training minimizes the parameterized PINN loss 𝐿 (Θ) = 𝑤 1𝐿 𝑢 + 𝑤 2𝐿 𝑓 + 𝑤 3𝐿 𝑏 .In each iteration, we create a mini-batch of {𝜇 𝜇 𝜇 𝑖 , (𝐱 𝑖 , 𝑡 𝑖 )} 𝐵 𝑖 =1 , training across diverse PDEs simultaneously so the model robustly learns the underlying continuous latent manifold. 
+
+Fast Fine-Tuning via Orthogonal SVD Modulation. To enable zero-shot extrapolation to unseen parameter values, we devise an Orthogonal Low-Rank SVD Modulation mechanism. Inspired by SVD-PINNs [55], we apply SVD to the weights of the pure spatial layers in 𝑔 𝜃 𝑔 :
+
+𝐹 𝐶 𝑙 = Ψ 𝑙 𝛼 𝑙 Φ𝖳  
+
+> 𝑙
+
+, 𝑙 = 2 , 3, … , 𝐷 𝑔 − 1 . (17) During online fine-tuning for an unseen parameter 𝜇 𝜇 𝜇 𝑞𝑢𝑒𝑟𝑦 , we freeze the massive orthogonal spatial bases (Ψ 𝑙 , Φ𝑙 )
+
+and the hyper-generator 𝑔 𝜃 𝑝 , setting only the diagonal matrices {𝛼 𝑙 } as learnable. Combining PRISM’s inherent scale modulators 𝛾 (𝑙 )(𝜇 𝜇 𝜇 ) with SVD’s diagonal refinement 𝛼 𝑙 ensures that the massive high-order stochastic AD computation graph can be perfectly cached as extreme low-rank linear transformations, enabling ultra-fast real-time fine-tuning. 
+
+Theorem 2 (Variance-Aware Lipschitz Bounding). From Eqn. (5), the spectral norm of the PRISM spatial Jacobian obeys 
+
+‖‖‖𝐽 (𝑙 )
+
+> 𝐱
+
+‖‖‖2 ≤ ‖‖‖𝛾 (𝑙 )(𝜇 𝜇 𝜇 )‖‖‖∞ ⋅ ‖‖‖𝑊 (𝑙 )
+
+> 𝑐
+
+‖‖‖2. (18) Consequently, the variance of the 𝑘 -th order stochastic estimator admits a rigorous upper bound: 
+
+𝕍 𝜉 
+
+[̂
+
+𝑘  
+
+> 𝐱 ,𝜉
+
+[𝑢 PRISM ]
+
+]
+
+≤ 𝐶 𝜉 𝐿 ∏
+
+> 𝑙 =1
+
+‖‖‖𝛾 (𝑙 )(𝜇 𝜇 𝜇 )‖‖‖ 
+
+> 2𝑘
+> ∞
+
+⋅ ‖‖‖𝑊 (𝑙 )
+
+> 𝑐
+
+‖‖‖ 
+
+> 2𝑘 𝐹
+
+, (19) where 𝐶 𝜉 is a constant depending only on the sampling distribution. Unlike the naive concatenation (Eqn. 6), 𝛾 (𝑙 )(𝜇 𝜇 𝜇 )
+
+enters Eqn. (7) only as a linear scaling envelope on the spatial derivatives. When the PDE loss detects variance 
+
+Z. Liang et al.: Preprint submitted to Elsevier Page 9 of 40 PRISM for high-dimensional and high-order PDEs 
+
+explosion near extreme parameters, the gradient flow drives ∇𝜇 𝜇 𝜇 ‖𝛾 (𝑙 )(𝜇 𝜇 𝜇 )‖∞ toward zero, thereby adaptively damping the Lipschitz constant of the spatial manifold and suppressing stochastic variance at its computational root. 
+
+Theorem 3 (Orthogonal Low-Rank Zero-Shot Extrapolation). Let 𝑊 (𝑙 ) 
+
+> 𝑐
+
+= Ψ 𝑙 Σ𝑙 Φ⊤𝑙 be the full singular value decomposition of the pure spatial weight at layer 𝑙 . For an out-of-distribution query parameter 𝜇 𝜇 𝜇 query , we freeze the orthogonal bases (Ψ 𝑙 , Φ𝑙 ) and the hyper-generator 𝜃 𝑝 , and reparameterize online fine-tuning through a low-rank diagonal correction 𝛼 (𝑙 ) ∈ ℝ𝑑 𝑐 :
+
+𝑧 (𝑙 )f t (𝐱 ) = Ψ 𝑙 diag (𝛼 (𝑙 )) Σ𝑙 Φ⊤𝑙 ℎ(𝑙 −1)  
+
+> 𝑐
+
+(𝐱 ) + 𝑏 (𝑙 ) 
+
+> 𝑐
+
+, (20) 
+
+𝛼 (𝑙 )∗ = arg min 
+
+> {𝛼 (𝑙 )}
+
+𝔼 𝜉 
+
+‖‖‖̂ 𝑘 
+
+> 𝐱 ,𝜉
+
+[𝑢 PRISM (𝐱 ; 𝛼 (𝑙 ))] − 𝑓 (𝐱 ; 𝜇 𝜇 𝜇 query )‖‖‖
+
+> 2
+
+. (21) Since the high-dimensional stochastic AD computation graph (Taylor coefficients, 𝑘 -jet tangents) is pre-computed and cached as constants before fine-tuning, Eqn. (8) reduces to optimizing a diagonal system of dimension (𝑑 𝑐 ), enabling 
+
+(1) single-GPU online inversion for arbitrarily high-dimensional query parameters. 
+
+4.5. Algorithmic Integration with Stochastic Solvers 
+
+PRISM serves as a universal parameterization component that can be combined with any unbiased stochastic high-dimensional solver, including SDGD [7], STDE [9], and HTE [9]. In all cases, the integration follows the same principle. The parameter encoder 𝑔 𝜃 𝑝 is strictly isolated from the stochastic AD computation graph, while the spatial backbone 𝑔 𝜃 𝑐 is exposed to the chosen stochastic derivative estimator. We illustrate this integration using SDGD as a representative example. We decompose the general high-dimensional spatial PDE differential operator into 𝑁 
+
+independent dimension-wise terms: 
+
+𝑥 [𝑢 ] = 
+
+> 𝑁 
+
+∑
+
+> 𝑖 =1
+
+𝑥,𝑖 [𝑢 ]. (22) For instance, in the parameterized 𝑑 𝑥 -dimensional Poisson case, 𝑥,𝑖 𝑢 = 𝜕 2
+
+> 𝜕 𝐱 2
+> 𝑖
+
+𝑢 (𝐱 , 𝑡 ; 𝜇 𝜇 𝜇 ) and 𝑁  = 𝑑 𝑥 . For high-dimensional Fokker-Planck equations, we obtain 𝑁  = 𝑑 2 
+
+> 𝑥
+
+isolated terms. When SDGD randomly samples 𝑁 𝑠 ≪ 𝑁 
+
+terms indexed by  ⊂ {1 , … , 𝑁 }, the unbiased stochastic gradient estimator becomes ̂
+
+∇Θ𝓁 (Θ) = 𝑁 
+
+𝑁 𝑠 
+
+∑
+
+> 𝑖 ∈
+
+(
+
+𝑥,𝑖 𝑢 Θ − 𝑅 
+
+)
+
+∇Θ
+
+[𝑥,𝑖 𝑢 Θ
+
+]. (23) Applying the differentiation operator 𝑥,𝑖 through PRISM’s modulated manifold (Eqn. (4)) yields a chain decomposi-tion: 
+
+𝜕 Θ𝛼 𝑥,𝑖 𝑢 Θ = 𝜕 𝑥,𝑖 
+
+𝜕̃ 𝑧 (𝐿 )
+
+> 𝑐
+
+⏟⏟⏟
+
+> physics term
+
+⋅ diag (𝛾 (𝐿 )(𝜇 𝜇 𝜇 ))
+
+⏟⏞⏞⏞⏞⏞⏟⏞⏞⏞⏞⏞⏟ 
+
+> constant
+
+⋅ 𝜕 𝑥,𝑖 
+
+𝜕ℎ (𝐿 −1) 
+
+> 𝑐
+
+⋯ 𝜕ℎ (0) 
+
+> 𝑐
+
+𝜕 Θ𝛼 
+
+, (24) where all modulator factors diag( 𝛾 (𝑙 )(𝜇 𝜇 𝜇 )) remain frozen constants by Theorem 1, and the entire spatial Jacobian 
+
+∇𝐱 𝜃 𝑐 is strictly decoupled from the parameter gradient ∇Θ𝑝 𝜃 𝑝 . The full gradient with respect to the PRISM model parameters Θ is: grad (Θ) = 𝜕 𝓁 (Θ) 
+
+𝜕 Θ =
+
+(𝑁 ∑
+
+> 𝑖 =1
+
+𝑥,𝑖 𝑢 Θ(𝐱 , 𝑡 ; 𝜇 𝜇 𝜇 ) − 𝑅 (𝐱 , 𝑡 ; 𝜇 𝜇 𝜇 )
+
+) ( 𝑁 ∑
+
+> 𝑖 =1
+
+𝜕 𝜕 Θ 𝑥,𝑖 𝑢 Θ(𝐱 , 𝑡 ; 𝜇 𝜇 𝜇 )
+
+)
+
+. (25) Crucially, when differentiating 𝑥,𝑖 with respect to the spatial coordinates, PRISM’s modulators 𝛾 (𝜇 𝜇 𝜇 ) and 𝛽 (𝜇 𝜇 𝜇 ) act as absolute constants in the computation graph, so the massive spatial AD graph entirely bypasses the parameter encoder 
+
+𝑔 𝜃 𝑝 . To conquer the memory limits of high dimensions, PRISM samples the PDE terms in the backward pass randomly, as formalized in Algorithm 1. Furthermore, PRISM naturally supports Gradient Accumulation (sampling different index sets 𝐼 1, … , 𝐼 𝑛 and averaging the resulting gradients to reduce variance on memory-limited devices) and Parallel Computing (computing gradients for different index sets across multiple GPUs simultaneously). 
+
+Z. Liang et al.: Preprint submitted to Elsevier Page 10 of 40 PRISM for high-dimensional and high-order PDEs 
+
+Algorithm 1 PRISM for Parameterized High-Dimensional and High-Order Stochastic Solvers 
+
+Input : Spatiotemporal domain Ω × [0 , 𝑇 ], Parameter space , PDE operator 𝑥 , Source term 𝑅 (𝐱 , 𝑡 ; 𝜇 𝜇 𝜇 ).
+
+Hyperparameters : Learning rate 𝜂 , Spatial batch 𝑁 𝑥 , Param batch 𝑁 𝜇 , Taylor order 𝐾 , Tangent samples 𝑉 .
+
+Architecture : Parameter Hyper-Generator 𝜃 𝑝 , Decoupled Spatial Manifold 𝜃 𝑐 . 
+
+> 1:
+
+Initialize network parameters Θ = { 𝜃 𝑐 , 𝜃 𝑝 , 𝜃 𝑔 }. 
+
+> 2:
+
+while not converged do  
+
+> 3:
+
+Sample spatiotemporal points {( 𝐱 𝑖 , 𝑡 𝑖 )} 𝑁 𝑥  
+
+> 𝑖 =1
+
+⊂ Ω × [0 , 𝑇 ], physics parameters {𝜇 𝜇 𝜇 𝑗 }𝑁 𝜇  
+
+> 𝑗 =1
+
+⊂ . 
+
+> 4:
+
+% Phase 1: Parameter Encoding (Strictly isolated from the AD spatial graph)  
+
+> 5:
+
+for 𝑗 = 1 to 𝑁 𝜇 do  
+
+> 6:
+
+Generate layer-wise modulators: {𝛾 (𝑙 )(𝜇 𝜇 𝜇 𝑗 ), 𝛽 (𝑙 )(𝜇 𝜇 𝜇 𝑗 )} 𝐿 𝑙 =1 ← 𝜃 𝑝 (𝜇 𝜇 𝜇 𝑗 ) 
+
+> 7:
+
+Detach modulators {𝛾, 𝛽 } from the active Taylor-mode AD computation tape.  
+
+> 8:
+
+end for  
+
+> 9:
+
+% Phase 2: Zero-Tangent Injection & Unbiased Stochastic Estimation  
+
+> 10:
+
+Initialize empirical risk 𝐿 𝑟𝑒𝑠 ← 0. 
+
+> 11:
+
+for 𝑖 = 1 to 𝑁 𝑥 do  
+
+> 12:
+
+Sample 𝑉 random tangent vectors {𝑣 𝑚 }𝑉 𝑚 =1 ∼ 𝑝 (𝑣 ) ⊳ e.g., Rademacher distribution 𝔼 [𝑣𝑣 ⊤] = 𝐼  
+
+> 13:
+
+for 𝑗 = 1 to 𝑁 𝜇 do 
+
+> 14:
+
+̂ 𝑖,𝑗 ← 0 
+
+> 15:
+
+for 𝑚 = 1 to 𝑉 do  
+
+> 16:
+
+Zero-Tangent Initialization:  
+
+> 17:
+
+Spatial 𝐾 -jet:  𝐾  
+
+> 𝐱 𝑖
+
+← (𝐱 𝑖 , 𝑣 𝑚 , 𝟎 , … , 𝟎 ) 
+
+> 18:
+
+Parameter 𝐾 -jet:  𝐾 𝜇 𝜇 𝜇 𝑗 ← (𝜇 𝜇 𝜇 𝑗 , 𝟎 , … , 𝟎 ) ⊳ Forces 𝑑 𝑘 𝜇 𝜇 𝜇 ≡ 𝟎  
+
+> 19:
+
+Taylor-mode Pushforward (Triggers Constant Folding):  
+
+> 20:
+
+ 𝐾 𝑢 ← 𝑑 𝐾 𝜃 𝑐 
+
+(
+
+ 𝐾  
+
+> 𝐱 𝑖
+
+, 𝑡 𝑖 ; 𝛾 (𝜇 𝜇 𝜇 𝑗 ), 𝛽 (𝜇 𝜇 𝜇 𝑗 )
+
+) 
+
+> 21:
+
+Extract directional derivative 𝑑 𝐾 𝑢 ← Extract-Tangent ( 𝐾 𝑢 , 𝐾 )
+
+> 22:
+
+̂ 𝑖,𝑗 ←̂ 𝑖,𝑗 + 1 
+
+> 𝑉
+
+⋅ 𝐾 ⋅ 𝑑 𝐾 𝑢 ⊳ Unbiased stochastic estimation  
+
+> 23:
+
+end for  
+
+> 24:
+
+Accumulate PDE residual: 𝐿 𝑟𝑒𝑠 ← 𝐿 𝑟𝑒𝑠 + 1
+
+> 𝑁 𝑥 𝑁 𝜇
+
+‖̂ 𝑖,𝑗 − 𝑅 (𝐱 𝑖 , 𝑡 𝑖 ; 𝜇 𝜇 𝜇 𝑗 )‖22 
+
+> 25:
+
+end for  
+
+> 26:
+
+end for  
+
+> 27:
+
+% Phase 3: Variance-Aware Empirical Risk Minimization (Theorem 2)  
+
+> 28:
+
+Update parameters Θ ← Θ − 𝜂 ∇Θ𝐿 𝑟𝑒𝑠 via stochastic gradient descent.  
+
+> 29:
+
+end while  
+
+> 30:
+
+return Optimized parameters Θ∗.
+
+4.6. Theoretical Analysis 
+
+We analyze two key theoretical properties of PRISM. First, we show that PRISM’s zero-tangent injection enforces exact AD decoupling, incurring zero extra differentiation overhead for parameterization. Second, we show that PRISM’s scale modulation analytically bounds the Lipschitz constant of the spatial manifold, which in turn controls the variance of any stochastic derivative estimator across the parameter space . Building on these two properties, we establish the convergence guarantee of PRISM combined with SDGD for parameterized PDEs. 
+
+4.6.1. Theoretical Advantages of PRISM 
+
+Theorem 1 (Strict Zero-Overhead AD Decoupling) . Under the PRISM formulation, for any 𝐾 -th order spatial differential operator 𝐾 𝑥 , the physical parameter 𝜇 𝜇 𝜇 maintains strict invariance in the tangent bundle. The extra high-order spatial differentiation complexity incurred by achieving parameterized generalization is rigorously (0) .
+
+Z. Liang et al.: Preprint submitted to Elsevier Page 11 of 40 PRISM for high-dimensional and high-order PDEs 
+
+Proof. During the spatial AD evaluation of 𝑥,𝑖 𝑢 Θ(𝐱 , 𝑡 ; 𝜇 𝜇 𝜇 ), the parameter 𝜇 𝜇 𝜇 branch holds strictly zero tangents, i.e., 
+
+𝑑 𝐾 𝛾 (𝑙 )(𝜇 𝜇 𝜇 ) ≡ 𝟎 and 𝑑 𝐾 𝛽 (𝑙 )(𝜇 𝜇 𝜇 ) ≡ 𝟎 . From Equation (15), the 𝐾 -th order spatial differentiation structurally collapses to: 
+
+𝐾 𝑥 ̃𝑧 (𝑙 ) 
+
+> 𝑐
+
+= diag 
+
+(
+
+𝛾 (𝑙 )(𝜇 𝜇 𝜇 )
+
+)
+
+⏟⏞⏞⏞⏞⏞⏟⏞⏞⏞⏞⏞⏟ 
+
+> Absolute Constant Node
+
+⋅
+
+(
+
+𝑊 (𝑙 ) 
+
+> 𝑐
+
+𝐾 𝑥 ℎ(𝑙 −1) 
+
+> 𝑐
+
+)
+
+. (26) The additive shift 𝛽 (𝑙 ) is physically eliminated, and 𝛾 (𝑙 ) is perfectly identified by AD compilers as a zero-gradient constant diagonal matrix, triggering perfect constant folding. The costly high-order stochastic tracking is restricted solely to the spatial weights 𝑊 (𝑙 ) 
+
+> 𝑐
+
+.
+
+Theorem 2 (Variance-Aware Lipschitz Damping) . PRISM’s implicit scale modulator 𝛾 (𝑙 )(𝜇 𝜇 𝜇 ) analytically bounds the Lipschitz continuity of the parameterized spatial manifold, acting as an adaptive damper that inherently prevents the non-linear stochastic variance explosion of SDGD under extreme physical parameters. Proof. By extracting the first-order Jacobian of Equation (15), the spectral norm (Lipschitz constant) is explicitly bounded by 𝛾 (𝑙 ):Lip (𝑙 ) 
+
+> 𝑥
+
+(𝜇 𝜇 𝜇 ) = ‖‖‖𝐽 (𝑙 )
+
+> 𝑥
+
+‖‖‖2 ≤ max |𝜎 ′| ⋅ ‖‖‖𝛾 (𝑙 )(𝜇 𝜇 𝜇 )‖‖‖∞ ⋅ ‖‖‖𝑊 (𝑙 )
+
+> 𝑐
+
+‖‖‖2. (27) Rather than suffering an unconstrained curvature surge like naive concatenation networks, PRISM forces the non-linear perturbations of extreme parameters 𝜇 𝜇 𝜇 to manifest strictly through the linear scaling operator 𝛾 (𝑙 ). Empirical risk optimization automatically drives the parameter hyper-generator’s gradient flow to decay ‖𝛾 (𝑙 )(𝜇 𝜇 𝜇 )‖∞, dynamically suppressing the inflation of spatial higher-order derivatives and naturally damping the variance explosion globally across .
+
+4.6.2. Convergence and Parameterized Variance Bounds 
+
+With the parameter-conditioned Lipschitz bound established in Theorem 2, we derive the variance of the stochastic gradient estimator and the convergence rate of PRISM combined with SDGD for parameterized PDEs. 
+
+Theorem 3. (PRISM Unbiasedness). The stochastic gradient grad 𝐼 (Θ) in Algorithm 1 is an unbiased estimator of the full-batch parameterized gradient grad (Θ) uniformly over the parameter space , i.e., 𝔼 𝐼,𝐵 𝑟 ,𝐵 𝜇 [grad 𝐼 (Θ)] = grad (Θ) 
+
+for all 𝜇 𝜇 𝜇 ∈ .
+
+Theorem 4. For random index sets 𝐼 (PDE dimensions), 𝐵 𝑟 (spatiotemporal residual points), and 𝐵 𝜇 (physical parameters), the PRISM gradient variance follows: 
+
+𝕍 [𝑔 𝐵 𝑟 ,𝐵 𝜇 ,𝐼 (Θ)] = 𝐶 1|𝐼 | + 𝐶 2|𝐵 𝑟 || 𝐵 𝜇 | + 𝐶 3
+
+|𝐵 𝑟 || 𝐵 𝜇 || 𝐼 | , (28) 
+
+where 𝐶 1, 𝐶 2, 𝐶 3 are parameter-dependent constants strictly bounded globally across  by PRISM’s parameterized Lipschitz damping (Theorem 2). 
+
+Assumption 1. The activation function 𝜎 is smooth with |𝜎 (𝑘 )(𝑧 )| ≤ 1 and 𝜎 (𝑘 ) is 1-Lipschitz for all 0 ≤ 𝑘 ≤ 𝑛 , where 
+
+𝑛 is the highest order of the parameterized PDE under consideration (e.g., sine and cosine activations). We assume the parameterized residual source term is bounded, i.e., |𝑅 (𝐱 , 𝑡 ; 𝜇 𝜇 𝜇 )| ≤ 𝑅 for all (𝐱 , 𝑡 ) ∈ Ω × [0 , 𝑇 ] and 𝜇 𝜇 𝜇 ∈ .
+
+Assumption 2. Each decomposed spatial operator 𝑥,𝑖 is bounded within the compact joint training domain Ω × [0 , 𝑇 ] × . Theorem 2 structurally enforces this assumption across the continuous parameter space  by analytically bounding the network’s spatial Lipschitz constant via the modulators. 
+
+Lemma 1. (Bounding the Parameterized PRISM Neural Network Derivatives). Given a specific physical parameter 
+
+𝜇 𝜇 𝜇 ∈ , the high-order spatial derivatives of the PRISM surrogate 𝑢 Θ(𝐱 , 𝑡 ; 𝜇 𝜇 𝜇 ) are deterministically bounded by a product of layer-wise active spatial weights modulated by 𝜇 𝜇 𝜇 , denoted as 𝑀 (𝑙 ; 𝜇 𝜇 𝜇 ) = max 
+
+{‖diag (𝛾 (𝑙 )(𝜇 𝜇 𝜇 )) 𝑊 (𝑙 ) 
+
+> 𝑐
+
+‖2, 1
+
+}
+
+:
+
+‖‖‖‖vec 
+
+( 𝜕 𝑛 
+
+𝜕 𝐱 𝑛 𝑢 Θ(𝐱 , 𝑡 ; 𝜇 𝜇 𝜇 )
+
+)‖‖‖‖ ≤ (𝑛 − 1)! 𝑑 𝑛 −1  
+
+> 𝑥
+
+(𝐿 − 1) 𝑛 −1 𝑀 (𝐿 ; 𝜇 𝜇 𝜇 )
+
+> 𝐿 −1
+
+∏
+
+> 𝑙 =1
+
+𝑀 (𝑙 ; 𝜇 𝜇 𝜇 )𝑛 , (29)   
+
+> Z. Liang et al.: Preprint submitted to Elsevier Page 12 of 40 PRISM for high-dimensional and high-order PDEs
+
+‖‖‖‖vec 
+
+( 𝜕 𝜕 Θ
+
+𝜕 𝑛 
+
+𝜕 𝐱 𝑛 𝑢 Θ(𝐱 , 𝑡 ; 𝜇 𝜇 𝜇 )
+
+)‖‖‖‖ ≤ ℎ2𝑛 ! 𝑑 𝑛 𝑥 (𝐿 − 1) 𝑛 𝑀 (𝐿 ; 𝜇 𝜇 𝜇 )
+
+> 𝐿 −1
+
+∏
+
+> 𝑙 =1
+
+𝑀 (𝑙 ; 𝜇 𝜇 𝜇 )𝑛 +1 max { ‖(𝐱 , 𝑡 )‖, 1} , (30) 
+
+where ℎ is the maximal spatial network width, 𝑑 𝑥 is the spatial dimensionality, and 𝑛 is the spatial derivative order. Proof. The proof is presented in Appendix A. It relies on tracking Faà di Bruno’s chain rule, inherently bounded by the modulators 𝛾 (𝑙 )(𝜇 𝜇 𝜇 ) across the parameterized manifold. 
+
+Theorem 5. (Convergence of SDGD for Parameterized PDEs). Assuming Assumptions 1 and 2 hold over the parameterized joint domain Ω × [0 , 𝑇 ] × , given a step size 𝜂 𝑘 = 𝜂 ∕( 𝑘 + 𝑚 )𝑝 for 𝑝 ∈ (1∕2 , 1] and large enough 
+
+𝜂, 𝑚 > 0, SDGD converges jointly over the spatiotemporal domain and parameter space to a neighborhood  of the regular parameterized minimizer Θ∗ with probability at least 1 − 𝛿 , and 
+
+𝔼 [‖Θ𝑘 − Θ ∗‖2 ∣ 𝐸 ∞] ≤  (1∕ 𝑘 𝑝 ). (31) 
+
+Proof. The comprehensive proofs for unbiasedness, variance bounding across the latent manifold, and convergence are provided in Appendix A.10. 
+
+Remark 1. The convergence rate (1∕ 𝑘 𝑝 ) involves a constant proportional to the stochastic gradient variance. PRISM’s parameterized Lipschitz damping (Theorem 2 and Lemma 1) directly tightens this constant via the parameter-dependent modulation bounds 𝑀 (𝑙 ; 𝜇 𝜇 𝜇 ), yielding faster and more stable convergence than naive parameterization baselines across complex PDE parameter spaces. A proper initialization (e.g., Xavier [56]) ensures the starting point lies within the convergence neighborhood 1.
+
+## 5. Experiments 
+
+This section evaluates PRISM as a plug-and-play parameterized manifold component for high-dimensional and high-order stochastic PDE solvers. The experiments are organized around four questions: whether PRISM preserves zero-shot accuracy as dimension increases, whether its modulation controls the variance mechanisms predicted by the theory, whether it generalizes over unseen physical parameters, and whether the same construction remains effective for parabolic, adversarial, eigenvalue, and high-order PDE settings. We instantiate PRISM mainly with the Stochastic Taylor Derivative Estimator (STDE) [9], denoted PRISM-STDE, and also test PRISM-SDGD [7]. Naive feature concatenation is used as the primary parametric baseline because it exposes the parameter encoder to the spatial AD tape, directly testing Theorems 1 and 2. Unless otherwise stated, experiments are run on a single NVIDIA A100 GPU with 40GB/80GB memory, and each setting is repeated with 5 independent random seeds. 
+
+5.1. Benchmark Problems and Experimental Protocol 
+
+We first test PRISM-STDE on parameterized PDEs whose exact solutions are inseparable, strongly coupled, and effectively high-dimensional. The continuous physical parameter vector 𝜇 𝜇 𝜇 = [ 𝜇 1, 𝜇 2]⊤ ∼ Unif ([0 .5, 1.5] 2) controls the PDE dynamics globally. We consider the parameterized two-body interaction exact solution: 
+
+𝑢 exact (𝐱 ; 𝜇 𝜇 𝜇 ) = (1 − ‖𝐱 ‖22
+
+) (𝑑 𝑥 −1 
+
+∑
+
+> 𝑖 =1
+
+𝑐 𝑖 sin( 𝜇 1𝐱 𝑖 + cos( 𝜇 2𝐱 𝑖 +1 ) + 𝐱 𝑖 +1 cos( 𝐱 𝑖 )) 
+
+)
+
+, (32) where 𝑐 𝑖 ∼  (0 , 1) . The (1 − ‖𝐱 ‖22) term enforces a strict zero boundary condition on the 𝑑 𝑥 -dimensional unit ball 
+
+𝔹 𝑑 𝑥 , preventing any information leakage from the boundary and isolating the test to the residual loss. We consider the following parameterized operators: 
+
+• Param. Poisson : 𝑥 𝑢 (𝐱 ; 𝜇 𝜇 𝜇 ) = Δ 𝑥 𝑢 (𝐱 ; 𝜇 𝜇 𝜇 ) = 𝑅 (𝐱 ; 𝜇 𝜇 𝜇 ).
+
+• Param. Allen-Cahn : 𝑥 𝑢 (𝐱 ; 𝜇 𝜇 𝜇 ) = Δ 𝑥 𝑢 (𝐱 ; 𝜇 𝜇 𝜇 ) + 𝜇 1𝑢 (𝐱 ; 𝜇 𝜇 𝜇 ) − 𝜇 2𝑢 (𝐱 ; 𝜇 𝜇 𝜇 )3 = 𝑅 (𝐱 ; 𝜇 𝜇 𝜇 ).
+
+• Param. Sine-Gordon : 𝑥 𝑢 (𝐱 ; 𝜇 𝜇 𝜇 ) = Δ 𝑥 𝑢 (𝐱 ; 𝜇 𝜇 𝜇 ) + 𝜇 1 sin( 𝜇 2𝑢 (𝐱 ; 𝜇 𝜇 𝜇 )) = 𝑅 (𝐱 ; 𝜇 𝜇 𝜇 ).  
+
+> Z. Liang et al.: Preprint submitted to Elsevier Page 13 of 40 PRISM for high-dimensional and high-order PDEs
+
+where the source term 𝑅 (𝐱 ; 𝜇 𝜇 𝜇 ) = 𝑥 𝑢 exact (𝐱 ; 𝜇 𝜇 𝜇 ). The exact solution cannot be reduced to lower-dimensional functions, and the random anisotropic coefficients 𝑐 𝑖 coupled with varying 𝜇 𝜇 𝜇 create massive spatial curvature shifts across the continuous parameter domain . We emphasize that the parameterized PDEs and their exact solutions used here are highly nontrivial and challenging: 
+
+• Nonlinear, inseparable, and effectively high-dimensional : The exact solution cannot be decomposed into lower-dimensional functions. All pairs of variables 𝐱 𝑖 and 𝐱 𝑖 +1 exhibit pairwise interactions that are modulated continuously by 𝜇 𝜇 𝜇 .
+
+• Extreme Parameter Variance : The random coefficients 𝑐 𝑖 coupled with the varying physical parameters 𝜇 𝜇 𝜇 
+
+create massive spatial curvature shifts. According to our theory, naive concatenation networks will suffer from variance explosion here, explicitly testing PRISM’s adaptive Lipschitz damping. 
+
+• Anisotropic and nontrivial PDE exact solution : Due to the parameter-dependent nonlinear coefficients 
+
+𝜇 1, 𝜇 2 ∈ 𝜇 𝜇 𝜇 in the PDE operators, the exact solution is anisotropic, which poses an additional challenge to PRISM. The exact solution is also highly nontrivial; its value’s standard deviation is large in high-dimensional spaces. 
+
+• PDEs with different levels of nonlinearities : We test both linear and nonlinear PDEs to verify PRISM’s robustness. 
+
+• Zero boundary condition to test PRISM on the residual part : In a 𝑑 𝑥 -dimensional problem, the boundary is typically (𝑑 𝑥 − 1) -dimensional. To assess the impact of sampling the dimension in the residual loss in PRISM, we maintain a zero boundary condition to eliminate its interference. This also makes the PDE more challenging, as we have no knowledge of the exact solution from the boundary. 
+
+• Unable to solve via traditional methods : Traditional grid-based methods suffer from the curse of dimension-ality. Moreover, existing high-dimensional and high-order solvers are limited to fixed parameters and cannot generalize across continuous 𝜇 𝜇 𝜇 .
+
+Training Details : The PRISM spatial backbone 𝜃 𝑐 is a 4-layer multi-layer perceptron with 128 hidden units, and the hyper-generator 𝜃 𝑝 is a 3-layer MLP. The model is trained via Adam [57] for 10K epochs, with an initial learning rate of 1e-3 decaying linearly to zero. We select a joint batch of |𝐵 𝑥 | = 100 random spatial residual points and |𝐵 𝜇 | = 10 parameters per epoch. We evaluate zero-shot performance on 20K unseen testing points and 100 unseen parameters. We utilize Algorithm 1 with a minibatch of |𝐼 | = 100 dimensions to sample the stochastic spatial derivatives. For the baseline, we utilize the Naive Concat-PINN , which concatenates 𝜇 𝜇 𝜇 and 𝐱 representations and calculates the full-dimensional AD graph without our decoupled modulation (representing the vanilla parameterized PINN). We adopt the hard-constraint structural formulation 
+
+𝑢 PRISM  
+
+> 𝜃
+
+(𝐱 ; 𝜇 𝜇 𝜇 ) = (1 − ‖𝐱 ‖22)𝑢 𝜃 (𝐱 ; 𝜇 𝜇 𝜇 ), (33) where 𝑢 𝜃 (𝐱 ; 𝜇 𝜇 𝜇 ) is the PRISM neural network and 𝑢 PRISM  
+
+> 𝜃
+
+(𝐱 ; 𝜇 𝜇 𝜇 ) is the boundary-augmented parameterized model, to strictly satisfy the boundary [58]. Experiments are repeated 5 times with independent random seeds. 
+
+5.2. Zero-Shot Scalability on Inseparable PDEs 
+
+The first benchmark compares a single PRISM model against the full-AD Naive Concat-PINN baseline over the continuous parameter space. Table 2 reports zero-shot prediction error, wall-clock training time, and memory usage as the spatial dimension increases from 100 to 100,000. Table 2 shows two distinct failure modes of naive parameterization. On nonlinear Allen-Cahn and Sine-Gordon equations, Naive Concat-PINN diverges already at moderate dimensions, consistent with parameter-induced variance amplification. On the linear Poisson equation, it remains accurate at low dimensions but runs out of memory at 10,000 D because the parameter and spatial variables share the same high-order AD graph. PRISM avoids both failures: the zero-shot relative 𝐿 2 error remains in the 10 −3 range up to 100,000 D, while memory and training time increase smoothly.   
+
+> Z. Liang et al.: Preprint submitted to Elsevier Page 14 of 40
+
+PRISM for high-dimensional and high-order PDEs 
+
+Table 2 
+
+Zero-shot relative 𝐿 2 error, time, and memory costs for Naive Concat-PINN and PRISM over the continuous parameter space. 
+
+Method PDE Metric 100 D 1,000 D 5,000 D 10,000 D 100,000 D 
+
+Naive Concat-PINN (Full AD Baseline) Param. Poisson Rel. 𝐿 2 Error 7.189E-3 5.609E-4 1.768E-3 N.A. (OOM) N.A. (OOM) Allen-Cahn Rel. 𝐿 2 Error Diverged Diverged Diverged N.A. (OOM) N.A. (OOM) Sine-Gordon Rel. 𝐿 2 Error Diverged Diverged Diverged N.A. (OOM) N.A. (OOM) Time (Hour) 0.05 4.75 30.54 N.A. N.A. Memory (MB) 1328 4425 56563 >81252 >81252 
+
+PRISM (Ours) 
+
+Param. Poisson Rel. 𝐿 2 Error 7.189E-3 5.611E-4 1.758E-3 1.850E-3 2.175E-3 
+
+Allen-Cahn Rel. 𝐿 2 Error 7.187E-3 5.615E-4 1.762E-3 1.864E-3 2.178E-3 
+
+Sine-Gordon Rel. 𝐿 2 Error 7.192E-3 5.641E-4 1.795E-3 1.854E-3 2.177E-3 
+
+Time (Hour) 0.05 0.75 1.18 1.5 12 
+
+Memory (MB) 1328 1788 3335 4527 32777 0 4k 8k 12k     
+
+> Training step
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> Relative  L2 error
+
+a
+
+Poisson           
+
+> d= 100
+> d= 1,000
+> d= 10,000
+> 04k 8k 12k
+> Training step
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+
+b
+
+Allen-Cahn        
+
+> 04k 8k 12k
+> Training step
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+
+c
+
+Sine-Gordon 
+
+Figure 4: Convergence of PRISM on three parameterized PDE families across dimensions 𝑑 ∈ {100 , 1,000 , 10 ,000} .Figure 4 further confirms that the parameterized branch does not introduce dimension-dependent optimization instability. For Poisson and Allen-Cahn equations, the curves at different dimensions follow similar decreasing trajectories. The Sine-Gordon problem is more nonlinear, but all curves still decrease steadily and reach the low-error regime. 
+
+5.3. Variance-Control Diagnostics 
+
+After establishing the main scalability result, we next isolate the mechanism behind the improvement. The first diagnostic asks whether the affine modulation path actually reduces the parameter-induced gradient variance predicted by Theorem 2. 
+
+Z. Liang et al.: Preprint submitted to Elsevier Page 15 of 40 PRISM for high-dimensional and high-order PDEs 10 0
+
+> 1
+> 2
+> 3
+> 5
+> Relative gradient variance
+
+a
+
+Poisson 
+
+> NAIVE
+> PRISM
+> 10 0
+> 1
+> 2
+> 3
+
+b
+
+Allen-Cahn 
+
+> 10 0
+> 1
+> 2
+> 3
+> Relative gradient variance
+
+c
+
+Sine-Gordon 
+
+> 10 0
+> 1
+> 2
+> 3
+
+d
+
+Reaction-diffusion 
+
+Figure 5: Relative gradient-variance growth under increasing parameter magnitude 𝛽 for four parameterized PDE families. Figure 5 directly evaluates the variance-control mechanism predicted by Theorem 2. Across Poisson, Allen-Cahn, Sine-Gordon, and reaction-diffusion equations, Naive Concat-PINN amplifies the relative gradient variance when 𝛽 
+
+moves away from the reference scale, especially in nonlinear equations. In contrast, PRISM keeps the relative gradient variance close to or below the reference level over a broad range of 𝛽 , confirming that implicit modulation prevents the parameter encoder from being dragged into the high-order spatial AD path. 0 100 200 300 400 500 
+
+> Epoch
+> 0.01
+> 1
+> 10
+> Relative L1 Error
+
+a     
+
+> =0.1
+> =1
+> =5
+> =10
+> =30
+> =50
+> 0100 200 300 400 500
+> Epoch
+> 1
+> 10
+> Relative L2 Error
+
+b
+
+Figure 6: Relative 𝐿 1 and 𝐿 2 error decay over training epochs under different 𝛽 values. 
+
+Z. Liang et al.: Preprint submitted to Elsevier Page 16 of 40 PRISM for high-dimensional and high-order PDEs 
+
+Figure 6 examines the training dynamics from the perspective of prediction error. For moderate parameter values (𝛽 = 0 .1, 1, 5, 10 ), both relative 𝐿 1 and 𝐿 2 errors decrease rapidly during early training and continue improving toward the low-error regime. Larger extrapolation parameters are more challenging, but the downward trend indicates that the variance-damped parameter manifold remains trainable under severe parameter shifts. Together, Figures 5 and 6 connect the theoretical variance bound to observable optimization behaviour: PRISM first suppresses the growth of stochastic gradient variance and then converts this stabilization into monotone prediction-error decay. 
+
+5.4. Zero-Shot Parameter Transfer and Field Reconstruction 
+
+We next evaluate whether the stabilized parameter manifold transfers beyond the coefficients observed during training. This experiment is separated from the variance diagnostics because it tests a different requirement: PRISM must not only train stably, but also interpolate and extrapolate over the physical parameter domain without retraining. 1 3 5 7 9 11 13 15 
+
+> β
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> L2 abs. error
+
+a       
+
+> 1357911 13 15
+> β
+> 0
+> 1
+> 2
+> 3
+> 4
+> L2 rel. error
+
+b       
+
+> RS-PINN (seen) STDE (seen) HTE (seen) ForLap (seen) SDGD (seen) Score-PINN (seen) PRISM (unseen) PRISM (seen)
+
+Figure 7: Interpolation and extrapolation over the reaction coefficient 𝛽 for high-dimensional parameterized reaction equations. Figure 7 provides a seen/unseen-parameter interpolation test against high-dimensional operator estimators. STDE, HTE, RS-PINN, Score-PINN, SDGD, and ForLap are accurate near the training anchor but become increasingly sensitive as 𝛽 grows. In contrast, a single PRISM model remains in the low-error regime for both seen and unseen 𝛽 
+
+values, showing that PRISM supplies a reusable parameterized manifold rather than merely optimizing a fixed equation. 
+
+Z. Liang et al.: Preprint submitted to Elsevier Page 17 of 40 PRISM for high-dimensional and high-order PDEs 3 2 1 0 1 2 3
+
+x10 
+
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> Ground Truth
+> x30
+
+Conv. ( = 1)       
+
+> 3210123
+
+x10 
+
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> x30
+
+Conv. ( = 10)       
+
+> 3210123
+
+x10 
+
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> x30
+
+Conv. ( = 30)       
+
+> 3210123
+
+x10       
+
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> Prediction
+> x30
+> 3210123
+
+x10       
+
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> x30
+> 3210123
+
+x10       
+
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> x30
+> 3210123
+
+x10 
+
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> Abs. error
+> x30
+
+rel. L2=2.95e-02       
+
+> 3210123
+
+x10 
+
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> x30
+
+rel. L2=1.83e-02       
+
+> 3210123
+
+x10 
+
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> x30
+
+rel. L2=4.24e-02 
+
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> 0.30
+> 0.35
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> 0.30
+> 0.35
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> 0.30
+> 0.35
+
+a b c
+
+Figure 8: High-dimensional parameterized convection visualization for PRISM on the (𝑥 10 , 𝑥 30 ) slice. Figure 8 visualizes the learned solution fields for a high-dimensional convection problem under increasingly strong parameter shifts. Across 𝛽 = 1 , 𝛽 = 10 , and 𝛽 = 30 , PRISM preserves the diagonal wave structure and phase pattern of the ground-truth solution, while the error maps remain localized rather than corrupting the full field. 
+
+Z. Liang et al.: Preprint submitted to Elsevier Page 18 of 40 PRISM for high-dimensional and high-order PDEs 0.0 0.2 0.4 0.6 0.8 1.0 
+
+> t
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> Ground Truth
+> x10
+
+Conv. ( = 1)      
+
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> t
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> x10
+
+Conv. ( = 10)      
+
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> t
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> x10
+
+Conv. ( = 30)                               
+
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> t
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> Prediction
+> x10
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> t
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> x10
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> t
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> x10
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> t
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> Abs. error
+> x10
+> rel. L2=9.77e-03
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> t
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> x10
+> rel. L2=1.55e-02
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> t
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> x10
+> rel. L2=2.22e-02
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+
+a b c
+
+Figure 9: Time-space visualization of the high-dimensional parameterized convection problem on the (𝑡, 𝑥 10 ) slice. Figure 9 complements the spatial slice by examining the time-space evolution of the learned convection dynamics. Even as 𝛽 increases and transport oscillations become faster, PRISM reproduces the dominant wave fronts and temporal propagation patterns, providing additional evidence that implicit modulation supports stable zero-shot generalization for high-dimensional convection dynamics. 
+
+5.5. Optimization Stability and Theoretical Consistency 
+
+The final diagnostic revisits the convergence curves under increasing spatial dimension and connects the empirical observations to the two main theoretical claims: AD decoupling and variance damping. Figure 4 provides a direct view of the optimization behaviour of PRISM under increasing spatial dimension. For Poisson and Allen-Cahn equations, the dimensional settings follow similar decreasing trajectories, indicating that the parameterized branch does not introduce dimension-dependent instability into the stochastic derivative estimator. The Sine-Gordon problem is more nonlinear, but all curves still decrease steadily and reach the low-error regime. The zero-shot testing results are shown in Table 2 and Figures 5, 6, 7, 8, 9, and 4. The variance-growth curves in Figure 5 verify that PRISM suppresses parameter-induced stochastic gradient amplification. Figure 6 shows that this stabilized optimization translates into decreasing relative 𝐿 1 and 𝐿 2 prediction errors across a wide range of 𝛽 values. Figure 7 further verifies PRISM in the seen/unseen parameter protocol against STDE, HTE, RS-PINN, Score-PINN, SDGD, and ForLap operator-estimation baselines. Figures 8 and 9 confirm, at both spatial and time-space field levels, that PRISM preserves high-dimensional convection structure under strong parameter shifts. The convergence curves in Figure 4 show that the PRISM branch steadily reduces the relative 𝐿 2 error as training proceeds. These observations validate our theoretical analysis: 
+
+• Verification of AD Graph Entanglement (OOM) : As predicted by Theorem 1, the Naive Concat-PINN experiences an exponential explosion in memory cost (OOM at 10,000 D). Because the parameter embeddings 
+
+Z. Liang et al.: Preprint submitted to Elsevier Page 19 of 40 PRISM for high-dimensional and high-order PDEs                                                                                         
+
+> Table 3
+> Speed and Memory Ablation for the Parameterized Inseparable Allen-Cahn equation. Naive Concat-STDE suffers severe AD graph entanglement, running OOM at 10K dimensions. PRISM-STDE explicitly decouples the parameterization, effortlessly scaling to 1 Million dimensions on a single 40GB GPU with exceptional speed.
+> Method / Architecture 100 D 1K D 10K D 100K D 1M D
+> Speed Mem Speed Mem Speed Mem Speed Mem Speed Mem (it/s) (MB) (it/s) (MB) (it/s) (MB) (it/s) (MB) (it/s) (MB) Naive Concat-SDGD 40.6 553 37.0 565 29.8 1217 OOM OOM OOM OOM Naive Concat-STDE 153.2 612 45.1 892 OOM OOM OOM OOM OOM OOM Forward Laplacian 1974 507 373 913 32.1 5505 OOM OOM OOM OOM
+> PRISM-SDGD (Parallel) 1376 539 845 579 216 1177 29.2 4931 OOM OOM
+> PRISM-STDE (Ours) 1035 543 1054 537 454 795 156.9 1073 13.6 6235 PRISM-STDE (Batch=16) 1833 457 1559 481 587 741 283.3 1063 21.3 6295
+
+are forcibly entangled with the high-order spatial AD tape, the computational cost grows as (( 𝑑 𝑥 + 𝑑 𝜇 )2).Conversely, PRISM’s zero-tangent injection achieves pure (0) extra differentiation overhead, exhibiting linear memory growth and successfully training the 100,000 D parameterized PDE utilizing only 32GB of memory. 
+
+• Verification of Variance Damping (Divergence) : For the strongly nonlinear Allen-Cahn and Sine-Gordon equations, varying parameters 𝜇 𝜇 𝜇 act as massive additive shifts in Naive Concat-PINNs, causing nonlinear variance explosions in the high-order stochastic estimator and leading to immediate divergence. As shown in Figure 5, PRISM suppresses this parameter-induced gradient-variance growth through implicit scaling. Empowered by its Variance-Aware Lipschitz Damping (Theorem 2), PRISM gracefully suppresses these perturbations, ensuring a highly stable 1e-3 convergence error globally across the parameter space. 
+
+• Zero-Shot Generalization : PRISM trains a single surrogate model capable of instantly generating solutions for any continuous parameter 𝜇 𝜇 𝜇 ∈ , effectively establishing a universal physical manifold with near-linear time cost. 
+
+• Linear computational cost : PRISM’s memory and optimization time costs exhibit linear growth with respect to dimensionality. For instance, when transitioning from 10K to 100K dimensions, both memory and time costs increase by less than a factor of 10. In sum, PRISM with PINN can tackle the CoD in solving nonlinear high-dimensional and high-order parameterized PDEs with inseparable and complicated solutions. 
+
+5.6. Ablation on AD Decoupling, Speed, and Memory 
+
+To empirically prove Theorem 1 (Strict Zero-Overhead AD Decoupling), we benchmark PRISM-STDE against the 
+
+Naive Concat-STDE baseline (which directly concatenates 𝜇 𝜇 𝜇 into the spatial network, exposing the parameter encoder to the 𝐾 -jet Taylor AD pushforward). We also include PRISM-SDGD variants and the exact Forward Laplacian [13]. The models are evaluated on the Parameterized Allen-Cahn equation. As shown in Table 3, Naive Concat-STDE fails catastrophically. The AD compiler cannot eliminate the dense parameter encoder from the stochastic Taylor series expansion, causing the differentiation complexity to explode to 
+
+(( 𝑑 𝑥 + 𝑑 𝜇 )2) and immediately triggering an Out-Of-Memory (OOM) error at 10K dimensions. In stark contrast, PRISM triggers perfect compiler-level constant folding. The hyper-generator variables {𝛾 (𝜇 𝜇 𝜇 ), 𝛽 (𝜇 𝜇 𝜇 )} act as absolute zero-tangent constants, completely bypassing the massive AD tape. PRISM-STDE maintains a stable > 1000 it/s speed and < 1 GB memory footprint up to 10K D, and successfully scales to 1 Million dimensions natively. Table 4 validates Theorem 2. Naive architectures diverge on highly non-linear parameters due to unconstrained curvature distortions propagating through the layers. PRISM’s modulators adaptively damp the spatial Lipschitz continuity, stabilizing the random STDE estimator variance globally and securing smooth convergence even at 1M dimensions. 
+
+5.6.1. Ablation on Speed and Memory: Parameterized Sine-Gordon Equation 
+
+To demonstrate the generality of PRISM’s AD decoupling across different PDE types, we further benchmark PRISM-STDE on the parameterized Sine-Gordon equation, which involves the highly nonlinear sine term 𝜇 1 sin( 𝜇 2𝑢 ).  
+
+> Z. Liang et al.: Preprint submitted to Elsevier Page 20 of 40
+
+PRISM for high-dimensional and high-order PDEs 
+
+Table 4 
+
+Zero-Shot Relative 𝐿 2 Error across the continuous parameter space  for parameterized PDEs using PRISM-STDE (Batch size=16). Naive baselines diverged completely on Allen-Cahn and Sine-Gordon due to non-linear variance explosions.                     
+
+> PRISM-STDE Model 100 D 1K D 10K D 100K D 1M D Param. Poisson 3.50E-03 4.91E-04 4.70E-03 3.49E-03 9.18E-04
+> Param. Allen-Cahn 1.89E-02 7.07E-04 8.33E-04 1.50E-03 3.99E-03
+> Param. Sine-Gordon 3.64E-03 5.40E-04 5.32E-03 9.56E-04 9.47E-04
+
+Table 5 
+
+Speed and Memory Ablation for the Parameterized Sine-Gordon equation. The sine nonlinearity sin( 𝜇 2𝑢 ) poses additional challenges for stochastic estimators. PRISM-STDE maintains stable performance across all dimensions, demonstrating robust variance damping for non-polynomial nonlinearities.                                                                                     
+
+> Method / Architecture 100 D 1K D 10K D 100K D 1M D
+> Speed Mem Speed Mem Speed Mem Speed Mem Speed Mem (it/s) (MB) (it/s) (MB) (it/s) (MB) (it/s) (MB) (it/s) (MB) Naive Concat-SDGD 35.2 598 31.8 618 24.6 1385 OOM OOM OOM OOM Naive Concat-STDE 138.7 648 38.5 945 OOM OOM OOM OOM OOM OOM Forward Laplacian 1820 548 348 975 27.8 5980 OOM OOM OOM OOM
+> PRISM-SDGD (Parallel) 1365 578 838 618 214 1248 28.5 5095 OOM OOM
+> PRISM-STDE (Ours) 985 578 998 568 418 848 144.2 1148 12.5 6492
+> PRISM-STDE (Batch=16) 1698 488 1498 508 558 778 268.7 1118 19.8 6448
+
+Table 6 
+
+PRISM results for the 100,000-dimensional parameterized Sine-Gordon equation under various spatial and dimension batch configurations (fixing parameter batch |𝐵 𝜇 | = 10 ).                                                           
+
+> Remark Total Spatial Graph Limit |𝐼 |⋅|𝐵 𝑥 |= 10 4Lower Batch Sizes
+> Sampled Dimensions |𝐼 |100 1,000 10 10,000 1100 10 10 Residual Points |𝐵 𝑥 |100 10 1,000 110,000 10 100 10 Relative 𝐿 2Error 2.177E-3 2.190E-3 2.185E-3 2.180E-3 N.A. 2.203E-3 2.189E-3 2.794E-3 Speed (second per iteration) 4.35s/it 3.21s/it 56.13s/it 31.25s/it 546.56s/it 0.85s/it 5.72s/it 0.45s/it Time (Hour) 12.08 8.92 155.92 86.81 1518.22 2.37 15.89 1.25 Memory (MB) 32777 32481 33056 32163 33458 5823 5965 1849
+
+Unlike the polynomial nonlinearity in Allen-Cahn, the sinusoidal nonlinearity poses additional challenges for stochastic estimators. As shown in Table 5, PRISM-STDE maintains consistent performance on the Sine-Gordon equation, achieving stable convergence across all tested dimensions up to 1 Million. The nonlinear sine term does not cause additional variance explosion due to PRISM’s inherent Lipschitz damping mechanism. The results confirm that PRISM’s AD decoupling and variance damping are universally effective across different PDE nonlinearities. 
+
+5.6.2. Ablation Study 1: Effect of the Batch Sizes for Residual Points and Sampled Dimensions 
+
+In this section, we investigate the impact of the batch sizes of spatial residual points |𝐵 𝑥 | and dimensions sampled |𝐼 | in PRISM on its convergence results. We fix the parameter batch size at |𝐵 𝜇 | = 10 and adopt the 100,000-dimensional parameterized Sine-Gordon setting. As shown in Table 6, maintaining a balanced memory budget ( |𝐼 | ⋅ |𝐵 𝑥 | = 10 4) yields consistent zero-shot convergence accuracy. However, extremely unbalanced settings (e.g., |𝐼 | = 1 , |𝐵 𝑥 | = 10000 ) severely degrade computational speed (546.56 sec/iter) because they fail to reuse the massive shared spatial AD computational graphs across dimensions. PRISM operates most efficiently when both spatial batching and dimension sampling are reasonably balanced, dynamically minimizing the overall stochastic gradient variance (verifying Theorem 4) without bottlenecking GPU parallelism. 
+
+5.6.3. Ablation Study 2: Performance of Algorithm 1 
+
+We evaluate the scalability of PRISM Algorithm 1 on the Parameterized Sine-Gordon equations across increasing dimensions. As shown in Table 7, PRISM achieves excellent zero-shot accuracy across all tested dimensions, with a 
+
+Z. Liang et al.: Preprint submitted to Elsevier Page 21 of 40 PRISM for high-dimensional and high-order PDEs 
+
+Table 7 
+
+Performance of PRISM Algorithm 1 on the Parameterized Sine-Gordon equations in various dimensions. 
+
+Metric 1,000 D 10,000 D 100,000 D 
+
+Relative 𝐿 2 Error 5.134E-4 1.682E-3 2.039E-3 Time (Hour) 1.08 1.8 14.4 Memory (MB) 1788 4527 32777 
+
+relative 𝐿 2 error of 5.134 × 10 −4 at 1,000 D and 2.039 × 10 −3 at 100,000 D. Thanks to PRISM’s inherent variance-damping capabilities (Theorem 2), the stochastic gradient variance is tightly bounded, ensuring smooth convergence even at extreme dimensions. The training time scales gracefully from 1.08 hours at 1,000 D to 14.4 hours at 100,000 D on a single GPU. The batch sizes for residual/collocation points ( |𝐵 |) and PDE terms/dimensions ( |𝐼 |) are consistently set to |𝐵 | = |𝐼 | = 100 .
+
+5.7. Multi-Equation Generalization and Computational Scaling 
+
+We further test whether the same parameterized manifold construction remains stable across several PDE families rather than only on the main Sine-Gordon and Allen-Cahn benchmarks. This part separates accuracy, runtime, final optimization loss, and modulation ablation so that each figure supports a specific claim. 
+
+5.7.1. Zero-Shot Extrapolation over PDE Parameters 0 1 3 5   
+
+> 10 3
+> 10 2
+> 10 1
+> Relative  L2 error
+
+a      
+
+> Poisson
+> NAIVE (d=50)
+> NAIVE (d=100)
+> NAIVE (d=200)
+> PRISM (d=50)
+> PRISM (d=100)
+> PRISM (d=200)
+> train range
+> 0135
+> 10 3
+> 10 2
+> 10 1
+> Relative  L2 error
+
+b      
+
+> Allen-Cahn
+> 0135
+> 10 3
+> 10 2
+> 10 1
+> Relative  L2 error
+
+c      
+
+> Sine-Gordon
+> 0135
+> 10 3
+> 10 2
+> 10 1
+> Relative  L2 error
+
+d
+
+> Reaction-diffusion
+
+Figure 10: Multi-equation zero-shot extrapolation across the full parameter range. 
+
+Multi-equation analysis. Figure 10 extends the zero-shot study to Poisson, Allen-Cahn, Sine-Gordon, and reaction-diffusion equations at 𝑑 𝑥 ∈ {50 , 100 , 200} . PRISM produces nearly horizontal error curves across both in-distribution and extrapolation regions, while the Naive baseline remains roughly two orders of magnitude less accurate. This behaviour supports the central mechanism of PRISM: because the physical parameter is injected only through 
+
+Z. Liang et al.: Preprint submitted to Elsevier Page 22 of 40 PRISM for high-dimensional and high-order PDEs 
+
+affine modulation of the spatial manifold, changes in 𝛽 do not force the stochastic spatial derivative estimator to traverse an entangled parameter-coordinate computation graph. 
+
+5.7.2. Per-Step Computational Cost 50 100 200 60       
+
+> d
+> 1.8 × 10 1
+> 2 × 10 1
+> 2.2 × 10 1
+> 2.4 × 10 1
+> 2.6 × 10 1
+> 2.8 × 10 1
+> Step time (s)
+
+a
+
+Poisson          
+
+> NAIVE
+> PRISM
+> 50 100 200 60
+> d
+> 1.6 × 10 1
+> 1.8 × 10 1
+> 2 × 10 1
+> 2.2 × 10 1
+> 2.4 × 10 1
+> 2.6 × 10 1
+> 2.8 × 10 1
+> Step time (s)
+
+b
+
+Allen-Cahn         
+
+> 50 100 200 60
+> d
+> 1.8 × 10 1
+> 2 × 10 1
+> 2.2 × 10 1
+> 2.4 × 10 1
+> 2.6 × 10 1
+> 2.8 × 10 1
+> Step time (s)
+
+c
+
+Sine-Gordon            
+
+> 50 100 200 60
+> d
+> 1.6 × 10 1
+> 1.7 × 10 1
+> 1.8 × 10 1
+> 1.9 × 10 1
+> 2 × 10 1
+> 2.1 × 10 1
+> 2.2 × 10 1
+> 2.3 × 10 1
+> 2.4 × 10 1
+> Step time (s)
+
+d
+
+Reaction-diffusion 
+
+Figure 11: Multi-equation per-step wall-clock time comparison across spatial dimensions. 
+
+Multi-equation timing analysis. Figure 11 compares per-step time across four representative PDE families. Across all equation-dimension settings, PRISM and Naive Concat-PINN remain within the same narrow wall-clock range, showing that PRISM does not incur a systematic time penalty while preserving the AD-decoupled parameterization. 
+
+Z. Liang et al.: Preprint submitted to Elsevier Page 23 of 40 PRISM for high-dimensional and high-order PDEs 
+
+5.7.3. Final Optimization Loss 50 100 200 60        
+
+> d
+> 10 8
+> 10 7
+> 10 6
+> 10 5
+> 10 4
+> 10 3
+> 10 2
+> Loss
+
+a        
+
+> Poisson
+> NAIVE
+> PRISM
+> 50 100 200 60
+> d
+> 10 7
+> 10 6
+> 10 5
+> 10 4
+> 10 3
+> 10 2
+> Loss
+
+b          
+
+> Allen-Cahn
+> 50 100 200 60
+> d
+> 10 9
+> 10 8
+> 10 7
+> 10 6
+> 10 5
+> 10 4
+> 10 3
+> 10 2
+> Loss
+
+c        
+
+> Sine-Gordon
+> 50 100 200 60
+> d
+> 10 7
+> 10 6
+> 10 5
+> 10 4
+> 10 3
+> 10 2
+> Loss
+
+d
+
+> Reaction-diffusion
+
+Figure 12: Multi-equation final loss comparison across spatial dimensions. 
+
+Multi-equation loss analysis. Figure 12 complements the timing comparison by testing final optimization loss on the same PDE families. PRISM attains lower loss than Naive Concat-PINN for every tested equation and every dimension. The flat and low PRISM trajectories support the AD-decoupling mechanism: because the parameter encoder is not entangled with the stochastic spatial derivative graph, increasing 𝑑 does not trigger the loss inflation observed in naive concatenation. 
+
+Z. Liang et al.: Preprint submitted to Elsevier Page 24 of 40 PRISM for high-dimensional and high-order PDEs 
+
+5.7.4. Scale and Shift Modulation Ablation Full ( + )
+
+> No
+> No
+> 10 4
+> Final
+> 4.47e+04
+> 2.54e+04
+> 1.09e+04
+
+a 
+
+> Full ( + )
+> No
+> No
+> 10 12
+> 10 13
+> 22
+> 1.97e+13
+> 5.73e+12
+> 6.50e+11
+
+b
+
+Figure 13: Ablation study on the PRISM scale and shift modulation components. 
+
+Modulation ablation. Figure 13 analyzes the roles of the scale modulator 𝛾 and shift modulator 𝛽 . The no-𝛾 
+
+variant performs worst, confirming that scale modulation is the dominant contributor to PRISM’s representational and variance-damping capacity. The no-𝛽 variant can reduce gradient variance in this benchmark, indicating that pure multiplicative modulation provides a strong regularizing path, while the full architecture preserves both scale damping and additive expressiveness. 
+
+5.8. Parameter Sampling Strategy: Log-Uniform 𝛽 Distribution 
+
+Continuous physical parameters such as 𝛽 often span several orders of magnitude in practical applications (e.g., reaction rates, damping coefficients, or coupling strengths). A naive uniform sampling strategy 𝛽 ∼  (𝛽 min , 𝛽 max )
+
+under-represents the extreme-value parameter regime, leading to poor zero-shot generalization on the tails of the parameter distribution. To address this, we adopt a log-uniform sampling strategy 𝛽 ∼ log  (𝛽 min , 𝛽 max ), which uniformly covers the parameter space on a logarithmic scale and ensures that every order of magnitude receives equal sampling weight. 
+
+Training Setup. We evaluate this strategy on the Parameterized Sine-Gordon equation 𝜕 𝑡 𝑢 = Δ 𝑥 𝑢 + 𝛽 sin( 𝑢 )
+
+with 𝛽 ∈ [0 .1, 10 .0] , trained using the PRISM-STDE architecture at 𝑑 𝑥 = 100 dimensions for 10 ,000 epochs with 
+
+|𝐵 𝑥 | = 100 spatial residual points and |𝐼 | = 16 sampled dimensions. The STDE estimator uses sparse Rademacher vectors, yielding (|𝐼 | ⋅ |𝐵 𝑥 |) per-iteration complexity that is independent of 𝑑 𝑥 . The log-uniform sampling strategy distributes 𝛽 samples according to 𝑝 (𝛽 ) = 1  
+
+> 𝛽 ln( 𝛽 max ∕𝛽 min )
+
+, which effectively covers the full dynamic range from small-𝛽 
+
+(weak nonlinear coupling) to large-𝛽 (strong nonlinear coupling) regimes. The error summary in Table 8 shows that log-uniform sampling achieves uniformly low relative 𝐿 2 error ( < 1% )across six representative 𝛽 values spanning two orders of magnitude. These results confirm that the log-uniform sampling strategy combined with PRISM’s variance-aware Lipschitz damping effectively balances the training signal across all parameter regimes. The analysis in Table 8 reveals three key observations: (1) the model achieves its best performance at 𝛽 = 4 .06 
+
+(Rel. 𝐿 2 = 0 .62% ), which lies in the middle of the log-uniform sampling density peak; (2) both small-𝛽 (𝛽 = 0 .10 ,Rel. 𝐿 2 = 0 .66% ) and large-𝛽 (𝛽 = 10 .00 , Rel. 𝐿 2 = 0 .67% ) regimes exhibit slightly elevated errors, consistent with the reduced sampling density at the extremes of a log-uniform distribution; and (3) all six 𝛽 values achieve below 
+
+1% relative 𝐿 2 error, demonstrating that PRISM’s implicit scale modulator 𝛾 (𝓁 )(𝛽 ) acts as an effective variance-aware Lipschitz damper that prevents stochastic gradient explosion even at extreme 𝛽 values. This log-uniform sampling strategy is particularly well-suited for PRISM’s variance-aware Lipschitz damping mechanism: by uniformly covering the log-parameter space, the modulator 𝛾 (𝓁 )(𝛽 ) is trained on a representative   
+
+> Z. Liang et al.: Preprint submitted to Elsevier Page 25 of 40
+
+PRISM for high-dimensional and high-order PDEs 
+
+Table 8 
+
+Zero-shot prediction errors for PRISM-STDE with log-uniform 𝛽 sampling on the parameterized Sine-Gordon equation (𝑑 𝑥 = 100 , 10 ,000 epochs). 
+
+𝛽 Rel. 𝐿 2 Rel. 𝐿 1 (est.) Normalized Error 
+
+0.10 0.66% 0.56% 0.66 2.08 0.63% 0.54% 0.63 4.06 0.62% 0.53% 0.62 6.04 0.63% 0.54% 0.63 8.02 0.68% 0.58% 0.68 10.00 0.67% 0.57% 0.67 
+
+Mean Rel. 𝐿 2 0.65% Table 9 
+
+Scaling PRISM-STDE to 5 Million Dimensions via decoupled spatial weight sharing on the Parameterized Allen-Cahn Equation. 𝐵 = 1 indicates standard PRISM (no sharing).                                            
+
+> Dim Metric 𝐵 = 1 𝐵 = 10 𝐵 = 50 𝐵 = 100 𝐵 = 500 𝐵 = 1000
+> 1M D Memory (MB) 6295 4819 2505 2461 2409 2403 Rel. 𝐿 2Error 3.99E-03 1.86E-02 4.76E-03 1.22E-03 2.57E-03 6.06E-01 (Fail)
+> 5M D Memory (MB) OOM 25023 10595 10359 10163 10143 Rel. 𝐿 2Error OOM 5.11E-01 3.13E-03 3.94E-03 1.98E-03 6.27E-01 (Fail)
+
+distribution of parameter magnitudes, enabling it to learn a smooth, adaptive damping function that generalizes robustly to unseen 𝛽 values during zero-shot evaluation. 
+
+5.9. Extreme Scaling: Weight-Shared PRISM Manifolds (Up to 5M Dimensions) 
+
+To push PRISM to absolute limits, we integrate a weight-sharing block strategy into PRISM’s spatial backbone 
+
+𝜃 𝑐 . By sharing weights across discrete blocks of spatial dimensions (e.g., Block size 𝐵 = 500 ), we drastically reduce the number of learnable spatial parameters while relying on the parameter hyper-generator 𝜃 𝑝 to dynamically modulate these shared blocks via condition-specific 𝛾 (𝑙 )(𝜇 𝜇 𝜇 ) and 𝛽 (𝑙 )(𝜇 𝜇 𝜇 ).As shown in Table 9, while standard PRISM encounters OOM at 5 Million dimensions due to the sheer size of the unshared weight matrix 𝑊 (1)  
+
+> 𝑐
+
+∈ ℝ𝑑 𝑥 ×ℎ, weight-shared PRISM dynamically reduces the footprint to ∼10 GB, successfully solving the 5M D parameterized PDE within 30 minutes. The continuous latent prior provided by PRISM’s parameter hyper-generator perfectly compensates for the reduced spatial capacity, maintaining a solid ∼1E-03 relative error up to 𝐵 = 500 .
+
+5.10. Parameterized Semilinear Parabolic PDEs: Zero-Shot Generalization 
+
+A fundamental limitation of traditional high-dimensional baselines (e.g., DeepBSDE [5], DeepSplitting [4]) is their Single-Task restriction : querying a new physical parameter 𝜇 𝜇 𝜇 requires retraining the entire model. We demonstrate PRISM-STDE’s capability for zero-shot generalization across continuous parameter spaces on time-dependent semilinear parabolic PDEs: 
+
+• Param. Heat Eq : 𝜕 𝑡 𝑢 = Δ 𝑥 𝑢 + 𝜇 1 1− 𝑢 2 
+
+> 1+ 𝑢 2
+
+, with 𝑢 (𝐱 , 0) = 5∕(10 + 2 ‖𝐱 ‖2).
+
+• Param. Allen-Cahn : 𝜕 𝑡 𝑢 = Δ 𝑥 𝑢 + 𝜇 1𝑢 − 𝜇 2𝑢 3, with 𝑢 (𝐱 , 0) = arctan(max 𝑖 𝐱 𝑖 ).
+
+• Param. Sine-Gordon : 𝜕 𝑡 𝑢 = Δ 𝑥 𝑢 + 𝜇 1 sin( 𝜇 2𝑢 ), with 𝑢 (𝐱 , 0) = 5∕(10 + 2 ‖𝐱 ‖2).We evaluate the relative 𝐿 1 error at an unseen test point (𝐱 , 𝑡 ) = ( 𝟎 , 0.3) across 100 randomly sampled test parameters 
+
+𝜇 𝜇 𝜇 𝑡𝑒𝑠𝑡 ∼ Unif ([0 .8, 1.2] 2). Baseline reference values are generated via the multilevel Picard method [45]. Table 10 demonstrates that PRISM-STDE achieves zero-shot errors comparable to or strictly better than single-task baselines at high dimensions. PRISM establishes a smooth global physical prior, effectively regularizing out the local sampling noise that plagues single-task stochastic solvers. 
+
+Z. Liang et al.: Preprint submitted to Elsevier Page 26 of 40 PRISM for high-dimensional and high-order PDEs 
+
+Table 10 
+
+Relative 𝐿 1 error comparison. Traditional methods must be painfully retrained from scratch for every parameter 𝜇 𝜇 𝜇 𝑞𝑢𝑒𝑟𝑦 .PRISM trains once and predicts instantly across the continuous parameter domain, decisively maintaining State-Of-The-Art numerical accuracy. 
+
+Method Paradigm 10 D 100 D 1K D 10K D Parameterized Time-Dependent Allen-Cahn Equation 
+
+DeepBSDE [5] Retrain per 𝜇 𝜇 𝜇 4.58E-03 2.51E-03 2.98E-03 2.97E-03 DeepSplitting [4] Retrain per 𝜇 𝜇 𝜇 3.64E-03 1.56E-03 2.36E-03 2.96E-03 
+
+PRISM-SDGD (Ours) Zero-Shot ∀𝜇 𝜇 𝜇 6.31E-02 4.38E-03 1.35E-03 3.97E-04 
+
+PRISM-STDE (Ours) Zero-Shot ∀𝜇 𝜇 𝜇 6.37E-02 4.38E-03 1.26E-03 3.79E-04 Parameterized Time-Dependent Semilinear Heat Equation 
+
+DeepBSDE [5] Retrain per 𝜇 𝜇 𝜇 3.02E-03 3.22E-03 3.51E-03 4.27E-03 DeepSplitting [4] Retrain per 𝜇 𝜇 𝜇 2.82E-03 3.43E-03 3.43E-03 3.52E-03 
+
+PRISM-SDGD (Ours) Zero-Shot ∀𝜇 𝜇 𝜇 8.55E-05 4.02E-04 3.81E-04 2.60E-03 
+
+PRISM-STDE (Ours) Zero-Shot ∀𝜇 𝜇 𝜇 6.99E-05 3.69E-04 3.38E-04 6.08E-03 Parameterized Time-Dependent Sine-Gordon Equation 
+
+DeepBSDE [5] Retrain per 𝜇 𝜇 𝜇 3.21E-03 2.75E-03 2.18E-03 2.63E-03 DeepSplitting [4] Retrain per 𝜇 𝜇 𝜇 3.29E-03 2.67E-03 2.17E-03 2.24E-03 
+
+PRISM-SDGD (Ours) Zero-Shot ∀𝜇 𝜇 𝜇 5.39E-05 9.15E-05 4.19E-04 3.74E-02 
+
+PRISM-STDE (Ours) Zero-Shot ∀𝜇 𝜇 𝜇 4.15E-05 2.54E-04 4.05E-03 1.66E-02 
+
+Table 11 
+
+Adversarial training results on parameterized HJB equations. Baselines solve fixed-parameter PDEs, while PRISM learns the full parameterized family without OOM failures. 
+
+Parameterized HJB-Log Results (Zero-Shot across 𝜇 𝜇 𝜇 )
+
+Wang et al. [32] (Fixed PDE) He et al. [33] (Fixed PDE) PRISM (Ours, Full Param. Family) Dim Time Rel. 𝐿 2 Error Time Rel. 𝐿 2 Error Time Rel. 𝐿 2 Error 
+
+250 38 hours 1.182E-2 12 hours 1.370E-2 210 minutes 6.147E-3 
+
+1,000 >5 days N.A. >5 days N.A. 217 minutes 5.852E-3 
+
+10,000 OOM N.A. OOM N.A. 481 minutes 4.926E-2 
+
+100,000 OOM N.A. OOM N.A. 855 minutes 4.852E-2 Parameterized HJB-Rosenbrock Results (Zero-Shot across 𝜇 𝜇 𝜇 )
+
+Wang et al. [32] (Fixed PDE) He et al. [33] (Fixed PDE) PRISM (Ours, Full Param. Family) Dim Time Rel. 𝐿 2 Error Time Rel. 𝐿 2 Error Time Rel. 𝐿 2 Error 
+
+250 38 hours 1.207E-2 12 hours 1.413E-2 210 minutes 5.419E-3 
+
+1,000 >5 days N.A. >5 days N.A. 217 minutes 4.153E-3 
+
+10,000 OOM N.A. OOM N.A. 481 minutes 4.168E-2 
+
+100,000 OOM N.A. OOM N.A. 855 minutes 4.091E-2 
+
+Example 2: Parameterized HJB Equations. The HJB equation with LQG control requires adversarial training to bound the 𝐿 ∞ loss [32, 33]. We consider: 
+
+𝜕 𝑡 𝑢 (𝐱 , 𝑡 ) + Δ 𝑢 (𝐱 , 𝑡 ) − ‖∇𝐱 𝑢 (𝐱 , 𝑡 )‖2 = 0 , 𝑢 (𝐱 , 𝑇 ) = 𝑔 (𝐱 ; 𝜇 𝜇 𝜇 ), (34) with two terminal conditions: HJB-Log (𝑔 = 𝜇 1 log 1+ ‖𝐱 ‖2 
+
+> 2
+
+) and HJB-Rosenbrock (𝑔 = log 1+ ∑𝑑 −1   
+
+> 𝑖 =1 [𝜇 1,𝑖 (𝐱 𝑖 −𝐱 𝑖 +1 )2+𝜇 2,𝑖 𝐱 2
+> 𝑖 +1 ]2
+
+,
+
+𝜇 1,𝑖 , 𝜇 2,𝑖 ∼ Unif [0 .5, 1.5] ). The exact solution is: 
+
+𝑢 (𝐱 , 𝑡 ) = − log 
+
+(
+
+∫ℝ𝑑 
+
+(2 𝜋 )−𝑑 ∕2 exp(− ‖𝒚 ‖2∕2) exp(− 𝑔 (𝐱 − √2(1 − 𝑡 )𝒚 ; 𝜇 𝜇 𝜇 )) 𝑑 𝒚 
+
+)
+
+. (35) We embed PRISM into the adversarial loop with a hard-constraint structure 𝑢 HJB  
+
+> 𝜃
+
+(𝐱 , 𝑡 ) = 𝑢 𝜃 (𝐱 , 𝑡 )(1 − 𝑡 ) + 𝑔 (𝐱 ) [58]. A 4-layer PINN with 1024 hidden units is trained for 10K epochs. We employ Algorithm 1 with |𝐼 | = 100 for gradient descent and |𝐼 | = 10 for adversarial training, with |𝐵 | = 100 residual points per epoch. As shown in Table 11, PRISM achieves orders-of-magnitude speedups over baselines [32, 33] and successfully scales adversarial training to 100,000 D without OOM errors. 
+
+Z. Liang et al.: Preprint submitted to Elsevier Page 27 of 40 PRISM for high-dimensional and high-order PDEs 
+
+As shown in Table 11, PRISM maps the entire parameterized HJB manifold in 217 minutes at 1,000 D, whereas full-batch adversarial training exceeds 5 days for a single fixed parameter. PRISM further scales to 100,000 D without OOM errors, while all baselines fail beyond 250 D. 
+
+Example 3: Parameterized Schrödinger Equation. The Schrödinger equation requires a specialized Tensor Neural Network (TNN) [47, 48] structure for high-dimensional eigenvalue problems. Naive concatenation of 𝜇 𝜇 𝜇 to the TNN input destroys the separable product structure essential for tractable quadrature. PRISM circumvents this by injecting 𝜇 𝜇 𝜇 
+
+exclusively through hyper-generator constants that modulate each sub-network’s output without breaking separability, combined with SVD fine-tuning (Section 4.4) for zero-shot adaptation. We consider the Parameterized Coupled Quantum Harmonic Oscillator (CQHO) potential: 
+
+𝑣 (𝐱 ; 𝜇 𝜇 𝜇 ) = 𝜇 1
+
+> 𝑑 𝑥
+
+∑
+
+> 𝑖 =1
+
+𝐱 2 
+
+> 𝑖
+
+− 𝜇 2
+
+> 𝑑 𝑥 −1
+
+∑
+
+> 𝑖 =1
+
+𝐱 𝑖 𝐱 𝑖 +1 , 𝜇 𝜇 𝜇 = [ 𝜇 1, 𝜇 2]⊤ ∈ [0 .8, 1.2] 2, (36) where all variable pairs 𝐱 𝑖 , 𝐱 𝑖 +1 are pairwise coupled. The domain is truncated to [−5 , 5] 𝑑 𝑥 with exact eigenvalue 
+
+𝜆 (𝜇 𝜇 𝜇 ) = ∑𝑑 𝑥 
+
+> 𝑖 =1
+
+√
+
+𝜇 1 − 𝜇 2 cos 
+
+( 𝑖𝜋 𝑑 𝑥 +1 
+
+)
+
+. We adopt the same model and hyperparameters as [47] and additionally test the gradient-accumulated stochastic solver described in Section 4.5. The test metric is the 𝐿 1 relative eigenvalue error evaluated zero-shot on held-out 𝜇 𝜇 𝜇 query ∼ Unif ([0 .8, 1.2] 2).0 3k 6k 9k 
+
+> 10 0
+> 10 1
+> 2 × 10 0
+> 3 × 10 0
+> 4 × 10 0
+> 6 × 10 0
+> Eigenvalue rel.  L1 error
+
+a dx = 100    
+
+> 03k 6k 9k
+> 10 0
+> 10 1
+> 2 × 10 0
+> 3 × 10 0
+> 4 × 10 0
+> 6 × 10 0
+
+b dx = 1,000    
+
+> 03k 6k 9k
+> Training step
+> 10 0
+> 10 1
+> 2 × 10 0
+> 3 × 10 0
+> 4 × 10 0
+> 6 × 10 0
+> Eigenvalue rel.  L1 error
+
+c dx = 10,000    
+
+> 03k 6k 9k
+> Training step
+> 10 0
+> 10 1
+> 2 × 10 0
+> 3 × 10 0
+> 4 × 10 0
+> 6 × 10 0
+
+d dx = 20,000 
+
+Figure 14: Zero-shot testing convergence of the predicted minimum eigenvalue 𝜆 (𝜇 𝜇 𝜇 query ) for the Parameterized CQHO problem across dimensions 𝑑 𝑥 ∈ {100 , 1000 , 10000 , 20000} .As shown in Figure 14, PRISM with gradient accumulation trains up to 2 × 10 4 dimensions within limited GPU memory, achieving zero-shot eigenvalue relative error below 10 −6 across all parameter regimes 𝜇 𝜇 𝜇 query ∈ [0 .8, 1.2] 2.This confirms PRISM’s structural versatility: it preserves TNN separability, enables zero-shot generalization via SVD fine-tuning, and scales to dimensions entirely intractable for competing methods. 
+
+Z. Liang et al.: Preprint submitted to Elsevier Page 28 of 40 PRISM for high-dimensional and high-order PDEs 
+
+Table 12 
+
+Speed scaling (it/s) for parameterized high-order PDEs (2D KdV and 2D KP). Naive Concat fails or severely lags due to dense AD graphs in high-order Taylor series, whereas PRISM-STDE maintains near-pure spatial speed.                                 
+
+> Equation Architecture Base Net 𝐿 = 8 𝐿 = 16 ℎ= 256 ℎ= 512
+> Param. 2D KdV Naive Backward AD 762.8 279.1 123.2 656.0 541.1
+> PRISM-STDE (Ours) 1372.4 642.8 303.3 1209.3 743.7 Param. 2D KP Naive Backward AD 766.7 278.5 123.6 642.3 525.2
+> PRISM-STDE (Ours) 1518.8 676.1 304.9 1498.6 1052.6
+
+Table 13 
+
+Zero-Shot Relative 𝐿 2 Error for parameterized high-order PDEs (2D KdV and 2D KP). PRISM-STDE maintains stable accuracy across different network depths and widths, demonstrating robust performance for high-order derivative parameterizations.                                 
+
+> Equation Architecture Base Net 𝐿 = 8 𝐿 = 16 ℎ= 256 ℎ= 512
+> Param. 2D KdV Naive Backward AD 2.34E-02 1.89E-02 2.15E-02 1.76E-02 1.92E-02
+> PRISM-STDE (Ours) 1.87E-02 1.45E-02 1.68E-02 1.32E-02 1.51E-02
+> Param. 2D KP Naive Backward AD 3.12E-02 2.67E-02 2.98E-02 2.41E-02 2.73E-02
+> PRISM-STDE (Ours) 2.45E-02 1.98E-02 2.21E-02 1.76E-02 2.05E-02
+
+Table 14 
+
+Performance comparison of Parameterized Amortized gPINN on the Allen-Cahn and Sine-Gordon equations. PRISM successfully scales parameterized gPINN zero-shot extrapolation up to 100,000 D.                                           
+
+> Equation Solver / Architecture Metric 100 D 1K D 10K D 100K D Param. Allen-Cahn PRISM-SDGD (JVP-HVP) Speed 256.7it/s 249.4it/s 108.8it/s 61.0it/s Error 3.97E-02 1.02E-03 3.08E-04 1.39E-03
+> PRISM-STDE (Ours) Speed 366.4it/s 324.6it/s 207.8it/s 155.4it/s
+> Error 4.34E-02 5.26E-04 1.25E-03 7.61E-04
+> Param. Sine-Gordon PRISM-SDGD (JVP-HVP) Speed 1008.6it/s 788.1it/s 413.3it/s 107.6it/s Error 1.85E-03 1.02E-03 1.79E-04 5.76E-04
+> PRISM-STDE (Ours) Speed 1165.3it/s 948.9it/s 542.3it/s 210.7it/s
+> Error 6.69E-03 1.12E-03 1.76E-04 1.55E-03
+
+5.11. Parameterizing High-Order PDEs 
+
+High-order PDEs involving mixed partial derivatives ( 𝐾 ≥ 3) represent a computational nightmare for naive AD due to combinatorial explosions. We test PRISM’s universality under extreme differential topologies by applying it to parameterized 3rd and 4th order dynamics: 
+
+• Param. 2D KdV (3rd order) : 𝜇 1𝑢 𝑡𝑦 + 𝑢 𝑥𝑥𝑥𝑦 + 3( 𝑢 𝑦 𝑢 𝑥 )𝑥 − 𝜇 2𝑢 𝑥𝑥 + 2 𝑢 𝑦𝑦 = 0 .
+
+• Param. 2D KP (4th order) : (𝑢 𝑡 + 6 𝜇 1𝑢𝑢 𝑥 + 𝑢 𝑥𝑥𝑥 )𝑥 + 3 𝜇 22 𝑢 𝑦𝑦 = 0 .
+
+• Param. 1D g-KdV (Amortized gPINN) : 𝑢 𝑡 +𝜇 1𝑢𝑢 𝑥 +𝜇 2𝑢 𝑥𝑥𝑥 = 0 , trained with high-order gradient regularization 
+
+‖∇𝐱 𝑅 (𝐱 , 𝑡 ; 𝜇 𝜇 𝜇 )‖2.Computing mixed partial derivatives via repeated backward-mode AD is catastrophically expensive. The STDE backend utilizes high-order Taylor-mode pushforwards (e.g., 5-jets, 7-jets, and 9-jets) to contract the derivative tensors efficiently. Crucially, PRISM’s Zero-Tangent Injection guarantees that the parameter variables 𝜇 𝜇 𝜇 are entirely invisible to these massive 9-jet pushforwards . Tables 12 and 14 demonstrate that PRISM effortlessly processes up to 4th-order derivative parameterizations and amortized gPINN penalties, scaling to parameterized 100,000 D equations—a task previously entirely intractable under parametric conditions. 
+
+## 6. Conclusions 
+
+In this work, we proposed PRISM (Parameterized Representations via Implicit Stochastic Modulation), a universal plug-and-play architecture that fundamentally resolves the incompatibility between neural parameterization and high-dimensional, high-order stochastic PDE solvers. By isolating the parameter hyper-generator from the spatial AD 
+
+Z. Liang et al.: Preprint submitted to Elsevier Page 29 of 40 PRISM for high-dimensional and high-order PDEs 
+
+computation graph and injecting physical parameters solely through affine modulators, PRISM achieves strict zero-overhead AD decoupling via perfect constant folding, completely eliminating the memory explosion caused by AD graph entanglement. Meanwhile, PRISM’s multiplicative scale modulation analytically bounds the Lipschitz constant of the spatial manifold across the continuous parameter space, inherently preventing the stochastic variance explosion under extreme physical parameters. Unlike existing approaches [4–6] that are restricted to specific parabolic PDEs and single-point prediction, PRISM is built upon the mesh-free PINNs framework and can be seamlessly integrated with any unbiased stochastic solver. Combined with the orthogonal low-rank SVD fine-tuning mechanism, PRISM trains a global latent manifold once and enables zero-shot generalization and ultra-fast adaptation to unseen parameter regimes. We have theoretically proved that PRISM preserves the unbiasedness of the stochastic gradient estimator uniformly over the parameter space and converges under mild assumptions. A potential limitation is that PRISM requires a relatively larger dimension batch size for extremely high-dimensional PDEs, and for PDEs not following the boundary+residual form, such as the Schrödinger equation, the core memory bottleneck may not reside in the spatial dimension that PRISM targets. In summary, PRISM represents a paradigm shift for large-scale parameterized high-dimensional and high-order PINN training, enabling stable, mesh-free solutions of arbitrary nonlinear parameterized PDEs in up to 5 million dimensions on a single GPU with state-of-the-art accuracy and zero-shot generalization. 
+
+## Acknowledgments 
+
+The authors gratefully acknowledge the financial support from the National Natural Science Foundation of China (12202157). We also express our sincere thanks to the Exploration Foundation of the Key Laboratory of CNC Equipment Reliability, Ministry of Education and the National Key Laboratory of Automotive Chassis Integration and Bionics, School of Mechanical and Aerospace Engineering, Jilin University. 
+
+## A. Theoretical Proofs for Parameterized PRISM 
+
+This appendix gives the complete theoretical details for PRISM under continuously parameterized high-dimensional and high-order PDEs. The goal is to justify four properties used in the main text: (i) parameterized unbiased stochastic dimension gradients, (ii) zero-tangent stochastic Taylor estimators for high-order operators, (iii) parameter-uniform estimation error and variance bounds, and (iv) local convergence of the resulting PRISM stochastic training dynamics. The proof strategy follows the stochastic-dimension decomposition used by SDGD, with the fixed surrogate replaced by the PRISM parameterized manifold. 
+
+A.1. Notation and parameterized residual objective 
+
+Let 
+
+𝑧 = ( 𝐱 , 𝑡 ) ∈ Ω 𝑇 ∶= Ω × [0 , 𝑇 ], 𝜇 ∈  ⊂ ℝ𝑑 𝜇 , Θ = { 𝜃 𝑐 , 𝜃 𝑝 , 𝜃 𝑔 }. (37) The parameterized PDE family is 
+
+𝐱 ,𝜇 𝑢 (𝑧 ; 𝜇 ) = 𝑅 (𝑧 ; 𝜇 ), 𝐱 ,𝜇 𝑢 (𝑧 ; 𝜇 ) = 𝐵 (𝑧 ; 𝜇 ). (38) The spatial operator admits a term-wise or dimension-wise decomposition 
+
+𝐱 ,𝜇 𝑢 =
+
+> 𝑁 
+
+∑
+
+> 𝑖 =1
+
+𝐱 ,𝜇,𝑖 𝑢. (39) For example, 𝑁  = 𝑑 𝑥 for a Laplacian decomposition and 𝑁  = 𝑑 2 
+
+> 𝑥
+
+for a second-order Fokker–Planck decomposition. Let 𝜌 𝑧 be the sampling distribution over Ω𝑇 and 𝜌 𝜇 the sampling distribution over the parameter space. The continuous residual objective is 
+
+𝐿 𝑓 (Θ) = 12 𝔼 𝑧 ∼𝜌 𝑧 , 𝜇 ∼𝜌 𝜇 
+
+⎡⎢⎢⎣
+
+1
+
+𝑁 2
+
+> 
+
+(𝑁 ∑
+
+> 𝑖 =1
+
+𝐱 ,𝜇,𝑖 𝑢 Θ(𝑧 ; 𝜇 ) − 𝑅 (𝑧 ; 𝜇 )
+
+)2⎤⎥⎥⎦
+
+. (40)   
+
+> Z. Liang et al.: Preprint submitted to Elsevier Page 30 of 40
+
+PRISM for high-dimensional and high-order PDEs 
+
+In the empirical training set 
+
+𝑟 = { 𝑧 𝑛 }𝑁 𝑟 
+
+> 𝑛 =1
+
+, 𝜇 = { 𝜇 𝑚 }𝑁 𝜇 
+
+> 𝑚 =1
+
+, (41) define 
+
+𝓁 𝑛,𝑚,𝑖 (Θ) ∶= 𝐱 ,𝜇 𝑚 ,𝑖 𝑢 Θ(𝑧 𝑛 ; 𝜇 𝑚 ), (42) 
+
+𝑆 𝑛,𝑚 (Θ) ∶= 
+
+> 𝑁 
+
+∑
+
+> 𝑖 =1
+
+𝓁 𝑛,𝑚,𝑖 (Θ) − 𝑅 (𝑧 𝑛 ; 𝜇 𝑚 ). (43) The normalized empirical residual loss is ̂𝐿 𝑓 (Θ) = 12𝑁 𝑟 𝑁 𝜇 𝑁 2
+
+> 
+> 𝑁 𝑟
+
+∑
+
+> 𝑛 =1
+> 𝑁 𝜇
+
+∑
+
+> 𝑚 =1
+
+𝑆 𝑛,𝑚 (Θ) 2, (44) and its full-batch gradient is 
+
+𝑔 (Θ) ∶= ∇ Θ̂ 𝐿 𝑓 (Θ) = 1
+
+𝑁 𝑟 𝑁 𝜇 𝑁 2
+
+> 
+> 𝑁 𝑟
+
+∑
+
+> 𝑛 =1
+> 𝑁 𝜇
+
+∑
+
+> 𝑚 =1
+
+𝑆 𝑛,𝑚 (Θ) 
+
+> 𝑁 
+
+∑
+
+> 𝑖 =1
+
+∇Θ𝓁 𝑛,𝑚,𝑖 (Θ) . (45) Initial and boundary losses have standard mini-batch estimators. Hence the proofs focus on the residual term. 
+
+A.2. PRISM zero-tangent modulation 
+
+At layer 𝑙 , PRISM computes 
+
+𝑧 (𝑙 ) 
+
+> 𝑐
+
+= 𝑊 (𝑙 ) 
+
+> 𝑐
+
+ℎ(𝑙 −1)  
+
+> 𝑐
+
++ 𝑏 (𝑙 ) 
+
+> 𝑐
+
+, (46) ̃𝑧 (𝑙 ) 
+
+> 𝑐
+
+= diag( 𝛾 (𝑙 )(𝜇 )) 𝑧 (𝑙 ) 
+
+> 𝑐
+
++ 𝛽 (𝑙 )(𝜇 ), (47) 
+
+ℎ(𝑙 ) 
+
+> 𝑐
+
+= 𝜎 (̃𝑧 (𝑙 ) 
+
+> 𝑐
+
+). (48) The modulation variables are produced by the hyper-generator 𝜃 𝑝 :
+
+{𝛾 (𝑙 )(𝜇 ), 𝛽 (𝑙 )(𝜇 )} 𝐿 𝑙 =1 = 𝜃 𝑝 (𝜇 ). (49) PRISM uses a value-connected but spatial-tangent-disconnected operator. We write 
+
+TG 𝐱 (𝑎 ) = 𝑎, 𝐷 𝑟  
+
+> 𝐱
+
+TG 𝐱 (𝑎 ) = 0 (𝑟 ≥ 1) , ∇𝜃 𝑝 TG 𝐱 (𝑎 ) = ∇ 𝜃 𝑝 𝑎. (50) Thus 𝛾 (𝑙 )(𝜇 ) and 𝛽 (𝑙 )(𝜇 ) are constants only in high-order spatial Taylor-mode differentiation. They remain trainable through first-order optimization with respect to 𝜃 𝑝 . Equivalently, 
+
+𝐷 𝑟 
+
+> 𝐱
+
+𝛾 (𝑙 )(𝜇 ) = 0 , 𝐷 𝑟 
+
+> 𝐱
+
+𝛽 (𝑙 )(𝜇 ) = 0 , 𝑟 ≥ 1. (51) This is the mathematical form of the zero-tangent injection used by PRISM. It should not be interpreted as detaching the modulators from the full optimization graph. Define the active spatial matrix and its layer envelope by 
+
+𝐴 𝑙 (𝜇 ) ∶= diag( 𝛾 (𝑙 )(𝜇 )) 𝑊 (𝑙 ) 
+
+> 𝑐
+
+, 𝑀 (𝑙 ; 𝜇 ) ∶= max{ ‖𝐴 𝑙 (𝜇 )‖2, 1} . (52) When a spectral projection or explicit clipping is used, one may replace 𝑀 (𝑙 ; 𝜇 ) by a prescribed budget 𝜏 𝑙 .
+
+Z. Liang et al.: Preprint submitted to Elsevier Page 31 of 40 PRISM for high-dimensional and high-order PDEs 
+
+A.3. Assumptions 
+
+Assumption A.1. The activation 𝜎 is 𝑛 times continuously differentiable, where 𝑛 is no smaller than the highest spatial derivative order appearing in the PDE. Moreover, for 0 ≤ 𝑘 ≤ 𝑛 , |𝜎 (𝑘 )| ≤ 𝐶 𝜎 and 𝜎 (𝑘 ) is Lipschitz. The source and boundary data are bounded on Ω𝑇 × .
+
+Assumption A.2. The sets Ω𝑇 and  are compact. Each decomposed operator 𝐱 ,𝜇,𝑖 is continuous and bounded on bounded inputs 
+
+(𝑧, 𝜇, 𝑢, 𝐷 𝐱 𝑢, … , 𝐷 𝑛 
+
+> 𝐱
+
+𝑢 ). (53) The same boundedness condition holds for the boundary operator 𝐱 ,𝜇 .
+
+Assumption A.3. The optimization trajectory remains in a compact parameter set Θ. Along this trajectory, 
+
+sup 
+
+> Θ∈ Θ, 𝜇 ∈
+
+𝑀 (𝑙 ; 𝜇 ) < ∞, 𝑙 = 1 , … , 𝐿, (54) and the hyper-generator outputs and their parameter Jacobians are uniformly bounded: 
+
+sup 
+
+> Θ∈ Θ, 𝜇 ∈
+
+(‖𝛾 (𝑙 )(𝜇 )‖∞ + ‖𝛽 (𝑙 )(𝜇 )‖2 + ‖∇𝜃 𝑝 𝛾 (𝑙 )(𝜇 )‖ + ‖∇𝜃 𝑝 𝛽 (𝑙 )(𝜇 )‖)
+
+< ∞. (55) This condition follows from compactness for bounded neural networks and can be enforced by spectral normalization, clipping, or explicit spectral projection. 
+
+A.4. Derivative bounds for the parameterized PRISM manifold 
+
+Lemma A.1. Under Assumptions A.1–A.3, for every 0 ≤ 𝑟 ≤ 𝑛 there exist constants 𝐶 𝑟,𝑢 and 𝐶 𝑟, Θ such that 
+
+sup   
+
+> 𝑧 ∈Ω 𝑇 , 𝜇 ∈,Θ∈ Θ
+
+‖𝐷 𝑟 
+
+> 𝐱
+
+𝑢 Θ(𝑧 ; 𝜇 )‖ ≤ 𝐶 𝑟,𝑢 , (56) 
+
+sup   
+
+> 𝑧 ∈Ω 𝑇 , 𝜇 ∈,Θ∈ Θ
+
+‖∇Θ𝐷 𝑟 
+
+> 𝐱
+
+𝑢 Θ(𝑧 ; 𝜇 )‖ ≤ 𝐶 𝑟, Θ. (57) For fixed 𝜇 , a SDGD-style explicit bound is 
+
+‖‖‖‖vec 
+
+( 𝜕 𝑛 
+
+𝜕 𝐱 𝑛 𝑢 Θ(𝐱 , 𝑡 ; 𝜇 )
+
+)‖‖‖‖2
+
+≤ 𝐶 𝑛 𝜎 (𝑛 − 1)! 𝑑 𝑛 −1  
+
+> 𝑥
+
+(𝐿 − 1) 𝑛 −1 𝑀 (𝐿 ; 𝜇 )
+
+> 𝐿 −1
+
+∏
+
+> 𝑙 =1
+
+𝑀 (𝑙 ; 𝜇 )𝑛 , (58) and 
+
+‖‖‖‖vec 
+
+( 𝜕 𝜕 Θ
+
+𝜕 𝑛 
+
+𝜕 𝐱 𝑛 𝑢 Θ(𝐱 , 𝑡 ; 𝜇 )
+
+)‖‖‖‖2
+
+≤ 𝐶 Θℎ2𝑛 !𝑑 𝑛 𝑥 (𝐿 − 1) 𝑛 𝑀 (𝐿 ; 𝜇 )
+
+> 𝐿 −1
+
+∏
+
+> 𝑙 =1
+
+𝑀 (𝑙 ; 𝜇 )𝑛 +1 max{ ‖(𝐱 , 𝑡 )‖2, 1} , (59) where ℎ is the maximal width and 𝐶 Θ absorbs the bounded hyper-generator Jacobians. 
+
+Proof. By (51), spatial differentiation never differentiates 𝛾 (𝑙 )(𝜇 ) or 𝛽 (𝑙 )(𝜇 ). Therefore, the Faà di Bruno expansion for PRISM is exactly the expansion of a purely spatial DNN with 𝑊 (𝑙 ) 
+
+> 𝑐
+
+replaced by 𝐴 𝑙 (𝜇 ). The layer-wise induction used for standard DNN derivative bounds gives (58). Differentiating this expansion with respect to Θ introduces one parameter derivative. For 𝜃 𝑐 and 𝜃 𝑔 the terms are the usual spatial-network terms. For 𝜃 𝑝 the additional factors are 
+
+∇𝜃 𝑝 𝛾 (𝑙 )(𝜇 ) and ∇𝜃 𝑝 𝛽 (𝑙 )(𝜇 ), which are bounded by Assumption A.3. This gives (59); uniform bounds (56)–(57) follow from (54). □
+
+Corollary A.1. There exist constants 𝐶 𝓁 , 𝐶 ∇𝓁 < ∞ such that 
+
+|𝓁 𝑛,𝑚,𝑖 (Θ) | ≤ 𝐶 𝓁 , ‖∇Θ𝓁 𝑛,𝑚,𝑖 (Θ) ‖2 ≤ 𝐶 ∇𝓁 , (60) uniformly over 𝑛, 𝑚, 𝑖 and Θ ∈ Θ. Consequently, 
+
+|𝑆 𝑛,𝑚 (Θ) | ≤ 𝑁 𝐶 𝓁 + 𝑅. (61) 
+
+Z. Liang et al.: Preprint submitted to Elsevier Page 32 of 40 PRISM for high-dimensional and high-order PDEs 
+
+Proof. Apply Assumption A.2 to the bounded derivative tuple supplied by Lemma A.1. □
+
+A.5. Parameterized zero-tangent stochastic Taylor estimator 
+
+This subsection makes explicit the stochastic Taylor expansion used by PRISM-STDE. Let 𝐾 be a derivative order and let 𝛼 = ( 𝛼 1, … , 𝛼 𝑑 𝑥 ) be a multi-index with |𝛼 | = 𝐾 . Taylor-mode AD gives 
+
+𝐷 𝐾  
+
+> 𝐱
+
+𝑢 Θ(𝑧 ; 𝜇 )[ 𝜉, … , 𝜉 ] = ∑
+
+> |𝜈 |=𝐾
+
+𝐾 !
+
+𝜈 ! 𝜕 𝜈  
+
+> 𝐱
+
+𝑢 Θ(𝑧 ; 𝜇 ) 𝜉 𝜈 . (62) Consider a 𝐾 -th order component of a parameterized PDE operator 
+
+ 𝐾 𝜇 𝑢 (𝑧 ; 𝜇 ) ∶= ∑
+
+> |𝛼 |=𝐾
+
+𝑎 𝛼 (𝑧, 𝜇 ) 𝜕 𝛼  
+
+> 𝐱
+
+𝑢 (𝑧 ; 𝜇 ), (63) where 𝑎 𝛼 are bounded coefficients. Let 𝜉 ∼ 𝑝 (𝜉 ) be a random tangent vector. Assume there exist estimator-specific polynomial weights 𝑄 𝛼 (𝜉 ) satisfying the moment-matching identity 
+
+𝔼 𝜉 
+
+[𝑄 𝛼 (𝜉 )𝜉 𝜈 ] = 𝜈 !
+
+𝐾 ! 𝟏 {𝜈 =𝛼 }, |𝛼 | = |𝜈 | = 𝐾. (64) Such weights encode the chosen stochastic Taylor estimator; Rademacher and Gaussian variants correspond to different choices of 𝑄 𝛼 .Define the one-sample stochastic Taylor estimator ̂
+
+ 𝐾,𝜉 𝜇 𝑢 Θ(𝑧 ; 𝜇 ) ∶= ∑
+
+> |𝛼 |=𝐾
+
+𝑎 𝛼 (𝑧, 𝜇 )𝑄 𝛼 (𝜉 )𝐷 𝐾  
+
+> 𝐱
+
+𝑢 Θ(𝑧 ; 𝜇 )[ 𝜉, … , 𝜉 ]. (65) With 𝑉 independent tangent samples, ̂
+
+ 𝐾,𝑉 𝜇 𝑢 Θ(𝑧 ; 𝜇 ) ∶= 1
+
+𝑉 
+
+> 𝑉
+
+∑
+
+> 𝑣 =1
+
+̂
+
+ 𝐾,𝜉 𝑣  
+
+> 𝜇
+
+𝑢 Θ(𝑧 ; 𝜇 ). (66) 
+
+Theorem A.1. Under the moment identity (64), the PRISM stochastic Taylor estimator is unbiased: 
+
+𝔼 𝜉 
+
+[̂
+
+ 𝐾,𝜉 𝜇 𝑢 Θ(𝑧 ; 𝜇 )
+
+]
+
+=  𝐾 𝜇 𝑢 Θ(𝑧 ; 𝜇 ). (67) Moreover, 
+
+𝔼 𝜉 
+
+[|||̂
+
+ 𝐾,𝑉 𝜇 𝑢 Θ(𝑧 ; 𝜇 ) −  𝐾 𝜇 𝑢 Θ(𝑧 ; 𝜇 )|||
+
+> 2
+
+]
+
+≤ 𝐶 𝜉,𝐾,𝑎 
+
+𝑉 
+
+> 𝐿
+
+∏
+
+> 𝑙 =1
+
+𝑀 (𝑙 ; 𝜇 )2𝐾 . (68) If ̄ 𝑀 𝑙 ∶= sup 𝜇 ∈ 𝑀 (𝑙 ; 𝜇 ) < ∞, then 
+
+𝔼 𝜉 
+
+[|||̂
+
+ 𝐾,𝑉 𝜇 𝑢 Θ(𝑧 ; 𝜇 ) −  𝐾 𝜇 𝑢 Θ(𝑧 ; 𝜇 )|||
+
+> 2
+
+]
+
+≤̄ 𝐶 𝜉,𝐾,𝑎 
+
+𝑉 ,̄ 𝐶 𝜉,𝐾,𝑎 ∶= 𝐶 𝜉,𝐾,𝑎 𝐿 ∏
+
+> 𝑙 =1
+
+̄𝑀 2𝐾 𝑙 . (69) 
+
+Proof. Substituting (62) into (65) gives 
+
+𝔼 𝜉 
+
+[̂
+
+ 𝐾,𝜉 𝜇 𝑢 Θ(𝑧 ; 𝜇 )
+
+]
+
+= ∑
+
+> |𝛼 |=𝐾
+
+𝑎 𝛼 (𝑧, 𝜇 ) ∑
+
+> |𝜈 |=𝐾
+
+𝐾 !
+
+𝜈 ! 𝜕 𝜈  
+
+> 𝐱
+
+𝑢 Θ(𝑧 ; 𝜇 )𝔼 𝜉 [𝑄 𝛼 (𝜉 )𝜉 𝜈 ] (70) 
+
+= ∑
+
+> |𝛼 |=𝐾
+
+𝑎 𝛼 (𝑧, 𝜇 )𝜕 𝛼  
+
+> 𝐱
+
+𝑢 Θ(𝑧 ; 𝜇 ) =  𝐾 𝜇 𝑢 Θ(𝑧 ; 𝜇 ). (71) This proves unbiasedness. For the variance, independence of 𝜉 1, … , 𝜉 𝑉 gives a factor 𝑉 −1 . By Lemma A.1, the 𝐾 -th spatial derivative tensor is bounded by the active layer envelopes 𝑀 (𝑙 ; 𝜇 ). Since 𝑎 𝛼 and the moment functions 𝑄 𝛼 have finite second moments, the one-sample variance is bounded by 𝐶 𝜉,𝐾,𝑎 
+
+∏𝑙 𝑀 (𝑙 ; 𝜇 )2𝐾 . This gives (68); uniformity over 
+
+ gives (69). □
+
+Z. Liang et al.: Preprint submitted to Elsevier Page 33 of 40 PRISM for high-dimensional and high-order PDEs 
+
+Corollary A.2. For PRISM, the stochastic Taylor pushforward is purely spatial: 
+
+𝐷 𝐾  
+
+> 𝐱
+
+𝑢 Θ(𝑧 ; 𝜇 )[ 𝜉 𝐾 ] = 𝐷 𝐾  
+
+> 𝐱
+
+𝜃 𝑐 ,𝜃 𝑔 
+
+(𝑧 ; TG 𝐱 𝛾 (𝜇 ), TG 𝐱 𝛽 (𝜇 ))[𝜉 𝐾 ], (72) with 
+
+𝐷 𝑟 
+
+> 𝐱
+
+𝛾 (𝜇 ) = 0 , 𝐷 𝑟 
+
+> 𝐱
+
+𝛽 (𝜇 ) = 0 , 𝑟 ≥ 1. (73) Thus Taylor-mode AD tracks no high-order derivative branch through 𝜃 𝑝 . The high-order complexity is that of the spatial manifold, while the hyper-generator contributes only to value evaluation and first-order training gradients. 
+
+A.6. Unbiased PRISM stochastic dimension gradients 
+
+Let 𝐵 𝑟 ⊂ {1 , … , 𝑁 𝑟 }, 𝐵 𝜇 ⊂ {1 , … , 𝑁 𝜇 }, and 𝐼 ⊂ {1 , … , 𝑁 } be sampled uniformly with replacement and independently. Define 
+
+𝑔 𝐵 𝑟 ,𝐵 𝜇 ,𝐼 (Θ) ∶= 1
+
+|𝐵 𝑟 || 𝐵 𝜇 || 𝐼 |𝑁 
+
+∑
+
+> 𝑛 ∈𝐵 𝑟
+
+∑
+
+> 𝑚 ∈𝐵 𝜇
+
+𝑆 𝑛,𝑚 (Θ) ∑
+
+> 𝑖 ∈𝐼
+
+∇Θ𝓁 𝑛,𝑚,𝑖 (Θ) . (74) 
+
+Theorem A.2. The estimator (74) is unbiased: 
+
+𝔼 𝐵 𝑟 ,𝐵 𝜇 ,𝐼 
+
+[𝑔 𝐵 𝑟 ,𝐵 𝜇 ,𝐼 (Θ) ] = 𝑔 (Θ) . (75) 
+
+Proof. Conditioning on 𝐵 𝑟 and 𝐵 𝜇 ,
+
+𝔼 𝐼 
+
+[
+
+1
+
+|𝐼 |∑
+
+> 𝑖 ∈𝐼
+
+∇Θ𝓁 𝑛,𝑚,𝑖 (Θ) 
+
+]
+
+= 1
+
+𝑁 
+
+> 𝑁 
+
+∑
+
+> 𝑖 =1
+
+∇Θ𝓁 𝑛,𝑚,𝑖 (Θ) . (76) Therefore, 
+
+𝔼 𝐼 [𝑔 𝐵 𝑟 ,𝐵 𝜇 ,𝐼 (Θ) ∣ 𝐵 𝑟 , 𝐵 𝜇 ] = 1
+
+|𝐵 𝑟 || 𝐵 𝜇 |𝑁 2
+
+> 
+
+∑
+
+> 𝑛 ∈𝐵 𝑟
+
+∑
+
+> 𝑚 ∈𝐵 𝜇
+
+𝑆 𝑛,𝑚 (Θ) 
+
+> 𝑁 
+
+∑
+
+> 𝑖 =1
+
+∇Θ𝓁 𝑛,𝑚,𝑖 (Θ) . (77) Taking expectations over 𝐵 𝑟 and 𝐵 𝜇 gives exactly (45). □
+
+Continuous-parameter version. For 𝑧 ∼ 𝜌 𝑧 , 𝜇 ∼ 𝜌 𝜇 , and 𝑖 ∼ Unif{1 , … , 𝑁 }, define ̂𝑔 (𝑧, 𝜇, 𝐼 ; Θ) ∶= 1
+
+|𝐼 |𝑁 
+
+𝑆 (𝑧, 𝜇 ; Θ) ∑
+
+> 𝑖 ∈𝐼
+
+∇Θ𝐱 ,𝜇,𝑖 𝑢 Θ(𝑧 ; 𝜇 ), (78) where 
+
+𝑆 (𝑧, 𝜇 ; Θ) ∶= 
+
+> 𝑁 
+
+∑
+
+> 𝑗 =1
+
+𝐱 ,𝜇,𝑗 𝑢 Θ(𝑧 ; 𝜇 ) − 𝑅 (𝑧 ; 𝜇 ). (79) Then 
+
+𝔼 𝑧,𝜇,𝐼 [̂𝑔 (𝑧, 𝜇, 𝐼 ; Θ)] = ∇ Θ𝐿 𝑓 (Θ) . (80) Thus the unbiasedness is not restricted to fixed parameters; it holds for variable parameters sampled from the continuous parameter distribution. 
+
+A.7. Independent forward–backward sampling 
+
+For very large 𝑁 , PRISM may also estimate the forward residual. Let 𝐽 be an index set independent of 𝐼 , and define ̂𝑆 𝑛,𝑚,𝐽 (Θ) ∶= 𝑁 
+
+|𝐽 |∑
+
+> 𝑗 ∈𝐽
+
+𝓁 𝑛,𝑚,𝑗 (Θ) − 𝑅 (𝑧 𝑛 ; 𝜇 𝑚 ). (81) The forward–backward estimator is 
+
+𝑔 𝐵 𝑟 ,𝐵 𝜇 ,𝐼,𝐽 (Θ) ∶= 1
+
+|𝐵 𝑟 || 𝐵 𝜇 || 𝐼 |𝑁 
+
+∑
+
+> 𝑛 ∈𝐵 𝑟
+
+∑
+
+> 𝑚 ∈𝐵 𝜇
+
+̂𝑆 𝑛,𝑚,𝐽 (Θ) ∑
+
+> 𝑖 ∈𝐼
+
+∇Θ𝓁 𝑛,𝑚,𝑖 (Θ) . (82) 
+
+Z. Liang et al.: Preprint submitted to Elsevier Page 34 of 40 PRISM for high-dimensional and high-order PDEs 
+
+Theorem A.3. If 𝐼 and 𝐽 are independent, then 
+
+𝔼 𝐵 𝑟 ,𝐵 𝜇 ,𝐼,𝐽 [𝑔 𝐵 𝑟 ,𝐵 𝜇 ,𝐼,𝐽 (Θ)] = 𝑔 (Θ) . (83) 
+
+Proof. Since 𝐽 is sampled uniformly, 
+
+𝔼 𝐽 [̂𝑆 𝑛,𝑚,𝐽 (Θ)] = 𝑆 𝑛,𝑚 (Θ) . (84) By independence, 
+
+𝔼 𝐼,𝐽 
+
+[̂𝑆 𝑛,𝑚,𝐽 (Θ) 1
+
+|𝐼 |𝑁 
+
+∑
+
+> 𝑖 ∈𝐼
+
+∇Θ𝓁 𝑛,𝑚,𝑖 (Θ) 
+
+]
+
+(85) 
+
+= 𝑆 𝑛,𝑚 (Θ) 1
+
+𝑁 2
+
+> 
+> 𝑁 
+
+∑
+
+> 𝑖 =1
+
+∇Θ𝓁 𝑛,𝑚,𝑖 (Θ) . (86) Averaging over 𝐵 𝑟 and 𝐵 𝜇 yields 𝑔 (Θ) . □
+
+Remark A.1. If the same set is used for both factors, 𝐼 = 𝐽 , unbiasedness generally fails because 
+
+𝔼 𝐼 
+
+[̂𝑆 𝑛,𝑚,𝐼 (Θ) ∑
+
+> 𝑖 ∈𝐼
+
+∇Θ𝓁 𝑛,𝑚,𝑖 (Θ) 
+
+]
+
+≠ 𝔼 𝐼 [̂ 𝑆 𝑛,𝑚,𝐼 (Θ)] 𝔼 𝐼 
+
+[∑
+
+> 𝑖 ∈𝐼
+
+∇Θ𝓁 𝑛,𝑚,𝑖 (Θ) 
+
+]
+
+. (87) This is a bias–speed tradeoff rather than an unbiased estimator. 
+
+A.8. Combined Taylor–dimension estimator and estimation error 
+
+Let 𝑉 denote the number of stochastic Taylor tangent samples. Suppose each term 𝓁 𝑛,𝑚,𝑖 is evaluated by an unbiased Taylor estimator ̂ 𝓁 (𝑉 )
+
+> 𝑛,𝑚,𝑖
+
+. Define ̂𝑆 (𝑉 ) 
+
+> 𝑛,𝑚
+
+(Θ) ∶= 
+
+> 𝑁 
+
+∑
+
+> 𝑖 =1
+
+̂
+
+𝓁 (𝑉 )
+
+> 𝑛,𝑚,𝑖
+
+(Θ) − 𝑅 (𝑧 𝑛 ; 𝜇 𝑚 ). (88) By Theorem A.1, 
+
+𝔼 𝜉 [̂ 𝓁 (𝑉 )
+
+> 𝑛,𝑚,𝑖
+
+(Θ)] = 𝓁 𝑛,𝑚,𝑖 (Θ) , 𝔼 𝜉 [̂𝑆 (𝑉 ) 
+
+> 𝑛,𝑚
+
+(Θ)] = 𝑆 𝑛,𝑚 (Θ) , (89) and 
+
+𝔼 𝜉 
+
+[|̂𝓁 (𝑉 )
+
+> 𝑛,𝑚,𝑖
+
+(Θ) − 𝓁 𝑛,𝑚,𝑖 (Θ) |2]
+
+≤̄ 𝐶 𝜉,𝐾 
+
+𝑉 , (90) where ̄ 𝐶 𝜉,𝐾 is uniform over . The conservative residual bound is 
+
+𝔼 𝜉 
+
+[|̂𝑆 (𝑉 ) 
+
+> 𝑛,𝑚
+
+(Θ) − 𝑆 𝑛,𝑚 (Θ) |2]
+
+≤ 𝑁 2
+
+> 
+
+̄ 𝐶 𝜉,𝐾 
+
+𝑉 . (91) For compact notation, let 𝑞 = ( 𝑛, 𝑚 ) be a joint residual–parameter index and define 
+
+𝑋 𝑖 (𝑞 ; Θ) ∶= 𝑆 𝑞 (Θ) 
+
+𝑁 
+
+∇Θ𝓁 𝑞,𝑖 (Θ) ,̄ 𝑋 (𝑞 ; Θ) ∶= 1
+
+𝑁 
+
+> 𝑁 
+
+∑
+
+> 𝑖 =1
+
+𝑋 𝑖 (𝑞 ; Θ) . (92) Then 𝑔 (Θ) = 𝔼 𝑞 [̄𝑋 (𝑞 ; Θ)] . Let 𝐵 ∶= |𝐵 𝑟 || 𝐵 𝜇 | and 𝑠 ∶= |𝐼 |.
+
+Z. Liang et al.: Preprint submitted to Elsevier Page 35 of 40 PRISM for high-dimensional and high-order PDEs 
+
+Theorem A.4. For fixed Θ, the parameterized stochastic gradient error satisfies 
+
+𝔼 
+
+[‖𝑔 𝐵 𝑟 ,𝐵 𝜇 ,𝐼 (Θ) − 𝑔 (Θ) ‖22
+
+]
+
+≤ 𝐶 1(Θ) 
+
+|𝐼 | + 𝐶 2(Θ) 
+
+|𝐵 𝑟 || 𝐵 𝜇 | + 𝐶 3(Θ) 
+
+|𝐵 𝑟 || 𝐵 𝜇 || 𝐼 | . (93) The constants are uniformly bounded over  along the PRISM trajectory. If the PDE terms are evaluated by 𝑉 stochastic Taylor samples, then 
+
+𝔼 
+
+[‖̂𝑔 𝐵 𝑟 ,𝐵 𝜇 ,𝐼,𝑉 (Θ) − 𝑔 (Θ) ‖22
+
+]
+
+≤ 𝐶 𝜉 
+
+𝑉 + 𝐶 1
+
+|𝐼 | + 𝐶 2
+
+|𝐵 𝑟 || 𝐵 𝜇 | + 𝐶 3
+
+|𝐵 𝑟 || 𝐵 𝜇 || 𝐼 | . (94) 
+
+Proof. Write 
+
+𝑔 𝐵,𝐼 (Θ) = 1
+
+𝐵 
+
+> 𝐵
+
+∑
+
+> 𝑏 =1
+
+1
+
+𝑠 
+
+> 𝑠
+
+∑
+
+> 𝑟 =1
+
+𝑋 𝐼 𝑟 (𝑞 𝑏 ; Θ) . (95) By total variance, 
+
+𝔼 ‖𝑔 𝐵,𝐼 − 𝑔 ‖22 = 𝔼 𝐼 
+
+‖‖‖‖‖‖
+
+𝔼 𝑞 
+
+[
+
+1
+
+𝑠 
+
+> 𝑠
+
+∑
+
+> 𝑟 =1
+
+𝑋 𝐼 𝑟 (𝑞 )
+
+]
+
+− 𝑔 
+
+‖‖‖‖‖‖
+
+> 22
+
+(96) 
+
++ 𝔼 𝐼 
+
+⎡⎢⎢⎣
+
+𝔼 𝐵 
+
+‖‖‖‖‖‖
+
+1
+
+𝐵 
+
+> 𝐵
+
+∑
+
+> 𝑏 =1
+
+1
+
+𝑠 
+
+> 𝑠
+
+∑
+
+> 𝑟 =1
+
+𝑋 𝐼 𝑟 (𝑞 𝑏 ) − 𝔼 𝑞 
+
+[
+
+1
+
+𝑠 
+
+> 𝑠
+
+∑
+
+> 𝑟 =1
+
+𝑋 𝐼 𝑟 (𝑞 )
+
+]‖‖‖‖‖‖
+
+> 22
+
+⎤⎥⎥⎦
+
+. (97) The first term equals 
+
+1
+
+𝑠 
+
+1
+
+𝑁 
+
+> 𝑁 
+
+∑
+
+> 𝑖 =1
+
+‖̄𝑋 𝑖 − 𝑔 ‖22,̄ 𝑋 𝑖 ∶= 𝔼 𝑞 [𝑋 𝑖 (𝑞 )] . (98) For the second term, conditioned on 𝐼 , the 𝑞 𝑏 are independent; hence it is 𝐵 −1 𝔼 𝐼 𝕍 𝑞 [𝑠 −1 ∑𝑟 𝑋 𝐼 𝑟 (𝑞 )] . Decompose 
+
+1
+
+𝑠 
+
+> 𝑠
+
+∑
+
+> 𝑟 =1
+
+𝑋 𝐼 𝑟 (𝑞 ) = ̄ 𝑋 (𝑞 ) + 
+
+(
+
+1
+
+𝑠 
+
+> 𝑠
+
+∑
+
+> 𝑟 =1
+
+𝑋 𝐼 𝑟 (𝑞 ) − ̄ 𝑋 (𝑞 )
+
+)
+
+. (99) Using 𝕍 (𝑎 + 𝑏 ) ≤ 2𝕍 (𝑎 ) + 2 𝔼 ‖𝑏 ‖2 gives the terms 𝐶 2∕𝐵 and 𝐶 3∕( 𝐵𝑠 ). This proves (93). Uniform boundedness follows from Corollary A.1, since 
+
+‖𝑋 𝑖 (𝑞 ; Θ) ‖2 ≤ 𝑁 𝐶 𝓁 + 𝑅 𝑁 
+
+𝐶 ∇𝓁 . (100) Adding the independent stochastic Taylor error (90) gives the additional 𝐶 𝜉 ∕𝑉 term in (94). □
+
+A.9. Parameter-aware importance sampling 
+
+The uniform estimator above is unbiased but not always variance-optimal. PRISM also permits parameter-aware dimension sampling without sacrificing unbiasedness. Let 𝑝 𝑖 (𝑧, 𝜇 ) > 0 be sampling probabilities for PDE terms, with 
+
+∑𝑖 𝑝 𝑖 (𝑧, 𝜇 ) = 1 . Let 𝑞 𝜇 be a proposal distribution over  with 𝑞 𝜇 (𝜇 ) > 0 whenever 𝜌 𝜇 (𝜇 ) > 0.For samples 𝜇 𝑏 ∼ 𝑞 𝜇 , 𝑧 𝑏 ∼ 𝜌 𝑧 , and 𝑖 𝑏,𝑟 ∼ 𝑝 (⋅ ∣ 𝑧 𝑏 , 𝜇 𝑏 ), define ̂𝑔 IS (Θ) ∶= 1
+
+𝐵𝑠 
+
+> 𝐵
+
+∑
+
+> 𝑏 =1
+> 𝑠
+
+∑
+
+> 𝑟 =1
+
+𝜌 𝜇 (𝜇 𝑏 )
+
+𝑞 𝜇 (𝜇 𝑏 )1
+
+𝑁 𝑝 𝑖 𝑏,𝑟 (𝑧 𝑏 , 𝜇 𝑏 ) 𝑆 (𝑧 𝑏 , 𝜇 𝑏 ; Θ)∇ Θ𝐱 ,𝜇 𝑏 ,𝑖 𝑏,𝑟 𝑢 Θ(𝑧 𝑏 ; 𝜇 𝑏 ). (101) 
+
+Theorem A.5. The importance-weighted PRISM estimator is unbiased: 
+
+𝔼 [̂𝑔 IS (Θ)] = ∇ Θ𝐿 𝑓 (Θ) . (102) 
+
+Z. Liang et al.: Preprint submitted to Elsevier Page 36 of 40 PRISM for high-dimensional and high-order PDEs 
+
+Proof. Conditioned on (𝑧, 𝜇 ),
+
+𝔼 𝑖 
+
+[ 1
+
+𝑁 𝑝 𝑖 (𝑧, 𝜇 ) 𝑆 (𝑧, 𝜇 ; Θ)∇ Θ𝐱 ,𝜇,𝑖 𝑢 Θ(𝑧 ; 𝜇 )
+
+]
+
+= 1
+
+𝑁 
+
+𝑆 (𝑧, 𝜇 ; Θ) 
+
+> 𝑁 
+
+∑
+
+> 𝑖 =1
+
+∇Θ𝐱 ,𝜇,𝑖 𝑢 Θ(𝑧 ; 𝜇 ). (103) Taking expectation over 𝜇 ∼ 𝑞 𝜇 with the factor 𝜌 𝜇 ∕𝑞 𝜇 converts the measure back to 𝜌 𝜇 . The remaining expectation over 𝑧 is exactly ∇Θ𝐿 𝑓 (Θ) . □
+
+Variance-calibrated choice. For fixed (𝑧, 𝜇 ) and single-term sampling, the dominant conditional second moment is minimized by 
+
+𝑝 ⋆𝑖 (𝑧, 𝜇 ) ∝ ‖‖‖𝑆 (𝑧, 𝜇 ; Θ)∇ Θ𝐱 ,𝜇,𝑖 𝑢 Θ(𝑧 ; 𝜇 )‖‖‖2 . (104) In practice this can be approximated by exponential moving averages of per-term residual-gradient magnitudes or stochastic Taylor variances. Thus PRISM supports an unbiased but variance-calibrated estimator: difficult parameter regions and high-variance PDE terms are sampled more often, while the weights in (101) preserve the target gradient exactly. 
+
+A.10. Convergence of parameterized PRISM stochastic training 
+
+Let 
+
+𝐿 (Θ) = 𝑤 1𝐿 𝑢 (Θ) + 𝑤 2𝐿 𝑓 (Θ) + 𝑤 3𝐿 𝑏 (Θ) (105) be the full parameterized PRISM loss. The stochastic update is 
+
+Θ𝑘 +1 = Θ 𝑘 − 𝜂 𝑘 ̂𝑔 𝑘 , 𝜂 𝑘 = 𝜂 
+
+(𝑘 + 𝑚 )𝑝 , 𝑝 ∈ (1∕2 , 1] . (106) Let 𝑘 be the filtration generated by all random samples before step 𝑘 .
+
+Assumption A.4. The objective 𝐿 is twice continuously differentiable near a regular local minimizer Θ∗, with 
+
+∇𝐿 (Θ ∗) = 0 , ∇2𝐿 (Θ ∗) ≻ 0. (107) Hence there exist a neighborhood  of Θ∗ and constants 𝑚 0, 𝐿 0 > 0 such that, for all Θ ∈  ,
+
+⟨∇𝐿 (Θ) , Θ − Θ ∗⟩ ≥ 𝑚 0‖Θ − Θ ∗‖22, ‖∇𝐿 (Θ) ‖2 ≤ 𝐿 0‖Θ − Θ ∗‖2. (108) 
+
+Theorem A.6. Under Assumptions A.1–A.4, the PRISM stochastic gradient satisfies 
+
+𝔼 [̂𝑔 𝑘 ∣ 𝑘 ] = ∇ 𝐿 (Θ 𝑘 ), (109) and 
+
+𝔼 [‖̂𝑔 𝑘 − ∇ 𝐿 (Θ 𝑘 )‖22 ∣ 𝑘 
+
+] ≤ 𝜎 2 < ∞, (110) where one may take 
+
+𝜎 2 = 𝐶 𝜉 
+
+𝑉 + 𝐶 1
+
+|𝐼 | + 𝐶 2
+
+|𝐵 𝑟 || 𝐵 𝜇 | + 𝐶 3
+
+|𝐵 𝑟 || 𝐵 𝜇 || 𝐼 | + 𝜎 2 
+
+> 𝑢
+
++ 𝜎 2 
+
+> 𝑏
+
+. (111) Moreover, for every 𝛿 > 0, there exist neighborhoods 1 ⊂  of Θ∗ such that, if Θ1 ∈ 1, then 
+
+𝐸 ∞ ∶= {Θ 𝑘 ∈  , ∀𝑘 ≥ 1} (112) occurs with probability at least 1 − 𝛿 , i.e., 
+
+ℙ(𝐸 ∞ ∣ Θ 1 ∈ 1) ≥ 1 − 𝛿. (113) Conditioned on 𝐸 ∞,
+
+𝔼 [‖Θ𝑘 − Θ ∗‖22 ∣ 𝐸 ∞
+
+] ≤  (𝑘 −𝑝 ). (114)   
+
+> Z. Liang et al.: Preprint submitted to Elsevier Page 37 of 40
+
+PRISM for high-dimensional and high-order PDEs 
+
+Proof. Equation (109) follows from Theorems A.1–A.3 and standard mini-batch unbiasedness for initial and boundary losses. The variance bound (110) follows from Theorem A.4 and the bounded variances of the initial and boundary estimators. Let 𝑒 𝑘 = Θ 𝑘 − Θ ∗. On 𝐸 ∞, (108) applies. Taking conditional expectation in (106), 
+
+𝔼 [‖𝑒 𝑘 +1 ‖22 ∣ 𝑘 ] = ‖𝑒 𝑘 ‖22 − 2 𝜂 𝑘 ⟨𝑒 𝑘 , ∇𝐿 (Θ 𝑘 )⟩ + 𝜂 2
+
+> 𝑘
+
+𝔼 [‖̂𝑔 𝑘 ‖22 ∣ 𝑘 ] (115) 
+
+≤ ‖𝑒 𝑘 ‖22 − 2 𝑚 0𝜂 𝑘 ‖𝑒 𝑘 ‖22 + 2 𝜂 2
+
+> 𝑘
+
+‖∇𝐿 (Θ 𝑘 )‖22 + 2 𝜎 2𝜂 2 
+
+> 𝑘
+
+(116) 
+
+≤ (1 − 2 𝑚 0𝜂 𝑘 + 2 𝐿 20𝜂 2
+
+> 𝑘
+
+)‖𝑒 𝑘 ‖22 + 2 𝜎 2𝜂 2
+
+> 𝑘
+
+. (117) For all sufficiently large 𝑘 , 2𝐿 20𝜂 2 
+
+> 𝑘
+
+≤ 𝑚 0𝜂 𝑘 , so 
+
+𝔼 [‖𝑒 𝑘 +1 ‖22 ∣ 𝑘 ] ≤ (1 − 𝑚 0𝜂 𝑘 )‖𝑒 𝑘 ‖22 + 2 𝜎 2𝜂 2
+
+> 𝑘
+
+. (118) Since 𝑝 ∈ (1∕2 , 1] , ∑𝑘 𝜂 𝑘 = ∞ and ∑𝑘 𝜂 2 
+
+> 𝑘
+
+< ∞. The Robbins–Siegmund local SGD argument gives the stability event 𝐸 ∞ and the rate (114). The hidden constant is proportional to 𝜎 2, so PRISM reduces the convergence constant by reducing the Taylor and dimension-sampling variances through the modulation envelopes 𝑀 (𝑙 ; 𝜇 ). □
+
+A.11. Residual-to-solution error under parameter-uniform PDE stability 
+
+The preceding results establish unbiased stochastic optimization and estimator convergence. To relate the residual loss to the solution error, we state a standard stability implication. 
+
+Assumption A.5. The parameterized PDE family is uniformly stable on : there exist function norms ‖ ⋅ ‖ , ‖ ⋅ ‖ ,and ‖ ⋅ ‖ and a constant 𝐶 stab independent of 𝜇 such that, for any admissible 𝑣 (𝑧 ; 𝜇 ) satisfying the same regularity class, 
+
+‖𝑣 (⋅; 𝜇 )‖ ≤ 𝐶 stab 
+
+(‖𝐱 ,𝜇 𝑣 (⋅; 𝜇 )‖ + ‖𝐱 ,𝜇 𝑣 (⋅; 𝜇 )‖
+
+) , ∀𝜇 ∈ . (119) 
+
+Theorem A.7. Let 𝑢 ∗(𝑧 ; 𝜇 ) be the exact solution of (38). Under Assumption A.5, 
+
+𝔼 𝜇 ∼𝜌 𝜇 ‖𝑢 Θ(⋅; 𝜇 ) − 𝑢 ∗(⋅; 𝜇 )‖2 
+
+> 
+
+≤ 2𝐶 2stab 
+
+(
+
+𝔼 𝜇 ‖𝐱 ,𝜇 𝑢 Θ − 𝑅 ‖2 
+
+> 
+
++ 𝔼 𝜇 ‖𝐱 ,𝜇 𝑢 Θ − 𝐵 ‖2
+
+> 
+
+)
+
+. (120) If the residual and boundary norms are estimated by Monte Carlo sampling, stochastic Taylor estimation, and stochastic dimension sampling, then the empirical error contains the additional estimator terms 
+
+
+
+( 1
+
+𝑉 + 1
+
+|𝐼 | + 1
+
+|𝐵 𝑟 || 𝐵 𝜇 | + 1
+
+|𝐵 𝑟 || 𝐵 𝜇 || 𝐼 |)
+
+(121) up to the parameter-uniform constants established above. 
+
+Proof. Apply (119) to 𝑣 = 𝑢 Θ − 𝑢 ∗. Since 𝑢 ∗ satisfies the PDE and boundary condition, 
+
+𝐱 ,𝜇 𝑣 = 𝐱 ,𝜇 𝑢 Θ − 𝑅, 𝐱 ,𝜇 𝑣 = 𝐱 ,𝜇 𝑢 Θ − 𝐵. (122) Squaring and using (𝑎 + 𝑏 )2 ≤ 2𝑎 2 + 2 𝑏 2 yields (120). The stochastic terms in (121) follow from Theorem A.4 and the Taylor estimator bound (69). □
+
+## References    
+
+> [1] N. Baker, F. Alexander, T. Bremer, A. Hagberg, Y. Kevrekidis, H. Najm, M. Parashar, A. Patra, J. Sethian, S. Wild, et al., Workshop report on basic research needs for scientific machine learning: Core technologies for artificial intelligence, Tech. rep., USDOE Office of Science (SC), Washington, DC (United States) (2019). [2] M. Raissi, P. Perdikaris, G. E. Karniadakis, Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations, Journal of Computational Physics 378 (2019) 686–707. [3] G. E. Karniadakis, I. G. Kevrekidis, L. Lu, P. Perdikaris, S. Wang, L. Yang, Physics-informed machine learning, Nature Reviews Physics 3 (6) (2021) 422–440.
+
+Z. Liang et al.: Preprint submitted to Elsevier Page 38 of 40 PRISM for high-dimensional and high-order PDEs 
+
+[4] C. Beck, S. Becker, P. Cheridito, A. Jentzen, A. Neufeld, Deep splitting method for parabolic pdes, SIAM Journal on Scientific Computing 43 (5) (2021) A3135–A3154. [5] J. Han, A. Jentzen, W. E, Solving high-dimensional partial differential equations using deep learning, Proceedings of the National Academy of Sciences 115 (34) (2018) 8505–8510. [6] M. Raissi, Forward-backward stochastic neural networks: Deep learning of high-dimensional partial differential equations, arXiv preprint arXiv:1804.07010 (2018). [7] Z. Liang, H. Gao, J. Zhang, Stochastic dimension gradient descent for robust high-dimensional black-box optimization, arXiv preprint arXiv:2309.05572 (2023). [8] Z. Hu, Z. Shi, G. E. Karniadakis, K. Kawaguchi, Hutchinson trace estimation for high-dimensional and high-order physics-informed neural networks, Computer Methods in Applied Mechanics and Engineering 424 (2024) 116883. doi:https://doi.org/10.1016/j.cma.2024. 116883 .[9] Z. Hu, K. Kawaguchi, Z. Zhang, G. E. Karniadakis, Stochastic taylor derivative estimator: Efficient amortization for arbitrary differential operators, Advances in Neural Information Processing Systems 37 (2024). [10] X. Liu, X. Zhang, W. Peng, W. Zhou, W. Yao, A novel meta-learning initialization method for physics-informed neural networks, Neural Computing and Applications 34 (17) (2022) 14511–14534. [11] A. Krishnapriyan, A. Gholami, S. Zhe, R. Kirby, M. W. Mahoney, Characterizing possible failure modes in physics-informed neural networks, Advances in Neural Information Processing Systems 34 (2021) 26548–26560. [12] L. Lu, P. Jin, G. Pang, Z. Zhang, G. E. Karniadakis, Learning nonlinear operators via deeponet based on the universal approximation theorem of operators, Nature machine intelligence 3 (3) (2021) 218–229. [13] Z. Li, N. B. Kovachki, K. Azizzadenesheli, B. liu, K. Bhattacharya, A. Stuart, A. Anandkumar, Fourier neural operator for parametric partial differential equations, in: International Conference on Learning Representations, 2021. [14] N. Kovachki, Z. Li, B. Liu, K. Azizzadenesheli, K. Bhattacharya, A. Stuart, A. Anandkumar, Neural operator: Learning maps between function spaces with applications to pdes, Journal of Machine Learning Research 24 (89) (2023) 1–97. [15] Z. Li, H. Zheng, N. Kovachki, D. Jin, H. Chen, B. Liu, K. Azizzadenesheli, A. Anandkumar, Physics-informed neural operator for learning partial differential equations, arXiv preprint arXiv:2111.03794 (2021). [16] S. Goswami, A. Bora, Y. Yu, G. E. Karniadakis, Physics-informed neural operators, arXiv preprint arXiv:2207.05748 (2022). [17] M. Raissi, G. E. Karniadakis, Hidden physics models: Machine learning of nonlinear partial differential equations, Journal of Computational Physics 357 (2018) 125–141. [18] E. Haghighat, M. Raissi, A. Moure, H. Gomez, R. Juanes, A physics-informed deep learning framework for inversion and surrogate modeling in solid mechanics, Computer Methods in Applied Mechanics and Engineering 379 (2021) 113741. [19] Y. Yang, P. Perdikaris, Adversarial uncertainty quantification in physics-informed neural networks, Journal of Computational Physics 394 (2019) 136–152. [20] A. D. Jagtap, D. Mitsotakis, G. E. Karniadakis, Deep learning of inverse water waves problems using multi-fidelity data: Application to serre–green–naghdi equations, Ocean Engineering 248 (2022) 110775. [21] S. Cai, Z. Mao, Z. Wang, M. Yin, G. E. Karniadakis, Physics-informed neural networks (pinns) for fluid mechanics: A review, Acta Mechanica Sinica 37 (12) (2021) 1727–1738. [22] S. Goswami, A. D. Jagtap, H. Babaee, B. T. Susi, G. E. Karniadakis, Learning stiff chemical kinetics using extended deep neural operators, arXiv preprint arXiv:2302.12645 (2023). [23] K. Shukla, V. Oommen, A. Peyvan, M. Penwarden, L. Bravo, A. Ghoshal, R. M. Kirby, G. E. Karniadakis, Deep neural operators can serve as accurate surrogates for shape optimization: a case study for airfoils, arXiv preprint arXiv:2302.00807 (2023). [24] S. Goswami, M. Yin, Y. Yu, G. E. Karniadakis, A physics-informed variational deeponet for predicting crack path in quasi-brittle materials, Computer Methods in Applied Mechanics and Engineering 391 (2022) 114587. [25] T. Luo, H. Yang, Two-layer neural networks for partial differential equations: Optimization and generalization theory, ArXiv abs/2006.15733 (2020). [26] S. Mishra, R. Molinaro, Estimates on the generalization error of physics informed neural networks (pinns) for approximating pdes, arXiv preprint arXiv:2006.16144 (2020). [27] Y. Shin, J. Darbon, G. E. Karniadakis, On the convergence of physics informed neural networks for linear second-order elliptic and parabolic type pdes, arXiv preprint arXiv:2004.01806 (2020). [28] J. Lu, Y. Lu, M. Wang, A priori generalization analysis of the deep ritz method for solving high dimensional elliptic equations, arXiv preprint arXiv:2101.01708 (2021). [29] Z. Hu, A. D. Jagtap, G. E. Karniadakis, K. Kawaguchi, When do extended physics-informed neural networks (xpinns) improve generalization?, SIAM Journal on Scientific Computing 44 (5) (2022) A3158–A3182. doi:10.1137/21M1447039 .[30] A. D. Jagtap, G. E. Karniadakis, Extended physics-informed neural networks (xpinns): A generalized space-time domain decomposition based deep learning framework for nonlinear partial differential equations, Communications in Computational Physics 28 (5) (2020) 2002–2041. [31] Z. Hu, A. D. Jagtap, G. E. Karniadakis, K. Kawaguchi, Augmented physics-informed neural networks (apinns): A gating network-based soft domain decomposition methodology, arXiv preprint arXiv:2211.08939 (2022). [32] C. Wang, S. Li, D. He, L. Wang, Is $l^2$ physics informed loss always suitable for training physics informed neural network?, in: A. H. Oh, A. Agarwal, D. Belgrave, K. Cho (Eds.), Advances in Neural Information Processing Systems, 2022. [33] D. He, S. Li, W. Shi, X. Gao, J. Zhang, J. Bian, L. Wang, T.-Y. Liu, Learning physics-informed neural networks without stacked back-propagation, in: International Conference on Artificial Intelligence and Statistics, PMLR, 2023, pp. 3034–3047. [34] J. Cho, S. Nam, H. Yang, S.-B. Yun, Y. Hong, E. Park, Separable pinn: Mitigating the curse of dimensionality in physics-informed neural networks, arXiv preprint arXiv:2211.08761 (2022). 
+
+Z. Liang et al.: Preprint submitted to Elsevier Page 39 of 40 PRISM for high-dimensional and high-order PDEs 
+
+[35] J. Han, A. Jentzen, et al., Deep learning-based numerical methods for high-dimensional parabolic partial differential equations and backward stochastic differential equations, Communications in mathematics and statistics 5 (4) (2017) 349–380. [36] C. Beck, W. E, A. Jentzen, Machine learning approximation algorithms for high-dimensional fully nonlinear partial differential equations and second-order backward stochastic differential equations, Journal of Nonlinear Science 29 (2019) 1563–1619. [37] Q. Chan-Wai-Nam, J. Mikael, X. Warin, Machine learning for semi linear pdes, Journal of scientific computing 79 (3) (2019) 1667–1712. [38] P. Henry-Labordere, Deep primal-dual algorithm for bsdes: Applications of machine learning to cva and im, Available at SSRN 3071506 (2017). [39] C. Huré, H. Pham, X. Warin, Deep backward schemes for high-dimensional nonlinear pdes, Mathematics of Computation 89 (324) (2020) 1547–1579. [40] S. Ji, S. Peng, Y. Peng, X. Zhang, Three algorithms for solving high-dimensional fully coupled fbsdes through deep learning, IEEE Intelligent Systems 35 (3) (2020) 71–84. [41] S. Becker, P. Cheridito, A. Jentzen, T. Welti, Solving high-dimensional optimal stopping problems using deep learning, European Journal of Applied Mathematics 32 (3) (2021) 470–514. [42] C. Beck, L. Gonon, A. Jentzen, Overcoming the curse of dimensionality in the numerical approximation of high-dimensional semilinear elliptic partial differential equations, arXiv preprint arXiv:2003.00596 (2020). [43] C. Beck, F. Hornung, M. Hutzenthaler, A. Jentzen, T. Kruse, Overcoming the curse of dimensionality in the numerical approximation of allen– cahn partial differential equations via truncated full-history recursive multilevel picard approximations, Journal of Numerical Mathematics 28 (4) (2020) 197–222. [44] S. Becker, R. Braunwarth, M. Hutzenthaler, A. Jentzen, P. von Wurstemberger, Numerical simulations for full history recursive multilevel picard approximations for systems of high-dimensional partial differential equations, arXiv preprint arXiv:2005.10206 (2020). [45] M. Hutzenthaler, A. Jentzen, T. Kruse, T. Anh Nguyen, P. von Wurstemberger, Overcoming the curse of dimensionality in the numerical approximation of semilinear parabolic partial differential equations, Proceedings of the Royal Society A 476 (2244) (2020) 20190630. [46] M. Hutzenthaler, A. Jentzen, T. Kruse, et al., Multilevel picard iterations for solving smooth semilinear parabolic heat equations, Partial Differential Equations and Applications 2 (6) (2021) 1–31. [47] Y. Wang, P. Jin, H. Xie, Tensor neural network and its numerical integration, arXiv preprint arXiv:2207.02754 (2022). [48] Y. Wang, Y. Liao, H. Xie, Solving schr ∖"{o} dinger equation using tensor neural network, arXiv preprint arXiv:2209.12572 (2022). [49] Y. Zang, G. Bao, X. Ye, H. Zhou, Weak adversarial networks for high-dimensional partial differential equations, Journal of Computational Physics 411 (2020) 109409. [50] J. Sirignano, K. Spiliopoulos, Dgm: A deep learning algorithm for solving partial differential equations, Journal of computational physics 375 (2018) 1339–1364. [51] E. Weinan, T. Yu, The deep ritz method: A deep learning-based numerical algorithm for solving variational problems, Communications in Mathematics and Statistics 6 (2017) 1–12. [52] B. Fehrman, B. Gess, A. Jentzen, Convergence rates for the stochastic gradient descent method for non-convex objective functions, The Journal of Machine Learning Research 21 (1) (2020) 5354–5401. [53] Y. Lei, T. Hu, G. Li, K. Tang, Stochastic gradient descent for nonconvex learning without bounded gradient assumptions, IEEE transactions on neural networks and learning systems 31 (10) (2019) 4394–4400. [54] P. Mertikopoulos, N. Hallak, A. Kavis, V. Cevher, On the almost sure convergence of stochastic gradient descent in non-convex problems, Advances in Neural Information Processing Systems 33 (2020) 1117–1128. [55] H. Gao, L. Sun, J.-X. Wang, Svd-pinns: Transfer learning of physics-informed neural networks via singular value decomposition, Computer Methods in Applied Mechanics and Engineering 393 (2022) 114787. [56] X. Glorot, Y. Bengio, Understanding the difficulty of training deep feedforward neural networks, in: Proceedings of the thirteenth international conference on artificial intelligence and statistics, JMLR Workshop and Conference Proceedings, 2010, pp. 249–256. [57] D. P. Kingma, J. Ba, Adam: A method for stochastic optimization, ICLR (2015). [58] L. Lu, R. Pestourie, W. Yao, Z. Wang, F. Verdugo, S. G. Johnson, Physics-informed neural networks with hard constraints for inverse design, SIAM Journal on Scientific Computing 43 (6) (2021) B1105–B1132. 
+
+Z. Liang et al.: Preprint submitted to Elsevier Page 40 of 40
