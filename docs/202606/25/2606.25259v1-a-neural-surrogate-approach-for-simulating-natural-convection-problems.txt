@@ -1,0 +1,3848 @@
+Title: A Neural Surrogate Approach for Simulating Natural Convection Problems
+
+URL Source: https://arxiv.org/pdf/2606.25259v1
+
+Published Time: Thu, 25 Jun 2026 00:23:50 GMT
+
+Number of Pages: 58
+
+Markdown Content:
+# A Neural Surrogate Approach for Simulating Natural Convection Problems 
+
+Nurshat Menglik a,b , Alex Shao a,b , David Hyde a,b, ∗  
+
+> aDepartment of Computer Science, Vanderbilt University, 1400 18 th Avenue South, Nashville, TN 37212-2846, USA
+> bInstitute for Software Integrated Systems, Vanderbilt University, 1025 16 th Avenue South, Nashville, TN 37212-2328, USA
+
+Abstract 
+
+This paper presents a neural surrogate approach for improving the accuracy of natural convection problems simulated with a Boussinesq flow model (incompressible flow with heat transfer). Our approach, based on Fourier neural operators, uses training data consisting of matched pairs of simulations run under the computationally cheaper yet less accurate Boussinesq flow model and a more computationally expensive and more accurate compressible flow model. In both cases, we implement our parallelized simulation codes based on an implicit monolithic mixed finite element method (FEM) approach using the open-source FEniCSx framework. Our implementations are validated against a commercial software package, COMSOL, as well as standard test problems from the literature. We include a careful discussion and analysis of data set generation and present learning results in two and three spatial dimensions. Using compressible flow results as high-fidelity reference solutions, our learning approach, with a single model evaluation per simulation, substantially improves the per-channel accuracy of Boussinesq predictions, with structural similarity (SSIM) close to unity across all flow variables and test distributions and corresponding mean-squared error reductions of one to nearly three orders of magnitude. All code and data is released as open-source. 
+
+Keywords: Boussinesq flow, Compressible flow, Fourier neural operator, FEM, Natural convection 
+
+1. Introduction 
+
+Practitioners select different models of fluid dynamics for problems depending on the physical characteristics of the problem and the application area [1], as seen across aerospace [2, 3], automotive [4], biomedical [5–7], chemical [8], civil [9], and environmental engineering [10, 11]. Natural convection, a critical phenomenon in many of these domains (ranging from electronic cooling to atmospheric dynamics), has traditionally relied on the Boussinesq approximation [12, 13] for computational efficiency. This simplified framework assumes con-stant fluid properties except for density in the buoyancy term, which is modeled as linearly proportional to temperature differences. The Boussinesq approximation fails for large temperature differences, where density variations depend non-linearly on thermodynamics [14, 15], necessitating compressible flow models. How-ever, the transition from an incompressible (or Boussinesq) formulation to a compressible flow formulation introduces significant numerical challenges, especially when flows are at a low Mach number ( M a ≪ 0.1). In low-Mach regimes, where the fluid velocity is much smaller than the speed of sound, the large disparity between acoustic wave speeds and convective flow speeds leads to system stiffness, making explicit solvers inefficient and standard density-based methods inaccurate. Addressing these challenges, numerical methods for solving the compressible Navier–Stokes equations coupled with heat transfer in the low-Mach regime can be broadly categorized based on their formulation strategy: pressure-based methods, density-based methods, and monolithic and stabilized methods (see Section 2.2). We note that these approaches, while effective, typically add significant implementation complexity compared to Boussinesq flow and often require com-     
+
+> ∗Corresponding author
+> Email addresses: nulixiati.mangnike@vanderbilt.edu (Nurshat Menglik), zhenxuan.shao@vanderbilt.edu (Alex Shao),
+> david.hyde.1@vanderbilt.edu (David Hyde)
+> arXiv:2606.25259v1 [physics.comp-ph] 24 Jun 2026
+
+plex operator splitting and problem-dependent tuning. Thus, improved algorithms for both Boussinesq and compressible flow remain of interest. In parallel with these and other computational fluid dynamics (CFD) algorithms developed in recent years, there has been increasing interest in scalable open-source CFD frameworks, particularly in the context of machine learning and data-driven modeling. With the continuous growth of the application of deep learning in computational simulations [16, 17], open-source CFD frameworks have become crucial for machine learning (ML)-based CFD applications, where large amounts of high-fidelity simulation data may be needed to train models [15], or where ML models are used to augment the solver. They also facilitate coupling with machine learning components—for instance, one can embed neural network models into an open-source CFD code or use Python interfaces to stream simulation data to an ML training pipeline in real-time. Although commercial tools like COMSOL provide robust multiphysics interfaces, the authors have found them expensive and ill-suited for large-scale data generation. Motivated by joint considerations of algorithm and implementation, this work first (Sections 3–5) develops and validates an open-source, fully implicit monolithic finite element framework for both Boussinesq and compressible natural convection problems in two and three dimensions, built on FEniCS/FEniCSx [18, 19]. Our proposed solver is based on a globally coupled mixed finite element formulation with a single variational residual for the compressible Navier–Stokes and total-energy equations. The paper then conducts a study of dataset generation (Section 6) that illustrates how one can construct a “good” set of fluid simulations for training a machine learning model. Section 7 subsequently uses such a dataset to train our proposed Fourier neural operator (FNO)-based approach for single-evaluation corrections of Boussinesq fluid simulations. This approach improves on the preliminary conference work of the authors based on a less performant U-Net architecture [15]. Finally, Section 8 concludes the paper and discusses future directions. Our contributions include: 
+
+• Robust open-source solvers: We develop solvers using a monolithic, fully implicit mixed-element discretization based on the Taylor-Hood mixed element method [20] that handles both nearly-in-compressible and fully compressible regimes without explicit preconditioning or stabilization in the natural-convection regimes considered here. Implicit backward Euler time integration and tight cou-pling through a single global weak form yield robust behavior over the flow regimes considered in this work and permit stable simulations with comparatively large time steps. The complete solver is developed using FEniCS/FEniCSx with configurable direct (MUMPS) and iterative (FGMRES + BoomerAMG) linear solvers. 
+
+• Fourier- and Voronoi-based stochastic data generation: Given our algorithm and implemen-tation, we present strategies for generating large, diverse natural convection simulation datasets via randomized wall temperatures, constructed as truncated random Fourier series with spectral decay in two dimensions and as random Voronoi tessellations with i.i.d. Gaussian amplitudes in three dimen-sions. In both cases the perturbation fields are centered, normalized, and clamped to ensure smooth (or piecewise-constant), reproducible, and statistically independent boundary realizations. This enables efficient large-scale dataset creation for machine learning without modifying the underlying fluid dy-namics. We demonstrate how this approach improves over naïve dataset generation, as used in works such as Mangnike and Hyde [15]. 
+
+• Improving Boussinesq simulations via FNO surrogate: By training an FNO-based model on matched pairs of Boussinesq and compressible flow simulation data, we are able to run a Boussinesq flow simulation, query the trained model once , and obtain a corrected fluid simulation result that much more closely resembles the output of the same fluid simulation if a full compressible flow model had been used. We claim that this is a particularly appropriate application for learning in computational physics: since practitioners are already making a potentially significantly erroneous approximation by choosing the Boussinesq model, incorporating an imperfect learning component into one’s simulation pipeline is less controversial than replacing a high-fidelity compressible flow solver with a physics-informed neural network (PINN), for instance [21]. All code and data is released as open-source: https://github.com/Nurshat317/NeuralConvection. 22. Related Work 
+
+2.1. Boussinesq flows 
+
+The development of algorithms for and involving Boussinesq flows remains an active topic in computational physics; as with any fluid dynamics model, a variety of discretization choices have been explored. Ueckermann and Lermusiaux [22] present a hybridized discontinuous Galerkin (DG) discretization [23, 24] with implicit-explicit Runge-Kutta time integration. Schroeder and Lube [25] propose a stabilized DG-FEM approach for Boussinesq flows, which requires stabilization parameters to be chosen, although their examples show robust behavior with a fixed choice of parameters. A fictitious domain method is developed in Yu et al. [26], where the authors use the Boussinesq approximation in the context of particulate flow. Prior to these works, Liu et al. [27] gave a fourth-order scheme for the Boussinesq equations, albeit only in two spatial dimensions. Beyond DG formulations, monolithic finite element strategies for thermally coupled incompressible flow have also been studied extensively. For example, Damanik et al. [28] develop a monolithic FEM–multigrid solver for non-isothermal incompressible flow, with emphasis on multigrid efficiency and block-structured linear algebra. At larger scales and in three dimensions, Smethurst et al. [29] similarly emphasize efficient solver technology for unstructured finite element discretizations of 3D Boussinesq flow. Three-dimensional Boussinesq dynamics in differentially heated enclosures has also been the subject of detailed numerical studies, including the emergence of oscillatory regimes at low Prandtl number [30]. From the standpoint of mixed discretizations, Miller et al. [31] propose a versatile mixed method for non-isothermal incompressible flow designed to remain robust under large buoyancy forces. Related to these developments, several other recent works have sought to improve the efficiency of Boussinesq solvers or apply them in settings such as control and learning. For instance, Elman et al. [32] provide fast solver and preconditioning techniques in the case of a Boussinesq solver using a stabilized trapezoid rule as the basis for their time integration scheme. A numerical algorithm for optimal control of Boussinesq flows is presented in Song et al. [33]. Recently, Mangnike and Hyde [15] presented a deep learning technique for improving Boussinesq flow simulations in regimes outside the traditional plausible regime of the Boussinesq approximation, based on a U-Net architecture. Finally, a related body of work concerns non-isothermal incompressible flow coupled with additional physics such as phase change. Rakotondrandisa et al. [34] present a FreeFem++ finite element toolbox for solid– liquid phase-change systems with natural convection, and Sadaka et al. [35] develop parallel three-dimensional simulations for the same class of problems using a domain decomposition strategy. While these tools target incompressible/Boussinesq regimes rather than fully compressible flow, they are directly relevant to the broader theme of open-source, scalable solvers for coupled thermal-fluid problems. For further discussion of the Boussinesq approximation, we refer the interested reader to Lappa [13], Mangnike and Hyde [15], Mayeli and Sheard [36], Zeytounian [37], and the references therein. Consistent with our treatment of compressible flow, in the present work, we pursue a mixed finite element approach for simulating Boussinesq flow. 
+
+2.2. Compressible flow strategies 
+
+When solving the compressible Navier–Stokes equations, especially (though not exclusively) in the context of FEM and in the low-Mach regime, we identify three common categories of approaches, each with their advantages and drawbacks. 
+
+Pressure-Based Methods. Pressure-based approaches derive a pressure equation (typically Poisson- or Helmholtz-type) from the coupled mass and momentum equations and then update density through an equation of state. The SIMPLE algorithm [38] and subsequent variants such as SIMPLEC [39] and PISO [40] were originally developed for incompressible flows and later extended to compressible regimes [41, 42]. However, for low-speed compressible flows, the presence of fast acoustic waves introduces computational stiffness. The low Mach number approximation (LMNA), introduced by Rehm and Baum [43], addresses this by decomposing pressure into thermodynamic, hydrostatic, and dynamic components, replacing the pressure in the equation of state with only the thermodynamic pressure. Alternatively, Wall et al. [44] propose converting the pressure Poisson equation into a Helmholtz equation to avoid Courant number restrictions imposed by acoustic waves. This decouples density from dynamic pressure variations and filters acoustic 3waves, permitting large time steps for combustion and thermal convection problems. Le Quéré et al. [45] demonstrate LMNA for non-Boussinesq convection, and more recently, Hennink et al. [46] developed a pressure-based discontinuous Galerkin method for low-Mach flows. Inspired by Wall et al. [44], Yanaoka and Sato [47] propose a simultaneous relaxation method that solves all variables (density, velocity, pressure, and internal energy) through iterative correction steps, converting the pressure Poisson equation into a Helmholtz equation to avoid acoustic time-step restrictions while emphasizing discrete conservation of momentum, energy, and entropy without requiring explicit stabilization or preconditioning. While LMNA enables efficient low-Mach computation, it is restricted to truly low-Mach regimes (Ma ≪ 1) and requires careful treatment to maintain thermodynamic consistency. 
+
+Density-Based Methods. Density-based approaches advance density directly from mass conservation and obtain pressure from the equation of state, making them natural for compressible flows but often ill-conditioned at low Mach numbers due to acoustic stiffness. Turkel [48, 49] introduces local time-derivative preconditioning that modifies the system eigenvalues to reduce this disparity, enabling computation from Ma ∼0.01 to supersonic regimes. Choi and Merkle [50] extend preconditioning to viscous flows with heat transfer, and Weiss and Smith [51] develop a formulation for both variable and constant density flows. For flux-based methods, Guillard and Viozat [52] analyze the failure of upwind schemes in the low-Mach limit, showing that the standard Roe flux produces O(1 /Ma ) pressure scaling errors, and proposed modifications to restore accuracy. While preconditioning enables existing compressible solvers to handle low-Mach flows, these methods require problem-dependent parameter tuning and may compromise accuracy if artificial dissipation is not properly scaled. 
+
+Monolithic and Stabilized Methods. Monolithic methods solve the momentum, continuity, and energy equations simultaneously via a single large nonlinear system. This approach often offers superior robustness and convergence rates but requires specialized stabilization techniques to ensure stability, particularly in convection-dominated or incompressibility-like regimes (low Mach number). Stabilized finite element meth-ods are a prime example of this strategy. Brooks and Hughes [53] pioneered this field by developing SUPG (Streamline Upwind Petrov–Galerkin), and Hughes et al. [54] introduce PSPG (Pressure-Stabilizing Petrov-Galerkin), enabling equal-order velocity-pressure interpolation by adding streamline diffusion and pressure stabilization terms. These formulations require problem-dependent stabilization parameters that depend on local flow characteristics, element geometry, and material properties. Alternatively, Luo et al. [55] develop implicit discontinuous Galerkin methods for compressible Navier–Stokes, achieving high-order accuracy with local conservation but requiring numerical flux definitions at element interfaces. In the present paper, we base our method on a monolithic system solve, and we pursue an implicit time discretization that allows us to take large time steps. For the regimes of natural convection problems we test, we find that this discretization allows us to omit specialized stabilization terms (and the associated problem-specific parameter tuning). 
+
+2.3. FEniCS and FEniCSx 
+
+Due to the numerical instability and complexity of compressible flows, the number of high-fidelity open-source codes and CFD tools capable of performing three-dimensional, time-dependent, and large-scale compressible flow simulations remains limited. In the context of monolithic FEM, these challenges can be even more pronounced due to the fully coupled nature of the discretized system. Modern finite element frameworks, notably FEniCS/FEniCSx [18], provide powerful automation and flexibility for formulating and solving partial differential equations (PDEs). FEniCS is designed to be capable of automatically transforming a variational formulation into a high-performance finite element code [19]. Coupled with linear algebra backends, such as PETSc [56], FEniCS enables efficient parallel computing on large-scale systems. Previous work has demonstrated the capabilities of FEniCS for incompressible flows (e.g., [57, 58]) and coupled multiphysics problems (e.g., [59]), but full compressible flow solvers with parallel implementations and data-generation pipelines for ML applications remain largely absent from the literature. FEniCSx is the latest version of the FEniCS platform and is recommended for new applications. Our solver implementations are based on FEniCSx. 42.4. Hybridizing Simulation and Learning 
+
+An extensive body of literature explores hybridizing traditional simulation methods with ML [16, 17, 60]. PINNs [21, 61–63] embed PDEs and physical constraints in a neural network’s loss function and architecture, generally replacing a traditional numerical solver. Other methods use learning to accelerate specific aspects of classical solvers, such as preconditioning [64] and adaptive mesh refinement [65]. More broadly, neural surrogate models are often used to replace high-fidelity models (e.g., of material properties or subscale physics) with more efficient proxies of comparable quality [66–71]. The present work can be viewed as a neural surrogate for the compressible flow physics missing from the Boussinesq model; or, alternatively, one may view the present work as using a neural model to correct model-form error in the governing fluid dynamics. Model-form correction for PDEs has been explored in recent works such as Zhou et al. [72], which develops a latent-space model correction framework based on encoders, decoders, and Gaussian processes. Additive discrepancy correction is another approach used for model-form correction wherein governing equations receive an additional correction term that is learned from data [73–75]. The surrogate in the present work directly outputs corrected field data, as opposed to predicting a correction to be added to the Boussinesq equations. 
+
+3. Governing Equations 
+
+To begin, we introduce the mathematical formulations of Boussinesq and compressible flow equations, their non-dimensionalized forms, and ultimately, weak forms. In both cases, we base our weak form derivations on the non-dimensionalized governing equations. 
+
+3.1. Boussinesq approximation 
+
+The Boussinesq approximation [12], commonly used for buoyancy-driven flows such as natural convection, assumes variations in the density of a fluid are negligible except for the effects of buoyancy, which may be induced by variations in temperature. This approximation yields a model that resembles the incompressible Navier–Stokes equations combined with a heat solve (cf. [15]): 
+
+∇ · u = 0 ,ρ0
+
+ ∂u
+
+∂t + u · ∇ u
+
+
+
+= −∇ P + μ∇2u − ρ0 g β (T − T0)ˆeg ,∂T ∂t + u · ∇ T = α∇2T, 
+
+(1) where ρ0 and T0 are a reference density and temperature, α is thermal diffusivity, μ is dynamic viscosity, and P = p − ρ0 g(ˆeg · x) is a shifted pressure. We define ˆeg as a unit vector in the direction of gravity (along the y-axis in both 2D and 3D). The Boussinesq approximation assumes that viscous heat dissipation and pressure work terms are negligible. 
+
+3.1.1. Non-dimensionalized form 
+
+We define the characteristic reference scales for our basic non-dimensionalized variables below, where L is the characteristic length, U is the characteristic velocity (equal to α/L ), and ρ0 and T0 remain reference density and temperature: 
+
+x∗ = xL , t∗ = t U L , u∗ = uU ,ρ∗ = ρρ0
+
+, T ∗ = T − T0
+
+∆T , P ∗ = P L 2
+
+ρ0 α2 .
+
+The non-dimensionalized Prandtl number P r and Rayleigh number Ra are 
+
+P r = Cpμκ , Ra = gβ ∆T L 3
+
+να ,
+
+5where Cp is the specific heat capacity of a material, β is the thermal expansion coefficient of a material, and ∆T is the temperature difference across distance L (in the case of a natural convection problem such as a differentially heated thermal cavity, this is simply taken as the difference in temperature between the hot and cold walls). Combining the above expressions, the non-dimensionalized form of the Boussinesq approximation can be written as 
+
+∇ · u∗ = 0 ,∂u∗
+
+∂t + u∗ · ∇ u∗ = −∇ P ∗ + P r ∇2u∗ − P rRaT ∗ ˆeg ,∂T ∗
+
+∂t + u∗ · ∇ T ∗ = ∇2T ∗.
+
+(2) 
+
+3.1.2. Weak form 
+
+We employ a mixed finite element method with the Taylor–Hood element pair to discretize velocity, temper-ature, and pressure. Let Ω ⊂ Rd (d = 2 , 3) denote the domain, and let 
+
+u ∈ V h, T ∈ Θh, P ∈ Qh, with V h = [ P2]d, Θh = P1, Q h = P1.
+
+We use a Taylor–Hood P2–P1 pairing for velocity and pressure, along with a P1 temperature space. We pose the weak form of our problem in the mixed space WB 
+
+> h
+
+= V h × Θh × Qh. This yields a trial function w and a test function ψ of the form 
+
+w =
+
+
+
+u
+
+TP
+
+ ∈ W B 
+
+> h
+
+, ψ =
+
+
+
+v
+
+θq
+
+ ∈ W B 
+
+> h
+
+.
+
+Thus, the variational problem to solve is: Find w ∈ W B 
+
+> h
+
+such that 
+
+F(w; ψ) = 
+
+Z
+
+> Ω
+
+F(w)ψ dx = 0 ∀ψ ∈ W B 
+
+> h
+
+.
+
+Based on Equation 2, and dropping asterisks for ease of exposition, the weak form for the conservation of mass can be written as: Z
+
+> Ω
+
+(∇ · u) q dx = 0 ,
+
+and the weak form for conservation of momentum as 
+
+Z
+
+> Ω
+
+ ∂u
+
+∂t + u · ∇ u
+
+
+
+· v dx −
+
+Z
+
+> Ω
+
+P (∇ · v) dx +
+
+Z
+
+> Ω
+
+P r ∇u : ∇v dx −
+
+Z
+
+> Ω
+
+FB · v dx = 0 ,
+
+where the body force term FB = −P rRaT ˆeg . The weak form for the conservation of energy may be written as Z
+
+> Ω
+
+∂T ∂t θ dx +
+
+Z
+
+> Ω
+
+(u · ∇ T ) θ dx +
+
+Z
+
+> Ω
+
+∇T · ∇ θ dx = 0 .
+
+Integrating F by parts yields the final weak form: 
+
+Fmass =
+
+Z
+
+> Ω
+
+(∇ · u)q d Ω = 0 ,
+
+Fmom =
+
+Z
+
+> Ω
+
+ ∂u
+
+∂t + u · ∇ u
+
+
+
+· v dΩ −
+
+Z
+
+> Ω
+
+P (∇ · v) dΩ+
+
+Z
+
+> Ω
+
+P r ∇u : ∇v dΩ + 
+
+Z
+
+> Ω
+
+P rRaT (ˆeg · v) dΩ = 0 ,
+
+Fenergy =
+
+Z
+
+> Ω
+
+∂T ∂t θ d Ω + 
+
+Z
+
+> Ω
+
+(u · ∇ T )θ d Ω + 
+
+Z
+
+> Ω
+
+∇T · ∇ θ d Ω = 0 ,
+
+F(w; ψ) = Fmass + Fmom + Fenergy .
+
+(3) 63.2. Compressible flow 
+
+For flows with large temperature variations, the Boussinesq approximation fails, and compressible flow models are required [14]. One can write the compressible Navier–Stokes equation coupled with the energy equation as follows: ∂ρ ∂t + ∇ · (ρu) =0 ,∂(ρu)
+
+∂t + ∇ · (ρu ⊗ u) = − ∇ p + ∇ · τ + ρg ˆeg ,∂(ρe )
+
+∂t + ∇ · (ρe u) = ∇ · (κ∇T ) − p∇ · u + Φ ,
+
+(4) where e is the internal energy per unit mass, g = || g|| , e = cv T (for an ideal gas), ρ0 is the reference density, 
+
+κ is the thermal conductivity, and p∇ · u is the pressure work term. The viscous stress tensor τ and the viscous dissipation term Φ are defined as: 
+
+τ =μ  ∇u + ( ∇u)T  − 23 μ(∇ · u)I,
+
+Φ = τ : ∇u.
+
+Throughout this work, the dynamic viscosity μ and thermal conductivity κ are taken to be constants of the reference state; temperature-dependent property models such as Sutherland’s law are not used. An equation of state is needed to close the equations. For an ideal gas, the equation of state is 
+
+p = ( γ − 1) ρe, 
+
+where γ is the ratio of specific heat of a gas at a constant pressure to heat at a constant volume (1.4 for air). The energy equations can also be written in total energy form: 
+
+∂(ρE )
+
+∂t + ∇ · (ρE u) = ∇ · (κ∇T ) − ∇ · (pu) + ∇ · (τ · u) + ρ g ˆeg · u, (5) where E is total energy: 
+
+E = e + 12 u · u.
+
+Following standard practice for low-Mach formulations, the E here is the sum of internal and kinetic energy only, the gravitational work enters the energy balance solely through the body-force power term ρg ˆeg · u on the right-hand side. 
+
+3.2.1. Non-dimensionalized form 
+
+Following [47], the characteristic reference scales needed to express compressible flow in non-dimensionalized form are 
+
+x∗ = x
+
+L , t∗ = t U L , u∗ = u
+
+U , e∗ = ee0
+
+ρ∗ = ρρ0
+
+, T ∗ = TT0
+
+, p∗ = p − p0
+
+ρ0U 2 ,
+
+where a naught subscript represents reference values and where L represent characteristic length. Here the reference velocity is the buoyancy (free-fall) velocity U = √gβ ∆T L , which differs from the thermal-diffusion velocity U = α/L used in the Boussinesq non-dimensionalization (Section 3.1.1), the symbol U
+
+thus denotes a different characteristic scale in each of the two formulations. This choice is what produces the parameter relation Re = pRa/P r used for the compressible runs, matching each case to its Boussinesq counterpart at the same Rayleigh number, with U = α/L one would instead obtain the constant Re = 1 /P r .7Furthermore, the non-dimensionalized Mach number M a , Reynolds number Re and Froude number F r are defined as 
+
+M a = Uc , Re = ρ0U L μ , F r = U
+
+√gL ,
+
+where c =
+
+q γp 0 
+
+> ρ0
+
+is the speed of sound in a material. Using the total energy form of the energy equation (Equation 5), the non-dimensionalized forms of the compressible flow governing equations can be written as ∂ρ ∗
+
+∂t ∗ + ∇ · (ρ∗u∗) =0 ,∂ρ ∗u∗
+
+∂t ∗ + ∇∗ · (ρ∗u∗ ⊗ u∗) = − ∇ ∗p∗ + 1
+
+Re ∇∗ · τ ∗ + ρ∗
+
+F r 2 ˆeg ,∂(ρ∗E∗)
+
+∂t ∗ + ∇∗ · (ρ∗E∗u∗) = γReP r ∇∗2T ∗ − (γ − 1) ∇ · (( γM a 2p∗ + 1) u∗)+ (γ − 1) γM a 2
+
+Re ∇∗ · (τ ∗ · u∗) + (γ − 1) γM a 2
+
+F r 2 ρ∗ ˆeg · u∗,ρ∗e∗ =1 + γM a 2 p∗.
+
+(6) 
+
+3.2.2. Weak form 
+
+Similarly to our derivation for Boussinesq flow, we solve for (u, e, ρ, p ) in the mixed Taylor–Hood-type space 
+
+WC 
+
+> h
+
+= V h × Eh × Rh × Ph = [ P2]d × P1 × P1 × P1,
+
+where these solution variables are defined as components of the associated trial function. The trial and test functions are defined as 
+
+w =
+
+
+
+u
+
+eρp
+
+ ∈ W C 
+
+> h
+
+, ψ =
+
+
+
+v
+
+we
+
+wρ
+
+q
+
+ ∈ W C 
+
+> h
+
+.
+
+Then, the weak form for the non-dimensionalized compressible equations (dropping asterisks, as before, for ease of exposition) can be written as: 
+
+Continuity Equation: 
+
+Fρ(ρ, u; q) = 
+
+Z
+
+> Ω
+
+ ∂ρ ∂t + ∇ · (ρu)
+
+
+
+q d Ω = 0 . (7) 
+
+Momentum Equation: 
+
+Fu(ρ, u, p ; v) = 
+
+Z
+
+> Ω
+
+ ∂(ρu)
+
+∂t · v + ∇ · (ρu ⊗ u) · v − p∇ · v + 1
+
+Re τ : ∇v − ρF r 2 ( ˆeg · v)
+
+
+
+dΩ = 0 . (8) 
+
+Energy Equation: 
+
+Fe(ρ, e, u, p ; we) = 
+
+Z
+
+> Ω
+
+ ∂(ρE )
+
+∂t we + ∇ · (ρE u)we + γ
+
+Re Pr ∇e · ∇ we − (γ − 1)  γ Ma 2p + 1  u · ∇ we
+
+
+
+dΩ
+
+(9) 
+
++
+
+Z
+
+> Ω
+
+ (γ − 1) γ Ma 2
+
+Re (τ · u) · ∇ we − γ(γ − 1)Ma 2
+
+Fr 2 ρ(ˆeg · u) we
+
+
+
+dΩ = 0 . (10) 
+
+Equation of State 
+
+8U = 0,  qy = 0         
+
+> U = 0, qy= 0
+> g
+> Th , U = 0
+> Tc , U = 0
+> x
+> yLFigure 1: Domain geometry and boundary conditions for differentially heated thermal cavity simulations. A temperature gradient is set across the domain with a hot left wall (temperature Th) and a cooler right wall (temperature Tc). Figure reproduced from [15], licensed under CC BY-NC-SA 4.0.
+
+Fq (ρ, e, p ; wρ) = 
+
+Z
+
+> Ω
+
+(( γM a 2p + 1) − ρe ) wρ dΩ = 0 . (11) Altogether, 
+
+F(w; ψ) = Fρ + Fu + Fe + Fq . (12) For pedagogical purposes, we include detailed derivations of the non-dimensionalized weak forms for both Boussinesq and compressible flows in Appendix A. 
+
+4. Numerical methodology 
+
+Our primary test case is the differentially heated square cavity problem [76] in two or three spatial dimensions, the canonical benchmark for natural convection. The domain Ω = [0 , L ]d (d = 2 , 3) consists of adiabatic horizontal walls and vertical walls held at constant temperatures Th and Tc (Figure 1). The flow is governed by the non-dimensionalized Rayleigh number ( Ra ), Prandtl number ( P r ), Mach number ( M a ), and Froude number ( F r ) (as appropriate, in the Boussinesq or compressible flow cases). We employ a unified, monolithic finite element formulation implemented in the FEniCSx ecosystem (DOLFINx, FFCx, PETSc). A distinct feature of this approach is the use of a fully coupled implicit solver for all variables simultaneously in a mixed element space. This avoids the splitting errors inherent in partitioned pressure-correction schemes and allows for robust convergence at large time steps ( ∆t) without the need for ad-hoc stabilization (such as SUPG/PSPG) or turbulence modeling in the regimes considered. The following subsections summarize the mesh and function spaces, temporal discretization, and the nonlinear/linear solvers employed. 
+
+4.1. Mesh, geometry, and function spaces 
+
+Let the domain Ω ⊂ Rd (d = 2 , 3) be partitioned into a shape-regular mesh Th = {K} of triangles (2D) or hexahedra/brick cells (3D). Geometry is represented isoparametrically: each cell K ∈ T h is the image of a reference element ˆK under a mapping 
+
+x = Φ K (ˆ x) = X
+
+> i
+
+XK,i ˆϕi(ˆ x),
+
+9where {XK,i } are geometry nodes, { ˆϕi} are reference Lagrange basis functions, and the Jacobian JK = ∇ˆxΦK
+
+and its determinant are provided to all quadrature loops via automatic differentiation in FFCx. FEniCSx stores topology and geometry (coordinate field) separately, enabling efficient mesh adaptation and parallel repartitioning. For Boussinesq flow, we employ the mixed finite element space 
+
+WB 
+
+> h
+
+= Vh × Θh × Ph = [ P2]d × P1 × P1
+
+for velocity u, temperature T , and pressure p, respectively. Here [P2]d denotes vector-valued quadratic Lagrange elements for velocity (the Taylor–Hood pairing ensures inf-sup stability), while Θh and Ph are scalar linear Lagrange spaces ( P1) for temperature and pressure. For compressible flow, we extend the mixed space to include density and internal energy: 
+
+WC 
+
+> h
+
+= Vh × Eh × Rh × Ph = [ P2]d × P1 × P1 × P1
+
+for velocity u, specific internal energy e (proportional to temperature), density ρ, and total pressure p, re-spectively. The vector-valued quadratic Lagrange elements for velocity [P2]d capture momentum and viscous effects accurately, and Eh, Rh and Ph are scalar linear Lagrange spaces ( P1) for e, ρ and p. Each sub-space is H1-conforming and assembled into a globally conforming mixed space in DOLFINx with consistent orientation and numbering. 
+
+4.2. Time discretization 
+
+Time integration is performed with a first-order implicit backward Euler scheme. For each time step, we pose a Galerkin weak problem: find the trial field wn+1 ∈ W h such that 
+
+Fn+1 (wn+1 ; z) = 0 for all test functions z ∈ W h.
+
+Here F n+1 ( · ; · ) is the discrete residual, obtained by inserting the finite element unknowns into the weak form of the PDEs and testing against z. Temporal derivatives are approximated by first-order backward differences. For the Boussinesq approximation, with wn+1 = ( un+1 , T n+1 , p n+1 ), we have 
+
+∂u
+
+∂t 
+
+> n+1
+
+≈ un+1 − un
+
+∆t , ∂T ∂t 
+
+> n+1
+
+≈ T n+1 − T n
+
+∆t . (13) For the compressible formulation, with wn+1 = ( un+1 , e n+1 , ρ n+1 , p n+1 ), define the non-dimensionalized kinetic energy coefficient 
+
+αke = 12 γ(γ − 1) Ma 2.
+
+The specific total energy is then 
+
+En+1 = e n+1 + αke u n+1 · u n+1 , En = e n + αke u n · u n,
+
+and the conserved variable in the energy equation is the total energy density ρE . The temporal derivatives are 
+
+∂u
+
+∂t 
+
+> n+1
+
+≈ un+1 − un
+
+∆t , ∂(ρu)
+
+∂t 
+
+> n+1
+
+≈ ρn+1 un+1 − ρnun
+
+∆t , (14) 
+
+∂ρ ∂t 
+
+> n+1
+
+≈ ρn+1 − ρn
+
+∆t , ∂(ρE )
+
+∂t 
+
+> n+1
+
+≈ ρn+1 En+1 − ρnEn
+
+∆t . (15) Thus, the scheme is fully implicit in all conserved variables (ρ, ρ u, ρE ), while e itself remains the thermody-namic variable used in heat conduction and the equation of state. 10 4.3. Unified global weak formulation 
+
+The Boussinesq system is discretized as a single variational residual acting on the mixed space WB 
+
+> h
+
+. As before, ˆeg denotes the unit vector in the direction of gravity. The residual is 
+
+FB, n+1 (wn+1 ; z) = 
+
+Z
+
+> Ω
+
+h u n+1 − u n
+
+∆t · v + T n+1 − T n
+
+∆t θ
+
+i
+
+dx
+
++ N B(wn+1 ; z),
+
+(16) where the spatial part is 
+
+N B(wn+1 ; z) = 
+
+Z
+
+> Ω
+
+h
+
+(∇· u n+1 ) q + ( u n+1 ·∇ u n+1 ) · v − pn+1 ∇· v
+
++ Pr ∇u n+1 : ∇v + Pr Ra T n+1 (ˆeg · v)
+
+i
+
+dx
+
++
+
+Z
+
+> Ω
+
+h
+
+(u n+1 · ∇ T n+1 ) θ + ∇T n+1 · ∇ θ
+
+i
+
+dx. 
+
+(17) The fully coupled compressible system is discretized as a single variational residual acting on the mixed space 
+
+WC 
+
+> h
+
+. Let σ(u) = ∇u + ∇u⊤ − 23 (∇· u)I denote the deviatoric stress. The residual is 
+
+FC, n+1 (wn+1 ; z) = 
+
+Z
+
+> Ω
+
+h ρ n+1 − ρ n
+
+∆t q + ρ n+1 u n+1 − ρ nu n
+
+∆t · v + ρ n+1 E n+1 − ρ nE n
+
+∆t we
+
+i
+
+dx
+
++ N C(wn+1 ; z) + B(wn+1 ; z),
+
+(18) where N C collects all spatial operators (mass, momentum, total–energy transport, equation of state) and B
+
+collects the body-force contributions (momentum buoyancy and the associated gravity power in the energy equation). The spatial part is given by 
+
+N C(wn+1 ; z) = 
+
+Z
+
+> Ω
+
+h
+
+∇· (ρ n+1 u n+1 ) q + ∇·  ρ n+1 u n+1 ⊗u n+1  · v − pn+1 ∇· v
+
++ 1Re σ(u n+1 ) : ∇v
+
+i
+
+dx
+
++
+
+Z
+
+> Ω
+
+h
+
+∇· (ρ n+1 E n+1 u n+1 ) we + γ
+
+Re Pr ∇e n+1 · ∇ we
+
+− (γ − 1)  γMa 2pn+1 + 1  u n+1 · ∇ we + γ(γ − 1)Ma 2
+
+Re 
+
+ σ(u n+1 ) · u n+1  · ∇ we
+
+i
+
+dx
+
++
+
+Z
+
+> Ω
+
+ γMa 2pn+1 + 1 − ρ n+1 e n+1  wρ dx, 
+
+(19) and the buoyancy term is 
+
+B(wn+1 ; z) = −
+
+Z
+
+> Ω
+
+1Fr 2 ρ n+1  ˆeg · v dx −
+
+Z
+
+> Ω
+
+(γ − 1) γ Ma 2
+
+Fr 2 ρ n+1  ˆeg · u n+1  we dx. (20) In this formulation, the conserved scalar is the total energy density ρE , but the thermodynamic scalar that appears in heat conduction and the equation of state is the internal energy e. The system is still treated as a single global mixed problem in the unknowns (u, e, ρ, p ), and the remarks on robustness for large ∆t, coarse meshes, and the absence of additional stabilization or special preconditioners remain unchanged. 
+
+4.4. Monolithic nonlinear and linear solvers 
+
+On each time step, we solve the discrete nonlinear system by a damped Newton method. Given an iterate 
+
+w(k) at tn+1 , we locally linearize and assemble the residual vector and Jacobian: 
+
+R(k) 
+
+> i
+
+= Fn+1 (w(k); ψi), J(k) = ∂Fn+1 
+
+∂w w(k) . (21) 11 A critical advantage of the FEniCSx framework is the use of the Unified Form Language (UFL) to de-rive the exact Jacobian matrix via automatic differentiation 1. In code, this is expressed simply as J = ufl.derivative(F, w) , where F is the UFL representation of the weak residual Fn+1 and w is the mixed trial function. UFL applies symbolic differentiation rules (product rule, chain rule) to all terms in the resid-ual—including nonlinear products ( ρu ⊗ u, ρE u), viscous dissipation ( σ : ∇u), and the equation-of-state coupling—to produce the exact linearized bilinear form. Because the Jacobian is differentiated from the same discrete residual that generates R(k), it is algebraically consistent and includes all cross-coupling terms (e.g., ∂Fρ/∂p , ∂Fe/∂ρ , ∂Fu/∂p ) automatically. This com-pleteness supports rapid Newton convergence even in stiff regimes (e.g., low-Mach compressible flow) and, in the regimes tested by our numerical experiments, it eliminates the need for artificial stabilization schemes, achieving global convergence strictly through standard line-search methods. In contrast, many existing solvers either use finite-difference Jacobian approximations (prone to truncation error), hand-derived sim-plified Jacobians (which often omit off-diagonal blocks to reduce implementation complexity), or operator-splitting schemes (which decouple the system and require SUPG/PSPG-type stabilization to compensate for splitting errors). For the compressible formulation with w = ( u, e, ρ, p ), the Jacobian has the natural 4 × 4 block struc-ture 
+
+J(k) =
+
+
+
+Juu Jue Juρ Jup 
+
+Jeu Jee Jeρ Jep 
+
+Jρu Jρe Jρρ Jρp 
+
+Jpu Jpe Jpρ Jpp 
+
+ , (22) where each block captures the sensitivity of one residual component to variations in another variable. The diagonal blocks ( Juu , Jee , etc.) contain diffusion, time-derivative, and linearized convection terms. The off-diagonal blocks encode key physical couplings: Jup is the pressure-gradient term in momentum, Juρ arises from inertia and buoyancy ( ρu·∇ u and ρg), Jeu captures kinetic energy and viscous dissipation feedback, Jep 
+
+represents the pressure-work term, and Jpρ , J pe , J pp encode the equation-of-state linearization p = ( γ − 1) ρe .For Boussinesq flow, the structure simplifies to a 3 × 3 block matrix for (u, T, p ). All blocks are computed automatically by UFL and assembled element-wise via FFCx-generated kernels. After assembling the Jacobian and residual, we then compute the standard Newton update δw (k) ∈ W h by solving the linearized problem 
+
+J(k) δw (k) = − R (k). (23) Rather than directly using δw (k) to update the solution iterate, we perform an Armijo line search [78] to find an optimal damped update 
+
+w(k+1) = w(k) + α(k) δw (k), α(k) ∈ (0 , 1] . (24) Our solution loop (see Algorithm 1 for pseudocode for the compressible case) iterates until convergence, which we define as either of the following two conditions being satisfied: 
+
+∥R (k)∥ ≤ rtol ∥R (0) ∥ + atol , ∥δw (k)∥ ≤ rtol δ ∥w(k)∥ + atol δ . (25) In our implementation, the nonlinear residual tolerances are strictly enforced at rtol = atol = 10 −9. rtol δ
+
+and atol δ are maintained at the standard PETSc SNES defaults (step tolerance = 10 −8). The matrices and vectors in Equation 23 are assembled element–wise by FFCx–generated kernels using the isoparametric map, with essential boundary conditions enforced through consistent lifting in the residual and row modifications of the Jacobian on the constrained subspaces. We consider solving Equation 23 via direct and iterative solvers: 
+
+> 1We are aware that automatic differentiation does not necessarily simplify expressions, which in some cases can lead to substantial numerical errors, as studied in Johnson et al. [77].
+
+12 Algorithm 1: Fully Compressible Implicit Monolithic Solver 
+
+Input: Mesh Th, mixed function space W = [ P2]d ⊕ P1 ⊕ P1 ⊕ P1 for (u, e, ρ, p ), time step ∆t, final time 
+
+Tmax , tolerances (rtol , atol , rtol δ , atol δ ).
+
+IC/BCs: Constants γ, Pr , Fr , Ma , Re ; initial values (u0, e 0, ρ 0, p 0); impose u|∂Ω = 0 and e|∂Ω = Twall 
+
+(Dirichlet). Set t0 ← 0, n ← 0;
+
+while tn < T max do Newton initial guess: w(0) ← (un, e n, ρ n, p n);
+
+for k = 0 , 1, 2, . . . do Time discretization: update time derivatives (Eq. 15); Assemble residual vector R(k) 
+
+> i
+
+= Fn+1 (w(k); ψi) with F = Fρ + Fu + Fe + Fq (Eq. 12); Assemble exact Jacobian J(k) = ∂Fn+1 /∂w w(k) via automatic differentiation (UFL); Solve linear system J(k) δw (k) = −R (k) with PETSc (MUMPS or FGMRES+AMG); Find optimal damping factor α(k) ∈ (0 , 1] (Armijo line search); 
+
+w(k+1) ← w(k) + α(k) δw (k);
+
+if ∥R (k)∥ ≤ rtol ∥R (0) ∥ + atol or ∥δw (k)∥ ≤ rtol δ ∥w(k)∥ + atol δ then break ;
+
+Accept step: (un+1 , e n+1 , ρ n+1 , p n+1 ) ← w(k+1) ;
+
+tn+1 ← tn + ∆ t, n ← n + 1 ;
+
+Direct solver (baseline). We solve J(k) δw (k) = −R (k) using multifrontal sparse LU factorization via MUMPS (MUltifrontal Massively Parallel Sparse direct solver) [79]: 
+
+P J(k) Q = L U, 
+
+with permutations P, Q for sparsity and numerical stability. The Newton update is obtained by forward and backward triangular solves. This approach is robust, requires no preconditioning tuning, and serves as the reference baseline for smaller problems where direct factorization is feasible. 
+
+Iterative solver (scalability). For larger systems, we solve the linearized problem in Equation 23 by employing right-preconditioned FGMRES (Flexible GMRES) [80] with Algebraic Multigrid (AMG) preconditioning from the Hypre library (BoomerAMG [81]): 
+
+J(k) Zk = Vk+1 Hk, Zk = [ M −11 v1, . . . , M −1 
+
+> k
+
+vk], (26) where Zk contains the preconditioned search directions, Vk+1 = [ v1, . . . , v k+1 ] is the orthonormal Krylov basis, Hk ∈ R(k+1) ×k is the upper Hessenberg matrix encoding the recurrence, and M −1 
+
+> j
+
+denotes one BoomerAMG V-cycle applied to the j-th basis vector. The solution is found by minimizing the residual in the subspace spanned by Zk. AMG constructs a hierarchy of coarse operators Aℓ−1 = RℓAℓPℓ via Galerkin projections and employs damped Jacobi pre/post-smoothing, sparsity-preserving restriction/prolongation, and a sparse direct solve at the coarsest level. This reduces memory per rank and improves parallel scalability for very large matrices. The mixed structure of J(k) is handled naturally by the single global assembly and direct/iterative linear algebra in PETSc; the interleaved mixed-space layout enables efficient sparse matrix operations without explicit field partitioning. Parallelism is handled via PETSc’s MPI-distributed vectors and matrices, with ghost value synchronization managed by the associated star forest object [82]. 
+
+5. Solver Experiments 
+
+5.1. Convergence studies 
+
+To establish the accuracy and reliability of our monolithic finite element solver, we performed systematic studies of both spatial (mesh) and temporal convergence. 13 10 2              
+
+> Mesh size h
+> 10 5
+> 10 4
+> 10 3
+> 10 2
+> Relative  L2 error
+> Boussinesq
+> Velocity |u|
+> Temperature
+> Pressure
+> O(h)
+> O(h2)(a) Boussinesq 10 210 1
+> Mesh size h
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> Relative  L2 error
+> Compressible
+> Velocity |u|
+> Temperature
+> Density
+> Pressure
+> O(h)
+> O(h2)(b) Compressible
+
+Figure 2: Self-convergence with mesh size for Boussinesq and fully compressible formulations. Relative L2 error versus mesh size h for all primary field variables, compared against the reference solution obtained with 512 × 512 mesh resolution. 
+
+5.1.1. Mesh convergence 
+
+We conducted mesh self-convergence studies for both the Boussinesq and fully compressible formulations using a sequence of systematically refined triangular meshes with resolutions of 16 × 16 , 32 × 32 , 64 × 64 ,
+
+128 × 128 , 256 × 256 , and 512 × 512 elements. The finest mesh ( 512 × 512 ) was used as the reference solution, and the relative L2 errors were computed for all primary field variables at each coarser resolution. The mesh size h represents the characteristic element spacing, defined as h = L/N , where L is the domain size and N
+
+is the number of elements in each direction. Figure 2 presents the mesh convergence results for both formulations. In Figure 2a, the Boussinesq approx-imation shows that the temperature and pressure fields converge at approximately second-order accuracy, closely following the O(h2) reference line. This behavior is expected given the P2–P1 Taylor-Hood finite element discretization, where velocity is approximated with quadratic elements and temperature/pressure with linear elements. Figure 2b shows the convergence behavior of the compressible formulation, which includes an additional density field. All four fields—velocity magnitude, temperature, density, and pres-sure—demonstrate consistent second-order convergence rates across the mesh refinement sequence. The temperature and pressure errors closely track the O(h2) reference line, while the velocity field shows a slightly higher error magnitude, consistent with the Boussinesq results. The density field exhibits conver-gence comparable to temperature and pressure, validating the coupling between the equation of state and the energy equation in the compressible solver. Comparing the two formulations, the absolute errors are slightly higher in the compressible case due to the increased complexity of the coupled variables and the absence of a low-Mach simplification. Nevertheless, the consistent O(h2) rate across both formulations confirms the accuracy and correct implementation of the chosen mixed finite element spatial discretization. 
+
+5.1.2. Temporal convergence 
+
+To assess the temporal discretization accuracy, we performed time-step convergence studies using both first-order (backward Euler) and second-order (BDF2) implicit time integration schemes based on the fully compressible formulation. Two reference cases were selected with different time step sizes: ∆t = 0 .0005 for the first-order scheme and ∆t = 0 .1 for the second-order scheme. Coarser time steps were systematically increased, and the relative L2 errors were computed by comparing the solution at a fixed final time against the reference solution obtained with the smallest time step. Figure 3 illustrates the temporal convergence behavior for both schemes. Figure 3a shows the first-order backward Euler scheme, where all field variables—velocity magnitude, temperature, density, and pres-sure—converge at the expected first-order rate, closely following the O(∆ t) reference line. The velocity 14 10 3 10 2 10 1          
+
+> Time step t
+> 10 7
+> 10 6
+> 10 5
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> Relative  L2 error vs smallest  t
+> Temporal convergence (first order)
+> Velocity |u|
+> Temperature
+> Density
+> Pressure
+> O(t)
+> O(t2)
+
+(a) First-order convergence (Backward Euler) 10 02 × 10 1 3 × 10 1 4 × 10 1 6 × 10 1      
+
+> Time step t
+> 10 3
+> 10 2
+> Relative  L2 error vs smallest  t
+> Temporal convergence (second order)
+> Velocity |u|
+> Temperature
+> Density
+> Pressure
+> O(t)
+> O(t2)
+
+(b) Second-order convergence (BDF2) 
+
+Figure 3: Time-step convergence using first-order and second-order implicit time discretization schemes for compressible for-mulation. Relative L2 error versus time step ∆t for all primary field variables. 0.0 0.2 0.4 0.6 0.8 1.0         
+
+> x
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> 1.2
+> 1.4
+> 1.6
+> Temperature
+> Centerline Temperature Profile (y = 0.5)
+> Ra=1e3 COMSOL
+> Ra=1e3 present
+> Ra=1e4 COMSOL
+> Ra=1e4 present
+> Ra=1e5 COMSOL
+> Ra=1e5 present
+> Ra=1e6 COMSOL
+> Ra=1e6 present
+
+(a) Boussinesq 0.0 0.2 0.4 0.6 0.8 1.0            
+
+> x
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> 1.2
+> 1.4
+> 1.6
+> Temperature
+> Centerline Temperature Profile (y = 0.5)
+> Ra=1e2 COMSOL
+> Ra=1e2 present
+> Ra=1e3 COMSOL
+> Ra=1e3 present
+> Ra=1e4 COMSOL
+> Ra=1e4 present
+> Ra=1e5 COMSOL
+> Ra=1e5 present
+> Ra=1e6 COMSOL
+> Ra=1e6 present
+
+(b) Compressible 
+
+Figure 4: Temperature profile validation with COMSOL at y = 0 .5.
+
+magnitude exhibits the largest error accumulation with increasing ∆t, highlighting the strong influence of the nonlinear momentum terms. Figure 3b presents the results for the second-order time integration scheme. All fields demonstrate clear second-order convergence, closely tracking the O(∆ t2) reference line over the range of time steps tested. Thus, our solvers can achieve first- or second-order accuracy depending on the needs of the user. Our remaining numerical results use backward Euler for sake of computational efficiency. 
+
+5.2. Numerical validation 
+
+We validate our monolithic mixed finite element solver against established benchmarks and commercial software (COMSOL Multiphysics 6.1) [83] based on the classic differentially heated square (or cubic) cavity, as illustrated in Figure 1. The physical domain is defined as a unit square for 2D cases ( Ω = [0 , 1] × [0 , 1] m) and a unit cube for 3D cases ( Ω = [0 , 1] × [0 , 1] × [0 , 1] m). The validation spans Boussinesq and fully compressible formulations in two and three dimensions, covering both field-level solutions and integrated heat transfer metrics (Nusselt numbers). All 2D simulations employ a 64 × 64 mesh, while 3D simulations use a 24 × 24 × 24 mesh. 
+
+5.2.1. Reference field solutions Boussinesq natural convection. The Boussinesq approximation is validated by comparing detailed tempera-ture, velocity, and pressure fields computed by our solver against COMSOL Multiphysics at identical param-15 eters and mesh resolution. Figure 5 shows a comprehensive side-by-side comparison for Rayleigh numbers 
+
+Ra ∈ { 10 3, 10 4, 10 5, 10 6}, displaying temperature contours, velocity magnitude fields, streamlines, and RMS error maps. The RMS error fields (Figure 5, difference panels) show that discrepancies are confined to small-amplitude secondary features and boundary layer regions, with peak relative errors typically of order 10 −3
+
+to 10 −2, unsurprising given the distinct discretizations and solvers used in COMSOL and the present work. A more stringent point-wise validation is provided by comparing temperature profiles along the horizontal centerline ( y = 0 .5). As shown in Figure 4a, our solutions (solid lines) superimpose closely on the COMSOL results (dashed lines) across all Rayleigh numbers, confirming the high point-wise accuracy and regularity of the computed solutions. 
+
+Compressible natural convection. The fully compressible formulation is validated against COMSOL for Rayleigh numbers Ra ∈ { 10 2, 10 3, 10 4, 10 5, 10 6} and a corresponding Mach number M a ∈ { 3.84 ×10 −4, 5.63 ×
+
+10 −4, 8.27 × 10 −4, 1.21 × 10 −3, 1.78 × 10 −3} (low-Mach regime [47]). Figure 6 presents 2D side-by-side com-parisons showing temperature fields, streamlines, and RMS error maps. The proposed and COMSOL so-lutions exhibit excellent agreement, confirming that the monolithic treatment of density, momentum, and total energy correctly handles the compressible flow physics without the need for numerical stabilization (SUPG/PSPG) or specialized preconditioning. Figure 4b displays the centerline temperature profiles for the compressible formulation, showing tight agreement between our monolithic compressible solver and COM-SOL. We also validated our compressible monolithic solver for 3D cases against COMSOL. Figure 7 shows a mid-plane slice ( z = 0 .5) comparison on the 24 × 24 × 24 mesh. The temperature fields are in close agreement across all Ra , with slice RMS errors of order 10 −2 (rising to ≈ 7.6 × 10 −2 at Ra = 10 4). These larger 3D discrepancies relative to the 2D case reflect the coarser 24 3 mesh, which under-resolves the thermal boundary layers at higher Rayleigh numbers. The corresponding Nusselt numbers in Table 1 deviate from the reference by a few percent at Ra = 10 6 for the same reason. As in 2D, we also expect modest differences from COMSOL due to the distinct discretizations and solvers. 
+
+5.2.2. Nusselt number validation 
+
+The Nusselt number, a dimensionless measure of convective heat transfer, is defined as 
+
+N u = 1
+
+L
+
+Z L
+
+> 0
+
+∂T ∂x dy, 
+
+where L is the cavity height and the integral is evaluated at a vertical wall (hot or cold). This metric integrates local temperature gradients and is sensitive to the overall flow intensity and heat transfer mechanism, making it an excellent benchmark for solver validation. Table 1 presents spatially-averaged Nusselt numbers on the hot and cold walls ( N u hot and N u cold ) for the compressible formulation across a wide range of Rayleigh and Mach numbers. The 2D results ( 64 × 64 mesh) span Ra ∈ { 10 2, 10 3, 10 4, 10 5, 10 6} with corresponding Mach numbers M a ∈ { 3.84 × 10 −4, 5.63 × 10 −4, 8.27 × 10 −4, 1.21 × 10 −3, 1.78 × 10 −3}, while the 3D results (24 × 24 × 24 mesh) cover Ra ≥ 10 3 at the same Ma values. We compare our results against those reported by Vierendeels et al. [84] and Fusegi et al. [85] for the same test cases. In both 2D and 3D, we observe tight agreement between hot and cold wall Nusselt numbers across all Rayleigh numbers, confirming energy balance and the symmetry of the discrete problem. The computed values capture the expected scaling behavior of natural convection heat transfer, with N u increasing monotonically from approximately 1.0 at Ra = 10 2 to 8.7 at Ra = 10 6 in 2D. Our proposed solver demonstrates excellent agreement with reference values from the literature across all tested Rayleigh numbers. This validates the compressible formulation’s ability to accurately capture heat transfer across the entire low-Mach regime from very low ( Ra = 10 2) to moderately high ( Ra = 10 6) Rayleigh numbers. 
+
+5.2.3. Conservation analysis 
+
+We evaluate the discrete conservation properties of the monolithic solver by monitoring global mass, energy, and entropy balance over time. These tests were conducted for the 2D fully compressible cavity case at 
+
+Ra = 10 4 and M a = 8 .27 × 10 −4 with γ = 1 .4, P r = 0 .71 , and ∆t = 0 .02 , using no-slip walls and fixed temperature on the vertical boundaries ( x = 0 hot, x = 1 cold) with the mesh resolution of 64 × 64 .16 Temperature (present) 
+
+Ra = 10 3 Ra = 10 4 Ra = 10 5 Ra = 10 6
+
+> Temperature (COMSOL)
+
+RMSE=6.19e-03 
+
+> RMSE (Temperature)
+
+RMSE=1.12e-02 RMSE=1.75e-02 RMSE=2.57e-02 
+
+> Velocity magnitude (present) Velocity magnitude (COMSOL)
+
+RMSE=2.84e-02 
+
+> RMSE (Velocity magnitude)
+
+RMSE=3.12e-02 RMSE=3.93e-02 RMSE=4.63e-02 
+
+0.36 
+
+0.54 
+
+0.72 
+
+0.90 
+
+1.08 
+
+1.26 
+
+1.44 
+
+1.62 
+
+0.36 
+
+0.54 
+
+0.72 
+
+0.90 
+
+1.08 
+
+1.26 
+
+1.44 
+
+1.62 
+
+0.000 
+
+0.024 
+
+0.048 
+
+0.072 
+
+0.096 
+
+0.120 
+
+0.144 
+
+0.168 
+
+0.00 
+
+0.15 
+
+0.30 
+
+0.45 
+
+0.60 
+
+0.75 
+
+0.90 
+
+0.00 
+
+0.15 
+
+0.30 
+
+0.45 
+
+0.60 
+
+0.75 
+
+0.90 
+
+0.00 
+
+0.04 
+
+0.08 
+
+0.12 
+
+0.16 
+
+0.20 
+
+0.24 
+
+0.28 
+
+0.32 
+
+Temperature and Velocity Magnitude Comparison and Differences (present vs COMSOL) Figure 5: Validation with COMSOL (Boussinesq, 2D). Despite using different discretizations and solvers, the two sets of solutions are visually and numerically quite similar, suggesting the validity of our implementation. 
+
+17 Ra = 1e2 
+
+COMSOL present RMSE=5.899e-04 
+
+> Ra = 1e3
+
+RMSE=5.656e-03 
+
+> Ra = 1e4
+
+RMSE=4.452e-03 
+
+> Ra = 1e5
+
+RMSE=3.180e-03 
+
+> Ra = 1e6
+
+RMSE=2.600e-03 
+
+> 0.36
+> 0.54
+> 0.72
+> 0.90
+> 1.08
+> 1.26
+> 1.44
+> 1.62
+> 0.36
+> 0.54
+> 0.72
+> 0.90
+> 1.08
+> 1.26
+> 1.44
+> 1.62
+> 0.00000
+> 0.00018
+> 0.00036
+> 0.00054
+> 0.00072
+> 0.00090
+> 0.00108
+> 0.36
+> 0.54
+> 0.72
+> 0.90
+> 1.08
+> 1.26
+> 1.44
+> 1.62
+> 0.36
+> 0.54
+> 0.72
+> 0.90
+> 1.08
+> 1.26
+> 1.44
+> 1.62
+> 0.0000
+> 0.0016
+> 0.0032
+> 0.0048
+> 0.0064
+> 0.0080
+> 0.0096
+> 0.0112
+> 0.0128
+> 0.36
+> 0.54
+> 0.72
+> 0.90
+> 1.08
+> 1.26
+> 1.44
+> 1.62
+> 0.36
+> 0.54
+> 0.72
+> 0.90
+> 1.08
+> 1.26
+> 1.44
+> 1.62
+> 0.0000
+> 0.0018
+> 0.0036
+> 0.0054
+> 0.0072
+> 0.0090
+> 0.0108
+> 0.0126
+> 0.36
+> 0.54
+> 0.72
+> 0.90
+> 1.08
+> 1.26
+> 1.44
+> 1.62
+> 0.36
+> 0.54
+> 0.72
+> 0.90
+> 1.08
+> 1.26
+> 1.44
+> 1.62
+> 0.0000
+> 0.0016
+> 0.0032
+> 0.0048
+> 0.0064
+> 0.0080
+> 0.0096
+> 0.0112
+> 0.0128
+> 0.36
+> 0.54
+> 0.72
+> 0.90
+> 1.08
+> 1.26
+> 1.44
+> 1.62
+> 0.36
+> 0.54
+> 0.72
+> 0.90
+> 1.08
+> 1.26
+> 1.44
+> 1.62
+> 0.0000
+> 0.0015
+> 0.0030
+> 0.0045
+> 0.0060
+> 0.0075
+> 0.0090
+
+Temperature Comparison and Differences : COMSOL vs present Figure 6: Validation with COMSOL (Compressible, 2D). Despite using different discretizations and solvers, the two sets of solutions are visually and numerically quite similar, suggesting the validity of our implementation. 
+
+2D ( 64 × 64 ) 3D ( 24 × 24 × 24 )Ra Ma N u hot N u cold N u ref N u hot N u cold N u ref 
+
+10 2 3.84 × 10 −4 1.0010 1.0006 0.9787 — — —
+
+10 3 5.63 × 10 −4 1.1190 1.1164 1.1077 1.105 1.103 1.105 
+
+10 4 8.27 × 10 −4 2.2282 2.2273 2.2180 2.211 2.238 2.302 
+
+10 5 1.21 × 10 −3 4.4945 4.5029 4.4800 4.59 4.50 4.646 
+
+10 6 1.78 × 10 −3 8.6833 8.6935 8.6870 8.497 8.271 8.012 
+
+Table 1: Comparison of spatially-averaged Nusselt numbers with reference values [84, 85] for compressible flows, the 3D reference values [85] are from the Boussinesq cubical-cavity benchmark. Results are reported for both 2D ( 64 × 64 mesh) and 3D ( 24 × 24 × 24 mesh) simulations across Rayleigh numbers Ra ∈ { 10 2, 10 3, 10 4, 10 5, 10 6} with corresponding Mach numbers 
+
+M a ∈ { 3.84 × 10 −4, 5.63 × 10 −4, 8.27 × 10 −4, 1.21 × 10 −3, 1.78 × 10 −3} (3D results available for Ra ≥ 10 3). 
+
+18 Ra = 1e3    
+
+> present (3D) COMSOL (3D) present (slices at z = 0.5) COMSOL (slices at z = 0.5)
+> RMSE = 2.09e-02
+> RMSE
+> Ra = 1e4
+> RMSE = 7.59e-02
+> Ra = 1e5
+> RMSE = 6.24e-02
+> Ra = 1e6
+> RMSE = 6.92e-02
+> 0.36
+> 0.54
+> 0.72
+> 0.90
+> 1.08
+> 1.26
+> 1.44
+> 1.62
+> 0.36
+> 0.54
+> 0.72
+> 0.90
+> 1.08
+> 1.26
+> 1.44
+> 1.62
+> 0.024
+> 0.012
+> 0.000
+> 0.012
+> 0.024
+> 0.036
+> 0.048
+> 0.36
+> 0.54
+> 0.72
+> 0.90
+> 1.08
+> 1.26
+> 1.44
+> 1.62
+> 0.36
+> 0.54
+> 0.72
+> 0.90
+> 1.08
+> 1.26
+> 1.44
+> 1.62
+> 0.20
+> 0.15
+> 0.10
+> 0.05
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> 0.36
+> 0.54
+> 0.72
+> 0.90
+> 1.08
+> 1.26
+> 1.44
+> 1.62
+> 0.36
+> 0.54
+> 0.72
+> 0.90
+> 1.08
+> 1.26
+> 1.44
+> 1.62
+> 0.225
+> 0.150
+> 0.075
+> 0.000
+> 0.075
+> 0.150
+> 0.225
+> 0.300
+> 0.36
+> 0.54
+> 0.72
+> 0.90
+> 1.08
+> 1.26
+> 1.44
+> 1.62
+> 0.36
+> 0.54
+> 0.72
+> 0.90
+> 1.08
+> 1.26
+> 1.44
+> 1.62
+> 0.36
+> 0.24
+> 0.12
+> 0.00
+> 0.12
+> 0.24
+> 0.36
+
+3D Validation for slices at z = 0.5: COMSOL vs present Figure 7: Validation with COMSOL (Compressible, 3D). Despite using different discretizations and solvers, the two sets of solutions are visually and numerically quite similar, suggesting the validity of our implementation. 
+
+We compute global quantities by integrating the finite element fields over the domain Ω. Because the cavity is closed (no mass flux through ∂Ω), the total mass 
+
+M (t) = 
+
+Z
+
+Ω
+
+ρ d Ω (27) should remain constant up to nonlinear/linear solver tolerances. Figure 8 reports M (t) and the relative error 
+
+(M (t) − M0)/M 0, showing variation at approximately the machine precision-level throughout the run. These results confirm that the monolithic coupling and Newton solver do an excellent job of enforcing the discrete continuity equation. The total energy Etot and total entropy S are defined as: 
+
+Etot =
+
+Z
+
+Ω
+
+ρ  e + 12 γ(γ − 1) M a 2|u|2 dx, (28) 
+
+S =
+
+Z
+
+Ω
+
+ρ (cv ln e − (γ − 1) cv ln ρ) dΩ (29) With no-slip walls, mechanical boundary work vanishes, and the domain-integrated total-energy balance reduces to a conductive heat-flux term and a gravity power term, 
+
+dE tot 
+
+dt + Qout (t) − Pg (t) = 0 , Qout (t) = 
+
+Z
+
+∂ΩT
+
+q · n dS, q = −κ∇e, (30) where ∂ΩT denotes the temperature-prescribed walls and Pg (t) = R
+
+Ω ρg · u dx is the volumetric gravity power contribution induced by buoyancy in the non-dimensionalized energy equation. To verify the First 19 and Second Laws of Thermodynamics, we monitor the following residuals: 
+
+Renergy = dE tot 
+
+dt + Qout (t) − Pg (t) , (31) 
+
+Rentropy = dS dt + Φ S − Πprod . (32) Here, ΦS is the boundary entropy flux, and Πprod represents entropy production due to viscous and thermal dissipation. 0 2 4 6 8 10                                 
+
+> Time (s)
+> 0.75
+> 0.50
+> 0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> Mass
+> ×10 13 +1 Total Mass
+> 0246810
+> Time (s)
+> 1.8
+> 2.0
+> 2.2
+> 2.4
+> 2.6
+> 2.8
+> 3.0
+> 3.2
+> Relative Error ( M M0)/ M0
+> 1e 14 Mass Conservation Error
+> Mass Conservation Analysis
+> Figure 8: Mass conservation diagnostics for the 2D compressible cavity case (Mesh 64 ×64 ,Ra = 10 4,M a = 8 .27 ×10 −4,
+> ∆t= 0 .02 ). Left: total mass M(t) = R
+> Ωρ d Ω.Right: relative drift (M(t)−M0)/M 0, showing machine-precision level conservation ( O(10 −14 )).
+
+Figure 9 presents the energy and entropy evolution. The top row shows the system relaxing from its initial state, where the decrease in total energy is primarily driven by the internal energy component (orange), as kinetic energy (blue) remains negligible throughout the low-Mach simulation. This internal energy loss corresponds directly to the net boundary heat flux (top-right), which is initially large and negative (outward) but approaches zero as the system equilibrates to a quasi-steady state. The middle row verifies the First Law by comparing the time rate of change of total energy, dE/dt , against the net physical forcing, defined as the gravitational work minus the boundary heat flux ( Pg (t) − Qout (t)). The substantial overlap of these curves and the decay of the residual to O(10 −5) confirm that the discrete formulation—albeit not to machine precision—correctly balances energy storage with external work and heat transfer. Finally, the bottom row presents the entropy balance, comparing the entropy rate dS/dt with its forcing term −ΦS + Π prod (net entropy flux plus internal production). After the initial transient ( t ≳ 0.5 s) the entropy residual decays and remains bounded; the order-unity spike at startup, visible in the bottom-right panel, is consistent with the implicit backward-Euler discretization smoothing the discontinuous boundary heating into the interior over the first few time steps. We interpret the reported max |res | as dominated by this transient artifact rather than as a converged measurement of entropy production, and read the entropy balance as a diagnostic of the post-transient quasi-steady regime. 
+
+5.3. Scalability analysis 
+
+To evaluate the computational efficiency and parallel performance of the monolithic solver, we performed a strong scaling study for the 2D compressible flow simulation on a single multi-core node. The problem size was fixed with a 2048 × 2048 mesh (approximately 4.6 × 10 7 DOFs with mixed P 2–P 1 elements), while the computational resources were systematically increased from P = 1 to P = 64 logical cores. The physical parameters were selected to represent a low-Mach regime ( Ra = 10 4, M a = 8 .27 × 10 −4), and the simulation 20 0 2 4 6 8 10                                           
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Energy
+> Energy Decomposition
+> Kinetic
+> Internal
+> Total
+> 0246810
+> 0.4
+> 0.2
+> 0.0
+> 0.2
+> 0.4
+> Heat Flux (Outward)
+> Boundary Heat Flux
+> Qout ,hot
+> Qout ,cold
+> Qout ,tot (Net)
+> Net Heat Out
+> Net Heat In
+> 0246810
+> 0.200
+> 0.175
+> 0.150
+> 0.125
+> 0.100
+> 0.075
+> 0.050
+> 0.025
+> 0.000
+> Rate
+> First Law: dE /dt PgQout
+> dE /dt
+> PgQout
+> 0246810
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> Residual (abs)
+> Max Res = 7.52e-02
+> Energy Budget Residual
+> |dE /dt +Qout Pg|
+> 0246810
+> Time (s)
+> 0.6
+> 0.5
+> 0.4
+> 0.3
+> 0.2
+> 0.1
+> 0.0
+> Entropy S(t)
+> Total Entropy Evolution
+> 0246810
+> Time (s)
+> 1.50
+> 1.25
+> 1.00
+> 0.75
+> 0.50
+> 0.25
+> 0.00
+> 0.25
+> Rate
+> max |res| = 1.52e+00
+> Entropy Balance (Control Volume Form)
+> dS /dt
+> Sout +prod
+> Residual
+
+Thermodynamic Equilibrium Analysis: First & Second Law Figure 9: Analysis for First & Second Law of Thermodynamics. Top: Energy components and boundary heat fluxes. Middle: Verification of the First Law ( dE/dt = Pg − Qnet ) and associated residual. Bottom: Evolution of total entropy and verification of the Second Law balance. 
+
+was integrated for 10 time steps with ∆t = 0 .01 . The linear system was solved using the Flexible GM-RES (FGMRES) method preconditioned with BoomerAMG. We investigated three parallel decomposition strategies to identify the optimal balance between distributed-memory parallelism (MPI ranks) and shared-memory parallelism (OpenMP threads). Figure 10 compares three strategies: (1) single-rank with increasing OpenMP threads (green solid line), which saturates around 2800 seconds due to shared-memory bottlenecks, and (2) P MPI ranks with single-threaded execution (red dashed line), which demonstrates effective strong scaling up to P = 32 , where the wall time drops significantly from ∼ 3000 s at P = 1 to a minimum of 
+
+555 s at P = 32 . This confirms that the domain decomposition approach effectively distributes the assembly and linear solve burdens. However, at P = 64 , the pure MPI performance degrades (increasing to 781 s), a characteristic sign of the strong scaling limit where inter-rank communication overhead begins to dominate the diminishing local computational work. (3) The hybrid strategy (blue dotted line) tracks the Pure MPI performance in the linear scaling regime but offers superior robustness at the saturation point. At P = 64 ,the optimal configuration was found to be a hybrid decomposition of 32 MPI ranks with 2 threads per rank (r32 /t 2). This configuration yielded a wall time of 560 s, mitigating the communication overhead observed in the pure MPI case ( r64 /t 1) while maintaining the parallelism benefits. These results confirm that the solver scales effectively within a single multi-core node, with hybrid MPI+OpenMP decompositions extending the strong-scaling limit for fixed-size problems. Multi-node distributed-memory scaling and weak-scaling studies 21 20 21 22 23 24 25 26  
+
+> Total logical cores P (ranks × threads)
+> 500
+> 1000
+> 1500
+> 2000
+> 2500
+> 3000
+> Wall time (s)
+> 866s
+> 643s
+> 555s 560s
+> 866s
+> 643s
+> 555s
+> 781s
+> r8/t1
+> r16/t1
+> r32/t1 r32/t2
+> Strong scaling: hybird decompositions
+> single rank, full threads
+> single thread, full ranks
+> best per P
+
+Figure 10: Strong scaling analysis for the 2D compressible flow simulation ( Ra = 10 4, M a = 8 .27 × 10 −4). The plot compares wall time against total logical cores P for three decomposition strategies: pure multithreading (green), pure MPI (red), and the optimal hybrid MPI+OpenMP configuration (blue). Annotated text indicates the specific rank ( r) and thread ( t) counts for key data points. 
+
+at constant work-per-rank are left for future work. 
+
+5.4. Manufactured-solution verification (unsteady compressible duct flow) 
+
+To provide an exact-reference verification of the fully compressible monolithic formulation, we employed the method of manufactured solutions (MMS) in a two-dimensional duct. In this test, smooth analytical fields 
+
+(u∗, e ∗, ρ ∗, p ∗) are prescribed and consistent source terms are added to the governing equations such that the prescribed fields satisfy the compressible system exactly. This approach verifies both the coupling of the primitive variables and the correctness of the weak-form implementation, independent of external solver comparisons. 
+
+5.4.1. Definition of the unsteady MMS duct flow 
+
+The computational domain is a rectangle Ω = [0 , L x] × [0 , L y ] with (Lx, L y ) = (2 .0, 1.0) . We prescribe a time-dependent velocity field composed of a duct-like streamwise profile with a weak spatial modulation and an oscillatory cross-stream component, 
+
+u∗
+
+> x
+
+(x, y, t ) = Uscale 4 y(Ly − y)
+
+L2
+
+> y
+
+
+
+1 + 0 .1 sin 
+
+ 2πx Lx
+
+
+
+cos( ωt )
+
+
+
+, (33) 
+
+u∗ 
+
+> y
+
+(x, y, t ) = Uscale 0.05 sin 
+
+ πx Lx
+
+
+
+sin 
+
+ πy Ly
+
+
+
+sin( ωt ). (34) where Uscale represents the scaling factor for the velocity amplitude. The scalar fields are specified as smooth, strictly positive functions: 
+
+e∗(x, y, t ) =1 + 0 .2 cos 
+
+ πx Lx
+
+
+
+sin 
+
+ πy Ly
+
+
+
+cos( ωt ), (35) 
+
+ρ∗(x, y, t ) =1 + 0 .1 sin 
+
+ πx Lx
+
+
+
+cos 
+
+ πy Ly
+
+
+
+sin( ωt ). (36) The pressure field is then defined through the nondimensional equation of state used in the solver, 
+
+p∗(x, y, t ) = ρ∗(x, y, t )e∗(x, y, t ) − 1
+
+γ M a 2 , (37) 22 ensuring exact consistency between (ρ∗, e ∗) and p∗. To enforce the manufactured solution, we add source terms (fρ, fu, f e) to the right-hand sides. To verify the unsteady implementation without mixing in temporal truncation error, the forcing is constructed to satisfy the discrete backward-Euler update by using the exact solution at consecutive time levels tn and tn+1 (i.e., the manufactured residuals are formed using (·)∗
+
+> n+1
+
+and (·)∗
+
+> n
+
+). With this construction, the exact manufactured fields satisfy the fully discrete system, so the measured error primarily reflects spatial discretization and nonlinear-solver accuracy. Dirichlet conditions are imposed on the entire boundary ∂Ω using the analytical fields (u∗, e ∗, ρ ∗, p ∗) evaluated at the current time, i.e., u = u∗, e = e∗, ρ = ρ∗, p = p∗ on ∂Ω for all t. The initial condition is set by interpolating the manufactured fields at t = 0 into the corresponding finite element spaces. 
+
+5.4.2. Verification results 
+
+Figure 11 presents a visual field-by-field comparison at the final time on a 128 × 128 mesh (approximately 
+
+16 ,400 triangular elements). The physical parameters are γ = 1 .4, Re = 10 4, P r = 0 .71 , M a = 0 .1,with backward Euler time integration ( ∆t = 0 .01 , tend = 0 .30 ), temporal frequency ω = 2 π, and velocity scaling Uscale = 3 . The left and center columns show the numerical and analytical solutions for velocity magnitude |u|, temperature (internal energy e), density, and pressure. The error fields (right column) are dominated by high-frequency noise and remain at the level of 10 −5 to 10 −6, indicating that no systematic spatial error remains. Figure 12 quantifies the spatial convergence by computing relative L2 errors on a sequence of refined meshes with N = {16 , 32 , 64 , 128 , 256 } at the same final time. The scalar fields exhibit near-second-order convergence consistent with their P1 approximation, while the velocity magnitude shows a slope between O(h2) and O(h3), consistent with a P2 velocity discretization applied to the smooth manufactured solution. Notably, all fields track or exceed the theoretical O(h2) reference line, confirming that the spatial discretization achieves its designed accuracy order. The excellent agreement between numerical and analytical solutions, combined with the convergence rates matching the finite element polynomial orders, provides rigorous code verification of the monolithic coupling, the weak-form assembly, the automatically-differentiated Jacobian, and the unsteady time-stepping implementation. 
+
+6. Dataset Generation 
+
+Having validated the solver in Section 5, we now turn to the second pillar of this work: generating large, paired simulation datasets that are suitable for training a neural surrogate. There is a growing need for open, large-scale simulation datasets that are statistically rich and broadly representative for machine learning and deep learning in fluid dynamics. Such datasets enable training and fair evaluation of surrogate models, facilitate generalization studies across regimes and boundary patterns, and support uncertainty quantification and robust model selection [15, 16]. In the case of our paper, we are interested in generating a dataset of paired simulations (same initial and boundary conditions) run using the Boussinesq and compressible flow models to use as training, validation, and test datasets for training a neural surrogate (Section 7) for correcting the model-form errors of Boussinesq flow. While one could imagine simply randomizing initial fields, such a choice would be non-physical. One could also imagine uniformly randomly sampling constant wall temperatures, as in Mangnike and Hyde [15], but as we will show in this section, that choice does not provide good coverage of the space of possible thermally-driven cavity simulations. Thus, in this section, we provide one way in 2D and one way in 3D to carefully specify the initial and boundary conditions such that resulting wall traces indicate a genuine stochastic process with controlled regularity and variance. Section 7 reports both 2D and 3D results, including a controlled cross-dataset comparison that quantifies how the broader stochastic distribution introduced here improves surrogate generalization relative to the naïve dataset approach used in Mangnike and Hyde [15]. 
+
+6.1. Stochastic temperature boundary conditions 
+
+To construct these randomized thermal profiles, let Γ ∈ { ΓL, ΓR, ΓB , ΓT , ΓF , ΓBk } denote the boundary walls of the domain. Each active wall is assigned a random temperature field that fluctuates about the reference temperature Tinit ∈ R while remaining, by construction, within the physically admissible range 
+
+[Tinit − 12 ∆T, T init + 12 ∆T ]. Each wall additionally carries an integer complexity dial nΓ that governs the spatial richness of its profile and admits, as limiting cases, a spatially constant wall and a zero-flux (adiabatic) wall. 23 Velocity_Mag |u| 
+
+Numerical Analytical 
+
+> 0.000
+> 0.413
+> 0.825
+> 1.238
+> 1.650
+> 2.063
+> 2.475
+> 2.888
+
+Error     
+
+> 0.000
+> 0.414
+> 0.828
+> 1.242
+> 1.656
+> 2.070
+> 2.484
+> 2.899
+> 1e 5
+> Temperature
+> 0.9382
+> 0.9547
+> 0.9712
+> 0.9876
+> 1.0041
+> 1.0206
+> 1.0371
+> 1.0536
+> 0.000
+> 0.211
+> 0.421
+> 0.632
+> 0.842
+> 1.053
+> 1.264
+> 1.474
+> 1e 6
+> Density
+> 0.9049
+> 0.9303
+> 0.9556
+> 0.9810
+> 1.0063
+> 1.0317
+> 1.0571
+> 1.0824
+> 0.00
+> 0.17
+> 0.34
+> 0.51
+> 0.68
+> 0.85
+> 1.02
+> 1.19
+> 1e 6
+> Pressure
+> 5.89
+> 4.08
+> 2.26
+> 0.45
+> 1.36
+> 3.17
+> 4.98
+> 6.79
+> 0.000
+> 1.252
+> 2.504
+> 3.756
+> 5.008
+> 6.259
+> 7.511
+> 8.763
+> 1e 5
+
+MMS duct (unsteady): nx=128, Re=10000, Pr=0.71, Ma=0.1, Uscale=3, dt=0.01, t_end=0.3 Figure 11: Unsteady MMS duct verification for the fully compressible formulation at Re = 10 4, P r = 0 .71 , M a = 0 .1, ∆t = 0 .01 ,
+
+tend = 0 .30 , ω = 2 π, and Uscale = 3 on a 128 × 128 mesh. Numerical solution (left column), analytical manufactured solution (middle), and absolute error (right) for velocity magnitude, temperature/internal energy, density, and pressure at the final time. 10 2 10 1
+
+Mesh size h
+
+10 7
+
+10 6
+
+10 5
+
+10 4
+
+10 3
+
+> Relative  L2 error
+
+Compressible (Unsteady MMS duct) 
+
+Velocity | u|
+
+Temperature 
+
+Density 
+
+Pressure 
+
+O(h2)
+
+O(h3)
+
+Figure 12: Mesh convergence for the unsteady MMS duct case (fully compressible formulation). Relative L2 error versus mesh size h at a fixed final time tend = 0 .30 , compared with O(h2) and O(h3) reference slopes. 
+
+24 6.1.1. 2D: Random Fourier series 
+
+For 2D domains, the boundary walls are 1D line segments. Let s ∈ [0 , 1] be the unit arclength along Γ
+
+(for the square cavity, s coincides with the tangential Cartesian coordinate). Each active wall carries an integer dial nΓ ∈ { 0, 1, 2, . . . }, which sets the number of Fourier modes mΓ = nΓ − 1 on that wall: nΓ = 0 
+
+leaves the wall adiabatic (zero-flux Neumann), nΓ = 1 yields a spatially constant wall, and nΓ ≥ 2 yields an 
+
+(nΓ − 1) -mode fluctuating profile. The vertical walls ΓL, ΓR are always Dirichlet ( nΓ ≥ 1); the horizontal walls ΓB , ΓT may additionally be adiabatic ( nΓ = 0 ). For an active wall with mΓ = nΓ − 1 ≥ 1 modes, on a probability space (Ω , F, P) we fix a spectral decay exponent α > 1/2 and draw i.i.d. coefficients {ak(ω), b k(ω)} with ak, b k ∼ N (0 , 1) , independent across k and across walls. We form the truncated random Fourier series 
+
+SΓ(s, ω ) = 
+
+> mΓ
+
+X
+
+> k=1
+
+ak(ω) cos(2 πks ) + bk(ω) sin(2 πks )
+
+kα , s ∈ [0 , 1] . (38) Letting ¯SΓ(ω) = R 10 SΓ(r, ω ) dr denote the wall-mean, we center and normalize the series along the wall, 
+
+bSΓ(s, ω ) = SΓ(s, ω ) − ¯SΓ(ω)
+
+∥SΓ(·, ω ) − ¯SΓ(ω)∥L∞(0 ,1) + 10 −15 , (39) so that R 10 bSΓ(r, ω ) dr = 0 and ∥ bSΓ(·, ω )∥L∞ ≤ 1, the constant 10 −15 guards against division by zero in degenerate near-constant cases and is negligible relative to the field scales. Rather than perturbing a fixed mean and projecting onto the admissible interval, we map the normalized shape into range by drawing a random mean and amplitude that keep the trace bounded by construction .Writing Tc = Tinit − 12 ∆T and Th = Tinit + 12 ∆T , we draw 
+
+AΓ(ω) ∼ U  0, 12 ∆T  , μΓ(ω) ∼ U (Tc + AΓ(ω), T h − AΓ(ω)) , (40) and set 
+
+TΓ(s, ω ) = μΓ(ω) + AΓ(ω) bSΓ(s, ω ). (41) Since ∥ bSΓ∥L∞ ≤ 1, every realization satisfies TΓ(s, ω ) ∈ [μΓ − AΓ, μ Γ + AΓ] ⊆ [Tc, T h] pointwise, so the thermodynamic bounds hold with no clamping projection. The degenerate dial nΓ = 1 (mΓ = 0 ) gives 
+
+bSΓ ≡ 0 and hence a constant wall TΓ ≡ μΓ with μΓ ∼ U (Tc, T h). At nodes shared by two Dirichlet walls, the corner value is inherited from the wall whose Dirichlet condition is assembled last (horizontal walls take precedence over vertical), since both incident traces lie in [Tc, T h], the assembled datum remains in range and the discrete Dirichlet condition is well defined. The classical differentially-heated cavity is recovered deterministically as the nΓL = nΓR = 1 member of this family: the left wall is held at the constant hot value Th, the right wall at the constant cold value Tc, and the horizontal walls are adiabatic. The legacy benchmark configuration is therefore a strict subset of the stochastic training distribution, with the vertical-wall dial sampled uniformly on {1, 2, 3}.Each realization s 7 → SΓ(s, ω ) in Equation (38) is a trigonometric polynomial of degree mΓ, hence C∞ in 
+
+s, the centering, normalization, and random affine map x 7 → μΓ + AΓx are continuous, so s 7 → TΓ(s, ω ) is smooth and its trace lies in H1/2(∂Ω) , an admissible Dirichlet datum for the variational problem. Joint Borel measurability on [0 , 1] × Ω follows since SΓ is a finite sum of terms continuous in s and measurable in 
+
+ω, preserved by the subsequent continuous maps, thus {TΓ(s)}s∈[0 ,1] is a bona fide stochastic process. With 
+
+α > 1/2 the pre-normalized series has finite, stationary covariance 
+
+Cov( SΓ(s), S Γ(t)) = 
+
+> mΓ
+
+X
+
+> k=1
+
+cos  2πk (s − t)
+
+k2α , Var SΓ(s) =
+
+> mΓ
+
+X
+
+> k=1
+
+1
+
+k2α > 0, (42) so the decay exponent α controls spatial smoothness while the mode count mΓ controls spectral richness, and the non-degeneracy of TΓ follows since AΓ > 0 almost surely and bSΓ is non-constant whenever mΓ ≥ 1.In summary, the assembled wall temperature is a genuine stochastic boundary field with bounded, smooth 25 (C∞) sample paths, in range by construction, with the constant ( nΓ = 1 ) and adiabatic ( nΓ = 0 ) walls arising as limiting members of the same family. Each paired sample additionally draws a Rayleigh number Ra log-uniformly over [10 2, 10 6], with the Mach number tied to it by the calibrated monotone relation Ma(Ra) = 8 .27 × 10 −4 (Ra /10 4)1/6 (clamped to 
+
+Ra ∈ [10 2, 10 6]), which keeps the flow weakly compressible across the regime; the Reynolds number follows as Re = pRa /Pr .
+
+6.1.2. 3D: Smoothed-Voronoi stochastic fields 
+
+For 3D domains, the boundary walls are 2D planar surfaces. In the differentially heated cavity, the natural-convection physics is driven by the two opposing thermal walls, and we therefore restrict the stochastic perturbation to Γ ∈ { ΓL, ΓR} (the x=0 and x=L faces of the cube) while the remaining four walls carry adiabatic conditions consistent with Section 5. Let x ∈ Γ ⊂ R2 be the spatial coordinate on the wall (e.g., parameterized by (y, z ) on the x=0 plane). To produce spatially chaotic, non-isothermal boundary structures we sample a Voronoi-like seed configuration on Γ and blend the resulting per-cell amplitudes into a smooth scalar field via Gaussian radial-basis-function (RBF) interpolation. On the probability space (Ω , F, P), we draw nc seed points ci(ω) ∈ [mL, (1 −m)L]2
+
+from a margin-padded uniform distribution ( m = 0 .15 ) with a best-effort minimum-spacing rejection criterion (target separation 0.30 L for nc ≤ 3 and 0.15 L otherwise); this prevents seeds from pinning to wall edges and yields well-separated centers reminiscent of a centroidal Voronoi tessellation [86]. We then draw i.i.d. base amplitudes ˜vi(ω) ∼ U (Tmin , T max ), where Tmin = Tinit − 12 ∆T and Tmax = Tinit + 12 ∆T . Sampling directly inside the admissible range obviates the external clamping projection used in 2D. To avoid uncorrelated jumps between adjacent cells, the base amplitudes are spatially correlated through a Gaussian kernel over seed positions, 
+
+vi(ω) = 
+
+> nc
+
+X
+
+> j=1
+
+Aij (ω) ˜ vj (ω), Aij (ω) = exp   − ∥ ci − cj ∥22/(2 σ2)Pnc 
+
+> k=1
+
+exp   − ∥ ci − ck∥22/(2 σ2) , (43) where the row-stochastic matrix A(ω) acts as a discrete Gaussian smoother with correlation length σ
+
+(default σ = 0 .15 L). Because each row of A sums to one, the smoothed amplitudes vi remain within 
+
+[Tmin , T max ].The wall temperature at an arbitrary spatial point x ∈ Γ is then defined as a Gaussian-RBF-weighted convex combination of the smoothed amplitudes, 
+
+TΓ(x, ω ) = 
+
+> nc
+
+X
+
+> i=1
+
+wi(x, ω ) vi(ω), wi(x, ω ) = exp   − ∥ x − ci(ω)∥22/(2( rL )2)Pnc 
+
+> k=1
+
+exp   − ∥ x − ck(ω)∥22/(2( rL )2) , (44) where r is the blur radius expressed as a fraction of the wall side length L (default r = 0 .08 ). The hard Voronoi partition is recovered in the limit r → 0+, in which wi(x, ω ) → ⊮Vi(ω)(x) with Vi(ω) = {x ∈ Γ : 
+
+∥x − ci∥2 ≤ ∥ x − cj ∥2 ∀j}. For finite r, the wall trace is a convex combination of bounded amplitudes with smooth, strictly positive Gaussian weights, so TΓ(·, ω ) ∈ C∞(Γ) almost surely and TΓ(x, ω ) ∈ [Tmin , T max ]
+
+pointwise. The map ω 7 → TΓ(x, ω ) is jointly Borel measurable as a finite composition of the measurable random variables {ci, ˜vi} with the continuous maps in Equations 43–44. The resulting boundary trace is therefore a bona fide L∞-bounded, almost-surely smooth random field, and constitutes a valid Dirichlet trace for the Galerkin weak formulation. A useful corner case is nc = 1 : the generator then bypasses the Voronoi construction and applies the deterministic legacy protocol, holding the two active walls at the constant temperatures Tmax = Tinit + 12 ∆T
+
+on ΓL (x=0 ) and Tmin = Tinit − 12 ∆T on ΓR (x=L), exactly reproducing the hot-/cold-wall cavity of Mangnike and Hyde [15]. The legacy 3D dataset is thus realized as the nc = 1 special case of the present generator. The in-distribution training set draws nc ∈ { 1, . . . , 3}, while the out-of-distribution test set introduced in Section 7.5 probes nc ∈ { 3, . . . , 7}, extending the per-wall seed count up to seven, beyond the training maximum of three, so that the OOD walls carry markedly more spatial structure than any configuration seen during training. 26 0.0 0.2 0.4 0.6 0.8 1.0                   
+
+> y
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> z
+> x=0 Face partitioning
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> y
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> z
+> x=L Face partitioning
+> 3D (Showing applied BCs)
+> 0.4 0.6 0.8 1.0 1.2 1.4 1.6
+> Voronoi Partitioning | ncells = 4 Figure 13: Representative realization of the stochastic Voronoi temperature boundary conditions applied to the 3D thermal cavity. (Left and Center) 2D heatmaps of the smooth-blended Voronoi partitions evaluated on the active left ( x= 0 ) and right (x=L) walls, with black markers indicating the randomly sampled cell seeds. (Right) The resulting 3D Dirichlet boundary condition trace correctly assigned to the active faces of the hexahedral domain.
+
+6.2. Dataset distribution and diversity analysis (2D) 
+
+To demonstrate that the generated dataset is statistically diverse, broadly representative, and suitable for training machine learning surrogate models, we perform quantitative and visual analysis of 500 stochastic simulations drawn at random from the larger pool used for surrogate training (Section 7); this reduced set is purely for visualization, and the full pool is used downstream. 
+
+6.2.1. Feature extraction pipeline 
+
+As shown in Figure 14, each simulation is represented by a compact feature vector derived from the four primary solution fields: velocity magnitude |u|, internal energy e (temperature), density ρ, and pressure 
+
+p, and interpolated onto uniform 64 × 64 grids. These grids are normalized via Z-score transformation and processed using edge-aware Sobel filters to emphasize structural gradients. The preprocessed fields are compressed through block-averaging ( 8 × 8 pooling), reducing each field to an 8 × 8 feature map. These maps are concatenated into a 256-dimensional feature vector x ∈ R256 , effectively capturing the global morphology and local gradient information of the flow states. 
+
+6.2.2. Dimensionality reduction and visualization 
+
+To assess dataset coverage and homogeneity, we apply two complementary dimensionality-reduction tech-niques to the 500 feature vectors (each one a 256-dimensional summary of a single simulation, as constructed above): Principal Component Analysis (PCA) (Figure 15) performs linear projection onto the two leading eigenvec-tors of the feature covariance matrix. The 2D scatter colored by spectral entropy He (computed from the Fourier transform of the energy field) reveals a continuous distribution spanning the full PC space without clustering or voids, confirming the absence of degeneracies or preferred lower-dimensional subsets. Uniform Manifold Approximation and Projection (UMAP) (Figure 16) is a nonlinear dimensionality reduc-tion technique that aims to preserve both local structure (nearest-neighbor relationships) and global topology of high-dimensional data. Unlike PCA’s linear assumption, UMAP constructs a fuzzy topological represen-tation in high dimensions and optimizes a low-dimensional ( d′ = 2 ) embedding to preserve nearest-neighbor structure via cross-entropy minimization. The clear lack of isolated clusters indicates a well-sampled param-eter space, confirming that the stochastic boundary conditions successfully produce a smooth and diverse 27 |u| (Velocity Mag)         
+
+> 0.000
+> 0.001
+> 0.002
+> 0.003
+> 0.004
+> 0.005
+> Temperature
+> 3
+> 4
+> 5
+> Density
+> 0.20
+> 0.25
+> 0.30
+> 0.35
+> 0.40
+> Pressure
+> 0.45
+> 0.50
+> 0.55
+> 0.60
+> +8.658e3
+> |u| (Velocity Mag)
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> Temperature
+> 0
+> 1
+> 2
+> Density
+> 0
+> 1
+> 2
+> Pressure
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 050 100 150 200 250
+> Feature Index
+> 1
+> 0
+> 1
+> 2
+> Z-score Value
+> |u| Temperature Density Pressure
+> Flattened feature vector (1x256)
+
+Feature Extraction Pipeline 
+
+> Raw data (64x64)
+> Pooled features (8x8)
+
+Figure 14: The feature extraction pipeline. (Top) Four raw physical fields on 64 × 64 grids. (Middle) Pooled features on 8 × 8
+
+channels after Z-score normalization and edge detection. (Bottom) The final 256-dimensional flattened feature vector used for manifold analysis. 
+
+spectrum of convection patterns. The two insets in Figure 16 demonstrate the qualitative differences be-tween samples across the manifold, ranging from simple laminar patterns to high-entropy states with complex thermal structures. This diverse distribution confirms the dataset’s suitability for robust machine learning applications in fluid dynamics. 
+
+7. Neural Surrogate 
+
+We now use the paired Boussinesq–compressible datasets generated in Section 6 to train a Fourier neural operator (FNO) surrogate [87] Gθ that maps a Boussinesq prediction onto its compressible counterpart in a single forward pass. The surrogate is intended as a corrective post-processing step rather than as a replacement for the underlying solver: a practitioner runs the cheaper Boussinesq simulation, queries Gθ
+
+once, and obtains an approximation to the corresponding fully compressible field. 
+
+7.1. Architecture 
+
+The FNO is a particular instance of the broader neural operator framework [88], in which a learned map between function spaces is represented as a stack of integral kernel operators. In the Fourier variant, the kernel integral is computed in Fourier space and parameterized by a finite set of complex spectral weights, augmented by a pointwise spatial residual to recover high-frequency content [87]. We use the standard FNO 28 15 10 5 0 5 10 
+
+> Principal Component 1
+> 10
+> 5
+> 0
+> 5
+> 10
+> 15
+> Principal Component 2
+> PCA Projection of Generated Dataset
+> 0.004
+> 0.006
+> 0.008
+> 0.010
+> 0.012
+> 0.014
+> Energy Spectral Entropy
+
+Figure 15: PCA projection of 500 shape feature vectors (N = 500 , D = 256 dimensions). Points are colored by spec-tral entropy of the internal energy field. The full 2D scat-ter exhibits continuous, uniform distribution across PC space with no voids or clustering, confirming dataset diversity and homogeneity. 3 4 5 6 7 8
+
+> UMAP Component 1
+> 1
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> UMAP Component 2
+> UMAP Projection of Generated Simulation Dataset
+> 0.004
+> 0.006
+> 0.008
+> 0.010
+> 0.012
+> 0.014
+> Energy Spectral Entropy
+
+Figure 16: UMAP projection of 500 shape feature vectors (N = 500 , D = 256 dimensions), colored by spectral en-tropy. Unlike PCA, UMAP preserves both local neighbor-hoods and global topology via fuzzy topological representa-tion and cross-entropy optimization. Two random simulations are highlighted to show the difference between two distinct feature vectors in the UMAP 2D space. 
+
+block design with three modifications that we found to matter on the cavity flow problem: (i) reflective input padding to mitigate the periodicity assumption inherent to the FFT for non-periodic boundary-value problems, (ii) a learned linear input–output skip that preserves the low-frequency content of the Boussinesq prediction, and (iii) a small 1×1 MLP readout head with optional depthwise smoothing to suppress speckle in the predicted fields. For the 2D model, the input is the four-channel Boussinesq field 
+
+a(x) =  ux, u y , T, p (x), x = ( x1, x 2) ∈ Ω ⊂ R2, (45) sampled on a 64 ×64 Cartesian grid. Two normalized coordinate channels (ξ, η ) ∈ [0 , 1] 2 are concatenated to inject explicit positional information. The augmented input is reflectively padded by p = 8 cells before entering the spectral layers and unpadded after the readout. A pointwise 1×1 convolution P lifts the channel dimension to a width-W latent field 
+
+v0(x) = P
+
+
+
+˜a(p)(x)
+
+
+
+∈ RW , W = 128 , (46) which is then evolved by L = 6 Fourier blocks of the form 
+
+vℓ+1 (x) = σ
+
+
+
+GN  Kℓ(vℓ)( x) + Wℓ vℓ(x)
+
+, ℓ = 0 , . . . , L − 1, (47) where σ = GELU , GN denotes group normalization, and Wℓ is a 1×1 convolution that supplies a high-frequency local correction in physical space. The spectral operator Kℓ acts in Fourier space by truncating to the lowest Kx×Ky = 24 ×24 modes and applying a learned, channel-mixing complex weight tensor Rℓ:
+
+\Kℓ(vℓ)( k) = 
+
+(Rℓ(k) bvℓ(k), |k1| ≤ Kx, |k2| ≤ Ky ,
+
+0, otherwise, Kℓ(vℓ) = F−1  \Kℓ(vℓ), (48) where F is the 2D real-input FFT and the truncation sets all non-retained modes to zero. After L blocks, a two-layer pointwise readout Q : RW → R4 with hidden dimension 2W , followed by an optional depthwise 29 3×3 smoother, projects back to the four output channels. A learned 1×1 skip S connects the (padded) input directly to the output, so that the prediction is 
+
+ˆu(x) = Crop 
+
+
+
+Q vL(x) + S ˜a(p)(x) 
+
+, (49) where Crop( ·) removes the reflective padding. The full 2D pipeline is summarized in Fig. 17. `       
+
+> Input Fields
+> Boussinesq Approximation: 6 Input Channels (Grid 64x64)
+> Ux Uy TP
+> Normalization & Padding
+> Coordinate Augmentation
+> Lifting (P)
+> Latent Width: 128
+> Pointwise 1x1 convolution
+> Iterative Fourier Blocks
+> (T=6)
+> Fourier Layer 1
+> Fourier Layer 2
+> Fourier Layer T
+> Projection Head (Q)
+> Pointwise 1x1 convolution
+> Detailed Fourier Layer
+> 2D Fast Fourier Transform
+> (F)
+> Modal Truncation
+> (24x24)
+> Parameterizations (R)
+> Inverse Fourier Transform
+> (F -1 )
+> Pointwise
+> Convolution (1x1)
+> (W)
+> Spectral (Global) Spatial (Local)
+> Normalization
+> (Group Norm)
+> ut(x)
+> Activation
+> (GELU)
+> ut+1 (x)
+> `
+> Predicted Fields
+> Corrected 4 fields (64x64)
+> Ux Uy TP
+> Depthwise smoothing &
+> Unpadding
+> (3x3 conv)
+> Target Fields
+> Compressible Approximation
+> Weighted
+> MSE
+> (x,y)
+> Skip (S)
+> 1x1 conv
+
+Figure 17: 2D Fourier Neural Operator (FNO2D) architecture. The network maps a Boussinesq prediction to its fully compressible counterpart. Left/Top (Macroscopic Pipeline): The input consists of 6 channels on a 64 × 64 grid (four physical fields ux, u y , T, p and two augmented coordinates x, y ). The input is normalized and reflectively padded, then lifted to a latent width of W = 128 via a pointwise 1×1 convolution P . A learned 1×1 skip S bypasses the core blocks. The latent field passes through L = 6 Fourier blocks; a readout head Q (1×1, hidden 2W ) followed by a depthwise 3×3 smoother and unpadding yields the four-channel compressible prediction. The network is optimized with a per-channel mean-squared error loss against the target. Right/Bottom (Detailed Fourier Layer): Each block splits its input into two parallel paths. The spectral (global) path applies a 2D FFT F, truncates the spectrum to the lowest 24 ×24 modes, applies a learned complex weight R, and inverts via F−1. The spatial (local) path applies a pointwise 1×1 convolution W . The paths are summed, group-normalized, and activated by GELU to produce vℓ+1 (x).
+
+The 3D model uses the same block design, with three Cartesian coordinate channels concatenated to the input, a 3D real-input FFT, and four corner-mode weight tensors R(1) 
+
+ℓ , . . . , R (4) 
+
+ℓ to cover the (±k1, ±k2, k 3 ≥ 0) 
+
+octants of the truncated spectrum. To keep the parameter count compatible with the smaller 3D training set (Section 7.2) we use the reduced hyperparameters W = 64 , L = 4 , Kx = Ky = Kz = 6 , replicate-padding 
+
+p = 4 , and a non-zero feature dropout of 0.1.
+
+7.2. Datasets 
+
+The surrogate is trained and evaluated using three data generators: the proposed stochastic-BC method of Section 6.1, the constant-BC legacy protocol of Mangnike and Hyde [15], and an out-of-distribution variant of the stochastic generator in which the Rayleigh number and boundary-condition complexity are pushed strictly beyond the training envelope. All samples are paired: each Boussinesq input is matched with the compressible solution computed under identical initial and boundary conditions, so that the surrogate’s task is to reconstruct the gap between the two physical models rather than to redo the simulation from scratch. Table 2 summarises the resulting data layout. The four 2D channels are the velocity components ux, u y , temperature T , and pressure p, all sampled at the final simulation time. The 3D channels also include uz . The pressure is stored as a mean-removed pertur-bation and, like every channel, is min–max normalized to [0 , 1] using dataset-wide (training-split) statistics rather than per-sample extrema, so that the normalization is consistent across samples (cf. Section 6.1); the absolute pressure scale is not recoverable from the dataset, and the trained surrogate predicts only this 30 Table 2: Dataset structure used to train and evaluate the FNO surrogate. Each sample is a paired (Boussinesq, compressible) tuple. The 2D test sets contain 200 samples each; the 3D test sets are constrained to 100 samples by the cost of the compressible reference solver at 24 3 resolution.                                                                        
+
+> Dim. Role Generator (Section 6.1) Tensor shape N
+> 2D Train Stochastic (Fourier-series BCs) (N, 4,64 ,64) 4,000
+> Train (legacy) Constant left-hot/right-cold BCs [15] (N, 4,64 ,64) 4,000
+> Test Old (Dold )Constant BCs, in-distribution (N, 4,64 ,64) 200
+> Test Rand (Drand )Stochastic BCs, in-distribution (N, 4,64 ,64) 200
+> Test Rand-OOD (Drand -ood )Stochastic BCs, OOD (N, 4,64 ,64) 200
+> 3D Train Stochastic (Voronoi BCs) (N, 5,24 ,24 ,24) 1,000
+> Test 1 Const Constant left-hot/right-cold BCs [15] (N, 5,24 ,24 ,24) 100
+> Test 2 Rand Stochastic BCs, in-distribution (N, 5,24 ,24 ,24) 100
+> Test 3 Rand-OOD Stochastic BCs, OOD (N, 5,24 ,24 ,24) 100
+
+normalized perturbation. All pressure-channel errors reported in this paper, including in Tables 3 and 4, refer to this normalized perturbation rather than the absolute pressure field. Two FNO models are trained in 2D—one on the legacy training set and one on the stochastic training set—which enables the controlled cross-dataset study of Section 7.4. We denote these two surrogates Mold 
+
+and Mrand , and the three 2D test distributions Dold , Drand , and Drand -ood ; this (M, D) notation is used throughout Section 7.4. In 3D, only the stochastic generator is used at training time, and the three test distributions are evaluated against the same single model. The 3D constant-BC test set uses the same legacy left-hot/right-cold protocol as the 2D Old test set [15], extended to the third spatial dimension by holding the remaining four walls at adiabatic boundary conditions; this allows the conclusions of the 2D cross-dataset experiment to be checked dimension-by-dimension under a comparable extrapolation regime. The out-of-distribution test sets are constructed by widening the generator’s parameter envelope strictly beyond what is seen during training. In 2D, the Rayleigh number is drawn from Ra ∈ [10 2, 10 8] (versus the narrower training range used in Section 6.1) and the random Fourier series is truncated at a mode count drawn from {1, . . . , 5}, admitting both smoother and significantly more oscillatory wall-temperature profiles than appear during training. In 3D, the Rayleigh number is drawn from Ra ∈ [10 2, 10 7] and the number of Voronoi seeds per active wall is drawn from {3, . . . , 7}, both ranges strictly wider than at training time. The OOD comparison below is therefore between the surrogate prediction and the same-mesh compressible reference, and should be read as evidence that the surrogate tracks the reference solver across a wider parameter envelope rather than as a claim of physical correctness at these extremes. 
+
+7.3. Training protocol 
+
+All inputs and targets are rescaled to [0 , 1] using per-channel min–max statistics computed on the training split only, with the same statistics re-applied at inference time; all errors reported below are in this normalized space. The models are trained with a per-channel mean-squared error loss using AdamW, with an initial learning rate of 10 −4 in 2D and 5 × 10 −4 in 3D, gradient clipping at ∥∇∥ 2 = 1 . In 2D we use a plateau scheduler that halves the learning rate after 20 epochs without validation improvement; in 3D we use a cosine annealing schedule with a 10 -epoch linear warmup and a minimum learning rate of 10 −6. We use a weight decay of 10 −3 in 2D and 5 × 10 −3 in 3D, and a feature dropout rate of 0.05 inside each Fourier block to provide mild regularization without introducing a measurable train and validation gap. A random 
+
+20% subset of each training set is held out as a validation split, the model with the lowest validation loss is retained, and we train for 200 epochs at batch size 64 in 2D and batch size 32 in 3D. All training and inference are performed on a single NVIDIA RTX A6000 GPU (48 GB VRAM), and the inference timings reported in Tables 3 and 4 are averaged over the corresponding test set. Figure 18 shows the training and validation loss curves for the 2D and 3D stochastic models. In both dimensions, training and validation loss track each other closely as they decrease at similar rates and converge to the same plateau. Together with the consistent out-of-distribution behavior reported in the following 31 0 25 50 75 100 125 150 175 200            
+
+> Epoch
+> 10 −4
+> 10 −3
+> 10 −2
+> Per-channel MSE (normalized)
+> FNO training and validation loss
+> Training
+> Validation (a) 2D, stochastic dataset. 025 50 75 100 125 150 175 200
+> Epoch
+> 10 2
+> 10 1
+> Per-channel MSE (normalized)
+> 3D FNO Training and Validation Loss
+> Training Validation (b) 3D, stochastic dataset.
+
+Figure 18: Training and validation loss (per-channel MSE in normalized [0 , 1] space) versus epoch for the 2D and 3D Fourier neural operator surrogates trained on the stochastic dataset. Both curves are plotted on a log y-axis. In both dimensions, training and validation loss decrease at similar rates and converge to the same plateau without divergence, indicating that the chosen weight decay and dropout are sufficient regularization for the dataset size. The validation curve lying slightly below the training curve during the early epochs is a measurement artifact: training loss is evaluated with dropout active (a noisier model) while validation runs in evaluation mode. 
+
+subsections, this indicates that the chosen combination of weight decay and dropout is sufficient to prevent the surrogate from overfitting. 
+
+7.4. Two-dimensional cross-dataset generalization and validation 
+
+A central motivation for the stochastic dataset generator of Section 6.1 is to enlarge the support of the training distribution so that the learned surrogate generalizes beyond a narrow set of forcing patterns. To quantify this effect, we perform a controlled cross-dataset study: we train the same FNO architecture, separately, on the legacy and stochastic 2D training sets, and evaluate each of the two trained models on the three 2D test sets summarised in Table 2. This 2×3 evaluation matrix isolates the effect of dataset coverage while holding the model class and optimization protocol fixed. Let Dold , Drand , and Drand -ood denote the three test distributions. For each i ∈ { old , rand } we train a surrogate Gθi on the corresponding training set and evaluate it on each test distribution, defining the cross-dataset error 
+
+E(i → j) = E(a,u )∼D j
+
+ ℓ Gθi (a), u   , i ∈ { old , rand }, j ∈ { old , rand , rand -ood }, (50) where ℓ is the per-channel mean-squared error (MSE) in normalized [0 , 1] space; we additionally report the structural similarity index measure (SSIM) and the raw Boussinesq input baseline, which corresponds to setting Gθi = Id , as a reference for the achievable error reduction. In the qualitative figures we label each panel by its (model, data) pairing, writing Mi for the surrogate trained on dataset i and Dj for the test distribution j; thus Mold , D rand denotes the legacy-trained surrogate evaluated on stochastic data. Three findings emerge from Table 3 and the qualitative comparisons in Figures 19 and 20. First, on the in-distribution test sets both surrogates collapse the Boussinesq error substantially—by up to three orders of magnitude (e.g. ux on Dold falls from 7.7 × 10 −3 to 1.3 × 10 −5)—reaching per-channel MSE of order 10 −5
+
+on their own training distribution, while SSIM rises from as low as 0.86 on the raw input to ≥ 0.995 on the prediction across all four channels. Figure 19 shows the complete field set for a single in-distribution stochastic sample ( Mrand on Drand ): the prediction is visually indistinguishable from the compressible target for ux, uy , T , and p, and the absolute-error fields are structureless at the 10 −5 level. Second, the cross-dataset matrix is strongly asymmetric, as Figure 20 makes immediately visible. The stochastic-trained surrogate transfers to the legacy test set without meaningful degradation: Mrand on Dold gives per-channel MSE of 
+
+1.6–6.5 × 10 −5, comparable to its own in-distribution performance, with SSIM remaining ≥ 0.998 . The legacy-trained surrogate, by contrast, not only fails to correct the Boussinesq input on stochastic data but 32 Boussinesq       
+
+> uxuyTp
+> Compressible Prediction |Err|
+> MSE=1.51e-05 MSE=1.78e-05 MSE=1.66e-05 MSE=4.03e-05
+> 0.40
+> 0.44
+> 0.48
+> 0.52
+> 0.44
+> 0.48
+> 0.52
+> 0.56
+> 0.15
+> 0.30
+> 0.45
+> 0.60
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 0.30
+> 0.45
+> 0.60
+> 0.30
+> 0.45
+> 0.60
+> 0.75
+> 0.15
+> 0.30
+> 0.45
+> 0.60
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 0.30
+> 0.45
+> 0.60
+> 0.30
+> 0.45
+> 0.60
+> 0.75
+> 0.15
+> 0.30
+> 0.45
+> 0.60
+> 0.25
+> 0.50
+> 0.75
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+
+2D validation stochastic dataset Figure 19: All four flow variables for a single representative in-distribution stochastic sample (the stochastic-trained surrogate evaluated on the stochastic test set, Mrand on Drand ). Rows, from top to bottom: the normalized Boussinesq input, the compressible reference solution, the FNO prediction, and the per-field absolute error |ˆu − u|. Columns correspond to the four flow variables ux, uy , temperature T , and pressure p. All fields are shown in normalized [0 , 1] space; the absolute-error row is mapped to a common normalized grey scale, with the per-field MSE annotated above each error panel. The prediction reproduces all four fields with no visible structure in the error, at per-field MSE of order 10 −5 for this sample. Whereas Figure 20 contrasts the four (model, data) settings for ux and T , this figure shows the complete field set for the in-distribution case. 
+
+33 Table 3: Cross-dataset generalization metrics for 2D FNO surrogates trained on the legacy ( Old ) and stochastic ( Rand )datasets and evaluated on three 2D test distributions, averaged over the N = 200 samples of each test set. Performance is measured using mean-squared error (MSE) and the structural similarity index measure (SSIM) across all flow variables in normalized [0 , 1] space: the Boussinesq input and the compressible target are each min–max normalized using their own training statistics, so that all reported errors are bounded by unity and directly comparable across rows. The “Time (s)” column reports the average wall-clock time per sample for surrogate inference and full Boussinesq or compressible simulation. The per-sample values annotated in Figures 19 and 20 are single draws and differ from these averages.                                                                                                                                                                                           
+
+> Models Flow Variables Time (s) Velocity x-direction Velocity y-direction Temperature Pressure MSE SSIM MSE SSIM MSE SSIM MSE SSIM Compressible (Reference Solution) --------158.87
+> Test Set 1: Constant BCs (Old)
+> Input Baseline (Boussinesq) 7.69 ×10 −30.857 7.46 ×10 −30.855 1.47 ×10 −30.985 1.83 ×10 −20.860 11.22 FNO (Trained on Old Data) 1.31 ×10 −50.999 1.19 ×10 −50.998 9.58 ×10 −60.999 2.30 ×10 −50.995 1.1×10 −3
+> FNO (Trained on Rand Data) 3.89 ×10 −50.999 3.11 ×10 −50.999 6.53 ×10 −50.998 1.63 ×10 −50.999 1.1×10 −3
+> Test Set 2: Stochastic BCs (Rand)
+> Input Baseline (Boussinesq) 2.03 ×10 −30.948 2.03 ×10 −30.946 1.32 ×10 −40.997 4.72 ×10 −30.945 11.22 FNO (Trained on Old Data) 3.37 ×10 −20.551 1.44 ×10 −20.684 1.65 ×10 −20.769 7.10 ×10 −30.861 1.1×10 −3
+> FNO (Trained on Rand Data) 8.11 ×10 −50.997 8.42 ×10 −50.997 4.74 ×10 −50.998 3.58 ×10 −50.999 1.1×10 −3
+> Test Set 3: Stochastic BCs OOD (Rand-OOD)
+> Input Baseline (Boussinesq) 2.01 ×10 −30.949 2.00 ×10 −30.948 1.41 ×10 −40.997 3.96 ×10 −30.953 11.22 FNO (Trained on Old Data) 3.60 ×10 −20.494 1.70 ×10 −20.628 1.70 ×10 −20.742 7.53 ×10 −30.844 1.1×10 −3
+> FNO (Trained on Rand Data) 1.51 ×10 −40.994 1.42 ×10 −40.994 7.69 ×10 −50.996 4.82 ×10 −50.999 1.1×10 −3
+
+actively amplifies it: Mold on Drand rises to per-channel MSE of order 10 −2 (e.g. 3.4 × 10 −2 for ux), more than an order of magnitude above the raw Boussinesq baseline ( ∼ 2 × 10 −3), with SSIM collapsing to 0.55 
+
+for ux. The figure renders this asymmetry starkly: of the four (model, data) settings, only Mold , D rand 
+
+produces a dark, spatially structured error field, while the three remaining settings—including the cross transfer Mrand , D old —yield near-white, near-zero error maps. The legacy generator’s narrow constant-wall support does not populate the stochastic forcing manifold, and a model trained on it learns a correction that is actively harmful outside that support. Third, the stochastic-trained surrogate degrades gracefully out of distribution: on Drand -ood its per-channel MSE stays within roughly a factor of two of its in-distribution values (all ≤ 1.6 × 10 −4, SSIM ≥ 0.994 ), whereas the legacy-trained surrogate continues to amplify the error at the same ∼ 10 −2 magnitude as on Drand , with no recovery. Together, the asymmetric matrix and the graceful out-of-distribution behaviour of the stochastic-trained surrogate are direct empirical evidence that the stochastic generator expands the effective support of the training distribution beyond what the dataset’s nominal parameter ranges suggest. 
+
+7.5. Three-dimensional results 
+
+In three dimensions, for sake computational efficiency, we train a single 3D FNO on the stochastic dataset and validate whether the stochastic-trained 3D surrogate generalizes to constant-BC inputs and to parameter regimes outside its training envelope. Table 4 reports the same metrics as Table 3, evaluated on the three 3D test sets defined in Section 7.2. The single trained model reduces the Boussinesq baseline MSE across all five flow variables on every test set: by factors of roughly 36 –90 (one to two orders of magnitude) in distribution, and by factors of roughly 3–8 under the two extrapolation regimes, with in-distribution SSIM uniformly at or above 0.978 . On the constant-BC test set, SSIM drops to [0 .916 , 0.959] and the MSE gains are more modest (with SSIM on uz essentially unchanged from the baseline), but the surrogate still reduces the error on every channel. On the OOD test set with wider Ra range and richer wall patterns, performance remains qualitatively similar to the in-distribution stochastic case, with SSIM ∈ [0 .876 , 0.937] across all five channels and MSE within a factor of one order of magnitude from the in-distribution values for the velocity components and temperature. A qualitative view of the in-distribution behavior is given in Figure 21, which shows all five flow variables for one stochastic test sample. The FNO prediction visually matches the compressible target almost indistinguishably in all five channels, and the pointwise absolute error row quantifies this, showing residuals concentrated near the active walls where the Voronoi temperature pattern produces the strongest gradients, with per-channel MSE values consistent with Table 4 (Test 2 rows). 34 ux
+
+Input Target Prediction 
+
+> MSE=1.066e-05
+
+|Pred - Target| 
+
+> T
+> MSE=1.123e-05
+> ux
+> MSE=9.546e-02
+> T
+> MSE=1.365e-02
+> ux
+> MSE=1.725e-05
+> T
+> MSE=3.778e-05
+> ux
+> MSE=1.227e-05
+> T
+> MSE=1.285e-05
+
+0.37 
+
+0.43 
+
+0.50 
+
+0.57 
+
+0.63 
+
+0.06 
+
+0.28 
+
+0.50 
+
+0.72 
+
+0.94 
+
+0.06 
+
+0.27 
+
+0.49 
+
+0.71 
+
+0.93 
+
+0.00 
+
+0.25 
+
+0.50 
+
+0.75 
+
+1.00 
+
+0.00 
+
+0.25 
+
+0.50 
+
+0.75 
+
+1.00 
+
+0.00 
+
+0.25 
+
+0.50 
+
+0.75 
+
+1.00 
+
+-0.01 
+
+0.25 
+
+0.50 
+
+0.76 
+
+1.01 
+
+0.00 
+
+0.25 
+
+0.50 
+
+0.75 
+
+1.00 
+
+0.36 
+
+0.42 
+
+0.47 
+
+0.53 
+
+0.59 
+
+-0.00 
+
+0.17 
+
+0.34 
+
+0.51 
+
+0.69 
+
+0.06 
+
+0.28 
+
+0.51 
+
+0.73 
+
+0.95 
+
+0.00 
+
+0.25 
+
+0.50 
+
+0.75 
+
+1.00 
+
+0.11 
+
+0.31 
+
+0.51 
+
+0.71 
+
+0.91 
+
+0.11 
+
+0.31 
+
+0.51 
+
+0.71 
+
+0.91 
+
+0.13 
+
+0.29 
+
+0.45 
+
+0.61 
+
+0.77 
+
+0.00 
+
+0.25 
+
+0.50 
+
+0.75 
+
+1.00 
+
+0.40 
+
+0.44 
+
+0.48 
+
+0.52 
+
+0.57 
+
+0.29 
+
+0.41 
+
+0.53 
+
+0.65 
+
+0.77 
+
+0.29 
+
+0.41 
+
+0.53 
+
+0.65 
+
+0.77 
+
+0.00 
+
+0.25 
+
+0.50 
+
+0.75 
+
+1.00 
+
+0.00 
+
+0.25 
+
+0.50 
+
+0.75 
+
+1.00 
+
+0.00 
+
+0.25 
+
+0.50 
+
+0.75 
+
+1.00 
+
+-0.00 
+
+0.25 
+
+0.50 
+
+0.75 
+
+1.00 
+
+0.00 
+
+0.25 
+
+0.50 
+
+0.75 
+
+1.00 
+
+0.40 
+
+0.43 
+
+0.47 
+
+0.50 
+
+0.54 
+
+0.26 
+
+0.36 
+
+0.45 
+
+0.54 
+
+0.63 
+
+0.26 
+
+0.36 
+
+0.45 
+
+0.54 
+
+0.64 
+
+0.00 
+
+0.25 
+
+0.50 
+
+0.75 
+
+1.00 
+
+0.11 
+
+0.31 
+
+0.51 
+
+0.71 
+
+0.91 
+
+0.11 
+
+0.31 
+
+0.51 
+
+0.71 
+
+0.91 
+
+0.12 
+
+0.32 
+
+0.52 
+
+0.71 
+
+0.91 
+
+0.00 
+
+0.25 
+
+0.50 
+
+0.75 
+
+1.00 
+
+Cross-dataset FNO comparison 
+
+> Mold , Dold Mold , Drand Mrand , Dold Mrand , Drand
+
+Figure 20: Cross-dataset FNO comparison on a single representative sample, shown for ux (viridis) and T (red–blue). Columns are the normalized input, target, prediction, and absolute error |ˆu − u|. Each pair of rows is one (model, data) setting, labelled 
+
+Mi, D j at the far left, where Mi is the surrogate trained on dataset i and Dj the test distribution: from top, Mold , D old ;
+
+Mold , D rand ; Mrand , D old ; and Mrand , D rand . The error column is mapped to a common normalized [0 , 1] grey scale and annotated with the per-panel MSE. Only Mold , D rand – the legacy-trained model on stochastic data – produces a structured, high-magnitude error field; the stochastic-trained model generalizes to the legacy distribution ( Mrand , D old ) essentially as well as it performs in distribution. 
+
+35 Figure 21: Per-channel qualitative comparison of the 3D stochastic-trained FNO surrogate on one in-distribution stochastic test sample. Rows show the Boussinesq input, the compressible target, the FNO prediction, and the pointwise absolute error 
+
+|Pred − Comp |. Columns are the three velocity components ux, uy , uz , the temperature T , and the pressure p. The error row reports the per-channel MSE (physical units); error values are normalized to [0 , 1] relative to the per-channel maximum for visualization. 
+
+Figure 22: Cross test-set qualitative comparison of the 3D stochastic-trained FNO surrogate on the temperature field, for one random test sample (randomly picked from all three test sets). Rows correspond to the in-distribution stochastic test set (Test 1), the constant-BC test set (Test 2), and the out-of-distribution stochastic test set (Test 3). Columns show, from left to right, the Boussinesq input, the compressible target, the FNO prediction, and the pointwise absolute error. Per-row MSE is annotated on the error column. 
+
+36 Table 4: Generalization metrics for the 3D FNO surrogate (trained on stochastic BCs) evaluated on the three 3D test sets. Per-variable mean-squared error (MSE) and structural similarity index measure (SSIM) are reported in normalized [0 , 1] space; the Boussinesq input and the compressible target are each min–max normalized by their own training statistics, so all reported errors are bounded by unity. SSIM in 3D is computed by averaging 2D SSIM over slices along each of the three spatial axes. The “Time (s)” column reports the average wall-clock time per sample for surrogate inference, the Boussinesq solver, and the full compressible simulation. Solver timings are measured at 24 3 resolution on 16 MPI ranks (average of N =10 for Boussinesq, 
+
+N =5 converged runs for compressible); the FNO runs on a single GPU.                                                                                                                                                       
+
+> Models Flow Variables Time (s)
+> uxuyuzTemperature Pressure MSE SSIM MSE SSIM MSE SSIM MSE SSIM MSE SSIM Compressible (Reference Solution) ----------3245.58
+> Test Set 1: Constant BCs
+> Input Baseline (Boussinesq) 6.69 ×10 −30.887 2.11 ×10 −30.905 4.35 ×10 −30.942 6.57 ×10 −30.900 2.31 ×10 −20.851 583.52 FNO (Trained on Stochastic) 1.04 ×10 −30.944 5.54 ×10 −40.948 5.46 ×10 −40.959 1.02 ×10 −30.945 6.46 ×10 −30.916 0.0016
+> Test Set 2: Stochastic BCs (In-Distribution)
+> Input Baseline (Boussinesq) 1.31 ×10 −20.750 6.27 ×10 −30.802 3.43 ×10 −30.944 1.47 ×10 −20.757 1.40 ×10 −20.853 583.52 FNO (Trained on Stochastic) 2.02 ×10 −40.986 1.42 ×10 −40.983 9.43 ×10 −50.986 2.99 ×10 −40.983 1.55 ×10 −40.992 0.0016
+> Test Set 3: Stochastic BCs (Out-of-Distribution)
+> Input Baseline (Boussinesq) 1.17 ×10 −20.823 2.93 ×10 −30.882 5.22 ×10 −30.904 4.87 ×10 −30.919 3.61 ×10 −20.767 583.52 FNO (Trained on Stochastic) 2.64 ×10 −30.910 1.04 ×10 −30.932 1.18 ×10 −30.937 9.30 ×10 −40.935 1.19 ×10 −20.876 0.0016
+
+Cross-regime behavior for the temperature channel is shown in Figure 22 since this field is most directly tied to the boundary conditions and is therefore the most discriminating between regimes. The figure displays the Boussinesq input, the compressible target, the FNO prediction, and the pointwise absolute error for one random sample on each of the three 3D test sets. The qualitative agreement between target and prediction is essentially indistinguishable across the in-distribution and the two extrapolation regimes, despite the constant-BC and OOD samples having been produced by physical configurations the surrogate never saw during training. The per-row MSE values confirm that the constant-BC and OOD cases sit within an order of magnitude of the in-distribution case, with no qualitative breakdown of the predicted temperature structure. Taken together with the 2D cross-dataset matrix of Section 7.4, the in-distribution, constant-BC, and OOD results show that our stochastic generator produces a rich and statistically diverse training set. The model trained on it still performs well on unseen distributions and holds up when pushed to Rayleigh numbers and boundary-condition complexities beyond the training range. We close with a note on practical scope. The training cost of the surrogate is dominated by the compressible reference solver used to generate the paired dataset: 4,000 runs at ∼ 159 s each in 2D and 1,000 runs at 
+
+∼ 3,246 s each in 3D (Tables 3–4). The 3D training set alone therefore requires approximately 900 wall hours of compressible solves on the reference configuration. This cost is paid once. Each subsequent query of the trained model consists of one Boussinesq simulation ( ∼ 11 s in 2D, ∼ 584 s in 3D) followed by a single FNO inference ( 1.1 ms in 2D, 1.6 ms in 3D), replacing a full compressible solve. Equating cumulative cost— 
+
+(Boussinesq + FNO + training ) versus running the compressible solver directly—yields a break-even point near the training set size: roughly 4,300 evaluations in 2D and 1,200 in 3D under the timings reported above. The surrogate is therefore most useful in workflows that require many simulations on a fixed cavity geometry at fixed resolution: uncertainty quantification, parameter sweeps, design exploration, and ensemble runs. At present, we make no claim that the trained surrogate transfers across geometries or mesh resolutions; both are fixed during training and inference, and applying the surrogate outside these conditions would require retraining. Nonetheless, adding adaptors to make our surrogate mesh- and resolution-invariant is a natural direction for future work. 
+
+7.6. Comparison against a convolutional U-Net baseline 
+
+To isolate the role of the architecture from that of the training data, we compare the FNO against the task-specific convolutional U-Net introduced in Mangnike and Hyde [15], a modified U-Net developed for precisely this Boussinesq-to-compressible correction problem. We retrain it in both 2D and 3D under a protocol identical to the FNO (same per-channel min–max normalization, AdamW optimizer, learning-rate schedule, batch size, and epoch budget), so that the surrogate architecture is the only difference. 37 Table 5: FNO vs. the specialized convolutional U-Net of Mangnike and Hyde [15] on the in-distribution stochastic test set (Test Set 2), in both 2D and 3D, with all surrogates trained on the stochastic ( Rand ) dataset. Per-variable MSE and SSIM are reported in normalized [0 , 1] space (3D SSIM is the average of 2D SSIM over slices along the three spatial axes). The Boussinesq input and compressible target are each min–max normalized by their own training statistics so that all errors are bounded by unity. Parameter counts: 2D U-Net 1.9 M, FNO 113.4 M (full, width 128 / 24 modes / depth 6) and 8.4 M (compact, width 64 / 16 modes / depth 4); 3D U-Net 3.2 M, FNO 14.2 M. The compact FNO probes whether the full model’s accuracy stems from its spectral architecture or its parameter budget. The red sub-row gives the relative MSE change of each FNO versus the equally-trained U-Net per field ( ↓/↑ = lower/higher error). The “Time (s)” column reports the average wall-clock time per sample for surrogate inference and the Boussinesq solver.                                                                                                                                                                          
+
+> Models Flow Variables Time (s)
+> uxuyuzTemperature Pressure MSE SSIM MSE SSIM MSE SSIM MSE SSIM MSE SSIM
+> Two-Dimensional (Test Set 2: Stochastic BCs) Input Baseline (Boussinesq) 2.03 ×10 −30.948 2.03 ×10 −30.946 ––1.32 ×10 −40.997 4.72 ×10 −30.945 11.22 U-Net (1.9 M) 2.11 ×10 −40.989 2.41 ×10 −40.988 ––1.29 ×10 −40.995 1.63 ×10 −40.990 0.0001 FNO, full (113.4 M) 8.11 ×10 −50.997 8.42 ×10 −50.997 ––4.74 ×10 −50.998 3.58 ×10 −50.999 0.0011 vs. U-Net ↓62% ↓65% ↓63% ↓78% FNO, compact (8.4 M) 1.44 ×10 −40.993 1.23 ×10 −40.994 ––5.75 ×10 −50.997 5.69 ×10 −50.996 0.0004 vs. U-Net ↓32% ↓49% ↓55% ↓65%
+> Three-Dimensional (Test Set 2: Stochastic BCs) Input Baseline (Boussinesq) 1.31 ×10 −20.750 6.27 ×10 −30.803 3.43 ×10 −30.944 1.47 ×10 −20.757 1.40 ×10 −20.853 583.52 U-Net (3.2 M) 4.70 ×10 −30.861 3.32 ×10 −30.858 7.04 ×10 −40.913 1.52 ×10 −30.934 7.58 ×10 −30.974 0.0007 FNO (14.2 M) 2.02 ×10 −40.986 1.42 ×10 −40.983 9.43 ×10 −50.986 2.99 ×10 −40.983 1.55 ×10 −40.992 0.0016 vs. U-Net ↓96% ↓96% ↓87% ↓80% ↓98%
+
+The FNO and the U-Net sit at very different points on the size/speed axis, and the FNO’s footprint is governed almost entirely by its spectral convolution weights. Each spectral layer stores an independent complex weight for every channel pair and every retained Fourier mode, so the parameter count scales as 
+
+O width 2 · Q 
+
+> d
+
+modes d · depth . For our 2D configuration (width 128 , 24 ×24 modes, depth 6) this term alone accounts for 99 .9% of the 113 .4 M parameters, versus the U-Net’s 1.9 M; the same factor sets the size of the per-layer Fourier-domain contractions and therefore drives inference cost ( ∼1.1 × 10 −3 s/sample, about 10 ×
+
+the U-Net’s). From this large budget we also train a compact FNO (width 64 , 16 ×16 modes, depth 4); by the scaling above, this reduces parameter count to 8.4 M ( 13 .5× fewer, now only ∼4× the U-Net) and lowers its inference cost to ∼4 × 10 −4 s/sample — roughly 3× faster than the full FNO, though still about 4× the U-Net’s. Table 5 reports all surrogates on the in-distribution stochastic test set (Test 2); every surrogate is structurally faithful (SSIM ≥ 0.988 in 2D, ≥ 0.85 in 3D). The full FNO is the most accurate, outperforming the U-Net by 62 –78% in 2D and by 80 –98% in 3D (where it reaches SSIM ≥ 0.98 on every variable). Crucially, this advantage survives compression: even at ∼4× the U-Net’s parameter count, the compact FNO still reduces the U-Net’s MSE by 32 –65% across all four 2D fields. The spectral architecture therefore outperforms the convolutional baseline at similar model scale, indicating that the FNO’s accuracy reflects the operator-learning formulation rather than merely its larger parameter budget. In 3D the FNO is already compact relative to its 2D counterpart ( 14 .2 M, ∼4× the U-Net), so no reduction is required and the large margin persists. All surrogates reduce the Boussinesq baseline by roughly one to two orders of magnitude in MSE for the velocity and pressure channels, at a tiny fraction of the solver cost; the temperature channel, already close to compressible in the Boussinesq input, improves more modestly. This architecture/capacity comparison should ultimately be read against the dominant effect of the training distribution: the Old -trained FNO fails on the stochastic test sets (Table 3) while the Rand -trained FNO succeeds, and we observe the identical pattern for the U-Net, confirming that cross-dataset generalization is governed primarily by the stochastic training data rather than by the choice of surrogate. 
+
+8. Conclusions 
+
+In this work, we developed and validated an implicit monolithic mixed finite element framework for simulating both Boussinesq and fully compressible natural convection flows. By leveraging the flexibility of the FEniCSx 38 platform, we closed an important gap in open-source tools capable of handling the stiffness associated with low-Mach number regimes without relying on segregating pressure-correction schemes or explicit time-stepping. Our methodological approach focused on a globally coupled, fully implicit formulation using Taylor-Hood elements. In contrast to traditional partitioned solvers that often struggle with the acoustic-convective timescale disparity in low-Mach flows, our monolithic approach maintains robustness and thermodynamic consistency by solving the momentum, continuity, and energy equations, along with the equation of state, simultaneously. We then presented a novel stochastic data generation pipeline designed for scientific machine learning. We introduced Fourier- and Voronoi-based boundary condition perturbation methods that generate statisti-cally independent, physically consistent training datasets. This addresses a critical bottleneck in the field of data-driven CFD, where the lack of diverse, high-fidelity training data often hinders the generaliza-tion of physics-informed neural networks (PINNs) and surrogate models. By releasing this codebase as an open-source resource, we provide the community with a reproducible pipeline to generate “ML-ready” fluid dynamics data. Finally, we constructed a novel FNO-based neural surrogate model that learns to correct Boussinesq flow results to more closely resemble the results of an equivalent compressible flow simulation. This enables practitioners to run Boussinesq flow simulations yet obtain results that are much closer in quality to simulations run using compressible flow models, with in-distribution structural similarity close to unity and per-channel mean-squared error reduced by one to nearly three orders of magnitude, using only a single neural network evaluation. Future work will focus on extending the framework to turbulent flow regimes by integrating Reynolds-Averaged Navier—Stokes (RANS) or Large Eddy Simulation (LES) models within the monolithic variational form. Additionally, we plan to explore in-situ coupling between the FEniCSx solver and PyTorch, enabling active learning workflows where the solver dynamically generates data in regions of high varying uncertainty during model training. 
+
+Acknowledgments 
+
+D.H. was supported by NSF Grant No. 2324735. The authors acknowledge Abhinav Gupta for help learning FEniCS at the outset of the project. The authors also acknowledge Tianrun Gao for helpful proofreading of our manuscript and derivations. 
+
+Use of Generative AI 
+
+The following generative AI models were used in preparation of this manuscript, including code and writing: GPT 5.1, GPT 5.2, Gemini 3, Claude Opus 4.5, and Claude Opus 4.8. 39 References 
+
+[1] Jiyuan Tu, Guan-Heng Yeoh, and Chaoqun Liu. Chapter 1 - introduction. In Jiyuan Tu, Guan-Heng Yeoh, and Chaoqun Liu, editors, Computational Fluid Dynamics (Third Edition) , pages 1–31. Butterworth-Heinemann, third edition edition, 2018. ISBN 978-0-08-101127-0. doi: https://doi.org/10. 1016/B978-0-08-101127-0.00001-5. URL https://www.sciencedirect.com/science/article/pii/ B9780081011270000015 .[2] Philippe R. Spalart and V. Venkatakrishnan. On the role and challenges of CFD in the aerospace industry. The Aeronautical Journal , 120:209 – 232, 2016. URL https://api.semanticscholar.org/ CorpusID:7731130 .[3] Kozo Fujii. Progress and future prospects of CFD in aerospace—wind tunnel and beyond. Progress in Aerospace Sciences , 41(6):455–470, 2005. ISSN 0376-0421. doi: https://doi.org/10.1016/j.paerosci. 2005.09.001. URL https://www.sciencedirect.com/science/article/pii/S0376042105001016 .[4] Venkateswarlu Chintala and Kallipatti A. Subramanian. A CFD (computational fluid dynamics) study for optimization of gas injector orientation for performance improvement of a dual-fuel diesel engine. 
+
+Energy , 57:709–721, 2013. ISSN 0360-5442. doi: https://doi.org/10.1016/j.energy.2013.06.009. URL 
+
+https://www.sciencedirect.com/science/article/pii/S0360544213005070 .[5] Dongwei Ye, Valeria Krzhizhanovskaya, and Alfons G. Hoekstra. Data-driven reduced-order modelling for blood flow simulations with geometry-informed snapshots. Journal of Computational Physics , 497: 112639, 2024. ISSN 0021-9991. doi: https://doi.org/10.1016/j.jcp.2023.112639. URL https://www. sciencedirect.com/science/article/pii/S0021999123007349 .[6] Mahdi Esmaily Moghadam, Irene E. Vignon-Clementel, Richard Figliola, and Alison L. Marsden. Amodular numerical method for implicit 0D/3D coupling in cardiovascular finite element simulations. 
+
+Journal of Computational Physics , 244:63–79, 2013. ISSN 0021-9991. doi: https://doi.org/10.1016/j.jcp. 2012.07.035. URL https://www.sciencedirect.com/science/article/pii/S0021999112004202 .Multi-scale Modeling and Simulation of Biological Systems. [7] Luke Reid. An Introduction to Biomedical Computational Fluid Dynamics , pages 205–222. Springer International Publishing, Cham, 2021. ISBN 978-3-030-76951-2. doi: 10.1007/978-3-030-76951-2_10. URL https://doi.org/10.1007/978-3-030-76951-2_10 .[8] Meisam Babanezhad, Iman Behroyan, Ali Taghvaie Nakhjiri, Azam Marjani, Mashallah Rezakazemi, and Saeed Shirazian. High-performance hybrid modeling chemical reactors using differential evolution based fuzzy inference system. Scientific Reports , 10(1):21304, 2020. doi: 10.1038/s41598-020-78277-3. URL https://doi.org/10.1038/s41598-020-78277-3 .[9] Mohd Hafiz Zawawi, A. Saleha, A. Salwa, N.H. Hassan, Nazirul Mubin Zahari, Mohd Zakwan Ramli, and Zakaria Che Muda. A review: Fundamentals of computational fluid dynamics (CFD). In AIP conference proceedings , volume 2030, page 020252. AIP Publishing LLC, 2018. doi: 10.1063/1.5066893. URL https://doi.org/10.1063/1.5066893 .[10] Sung-Eun Kim and Ferit Boysan. Application of CFD to environmental flows. Journal of Wind Engineering and Industrial Aerodynamics , 81(1):145–158, 1999. ISSN 0167-6105. doi: https://doi. org/10.1016/S0167-6105(99)00013-6. URL https://www.sciencedirect.com/science/article/pii/ S0167610599000136 .[11] Yoshihide Tominaga. CFD simulations of turbulent flow and dispersion in built environment: A per-spective review. Journal of Wind Engineering and Industrial Aerodynamics , 249:105741, 2024. ISSN 0167-6105. doi: https://doi.org/10.1016/j.jweia.2024.105741. URL https://www.sciencedirect.com/ science/article/pii/S0167610524001041 .[12] Joseph Boussinesq. Théorie analytique de la chaleur mise en harmonic avec la thermodynamique et avec la théorie mécanique de la lumière: Refroidissement et échauffement par rayonnement, conductibilité des tiges, lames et masses cristallines, courants de convection, théorie mécanique de la lumière , volume 2. Gauthier-Villars, 1903. 40 [13] Marcello Lappa. Incompressible flows and the Boussinesq approximation: 50 years of CFD. Comptes Rendus. Mécanique , 350(S1):75–96, 2022. doi: 10.5802/crmeca.134. URL https://doi.org/10.5802/ crmeca.134 .[14] Donald D. Gray and Aldo Giorgini. The validity of the Boussinesq approximation for liquids and gases. 
+
+International Journal of Heat and Mass Transfer , 19(5):545–551, 1976. ISSN 0017-9310. doi: https:// doi.org/10.1016/0017-9310(76)90168-X. URL https://www.sciencedirect.com/science/article/ pii/001793107690168X .[15] Nurshat Mangnike and David Hyde. Toward improving Boussinesq flow simulations by learning with compressible flow. In Proceedings of the Platform for Advanced Scientific Computing Conference , PASC ’24, New York, NY, USA, 2024. Association for Computing Machinery. ISBN 9798400706394. doi: 10.1145/3659914.3659919. URL https://doi.org/10.1145/3659914.3659919 .[16] Jared Willard, Xiaowei Jia, Shaoming Xu, Michael Steinbach, and Vipin Kumar. Integrating physics-based modeling with machine learning: A survey. arXiv preprint arXiv:2003.04919 , 1(1):1–34, 2020. URL https://arxiv.org/pdf/2003.04919.pdf .[17] Frederic Gibou, David Hyde, and Ron Fedkiw. Sharp interface approaches and deep learning techniques for multiphase flows. Journal of Computational Physics , 380:442–463, 2019. doi: 10.1016/j.jcp.2018.05. 031. URL https://www.sciencedirect.com/science/article/pii/S0021999118303371 .[18] Igor A. Baratta, Joseph P. Dean, Jørgen S. Dokken, Michal Habera, Jack S. Hale, Chris N. Richardson, Marie E. Rognes, Matthew W. Scroggs, Nathan Sime, and Garth N. Wells. DOLFINx: the next generation FEniCS problem solving environment. preprint, 2023. URL https://doi.org/10.5281/ zenodo.10447666 .[19] Anders Logg, Kent-Andre Mardal, and Garth N. Wells. Automated Solution of Differential Equations by the Finite Element Method: The FEniCS Book , volume 84. Springer Science & Business Media, 2012. URL https://api.semanticscholar.org/CorpusID:59832704 .[20] Cedric M. Taylor and P. Hood. A numerical solution of the navier-stokes equations using the fi-nite element technique. Computers & Fluids , 1(1):73–100, 1973. ISSN 0045-7930. doi: https: //doi.org/10.1016/0045-7930(73)90027-3. URL https://www.sciencedirect.com/science/article/ pii/0045793073900273 .[21] David Hyde, Chennakesava Kadapa, Abdallah Alalem Albustami, and Ahmad F. Taha. Progress and perils of pinns: Perspectives on applying physics-informed neural networks to science and engineering problems. Computing in Science & Engineering , pages 1–9, 2026. doi: 10.1109/MCSE.2026.3675465. URL https://ieeexplore.ieee.org/document/11447375 .[22] M.P. Ueckermann and P.F.J. Lermusiaux. Hybridizable discontinuous Galerkin projection methods for Navier–Stokes and Boussinesq equations. Journal of Computational Physics , 306:390–421, 2016. ISSN 0021-9991. doi: https://doi.org/10.1016/j.jcp.2015.11.028. URL https://www.sciencedirect.com/ science/article/pii/S0021999115007688 .[23] Bernardo Cockburn, Jayadeep Gopalakrishnan, and Raytcho Lazarov. Unified hybridization of dis-continuous galerkin, mixed, and continuous galerkin methods for second order elliptic problems. 
+
+SIAM Journal on Numerical Analysis , 47(2):1319–1365, 2009. doi: 10.1137/070706616. URL ttps: //doi.org/10.1137/070706616 .[24] Ngoc Cuong Nguyen, Jaume Peraire, and Bernardo Cockburn. An implicit high-order hybridizable discontinuous Galerkin method for linear convection–diffusion equations. Journal of Computational Physics , 228(9):3232–3254, 2009. doi: https://doi.org/10.1016/j.jcp.2009.01.030. URL https://www. sciencedirect.com/science/article/pii/S0021999109000308 .[25] Philipp W. Schroeder and Gert Lube. Stabilised dG-FEM for incompressible natural convection flows with boundary and moving interior layers on non-adapted meshes. Journal of Computational Physics ,41 335:760–779, 2017. ISSN 0021-9991. doi: https://doi.org/10.1016/j.jcp.2017.01.055. URL https: //www.sciencedirect.com/science/article/pii/S0021999117300712 .[26] Zhaosheng Yu, Xueming Shao, and Anthony Wachs. A fictitious domain method for particulate flows with heat transfer. Journal of Computational Physics , 217(2):424–452, 2006. ISSN 0021-9991. doi: https: //doi.org/10.1016/j.jcp.2006.01.016. URL https://www.sciencedirect.com/science/article/pii/ S0021999106000167 .[27] Jian-Guo Liu, Cheng Wang, and Hans Johnston. A fourth order scheme for incompressible Boussinesq equations. Journal of Scientific Computing , 18(2):253–285, 2003. doi: https://doi.org/10.1023/A: 1021168924020. URL https://link.springer.com/article/10.1023/A:1021168924020 .[28] H. Damanik, J. Hron, A. Ouazzi, and S. Turek. A monolithic FEM-multigrid solver for non-isothermal incompressible flow on general meshes. Journal of Computational Physics , 228(10):3869–3881, 2009. ISSN 0021-9991. doi: https://doi.org/10.1016/j.jcp.2009.02.024. URL https://www.sciencedirect. com/science/article/pii/S0021999109000941 .[29] Christopher A. Smethurst, David J. Silvester, and Milan D. Mihajlovic. Unstructured finite element method for the solution of the Boussinesq problem in three dimensions. International Journal for Nu-merical Methods in Fluids , 73, 2013. URL https://api.semanticscholar.org/CorpusID:119789681 .[30] Shunichi Wakitani. Numerical study of three-dimensional oscillatory natural convection at low prandtl number in rectangular enclosures. Journal of Heat Transfer , 123(1):77–83, 09 2000. ISSN 0022-1481. doi: 10.1115/1.1336508. URL https://doi.org/10.1115/1.1336508 .[31] Edward A. Miller, Xi Chen, and David M. Williams. Versatile mixed methods for non-isothermal incompressible flows. Computers & Mathematics with Applications , 125:150–175, 2022. ISSN 0898-1221. doi: https://doi.org/10.1016/j.camwa.2022.08.044. URL https://www.sciencedirect.com/science/ article/pii/S0898122122003704 .[32] Howard Elman, Milan Mihajlović, and David Silvester. Fast iterative solvers for buoyancy driven flow problems. Journal of Computational Physics , 230(10):3900–3914, 2011. ISSN 0021-9991. doi: https: //doi.org/10.1016/j.jcp.2011.02.014. URL https://www.sciencedirect.com/science/article/pii/ S0021999111001033 .[33] Yongcun Song, Xiaoming Yuan, and Hangrui Yue. A numerical approach to the optimal control of thermally convective flows. Journal of Computational Physics , 494:112458, 2023. ISSN 0021-9991. doi: https://doi.org/10.1016/j.jcp.2023.112458. URL https://www.sciencedirect.com/science/ article/pii/S0021999123005533 .[34] Aina Rakotondrandisa, Georges Sadaka, and Ionut Danaila. A finite-element toolbox for the simulation of solid–liquid phase-change systems with natural convection. Computer Physics Communications , 253: 107188, 2020. ISSN 0010-4655. doi: https://doi.org/10.1016/j.cpc.2020.107188. URL https://www. sciencedirect.com/science/article/pii/S0010465520300151 .[35] Georges Sadaka, Aina Rakotondrandisa, Pierre-Henri Tournier, Francky Luddens, Corentin Lothodé, and Ionut Danaila. Parallel finite-element codes for the simulation of two-dimensional and three-dimensional solid–liquid phase-change systems with natural convection. Computer Physics Commu-nications , 257:107492, 2020. ISSN 0010-4655. doi: https://doi.org/10.1016/j.cpc.2020.107492. URL 
+
+https://www.sciencedirect.com/science/article/pii/S0010465520302319 .[36] Peyman Mayeli and Gregory J. Sheard. Buoyancy-driven flows beyond the Boussinesq approximation: A brief review. International Communications in Heat and Mass Transfer , 125:105316, 2021. doi: https:// doi.org/10.1016/j.icheatmasstransfer.2021.105316. URL https://www.sciencedirect.com/science/ article/pii/S0735193321002098 .[37] Radyadour Kh. Zeytounian. Joseph Boussinesq and his approximation: a contemporary view. Comptes Rendus Mecanique , 331(8):575–586, 2003. doi: https://doi.org/10.1016/S1631-0721(03)00120-7. URL 
+
+https://www.sciencedirect.com/science/article/pii/S1631072103001207 .42 [38] Suhas V. Patankar and Dudley B. Spalding. A calculation procedure for heat, mass and momentum transfer in three-dimensional parabolic flows. International Journal of Heat and Mass Transfer , 15 (10):1787–1806, 1972. ISSN 0017-9310. doi: https://doi.org/10.1016/0017-9310(72)90054-3. URL 
+
+https://www.sciencedirect.com/science/article/pii/0017931072900543 .[39] Jeffrey Peter van Doormaal and George D. Raithby. Enhancements of the simple method for pre-dicting incompressible fluid flows. Numerical Heat Transfer , 7(2):147–163, 1984. doi: 10.1080/ 01495728408961817. URL https://doi.org/10.1080/01495728408961817 .[40] Raad I. Issa. Solution of the implicitly discretised fluid flow equations by operator-splitting. Journal of Computational Physics , 62(1):40–65, 1986. ISSN 0021-9991. doi: https://doi.org/10.1016/0021-9991(86) 90099-9. URL https://www.sciencedirect.com/science/article/pii/0021999186900999 .[41] Chae M. Rhie. Pressure-based navier-stokes solver using the multigrid method. AIAA journal , 27 (8):1017–1018, 1989. doi: 10.2514/6.1986-207. URL https://arc.aiaa.org/doi/pdf/10.2514/6. 1986-207 .[42] Kailash C. Karki and Suhas V. Patankar. Pressure based calculation procedure for viscous flows at all speedsin arbitrary configurations. AIAA journal , 27(9):1167–1174, 1989. URL https://doi.org/10. 2514/3.10242 .[43] Ronald G. Rehm and Howard R. Baum. The equations of motion for thermally driven, buoyant flows. 
+
+Journal of Research of the National Bureau of Standards , 83 3:297–308, 1978. URL https://api. semanticscholar.org/CorpusID:13971757 .[44] Clifton Wall, Charles D. Pierce, and Parviz Moin. A semi-implicit method for resolution of acoustic waves in low mach number flows. Journal of Computational Physics , 181(2):545–563, 2002. ISSN 0021-9991. doi: https://doi.org/10.1006/jcph.2002.7141. URL https://www.sciencedirect.com/science/ article/pii/S002199910297141X .[45] Patrick L. Le Quéré, R Masson, and Pierre Perrot. A Chebyshev collocation algorithm for 2D non-Boussinesq convection. Journal of Computational Physics , 103(2):320–335, 1992. ISSN 0021-9991. doi: https://doi.org/10.1016/0021-9991(92)90404-M. URL https://www.sciencedirect.com/ science/article/pii/002199919290404M .[46] Aldo Hennink, Marco Tiberga, and Danny Lathouwers. A pressure-based solver for low-Mach number flow using a discontinuous Galerkin method. Journal of Computational Physics , 425:109877, 2021. ISSN 0021-9991. doi: https://doi.org/10.1016/j.jcp.2020.109877. URL https://www.sciencedirect.com/ science/article/pii/S0021999120306513 .[47] Hideki Yanaoka and Yuji Sato. A numerical method for low Mach number compressible flows by simultaneous relaxation of dependent variables. arXiv preprint arXiv:2502.08116 , 2025. doi: 10.48550/ arXiv.2502.08116. URL https://doi.org/10.48550/arXiv.2502.08116 .[48] Eli Turkel. Preconditioned methods for solving the incompressible and low speed compressible equations. Journal of Computational Physics , 72(2):277–298, 1987. ISSN 0021-9991. doi: https: //doi.org/10.1016/0021-9991(87)90084-2. URL https://www.sciencedirect.com/science/article/ pii/0021999187900842 .[49] Eli Turkel. Preconditioning techniques in computational fluid dynamics. Annual Review of Fluid Me-chanics , 31(1):385–416, 1999. doi: 10.1146/annurev.fluid.31.1.385. URL https://doi.org/10.1146/ annurev.fluid.31.1.385 .[50] Yunho Choi and Charles L. Merkle. The application of preconditioning in viscous flows. Journal of Computational Physics , 105(2):207–223, 1993. ISSN 0021-9991. doi: https://doi.org/10.1006/jcph.1993. 1069. URL https://www.sciencedirect.com/science/article/pii/S0021999183710697 .[51] Jonathan M. Weiss and Wayne Smith. Preconditioning applied to variable and constant density flows. 
+
+AIAA Journal , 33:2050–2057, 1995. URL https://api.semanticscholar.org/CorpusID:119737915 .43 [52] Hervé Guillard and Cécile Viozat. On the behaviour of upwind schemes in the low mach number limit. 
+
+Computers & fluids , 28(1):63–86, 1999. doi: https://doi.org/10.1016/S0045-7930(98)00017-6. URL 
+
+https://www.sciencedirect.com/science/article/pii/S0045793098000176 .[53] Alexander N. Brooks and Thomas J.R. Hughes. Streamline upwind/Petrov-Galerkin formulations for convection dominated flows with particular emphasis on the incompressible Navier-Stokes equa-tions. Computer Methods in Applied Mechanics and Engineering , 32(1):199–259, 1982. ISSN 0045-7825. doi: https://doi.org/10.1016/0045-7825(82)90071-8. URL https://www.sciencedirect.com/ science/article/pii/0045782582900718 .[54] Thomas Joseph Robert Hughes, Leopoldo P. Franca, and Marc Balestra. A new finite element formula-tion for computational fluid dynamics: V. circumventing the babuška-brezzi condition: A stable Petrov-Galerkin formulation of the Stokes problem accommodating equal-order interpolations. Applied Mechan-ics and Engineering , 59:85–99, 1986. URL https://api.semanticscholar.org/CorpusID:120805215 .[55] Hong Luo, Hidehiro Segawa, and Miguel R. Visbal. An implicit discontinuous Galerkin method for the unsteady compressible Navier–Stokes equations. Computers & Fluids , 53:133–144, 2012. ISSN 0045-7930. doi: https://doi.org/10.1016/j.compfluid.2011.10.009. URL https://www.sciencedirect.com/ science/article/pii/S0045793011003082 .[56] Satish Balay, William Gropp, Lois Curfman McInnes, and Barry F. Smith. Efficient management of parallelism in object-oriented numerical software libraries. In Modern Software Tools in Scientific Computing , 1997. URL https://api.semanticscholar.org/CorpusID:56520908 .[57] Mikael Mortensen, Hans Petter Langtangen, and Garth N. Wells. A FEniCS-based programming frame-work for modeling turbulent flow by the Reynolds-averaged Navier–Stokes equations. Advances in Water Resources , 34(9):1082–1101, 2011. ISSN 0309-1708. doi: https://doi.org/10.1016/j.advwatres.2011.02. 013. URL https://www.sciencedirect.com/science/article/pii/S030917081100039X .[58] Lyudmyla Vynnytska, Marie E. Rognes, and Stuart R. Clark. Benchmarking FEniCS for mantle convection simulations. Computers & Geosciences , 50:95–105, 2013. ISSN 0098-3004. doi: https: //doi.org/10.1016/j.cageo.2012.05.012. URL https://www.sciencedirect.com/science/article/ pii/S0098300412001689 .[59] Chao Zhang, Sadiq J. Zarrouk, and Rosalind Archer. A mixed finite element solver for natural convection in porous media using automated solution techniques. Computers & Geosciences , 96: 181–192, 2016. ISSN 0098-3004. doi: https://doi.org/10.1016/j.cageo.2016.08.012. URL https: //www.sciencedirect.com/science/article/pii/S0098300416302746 .[60] George Em Karniadakis, Ioannis G. Kevrekidis, Lu Lu, Paris Perdikaris, Sifan Wang, and Liu Yang. Physics-informed machine learning. Nature Reviews Physics , 3(6):422–440, 2021. doi: https://doi.org/ 10.1038/s42254-021-00314-5. URL https://www.nature.com/articles/s42254-021-00314-5 .[61] Maziar Raissi, Paris Perdikaris, and George E Karniadakis. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational physics , 378:686–707, 2019. doi: https://doi.org/10.1016/j.jcp. 2018.10.045. URL https://www.sciencedirect.com/science/article/pii/S0021999118307125 .[62] I.E. Lagaris, A. Likas, and D.I. Fotiadis. Artificial neural networks for solving ordinary and partial differential equations. IEEE Transactions on Neural Networks , 9(5):987–1000, 1998. doi: 10.1109/72. 712178. URL https://ieeexplore.ieee.org/document/712178 .[63] M.W.M. Gamini Dissanayake and Nhan Phan-Thien. Neural-network-based approximations for solving partial differential equations. Communications in Numerical Methods in Engineering , 10(3):195–201, 1994. doi: https://doi.org/10.1002/cnm.1640100303. URL https://onlinelibrary.wiley.com/doi/ abs/10.1002/cnm.1640100303 .44 [64] Ayano Kaneda, Osman Akar, Jingyu Chen, Victoria Alicia Trevino Kala, David Hyde, and Joseph Teran. A deep conjugate direction method for iteratively solving linear systems. In Andreas Krause, Emma Brunskill, Kyunghyun Cho, Barbara Engelhardt, Sivan Sabato, and Jonathan Scarlett, editors, Proceed-ings of the 40th International Conference on Machine Learning , volume 202 of Proceedings of Machine Learning Research , pages 15720–15736. PMLR, 2023. URL https://proceedings.mlr.press/v202/ kaneda23a.html .[65] Jiachen Yang, Tarik Dzanic, Brenden Petersen, Jun Kudo, Ketan Mittal, Vladimir Tomov, Jean-Sylvain Camier, Tuo Zhao, Hongyuan Zha, Tzanio Kolev, et al. Reinforcement learning for adaptive mesh re-finement. In International Conference on Artificial Intelligence and Statistics , pages 5997–6014. PMLR, 2023. URL https://proceedings.mlr.press/v206/yang23e.html .[66] Jonathan Viquerat and Elie Hachem. A supervised neural network for drag prediction of arbitrary 2d shapes in laminar flows at low reynolds number. Computers & Fluids , 210:104645, 2020. doi: https://doi.org/10.1016/j.compfluid.2020.104645. URL https://www.sciencedirect.com/science/ article/pii/S0045793020302164 .[67] Muralikrishnan Gopalakrishnan Meena, Matthew R. Norman, David M. Hall, and Michael S. Pritchard. Spatially local surrogate modeling of subgrid-scale effects in idealized atmospheric flows: A deep learned approach using high-resolution simulation data. Artificial Intelligence for the Earth Systems ,3(4):e230043, 2024. doi: 10.1175/AIES-D-23-0043.1. URL https://journals.ametsoc.org/view/ journals/aies/3/4/AIES-D-23-0043.1.xml .[68] Benet Eiximeno, Marcial Sanchis-Agudo, Arnau Miró, Ivette Rodriguez, Ricardo Vinuesa, and Oriol Lehmkuhl. On deep-learning-based closures for algebraic surrogate models of tur-bulent flows. Journal of Fluid Mechanics , 1020:A36, 2025. doi: 10.1017/jfm.2025.10610. URL https://www.cambridge.org/core/journals/journal-of-fluid-mechanics/article/ on-deeplearningbased-closures-for-algebraic-surrogate-models-of-turbulent-flows/ A1A32C52F9892284A7C290362CF501D2 .[69] Anirban Bhattacharjee, Luis H. Hatashita, and Suhas S. Jain. A machine learning model for the prediction of sub-grid interfacial area in two-phase turbulent flows. In AIAA SCITECH 2026 Forum ,page 1731, 2026. doi: https://doi.org/10.2514/6.2026-1731. URL https://arc.aiaa.org/doi/10. 2514/6.2026-1731 .[70] Joshua Stuckner, Matthew Piekenbrock, Steven M. Arnold, and Trenton M. Ricks. Optimal experimen-tal design with fast neural network surrogate models. Computational Materials Science , 200:110747, 2021. doi: https://doi.org/10.1016/j.commatsci.2021.110747. URL https://www.sciencedirect.com/ science/article/pii/S0927025621004742 .[71] Mohammad S. Khorrami, Jaber R. Mianroodi, Nima H. Siboni, Pawan Goyal, Bob Svendsen, Peter Benner, and Dierk Raabe. An artificial neural network for surrogate modeling of stress fields in vis-coplastic polycrystalline materials. npj Computational Materials , 9(1):37, 2023. doi: https://doi.org/ 10.1038/s41524-023-00991-z. URL https://www.nature.com/articles/s41524-023-00991-z .[72] Wenwen Zhou, Xiaodong Feng, Ling Guo, and Hao Wu. Latent representation learning based model correction and uncertainty quantification for PDEs. arXiv preprint arXiv:2603.24948 , 2026. doi: http: //dx.doi.org/10.2139/ssrn.6629548. URL https://api.semanticscholar.org/CorpusID:286790070 .[73] Giovanni Vagnoli, Martino A Scarpolini, Roberto Verzicco, and Francesco Viola. A local and explicit forcing correction for lagrangian immersed boundary methods. Computer Physics Communications , page 109741, 2025. doi: https://doi.org/10.1016/j.cpc.2025.109741. URL https://www.sciencedirect. com/science/article/pii/S0010465525002437 .[74] Karthik Duraisamy, Gianluca Iaccarino, and Heng Xiao. Turbulence modeling in the age of data. Annual review of fluid mechanics , 51(1):357–377, 2019. doi: https://doi.org/10.1146/ annurev-fluid-010518-040547. URL https://www.annualreviews.org/content/journals/10.1146/ annurev-fluid-010518-040547 .45 [75] Alban Farchi, Patrick Laloyaux, Massimo Bonavita, and Marc Bocquet. Using machine learning to correct model error in data assimilation and forecast applications. Quarterly Journal of the Royal Meteorological Society , 147(739):3067–3084, 2021. doi: https://doi.org/10.1002/qj.4116. URL https: //rmets.onlinelibrary.wiley.com/doi/abs/10.1002/qj.4116 .[76] Graham de Vahl Davis. Natural convection of air in a square cavity: a bench mark numerical solution. 
+
+International Journal for Numerical Methods in Fluids , 3(3):249–264, 1983. doi: https://doi.org/10. 1002/fld.1650030305. URL https://doi.org/10.1002/fld.1650030305 .[77] Daniel Johnson, Trevor Maxfield, Yongxu Jin, and Ronald Fedkiw. Software-based automatic differentia-tion is flawed. Journal of Computational Physics , page 114319, 2025. doi: https://doi.org/10.1016/j.jcp. 2025.114319. URL https://www.sciencedirect.com/science/article/pii/S002199912500600X .[78] Larry Armijo. Minimization of functions having Lipschitz continuous first partial derivatives. Pa-cific Journal of Mathematics , 16:1–3, 1966. doi: 10.2140/PJM.1966.16.1. URL https://api. semanticscholar.org/CorpusID:54977700 .[79] Patrick R. Amestoy, Iain S. Duff, and Jean-Yves L’Excellent. MUMPS MUltifrontal Massively Parallel Solver version 2.0. 1998. URL https://api.semanticscholar.org/CorpusID:60073183 .[80] Yousef Saad. A flexible inner-outer preconditioned GMRES algorithm. SIAM J. Sci. Comput. , 14: 461–469, 1993. URL https://api.semanticscholar.org/CorpusID:12540446 .[81] Van Emden Henson and Ulrike Meier Yang. BoomerAMG: A parallel algebraic multigrid solver and preconditioner. Applied Numerical Mathematics , 41(1):155–177, 2002. ISSN 0168-9274. doi: https:// doi.org/10.1016/S0168-9274(01)00115-5. URL https://www.sciencedirect.com/science/article/ pii/S0168927401001155 .[82] Junchao Zhang, Jed Brown, Satish Balay, Jacob Faibussowitsch, Matthew Knepley, Oana Marin, Richard Tran Mills, Todd Munson, Barry F Smith, and Stefano Zampini. The PetscSF scalable communication layer. IEEE Transactions on Parallel and Distributed Systems , 33(4):842–853, 2021. doi: 10.1109/TPDS.2021.3084070. URL https://www.computer.org/csdl/journal/td/2022/04/ 09442258/1tV59V9gKn6 .[83] COMSOL Multiphysics. Introduction to COMSOL multiphysics ®. COMSOL Multiphysics, Burlington, MA , 1998. URL https://www.comsol.com .[84] Jan A. Vierendeels, Bart Merci, and Erik Dick. Benchmark solutions for the natural convective heat transfer problem in a square cavity with large horizontal temperature differences. Interna-tional Journal of Numerical Methods for Heat & Fluid Flow , 13:1057–1078, 2003. URL https: //api.semanticscholar.org/CorpusID:121701784 .[85] Toru Fusegi, Jae min Hyun, Kunio Kuwahara, and Bakhtier Farouk. A numerical study of three-dimensional natural convection in a differentially heated cubical enclosure. International Jour-nal of Heat and Mass Transfer , 34(6):1543–1557, 1991. ISSN 0017-9310. doi: https://doi. org/10.1016/0017-9310(91)90295-P. URL https://www.sciencedirect.com/science/article/pii/ 001793109190295P .[86] Qiang Du, Vance Faber, and Max Gunzburger. Centroidal Voronoi tessellations: Applications and algorithms. SIAM Review , 41(4):637–676, 1999. doi: 10.1137/S0036144599352836. URL https://doi. org/10.1137/S0036144599352836 .[87] Zongyi Li, Nikola Kovachki, Kamyar Azizzadenesheli, Burigede Liu, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. Fourier neural operator for parametric partial differential equations. In International Conference on Learning Representations (ICLR) , 2021. URL https://openreview. net/forum?id=c8P9NQVtmnO .46 [88] Nikola Kovachki, Zongyi Li, Burigede Liu, Kamyar Azizzadenesheli, Kaushik Bhattacharya, An-drew Stuart, and Anima Anandkumar. Neural operator: Learning maps between function spaces with applications to PDEs. Journal of Machine Learning Research , 24(89):1–97, 2023. doi: https: //doi.org/10.48550/arXiv.2108.08481. URL https://dl.acm.org/doi/10.5555/3648699.3648788 .[89] Thomas J. R. Hughes. The Finite Element Method: Linear Static and Dynamic Finite Element Analysis .Dover Publications, Mineola, NY, 2000. ISBN 978-0-486-41181-1. Unabridged republication of the work originally published by Prentice-Hall, Englewood Cliffs, NJ, 1987. 47 Appendix A. Derivation of Non-dimensionalized and Variational Forms 
+
+This appendix contains step-by-step derivations of the weak forms of the non-dimensionalized governing equations for Boussinesq and compressible flow (see Section 3). These derivations are included primarily for pedagogical purposes. 
+
+Appendix A.1. Boussinesq flow equations Appendix A.1.1. Non-dimensionalized formulation 
+
+We begin from the dimensional Boussinesq model 
+
+∇ · u = 0 , (A.1) 
+
+ρ0
+
+ ∂u
+
+∂t + u · ∇ u
+
+
+
+= −∇ P + μ∇2u − ρ0 g β (T − T0)ˆeg , (A.2) 
+
+∂T ∂t + u · ∇ T = α∇2T, (A.3) Let L be the characteristic length, and choose the thermal-diffusion velocity scale 
+
+U = αL , (A.4) which is common for natural convection non-dimensionalization. Define the non-dimensional variables 
+
+x = Lx∗, t = LU t∗, u = U u∗, T = T0 + ∆ T T ∗. (A.5) For pressure, a convenient scale consistent with the viscous term under the choice U = α/L is 
+
+P = ρ0U 2 P ∗ (equivalently, P ∗ = Pρ0U 2 = P L 2
+
+ρ0α2 ). (A.6) The differential operators transform as 
+
+∇ = 1
+
+L ∇∗, ∇2 = 1
+
+L2 ∇∗2, ∂∂t = UL∂∂t ∗ . (A.7) Note that the variables with asterisks are dimensionless. Substituting u = U u∗ and ∇ = (1 /L )∇∗ into Equation A.1 gives the non-dimensional continuity equa-tion: 
+
+∇ · u = UL ∇∗ · u∗ = 0 =⇒ ∇∗ · u∗ = 0 . (A.8) We then rewrite each term in Equation A.2 under the above scalings. Unsteady term: 
+
+ρ0
+
+∂u
+
+∂t = ρ0
+
+∂(U u∗)
+
+∂t = ρ0U
+
+ UL∂u∗
+
+∂t ∗
+
+
+
+= ρ0
+
+U 2
+
+L∂u∗
+
+∂t ∗ . (A.9) Convective term: 
+
+ρ0(u · ∇ )u = ρ0(U u∗) ·
+
+ 1
+
+L ∇∗
+
+
+
+(U u∗) = ρ0
+
+U 2
+
+L (u∗ · ∇ ∗) u∗. (A.10) Pressure gradient: 
+
+∇P = 1
+
+L ∇∗(ρ0U 2P ∗) = ρ0
+
+U 2
+
+L ∇∗P ∗. (A.11) 48 Viscous diffusion: 
+
+μ∇2u = μ
+
+ 1
+
+L2 ∇∗2
+
+
+
+(U u∗) = μ UL2 ∇∗2u∗. (A.12) Buoyancy term: 
+
+ρ0 g β (T − T0) = ρ0 g β (∆ T T ∗) = ρ0 g β ∆T T ∗. (A.13) Now divide the entire momentum equation by the common factor ρ0(U 2/L ) to obtain 
+
+∂u∗
+
+∂t ∗ + ( u∗ · ∇ ∗) u∗ = −∇ ∗P ∗ + μρ0U L 
+
+| {z }  
+
+> =ν/ (U L )
+
+∇∗2u∗ − gβ ∆T L U 2
+
+| {z }
+
+> buoyancy coefficient
+
+T ∗ ˆeg . (A.14) With U = α/L , the viscous prefactor becomes 
+
+νU L = ν
+
+(α/L )L = να = P r, (A.15) and the buoyancy coefficient becomes 
+
+gβ ∆T L U 2 = gβ ∆T L 
+
+(α/L )2 = gβ ∆T L 3
+
+α2 =
+
+ gβ ∆T L 3
+
+να 
+
+  να
+
+
+
+= Ra P r. (A.16) Therefore, the non-dimensionalized momentum equation is 
+
+∂u∗
+
+∂t ∗ + ( u∗ · ∇ ∗) u∗ = −∇ ∗P ∗ + P r ∇∗2u∗ − Ra P r T ∗ ˆeg . (A.17) For the heat equation component of the Boussinesq model, we substitute the appropriate scalings into Equation A.3: 
+
+∂T ∂t = ∂(T0 + ∆ T T ∗)
+
+∂t = ∆ T UL∂T ∗
+
+∂t ∗ , (A.18) 
+
+u · ∇ T = ( U u∗) ·
+
+ 1
+
+L ∇∗
+
+
+
+(T0 + ∆ T T ∗) = ∆ T UL u∗ · ∇ ∗T ∗, (A.19) 
+
+α∇2T = α
+
+ 1
+
+L2 ∇∗2
+
+
+
+(T0 + ∆ T T ∗) = ∆ T αL2 ∇∗2T ∗. (A.20) Divide by ∆T (U/L ) = ∆ T (α/L 2) to obtain 
+
+∂T ∗
+
+∂t ∗ + u∗ · ∇ ∗T ∗ = ∇∗2T ∗. (A.21) Dropping asterisks for clarity, the complete non-dimensionalized Boussinesq system is therefore 
+
+∇ · u = 0 , (A.22) 
+
+∂u
+
+∂t + ( u · ∇ ) u = −∇ P + P r ∇2u − Ra P r T ˆeg , (A.23) 
+
+∂T ∂t + u · ∇ T = ∇2T. (A.24) 49 Appendix A.1.2. Variational (weak) formulation 
+
+Let Ω ⊂ Rd (d = 2 , 3) be the computational domain. We employ the Taylor–Hood mixed finite element pairing: 
+
+u ∈ V h = [ P2]d, T ∈ Θh = P1, P ∈ Qh = P1,
+
+where P2 denotes piecewise quadratic Lagrange elements and P1 denotes piecewise linear Lagrange ele-ments. Define the mixed space: 
+
+WB 
+
+> h
+
+= V h × Θh × Qh,
+
+with trial and test functions: 
+
+w =
+
+
+
+u
+
+TP
+
+ ∈ W B 
+
+> h
+
+, ψ =
+
+
+
+v
+
+θq
+
+ ∈ W B 
+
+> h
+
+.
+
+Multiply Equation A.22 by the test function q and integrate over Ω:
+
+Z
+
+> Ω
+
+(∇ · u) q d Ω = 0 ∀q ∈ Qh. (A.25) No integration by parts is needed for the continuity equation. Multiply Equation A.23 by v and integrate over the domain: 
+
+Z
+
+> Ω
+
+ ∂u
+
+∂t + u · ∇ u
+
+
+
+· v dΩ = −
+
+Z
+
+> Ω
+
+∇P · v dΩ + P r 
+
+Z
+
+> Ω
+
+∇2u · v dΩ − P r Ra 
+
+Z
+
+> Ω
+
+T (ˆeg · v) dΩ. (A.26) The convective term is retained in advective form. The pressure gradient and the viscous term are integrated by parts, 
+
+Z
+
+> Ω
+
+∇P · v dΩ = −
+
+Z
+
+> Ω
+
+P (∇ · v) dΩ + 
+
+Z
+
+> ∂Ω
+
+P (v · n) dS, (A.27) 
+
+P r 
+
+Z
+
+> Ω
+
+∇2u · v dΩ = −P r 
+
+Z
+
+> Ω
+
+∇u : ∇v dΩ + P r 
+
+Z
+
+> ∂Ω
+
+(∇u n ) · v dS, (A.28) where both boundary integrals vanish since v = 0 on ∂Ω. Substituting and collecting all terms on one side gives the final weak form for the momentum conservation equation, 
+
+Fmom =
+
+Z
+
+> Ω
+
+ ∂u
+
+∂t + u · ∇ u
+
+
+
+· v dΩ −
+
+Z
+
+> Ω
+
+P (∇ · v) dΩ+ P r 
+
+Z
+
+> Ω
+
+∇u : ∇v dΩ + P r Ra 
+
+Z
+
+> Ω
+
+T (ˆeg · v) dΩ = 0 , (A.29) in agreement with Equation 3. Next, for the energy equation, multiply Equation A.24 by θ and integrate: 
+
+Z
+
+> Ω
+
+∂T ∂t θ d Ω + 
+
+Z
+
+> Ω
+
+(u · ∇ T ) θ d Ω = 
+
+Z
+
+> Ω
+
+(∇2T ) θ d Ω. (A.30) Using ∇ · (θ∇T ) = ( ∇2T ) θ + ∇T · ∇ θ:
+
+Z
+
+> Ω
+
+(∇2T ) θ d Ω = 
+
+Z
+
+> ∂Ω
+
+θ (∇T · n) dS −
+
+Z
+
+> Ω
+
+∇T · ∇ θ d Ω. (A.31) 50 On adiabatic walls (top and bottom), ∇T · n = 0 , on isothermal walls (left and right), θ = 0 since Dirichlet boundary conditions are applied [89]. Thus the boundary term vanishes: 
+
+Z
+
+> Ω
+
+(∇2T ) θ d Ω = −
+
+Z
+
+> Ω
+
+∇T · ∇ θ d Ω. (A.32) Substituting this into the energy equation, Equation A.30: 
+
+Fenergy =
+
+Z
+
+> Ω
+
+∂T ∂t θ d Ω + 
+
+Z
+
+> Ω
+
+(u · ∇ T ) θ d Ω + 
+
+Z
+
+> Ω
+
+∇T · ∇ θ d Ω = 0 . (A.33) Now we can state the complete variational problem: Find w = ( u, T, P ) ∈ W B 
+
+> h
+
+such that 
+
+F(w; ψ) = Fmass + Fmom + Fenergy = 0 ∀ψ = ( v, θ, q ) ∈ W B 
+
+> h
+
+, (A.34) where: 
+
+Fmass =
+
+Z
+
+> Ω
+
+(∇ · u) q d Ω, (A.35) 
+
+Fmom =
+
+Z
+
+> Ω
+
+ ∂u
+
+∂t + u · ∇ u
+
+
+
+· v dΩ −
+
+Z
+
+> Ω
+
+P (∇ · v) dΩ+ P r 
+
+Z
+
+> Ω
+
+∇u : ∇v dΩ + P r Ra 
+
+Z
+
+> Ω
+
+T (ˆeg · v) dΩ, (A.36) 
+
+Fenergy =
+
+Z
+
+> Ω
+
+∂T ∂t θ d Ω + 
+
+Z
+
+> Ω
+
+(u · ∇ T ) θ d Ω + 
+
+Z
+
+> Ω
+
+∇T · ∇ θ d Ω. (A.37) This completes the derivation of the non-dimensional weak formulation for the Boussinesq approxima-tion. 
+
+Appendix A.2. Compressible flow equations 
+
+The dimensional strong form of the compressible flow equations is: 
+
+∂ρ ∂t + ∇ · (ρu) = 0 , (A.38) 
+
+∂(ρu)
+
+∂t + ∇ · (ρu ⊗ u) = −∇ p + ∇ · τ + ρg ˆeg , (A.39) 
+
+∂(ρE )
+
+∂t + ∇ · (ρE u) = ∇ · (κ∇T ) − ∇ · (pu) + ∇ · (τ · u) + ρg ˆeg · u, (A.40) where ρ is density, u velocity, p pressure, T temperature, and E is the total energy per unit mass 
+
+E = e + 12 |u|2, (A.41) with internal energy e = cv T for an ideal gas and constant cv . The viscous stress tensor is 
+
+τ = μ  ∇u + ( ∇u)⊤ − 23 μ(∇ · u)I, (A.42) and the ideal gas equation of state reads 
+
+p = ( γ − 1) ρe, γ = cp
+
+cv
+
+. (A.43) 51 Appendix A.2.1. Non-dimensionalized formulation 
+
+We introduce reference scales L (length), U (velocity), and define nondimensional variables as: 
+
+x∗ = x
+
+L , t∗ = tU L , u∗ = u
+
+U , (A.44a) 
+
+ρ∗ = ρρ0
+
+, T ∗ = TT0
+
+, e∗ = ee0
+
+, (A.44b) 
+
+p∗ = p − p0
+
+ρ0U 2 . (A.44c) Note that pressure is non-dimensionalized as a perturbation from the reference thermodynamic pressure p0.We define non-dimensional parameters as: 
+
+M a = Uc = U
+
+pγp 0/ρ 0
+
+, (Mach number) (A.45) 
+
+Re = ρ0U L μ , (Reynolds number) (A.46) 
+
+P r = μc p
+
+κ , (Prandtl number) (A.47) 
+
+F r = U
+
+√gL . (Froude number) (A.48) From the Mach number definition: 
+
+M a 2 = U 2
+
+γp 0/ρ 0
+
+= ρ0U 2
+
+γp 0
+
+⇒ p0 = ρ0U 2
+
+γM a 2 . (A.49) For an ideal gas, the specific internal energy and temperature are strictly coupled by the specific heat capacity at constant volume e = cv T . The reference scales satisfy this relationship: 
+
+e0 = cv T0. (A.50) Thus: 
+
+e∗ = ee0
+
+= cv Tcv T0
+
+= TT0
+
+= T ∗. (A.51) Therefore, the non-dimensionalized internal energy equals the non-dimensionalized temperature: 
+
+e∗ = T ∗. (A.52) 
+
+Non-dimensionalizing the equation of state. 
+
+Starting from Equation A.43, we make appropriate substitutions of dimensional variables with their non-dimensionalized counterparts, yielding 
+
+p0 + ρ0U 2p∗ = ( γ − 1) ( ρ0ρ∗) ( e0e∗). (A.53) Dividing by ρ0U 2,
+
+p0
+
+ρ0U 2 + p∗ = ( γ − 1) e0
+
+U 2 ρ∗e∗. (A.54) 52 From Equation A.49, p0  
+
+> ρ0U2
+
+= 1 
+
+> γM a 2
+
+, and thus 
+
+1
+
+γM a 2 + p∗ = ( γ − 1) e0
+
+U 2 ρ∗e∗. (A.55) Now, for an ideal gas, 
+
+cv = Rγ − 1 , cp = γR γ − 1 , c2 = γp 0
+
+ρ0
+
+= γRT 0. (A.56) Thus, 
+
+e0 = cv T0 = RT 0
+
+γ − 1 = c2
+
+γ(γ − 1) . (A.57) Since c = U/M a ,
+
+e0 = U 2
+
+γ(γ − 1) M a 2 . (A.58) Therefore, 
+
+e0
+
+U 2 = 1
+
+γ(γ − 1) M a 2 . (A.59) Substituting this into Equation A.55: 
+
+1
+
+γM a 2 + p∗ = ( γ − 1) 1
+
+γ(γ − 1) M a 2 ρ∗e∗ = 1
+
+γM a 2 ρ∗e∗. (A.60) Multiply by γM a 2:
+
+1 + γM a 2p∗ = ρ∗e∗. (A.61) Dropping asterisks, the non-dimensionalized equation of state is: 
+
+ρe = 1 + γM a 2p. (A.62) 
+
+Non-dimensionalizing the continuity equation. 
+
+Starting from Equation A.38 and substituting in non-dimensionalized variables yields 
+
+UL∂(ρ0ρ∗)
+
+∂t ∗ + 1
+
+L ∇∗ · (ρ0ρ∗ · U u∗) = 0 . (A.63) Simplifying, we obtain 
+
+ρ0UL∂ρ ∗
+
+∂t ∗ + ρ0UL ∇∗ · (ρ∗u∗) = 0 . (A.64) Multiplying by Lρ0U , we then have 
+
+∂ρ ∗
+
+∂t ∗ + ∇∗ · (ρ∗u∗) = 0 , (A.65) 53 and finally, dropping asterisks leaves 
+
+∂ρ ∂t + ∇ · (ρu) = 0 . (A.66) 
+
+Non-dimensionalizing the momentum equation. 
+
+Similarly, starting from Equation A.39 and substituting non-dimensionalized variables gives: 
+
+UL∂(ρ0ρ∗U u∗)
+
+∂t ∗ + 1
+
+L ∇∗ · (ρ0ρ∗U u∗ ⊗ U u∗)= − 1
+
+L ∇∗(p0 + ρ0U 2p∗) + 1
+
+L ∇∗ · (μτ ∗) + ρ0ρ∗g ˆeg , (A.67) where τ ∗ is the non-dimensionalized stress tensor. After algebraic simplification, we obtain: 
+
+ρ0U 2
+
+L∂(ρ∗u∗)
+
+∂t ∗ + ρ0U 2
+
+L ∇∗ · (ρ∗u∗ ⊗ u∗) = − ρ0U 2
+
+L ∇∗p∗ + μU L2 ∇∗ · τ ∗ + ρ0ρ∗g ˆeg . (A.68) Multiplying by Lρ0U 2 then gives 
+
+∂(ρ∗u∗)
+
+∂t ∗ + ∇∗ · (ρ∗u∗ ⊗ u∗) = −∇ ∗p∗ + μρ0U L ∇∗ · τ ∗ + gL U 2 ρ∗ ˆeg , (A.69) and using Re = ρ0U L μ and F r = U√gL , we obtain 
+
+∂(ρ∗u∗)
+
+∂t ∗ + ∇∗ · (ρ∗u∗ ⊗ u∗) = −∇ ∗p∗ + 1
+
+Re ∇∗ · τ ∗ + ρ∗
+
+F r 2 ˆeg . (A.70) Finally, dropping asterisks, we have: 
+
+∂(ρu)
+
+∂t + ∇ · (ρu ⊗ u) = −∇ p + 1
+
+Re ∇ · τ + ρF r 2 ˆeg . (A.71) 
+
+Non-dimensionalizing the energy equation. 
+
+First, scale the total energy: 
+
+E = e + 12 |u|2 = e0e∗ + 12 U 2|u∗|2. (A.72) Referring to Equation A.59, we have 
+
+U 2
+
+e0
+
+= γ(γ − 1) M a 2. (A.73) Thus, it is natural to define the non-dimensionalized total energy as 
+
+E∗ = e∗ + γ(γ − 1) M a 2
+
+2 |u∗|2. (A.74) Scaling on the left-hand side for Equation A.40: 
+
+∂(ρE )
+
+∂t = ∂(ρ0ρ∗ e0E∗)
+
+∂t = ρ0e0
+
+UL∂(ρ∗E∗)
+
+∂t ∗ , (A.75) 
+
+∇ · (ρE u) = 1
+
+L ∇∗ · (ρ0ρ∗ e0E∗ U u∗) = ρ0e0
+
+UL ∇∗ · (ρ∗E∗u∗). (A.76) 54 Hence the natural energy scale is ρ0e0U/L . For the conduction term in the energy equation, Equation A.40, we use T = T0T ∗ and T ∗ = e∗:
+
+∇ · (κ∇T ) = ∇ · 
+
+
+
+κ T0
+
+L ∇∗T ∗
+
+
+
+= κ T0
+
+L2 ∇∗2T ∗. (A.77) Divide by ρ0e0U/L and use e0 = cv T0, κ = μc p/P r :
+
+κT 0/L 2
+
+ρ0e0U/L = κρ0cv
+
+1
+
+U L = μc p
+
+P r ρ 0cv
+
+1
+
+U L = μγ P r ρ 0U L = γRe P r . (A.78) Therefore the non-dimensionalized conduction contribution is γReP r ∇∗2T ∗. The same idea applies for the pressure-work flux: 
+
+−∇ · (pu) = − 1
+
+L ∇∗ · (p0 + ρ0U 2p∗) U u∗ = − 1
+
+L ∇∗ ·(p0U u∗) − 1
+
+L ∇∗ · ρ0U 3p∗u∗ . (A.79) Divide by ρ0e0U/L and use p0/(ρ0e0) = γ − 1 and U 2/e 0 = γ(γ − 1) M a 2:
+
+−(γ − 1) ∇∗ · u∗ − γ(γ − 1) M a 2 ∇∗ · (p∗u∗) = −(γ − 1) ∇∗ ·(1 + γM a 2p∗)u∗. (A.80) Similarly, viscous work flux: 
+
+∇ · (τ · u) = 1
+
+L ∇∗ ·
+
+
+
+μ UL τ ∗ · U u∗
+
+
+
+= μ U 2
+
+L2 ∇∗ · (τ ∗ · u∗). (A.81) Divide by ρ0e0U/L :
+
+μU 2/L 2
+
+ρ0e0U/L = μU ρ0e0L = μρ0U L U 2
+
+e0
+
+= 1
+
+Re · γ(γ − 1) M a 2. (A.82) Hence the non-dimensionalized viscous work term is γ(γ−1) M a 2 
+
+> Re
+
+∇∗ · (τ ∗ · u∗).For the gravity work: 
+
+ρg ˆeg · u = ρ0ρ∗g U (ˆ eg · u∗). (A.83) Divide by ρ0e0U/L ; since F r 2 = U 2/(gL ) and U 2/e 0 = γ(γ − 1) M a 2, the coefficient is gL/e 0 = γ(γ −
+
+1) M a 2/F r 2:
+
+gL e0
+
+ρ∗(ˆeg · u∗) = γ(γ − 1) M a 2
+
+F r 2 ρ∗(ˆeg · u∗). (A.84) Collecting terms in the energy equation, E A.40, yields the non-dimensionalized total-energy equation: 
+
+∂(ρE )
+
+∂t + ∇ · (ρE u) = γRe P r ∇2T − (γ − 1) ∇ · [( γM a 2p + 1) u]+ (γ − 1) γM a 2
+
+Re ∇ · (τ · u) + (γ − 1) γM a 2
+
+F r 2 ρ (ˆeg · u). (A.85) The complete non-dimensionalized system is: 
+
+∂ρ ∂t + ∇ · (ρu) = 0 , (A.86) 
+
+∂(ρu)
+
+∂t + ∇ · (ρu ⊗ u) = −∇ p + 1
+
+Re ∇ · τ + ρF r 2 ˆeg , (A.87) 
+
+∂(ρE )
+
+∂t + ∇ · (ρE u) = γRe P r ∇2T − (γ − 1) ∇ · [( γM a 2p + 1) u]+ (γ − 1) γM a 2
+
+Re ∇ · (τ · u) + (γ − 1) γM a 2
+
+F r 2 ρ (ˆeg · u), (A.88) 
+
+ρe = 1 + γM a 2p. (A.89) 55 Appendix A.2.2. Variational (weak) formulation 
+
+As with our Boussinesq formulation, we employ the Taylor–Hood mixed finite element pairing: 
+
+u ∈ V h = [ P2]d, e ∈ Θh = P1, ρ ∈ Rh = P1, P ∈ Qh = P1,
+
+where P2 denotes piecewise quadratic Lagrange elements and P1 denotes piecewise linear Lagrange ele-ments. Define the mixed space: 
+
+WC 
+
+> h
+
+= V h × Θh × Rh × Qh,
+
+with trial and test functions: 
+
+w =
+
+
+
+u
+
+eρp
+
+ ∈ W C 
+
+> h
+
+, ψ =
+
+
+
+v
+
+we
+
+wρ
+
+q
+
+ ∈ W C 
+
+> h
+
+. (A.90) The strong form of the mass conservation equation is 
+
+∂ρ ∂t + ∇ · (ρu) = 0 . (A.91) Multiplying by the test function q and integrating over Ω, with the convective flux retained in conserva-tive (divergence) form, no integration by parts is required and the weak form for the mass conservation (continuity) equation is 
+
+Fρ =
+
+Z
+
+> Ω
+
+ ∂ρ ∂t + ∇ · (ρu)
+
+
+
+q d Ω = 0 , (A.92) in agreement with Equation 12. The strong form of the momentum conservation equation is: 
+
+∂(ρu)
+
+∂t + ∇ · (ρu ⊗ u) = −∇ p + 1
+
+Re ∇ · τ + ρF r 2 ˆeg (A.93) where τ is the viscous stress tensor. Multiply the momentum equation by the test function v and integrate over the domain: 
+
+Z
+
+> Ω
+
+ ∂(ρu)
+
+∂t + ∇ · (ρu ⊗ u)
+
+
+
+· v dΩ = −
+
+Z
+
+> Ω
+
+∇p · v dΩ + 1
+
+Re 
+
+Z
+
+> Ω
+
+(∇ · τ ) · v dΩ+
+
+Z
+
+> Ω
+
+ ρF r 2 ˆeg
+
+
+
+· v dΩ (A.94) The pressure term: 
+
+Z
+
+> Ω
+
+∇p · v dΩ = −
+
+Z
+
+> Ω
+
+p∇ · v dΩ, (A.95) The viscous term ∇ · τ is integrated by parts to avoid second derivatives of velocity u:
+
+1
+
+Re 
+
+Z
+
+> Ω
+
+(∇ · τ ) · v dΩ = − 1
+
+Re 
+
+Z
+
+> Ω
+
+τ : ∇v dΩ + 1
+
+Re 
+
+Z
+
+> Γ
+
+(τ n) · v dΓ . (A.96) 56 The final weak form for the momentum conservation equation is: 
+
+Fu =
+
+Z
+
+> Ω
+
+∂(ρu)
+
+∂t · v dΩ + 
+
+Z
+
+> Ω
+
+∇ · (ρu ⊗ u) · v dΩ
+
+−
+
+Z
+
+> Ω
+
+p(∇ · v) dΩ + 1
+
+Re 
+
+Z
+
+> Ω
+
+τ : ∇v dΩ −
+
+Z
+
+> Ω
+
+ρF r 2 (ˆeg · v) dΩ = 0 , (A.97) where only the pressure and viscous terms are integrated by parts (the corresponding boundary integrals vanish under the no-slip condition). The strong form of the energy equation is: 
+
+∂(ρE )
+
+∂t + ∇ · (ρE u) = γReP r ∇ · (∇e) − (γ − 1) ∇ · (γM a 2p + 1) u (A.98) 
+
++ (γ − 1) γM a 2
+
+Re ∇ · (τ · u) + (γ − 1) γM a 2
+
+F r 2 ρ (ˆeg · u), (A.99) where the deviatoric viscous stress is 
+
+τ = ∇u + ( ∇u)⊤ − 23 (∇· u) I. (A.100) In the total-energy formulation the energy equation contains the viscous work ∇· (τ · u), rather than the dissipation Φ = τ : ∇u alone; the two differ by (∇· τ ) · u.Multiply the energy equation by the test function we and integrate over the domain: 
+
+Z
+
+> Ω
+
+ ∂(ρE )
+
+∂t + ∇· (ρE u)
+
+
+
+we dΩ = γRe P r 
+
+Z
+
+> Ω
+
+∇· (∇e) we dΩ − (γ − 1) 
+
+Z
+
+> Ω
+
+∇· (γM a 2p + 1) u we dΩ+ (γ − 1) γM a 2
+
+Re 
+
+Z
+
+> Ω
+
+∇· (τ · u) we dΩ + (γ − 1) γM a 2
+
+F r 2
+
+Z
+
+> Ω
+
+ρ (ˆeg · u) we dΩ.
+
+(A.101) For the diffusion term, 
+
+Z
+
+> Ω
+
+∇· (∇e) we dΩ = −
+
+Z
+
+> Ω
+
+∇e · ∇ we dΩ + 
+
+Z
+
+> ∂Ω
+
+we n· ∇ e dS, (A.102) and since we = 0 on Dirichlet (isothermal) walls and n· ∇ e = 0 on adiabatic walls, the boundary contribution is zero. For the pressure-work term, 
+
+Z
+
+> Ω
+
+∇· (γM a 2p + 1) u we dΩ = −
+
+Z
+
+> Ω
+
+(γM a 2p + 1) u · ∇ we dΩ + 
+
+Z
+
+> ∂Ω
+
+(γM a 2p + 1) ( u · n) we dS, (A.103) whose boundary term vanishes under the no-slip condition u = 0 on ∂Ω.Similarly, integration by parts for the viscous work term: 
+
+Z
+
+> Ω
+
+∇ · (τ · u) we dΩ = −
+
+Z
+
+> Ω
+
+(τ · u) · ∇ we dΩ, (A.104) where the boundary term vanishes by the no-slip condition u = 0 on ∂Ω. The final weak form for the energy 57 equation is: 
+
+Fe =
+
+Z
+
+> Ω
+
+ ∂(ρE )
+
+∂t + ∇ · (ρE u)
+
+
+
+we dΩ (A.105) 
+
++ γReP r 
+
+Z
+
+> Ω
+
+∇e · ∇ we dΩ
+
+− (γ − 1) 
+
+Z
+
+> Ω
+
+(1 + γM a 2p)u · ∇ we dΩ+ γ(γ − 1) M a 2
+
+Re 
+
+Z
+
+> Ω
+
+(τ · u) · ∇ we dΩ
+
+− γ(γ − 1) M a 2
+
+F r 2
+
+Z
+
+> Ω
+
+ρ(ˆeg · u)we dΩ = 0 . (A.106) 58
