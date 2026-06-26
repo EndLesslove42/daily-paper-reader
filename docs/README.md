@@ -6,44 +6,45 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-25
-- 运行时间：2026-06-25 22:10:51 UTC
+- 最新运行日期：2026-06-26
+- 运行时间：2026-06-26 21:29:47 UTC
 - 运行状态：成功
-- 本次总论文数：8
-- 精读区：1
-- 速读区：7
+- 本次总论文数：7
+- 精读区：2
+- 速读区：5
 
 ### 今日简报（AI）
-今日精读1篇、速读7篇，重点聚焦自动配置可解释图神经网络污染预测、函数空间回归采样与非线性流动模拟。最值得关注精读《Auto-Configured Explainable Graph Neural Networks for Multi-Site Pollution Prediction》（8.0/10），以及速读中《Flow Annealing Posterior Sampling》与《Operator Learning on Data-Driven Multiscale Space》等方向。建议优先深入可解释GNN在环境预测中的实际部署，并留意算子学习对复杂物理模拟的加速潜力。
-- 详情：[/202606/25/README](/202606/25/README)
+今日阅读7篇论文，聚焦神经算子与深度学习在PDE及海洋生物地球化学预报中的应用。
+
+最值得关注的是Dirichlet-to-Neumann映射的神经算子主成分分解，以及用于海洋生物地球化学从数天到数十年预报的深度学习模型模拟器。
+
+建议优先精读这两篇8分论文，并关注扩散模型在PDE逆问题中的采样方法。
+- 详情：[/202606/26/README](/202606/26/README)
 
 ### 精读区论文标签
-1. [Auto-Configured Explainable Graph Neural Networks for Multi-Site Pollution Prediction](/202606/25/2606.24978v1-auto-configured-explainable-graph-neural-networks-for-multi-site-pollution-prediction)  
+1. [Principal-Part Decomposition for Neural Operator Learning of Dirichlet-to-Neumann Maps](/202606/26/2606.25952v1-principal-part-decomposition-for-neural-operator-learning-of-dirichlet-to-neumann-maps)  
    标签：评分：8.0/10、query:aqac
-   evidence：基于图神经网络的PM预测，混合损失函数，直接面向空气质量预报
+   evidence：基于主部分解的神经算子用于DLN映射
+2. [Deep learning model emulators for marine biogeochemistry forecasting from days to decades](/202606/26/2606.27168v1-deep-learning-model-emulators-for-marine-biogeochemistry-forecasting-from-days-to-decades)  
+   标签：评分：8.0/10、query:aqac
+   evidence：海洋生物地球化学模型的深度学习模拟器作为化学传输代理
 
 ### 速读区论文标签
-1. [Flow Annealing Posterior Sampling for Function-Space Regression and Inverse Problems](/202606/25/2606.22346v1-flow-annealing-posterior-sampling-for-function-space-regression-and-inverse-problems)  
+1. [Learning Probabilistic Filters with Strictly Proper Scoring Rules](/202606/26/2606.26497v1-learning-probabilistic-filters-with-strictly-proper-scoring-rules)  
    标签：评分：7.0/10、query:aqac
-   evidence：函数空间后验采样方法可应用于环境建模中PDE逆问题
-2. [A Neural Surrogate Approach for Simulating Natural Convection Problems](/202606/25/2606.25259v1-a-neural-surrogate-approach-for-simulating-natural-convection-problems)  
+   evidence：基于严格适当评分规则的集合数据同化方法
+2. [Latent Diffusion Posterior Sampling with Surrogate Likelihood Guidance for PDE Inverse Problems](/202606/26/2606.26592v1-latent-diffusion-posterior-sampling-with-surrogate-likelihood-guidance-for-pde-inverse-problems)  
    标签：评分：7.0/10、query:aqac
-   evidence：使用傅里叶神经算子的神经代理模型用于自然对流模拟
-3. [Operator Learning on the Data-Driven Multiscale Space for Nonlinear Flow in Random Heterogeneous Porous Media](/202606/25/2606.25820v1-operator-learning-on-the-data-driven-multiscale-space-for-nonlinear-flow-in-random-heterogeneous-porous-media)  
-   标签：评分：7.0/10、query:aqac
-   evidence：用于偏微分方程代理的神经算子
-4. [Data assimilation of flow MRI data into RANS models with algebraic closures](/202606/25/2606.23287v1-data-assimilation-of-flow-mri-data-into-rans-models-with-algebraic-closures)  
+   evidence：提出使用神经代理模型求解PDE反问题，与化学传输模型代理直接相关
+3. [The Fractal Neural Operator: Overcoming Spectral Bias in Chaotic Attractors via Prime-Harmonic Weierstrass Encodings](/202606/26/2606.23123v1-the-fractal-neural-operator-overcoming-spectral-bias-in-chaotic-attractors-via-prime-harmonic-weierstrass-encodings)  
    标签：评分：6.0/10、query:aqac
-   evidence：流MRI数据同化至RANS模型
-5. [Learning the Koopman Operator using Attention Free Transformers](/202606/25/2606.23957v1-learning-the-koopman-operator-using-attention-free-transformers)  
+   evidence：提出分数阶神经算子用于混沌动力系统，与神经算子代理模型直接相关
+4. [Uncertainty quantification via conformal prediction in data assimilation](/202606/26/2606.27001v1-uncertainty-quantification-via-conformal-prediction-in-data-assimilation)  
    标签：评分：6.0/10、query:aqac
-   evidence：使用无注意力Transformer的Koopman算子学习用于鲁棒代理建模
-6. [Low-Cost High-Order Singular Value Decomposition for Tensor-Based Reconstruction from Sparse Sensor Measurements: Urban Flow and Air-Quality Applications](/202606/25/2606.24989v1-low-cost-high-order-singular-value-decomposition-for-tensor-based-reconstruction-from-sparse-sensor-measurements-urban-flow-and-air-quality-applications)  
+   evidence：使用保形预测进行数据同化中的不确定性量化，与基于机器学习的数据同化方法相关
+5. [EO-WM: A Physically Informed World Model for Probabilistic Earth Observation Forecasting](/202606/26/2606.27277v1-eo-wm-a-physically-informed-world-model-for-probabilistic-earth-observation-forecasting)  
    标签：评分：6.0/10、query:aqac
-   evidence：城市流与空气质量应用，从稀疏传感器重建
-7. [FDN: Interpretable Spatiotemporal Forecasting with Future Decomposition Networks](/202606/25/2606.25201v1-fdn-interpretable-spatiotemporal-forecasting-with-future-decomposition-networks)  
-   标签：评分：6.0/10、query:aqac
-   evidence：可解释时空预测，可应用于空气质量
+   evidence：物理信息世界模型用于地球观测预测
 
 
 <div class="dpr-home-promo-card">

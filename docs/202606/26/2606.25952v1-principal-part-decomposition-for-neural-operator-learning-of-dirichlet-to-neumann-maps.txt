@@ -1,0 +1,2309 @@
+Title: Principal-Part Decomposition for Neural Operator Learning of Dirichlet-to-Neumann Maps
+
+URL Source: https://arxiv.org/pdf/2606.25952v1
+
+Published Time: Thu, 25 Jun 2026 01:09:52 GMT
+
+Number of Pages: 34
+
+Markdown Content:
+# Principal-Part Decomposition for Neural Operator Learning of Dirichlet-to-Neumann Maps 
+
+Shuo Ling 1 Wenjun Ying 2 Han Zhou 3,* 
+
+lingshuo1@sjtu.edu.cn wying@sjtu.edu.cn hzhou24@sas.upenn.edu 
+
+> 1
+
+School of Mathematical Sciences, Shanghai Jiao Tong University, Minhang, Shanghai 200240, P.R. China 
+
+> 2
+
+School of Mathematical Sciences, MOE-LSC and Institute of Natural Sciences, Shanghai Jiao Tong University, Minhang, Shanghai 200240, P.R. China 
+
+> 3
+
+Department of Mathematics, University of Pennsylvania, Philadelphia, Pennsylvania, 19104, USA 
+
+> *
+
+Corresponding author. 
+
+June 25, 2026 
+
+Abstract 
+
+Dirichlet-to-Neumann (DtN) maps send boundary values of a partial differential equation (PDE) solution to its nor-mal derivative on the boundary. Learning such maps across varying domains is important for boundary-value problems, but a black-box neural operator must model both the operator’s non-smoothing principal behavior and its dependence on boundary geometry. We use the boundary integral representation of the DtN map to obtain, for smooth planar boundaries, a useful principal-part decomposition: a geometry-independent leading operator can be written as a universal Fourier multiplier, while the remaining geometry-dependent correction is smoother. We propose Principal-Part Decomposed Neu-ral Operators (PPDNO), a hybrid analytic-neural framework that turns this decomposition into a geometry-conditioned operator learning model. PPDNO computes the principal part by FFT and trains a low-rank Deep Operator Network (DeepONet)-type architecture to approximate only the residual correction across families of boundary geometries. This design keeps the exact linear action on the boundary data, exposes the sampled boundary as an input to the model, and turns the learned target into a smoother operator family. We justify the decomposition theoretically by proving smooth-ing and separated-approximation properties of the residual, and we derive finite-node and training-error bounds for the reconstructed full map. Experiments on interior Laplace problems over elliptical and Fourier-parameterized domains, and on exterior Helmholtz problems over rose curves, show that PPDNO improves accuracy over direct neural operator base-lines while adding little inference overhead and generalizing to unseen boundary data. These results suggest that analytic operator structure and geometry-conditioned learning can be combined effectively for boundary solution maps. 
+
+# 1 Introduction 
+
+Boundary response operators, notably the Dirichlet-to-Neumann (DtN) map, are central to scientific computing applica-tions such as electrical impedance tomography [4, 32], domain decomposition [33], and exact non-reflecting boundary conditions for wave scattering [12]. While classical boundary integral methods evaluate DtN maps accurately, assembling and solving dense linear systems for every new geometry is computationally expensive. Therefore, this paper focuses on operator learning for DtN maps: efficiently predicting the Neumann trace across varying planar domains given sampled boundary geometries and Dirichlet data. Beyond using neural networks to solve specific PDE instances [27, 31, 37, 38, 40], neural operators offer a compelling data-driven alternative to bypass these bottlenecks by learning mappings between infinite-dimensional function spaces. Architectures including deep operator networks (DeepONet) [22], Fourier neural operators (FNO) [17], graph-based learn-ers [1, 13, 21], and transformers [5, 15] have successfully approximated PDE solutions, with recent extensions handling irregular geometries [6, 16, 24, 35]. However, these approaches typically treat the target boundary operator as a generic black box, introducing a severe mismatch with the underlying analytic structure of DtN maps. 1
+
+> arXiv:2606.25952v1 [math.NA] 24 Jun 2026
+
+RELATED WORK Boundary Data f 
+
+> (Dirichlet Condition)
+> Geometry X
+> (Sampled Shape)
+> Analytic Pathway
+> Exact FFT Multiplier
+> F−1(|k|/2) F
+> Neural Pathway
+> Geometry-Aware Low-Rank Operator
+
+2W0f
+
+RX f
+
++ Neumann Trace  
+
+> ˘ΛXf
+> Singular Principal Part
+> Smooth Residual
+> Geometry-Independent
+> Geometry-Dependent
+
+Figure 1: Conceptual overview of the Principal-Part Decomposed Neural Operator (PPDNO). Unlike black-box models, PPDNO analytically decouples the DtN map. The singular, geometry-independent principal part is computed exactly via FFT, leaving the neural network to approximate only the smoother, geometry-aware residual correction. Analytically, a DtN map comprises a singular principal part and a smoother, geometry-dependent correction. Purely data-driven black-box models struggle to learn both concurrently, causing poor generalization [25]. To resolve this, we analytically decouple the map via its boundary integral representation: 
+
+˘ΛX f = 2 W0f + RX f. 
+
+Here, the universal principal part W0 is a Fourier multiplier ( |k|/2) computed exactly via fast Fourier transform (FFT), leaving only the smooth residual RX to be learned. To realize this, we propose Principal-Part Decomposed Neural Operators (PPDNO) , a hybrid architecture illustrated in Figure 1. PPDNO isolates the exact FFT multiplier and approximates RX via a geometry-aware low-rank network. By mapping the input boundary shape into kernel basis coefficients that act strictly linearly on the Dirichlet data, PPDNO restricts geometric complexity entirely to the smooth correction. This strict preservation of the analytic linear structure disentangles the domain shape from high-frequency responses, enabling highly accurate zero-shot generalization to unseen and out-of-distribution boundary data. In summary, our main contributions are threefold: (i) we introduce a novel operator learning paradigm that leverages the analytic principal-part decomposition of DtN maps, computing the universal, geometry-independent Fourier multiplier exactly via FFT while modeling the remaining geometry-dependent smooth residual with a low-rank network; (ii) we provide a rigorous theoretical analysis establishing the smoothing and separated-approximation properties of the residual, alongside finite-node and training-error bounds for the fully reconstructed map; and (iii) we validate our approach on interior Laplace and exterior Helmholtz problems, demonstrating that PPDNO significantly outperforms standard black-box baselines in accuracy and zero-shot generalization with only a minor inference overhead. 
+
+# 2 Related Work 
+
+Neural Operators for PDEs. Neural operators learn mappings between function spaces, bypassing grid-dependent lim-itations. Architectures like DeepONet [3, 11, 22], kernel-based operators with graph, low-rank, or spectral representations [1, 13, 17, 26, 34], and attention-based models [5, 15] provide powerful baselines. However, they are implicitly opti-mized for smoothing maps. Our target, a boundary operator with an explicit order-one singularity, requires an architectural decomposition to isolate the non-smoothing principal symbol before training. 
+
+Operator Learning on Complex Geometries. Extending neural operators to varying domains [9, 29, 30, 39] often relies on coordinate transformations onto latent grids [16] or unstructured graph/point-cloud encoders [2, 21, 35]. While these geometry-conditioned frameworks primarily predict volumetric interior fields across domains, PPDNO targets the boundary response map directly. By embedding the analytic DtN decomposition, geometric features condition only the smoother residual operator, avoiding learning high-frequency boundary interactions from scratch. 2PROPOSED METHOD 
+
+Physics-Informed and Boundary Integral Neural Networks. Incorporating physical information and laws [7, 18, 36] regularizes operator learning. More closely related to our work are frameworks reformulating boundary value problems via boundary integral equations [6, 8, 19, 20, 24]. While classical theory heavily studies the logarithmic and hypersingular kernels governing DtN maps [10, 14, 23, 28], we advance this principle by deploying boundary integrals not merely as alternative solvers or regularizers, but as an explicit architectural decomposition that cleanly extracts the universal principal singularity to drastically simplify the learning landscape. 
+
+# 3 Background 
+
+We introduce the notation using the interior Laplace equation; extensions to other problems are discussed in Section 4.4. 
+
+3.1 Dirichlet-to-Neumann Maps 
+
+Let Ω ⊂ R2 be a bounded domain with smooth boundary Γ = ∂Ω, and let n denote the outward unit normal. Given Dirichlet data g ∈ H1/2(Γ) , consider (∆u = 0 , in Ω,u = g, on ∂Ω. (1) The corresponding Dirichlet-to-Neumann (DtN) map is 
+
+Λ : H1/2(Γ) → H−1/2(Γ) ,
+
+defined by 
+
+Λ[ g] = ∂nu. (2) 
+
+3.2 Boundary Integral Equations 
+
+The DtN map can also be expressed through boundary integral operators. Let G(x) be the two-dimensional Green’s function, whose detailed definition can be found in A.1. Using an indirect double-layer representation with density φ,
+
+u(x) = 
+
+Z
+
+> Γ
+
+∂G (x − y)
+
+∂ny
+
+φ(y) ds y , x ∈ Ω. (3) The jump relation yields the boundary integral equation (BIE) 
+
+12 φ(x) + 
+
+Z
+
+> Γ
+
+∂G (x − y)
+
+∂ny
+
+φ(y) ds y = g(x), x ∈ Γ. (4) The Neumann trace is given by the hypersingular operator 
+
+∂nu(x) = ∂∂nx
+
+Z
+
+> Γ
+
+∂G (x − y)
+
+∂ny
+
+φ(y) ds y = ∂∂τ x
+
+Z
+
+> Γ
+
+G(x − y) ∂φ ∂τ y
+
+(y) ds y , x ∈ Γ. (5) Equations (4)–(5) provide the boundary-integral form of the DtN map and reveal the singular structure used in our principal-part decomposition. 
+
+# 4 Proposed Method 
+
+We introduce Principal-Part Decomposed Neural Operators (PPDNO), a hybrid analytic-neural framework for learning Dirichlet-to-Neumann (DtN) maps. The central idea is to analytically extract the universal singular principal part of the DtN operator and learn only the geometry-dependent smooth remainder. 3PROPOSED METHOD 
+
+4.1 Decomposition of the DtN Maps 
+
+Let the boundary be parameterized by a smooth closed curve X : T → R2, where T = R/(2 πZ). We write ˘g = g ◦ X,
+
+˘φ = φ ◦ X, ˘ΛX = Λ X ◦ X and ˘ψ = ( ∂nu ◦ X)|X′| as the parameterized Neumann trace. The BIE (4) gives 
+
+(I + 2 K) ˘ φ = 2˘ g, ˘ψ = W ˘φ := ˘ΛX ˘g, (6) where I denote the identity map and K is the double-layer potential obtained from (3) after parameterizing the boundary curve by X(t). A direct calculation, detailed in Appendix B, yields 
+
+Wf (s) = 12π ∂s
+
+Z
+
+> T
+
+log |X(s) − X(t)| ∂tf (t) dt. (7) Splitting the logarithmic kernel into its universal singular part and a geometry-dependent smooth part gives 
+
+W = W0 + W1, W0f (s) = 12π ∂s
+
+Z
+
+> T
+
+log 2 sin s − t
+
+2 ∂tf (t) dt. (8) The operator W0 is independent of the geometry and is diagonal in Fourier space: 
+
+W0f = F−1 cW0(k)Ff, cW0(k) = |k|
+
+2 , k ∈ Z. (9) Using (6), we obtain 
+
+˘ψ = W ˘φ = 2 W(˘ g − K ˘φ) = 2 W0 ˘g + 2 W1 ˘g − 4WK (I + 2 K)−1 ˘g. (10) Since K and W1 have smooth kernels for smooth boundaries, the last two terms form a smoothing remainder. This motivates the decomposition 
+
+˘ΛX f = 2 W0f + RX f. (11) Thus the singular principal part is computed analytically by FFT, while the neural network only approximates the smooth residual operator RX . The smoothing statement is summarized in Theorem 5.1 and proved in Appendix C. 
+
+4.2 Neural Network Approximation 
+
+We model the residual RX f as a geometry-dependent smooth integral operator with low-rank decomposition 
+
+RX f (s) = 
+
+Z
+
+> T
+
+R(s, t ; X)f (t) dt, R(s, t ; X) ≈
+
+> r
+
+X
+
+> k=1
+
+ak(s)bk(t; X). (12) Let {tj }Nj=1 be sensor points, f = ( f (t1), . . . , f (tN )) ⊤ ∈ RN , and zX = ( X(t1); . . . ; X(tN )) ∈ RN ×2. Applying quadrature to the separated kernel gives 
+
+RX f (s) ≈
+
+> r
+
+X
+
+> k=1
+
+ak(s)
+
+> N
+
+X
+
+> j=1
+
+ωj bk(tj ; zX )f (sj ).
+
+The factor depending on the integration variable is discretized as a geometry-dependent vector 
+
+βk(zX ) :=  ω1bk(t1; zX ), . . . , ω N bk(tN ; zX )⊤ ∈ RN ,
+
+so that its action on the Dirichlet data is f ⊤βk(zX ). Then 
+
+RX f (s) ≈
+
+> r
+
+X
+
+> k=1
+
+ak(s) f ⊤βk(zX ). (13) 4PROPOSED METHOD The network mirrors (13). An evaluation-point network MLP s : R → Rr outputs a(s) = ( a1(s), . . . , a r (s)) ⊤, while a geometry network MLP X : R2N → RrN maps the flattened boundary representation to a matrix in Rr×N whose rows are βk(zX )⊤. The final prediction is 
+
+Nr (zX , f , s ; θ) =  MLP s(s)⊤ MLP X (zX )f , (14) where θ contains the parameters of both subnetworks. Figure 2 illustrates the architecture. This architecture explicitly encodes the low-rank separable structure of the smooth DtN residual kernel and yields an efficient approximation of the parametric boundary integral operator. In practice, batches of geometries, boundary data, and evaluation points are processed simultaneously by vectorized matrix operations, which is equivalent to repeated application of (14).       
+
+> Geometry Feature Extraction
+> Parameter Embedding
+> zX∈RN×2
+> Geometry
+> f∈RN
+> Dirichlet Boundary Data
+> s
+> Evaluation Point
+> MLP X
+> β(zX)
+> Rr×N
+> MLP s
+> a(s)
+> Rr
+
+×
+
+> Mat-Vec
+> v
+> Rr
+
+· 
+
+> Inner Prod point s
+> Output
+> Neumann Trace on Point s
+
+Figure 2: Schematic illustration of the proposed network architecture (14). 
+
+4.3 Training Strategy 
+
+Given reference DtN data eΛXl f l, we train the network on the residual target 
+
+ylrem := eΛXl f l − 2W0f l. (15) The loss is the mean squared residual error on evaluation points {sℓ}Ns
+
+> ℓ=1
+
+:
+
+Lrem (θ) := 1
+
+Nbatch Nbatch X
+
+> l=1
+
+1
+
+NsNsX
+
+> ℓ=1
+
+Nr (zXl , f l, s ℓ; θ) − ylrem (sℓ) 2
+
+. (16) At inference time, the full DtN prediction is reconstructed as 
+
+bΛX f (s) := 2 W0f (s) + Nr (zX , f, s ; θ). (17) 
+
+4.4 Extension to Other PDEs 
+
+The decomposition extends to elliptic and exterior boundary value problems whose Green’s functions share the same leading logarithmic singularity as the two-dimensional Laplace kernel. For the interior Helmholtz equation, this gives 
+
+˘ΛX,k f = 2 W0f + RX,k f, (18) 5THEORETICAL ANALYSIS where the residual contains the geometry- and wave-number-dependent smooth contribution. For the exterior Helmholtz problem, the orientation of the normal derivative changes the sign of the principal part: 
+
+˘Λext 
+
+> X,k
+
+f = −2W0f + Rext 
+
+> X,k
+
+f. (19) The detailed derivation is given in Appendix D. 
+
+# 5 Theoretical Analysis 
+
+The analysis explains why PPDNO learns only the part of the DtN map where geometry actually enters. In boundary coordinates, the order-one singular component is the universal Fourier multiplier 2W0; the geometry-dependent correction in (11) is a much smoother operator. We record three consequences. First, subtracting 2W0 gives a remainder with high-order Sobolev mapping regularity. Second, this remainder admits a low-rank separated approximation with a trunk basis fixed independently of the geometry. Third, after boundary sampling and training, the reconstructed DtN error is the sum of the residual approximation error and the explicit principal-part error. The proofs and detailed assumptions are given in Appendix C. 
+
+Theorem 5.1 (Mapping property of the remainder operator) . Let Γ be a C∞ closed curve for which the interior Dirichlet problem is uniquely solvable. With the density convention in Section 4.1, 
+
+RX := ˘ΛX − 2W0 (20) 
+
+is a smoothing operator on T: for all Sobolev indices s and all integers N ≥ 0,
+
+RX : Hs(T) → Hs+N (T) (21) 
+
+is bounded. For finite Cn curves, the same argument gives a finite-smoothness kernel whose regularity is limited by n.
+
+Theorem 5.1 is the analytic reason for the decomposition: the network is not asked to rediscover the multiplier |k|. It only sees the compact residual operator, whose kernel varies with the boundary but has no diagonal singularity. 
+
+Theorem 5.2 (Low-rank approximation of the remainder operator) . Assume the admissible remainder family of Defini-tion C.3. For each rank budget r ≥ m, one can choose trunk functions a1, . . . , a r independently of X such that, for every 
+
+X ∈ A n, there are geometry-dependent functions bk(·; X) defining 
+
+RX,r f (s) = 
+
+> r
+
+X
+
+> k=1
+
+ak(s)cX 
+
+> k
+
+(f ), cX 
+
+> k
+
+(f ) = 
+
+Z
+
+> T
+
+bk(t; X)f (t) dt, (22) 
+
+such that 
+
+∥R X − R X,r ∥L2(T)→L∞(T) + ∥R X − R X,r ∥L2(T)→L2(T) ≤ Cr −m (23) 
+
+uniformly over the admissible geometry class. 
+
+This is the structural statement matched by the architecture in (14). The residual kernel has the fixed-trunk form 
+
+R(s, t ; X) ≈
+
+> r
+
+X
+
+> k=1
+
+ak(s)bk(t; X), (24) where ak(s) is chosen once and the geometry dependence is carried by bk(t; X), equivalently by the branch functionals 
+
+cX 
+
+> k
+
+. This is different from learning an unconstrained two-variable kernel for each boundary. 
+
+Theorem 5.3 (Discretized residual learning and full-map error) . Let Θr,J be a class of low-rank DeepONets and let μ be the distribution of boundary data and geometries. For a residual predictor Nθ , set 
+
+Lpop (θ) := E(f, X)∼μ ∥N θ (f, X) − R X f ∥2 
+
+> L2(T)
+
+, Lemp (θ) := 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+∥N θ (fi, Xi) − R Xi fi∥2 
+
+> L2(T)
+
+. (25) 6NUMERICAL EXPERIMENTS 
+
+Define 
+
+∆N := sup 
+
+> θ∈Θr,J
+
+|L pop (θ) − L emp (θ)| . (26) 
+
+Suppose the trained parameter bθ satisfies Lemp (bθ) ≤ inf θ∈Θr,J Lemp (θ) + ηopt , and suppose there is a deterministic witness in Θr,J with residual error Edet (r, J ) on supp μ. Then 
+
+Lpop (bθ)1/2 ≤ Edet (r, J ) + p2∆ N + √ηopt . (27) 
+
+If the final predictor evaluates 2W0 exactly, the same bound holds for the reconstructed DtN map. If 2W0 is truncated to 
+
+2W(K)0 , one adds the corresponding root-mean-square Fourier truncation error. Under the finite-node assumptions in Appendix C, the deterministic residual term separates into the expected numerical and approximation errors: 
+
+Edet (r, J ) ≲ Erank (r) + Egeom (J) + Equad (r, J ) + Enet (r, J ), (28) 
+
+where Erank (r) = O(r−m) is the fixed-trunk rank error, Egeom (J) is the geometry reconstruction error, Equad (r, J ) is the input quadrature error, and Enet (r, J ) is the neural realization error for the trunk and geometry-conditioned branch factors. 
+
+# 6 Numerical Experiments 
+
+Objective. In this section, we comprehensively evaluate the performance of the proposed Principal-Part Decomposed Neural Operators (PPDNO) framework. We organize the experiments into three parts to demonstrate its accuracy, effi-ciency, and generalization capabilities: (1) the interior Laplace equation on elliptical domains, (2) the interior Laplace equation on complex domains parameterized by Fourier series, (3) the exterior Helmholtz equation. We report relative L2
+
+errors and relative maximum errors on the boundary evaluation grid. 
+
+6.1 Experimental Setup 
+
+Discretization and data. All boundaries are sampled uniformly on T with N = 256 sensor points, and the evaluation grid is the same unless stated otherwise. In all cases, Dirichlet data and Neumann traces are evaluated analytically on the boundary, and each dataset is split into 80% training and 20% testing samples. 
+
+Baselines and ablation. We compare PPDNO with DeepONet [22], 1D Fourier Neural Operator (FNO) [17], and Oper-ator Transformer (OT) [15]. These baselines directly learn the full DtN map ˘ΛX , whereas PPDNO computes the principal part by FFT and learns only the residual RX . We keep the black-box baselines architecture-only, since residualizing them would already inject the proposed analytic decomposition into the baseline models. We include two ablations. PPDNO-Direct uses the same low-rank architecture as PPDNO but is trained on the full map. FFT-only uses only the analytic principal part, and omits the learned residual. 
+
+Network configuration and training. For most PPDNO runs, after fixing rank r, MLP s and MLP X are 4-layer fully connected networks with width r2 and ReLU . Baseline widths and depths are tuned so that their trainable-parameter memory is comparable to, or slightly larger than, that of PPDNO; detailed architectures and hyperparameters are given in Appendix E. Unless stated otherwise, all models are trained with MSE loss, Adam with initial learning rate 10 −4, and a 
+
+ReduceLROnPlateau scheduler. Training dynamics are reported in Appendix F, and the inference benchmark protocol is described in Appendix G.1. The code is available at https://github.com/vstppen/DtN_learning .
+
+6.2 Laplace Equation on Elliptical Domains 
+
+In our first experiment, we consider the interior boundary value problem for the Laplace equation on elliptical domains. 7NUMERICAL EXPERIMENTS 
+
+Data Generation. The boundary is parameterized by x(θ) = a cos θ and y(θ) = b sin θ, with a, b ∼ U (0 .5, 1.5) . We sample nX = 5 ,000 geometries and, for each geometry, generate 10 harmonic fields of the form u(x) = Pmk=1 ckG(x −
+
+yk). Here m ∼ U{ 1, 2, 3, 4}, ck ∼ U (−0.5, 0.5) , and the sources yk are placed at radii ry ∈ [1 .1Rmax , 2.0Rmax ] with 
+
+Rmax = max( a, b ). This gives 50 ,000 paired Dirichlet and Neumann traces. 
+
+Performance and Efficiency Comparison. We set r = 12 and evaluate on 10 ,000 held-out samples. Table 1 shows that directly learning the full DtN map is difficult: DeepONet, FNO, OT, and PPDNO-Direct all incur substantially larger errors than PPDNO. The FFT-only ablation measures the contribution of the analytic principal part without any learned residual. After subtracting the analytic principal part and learning the residual, PPDNO reaches a relative L2 error of 3.17 × 10 −3,more than an order of magnitude below the strongest full-map baseline in this test. The decomposition also preserves efficiency. The end-to-end latency of PPDNO is 2.10 ms for the full test set, close to PPDNO-Direct ( 1.54 ms) and far below FNO and OT. Thus the FFT-based principal-part correction adds little overhead while removing the main singular component of the operator; benchmark details are given in Appendix G.1. Table 1: Average errors and inference speed comparison for the Laplace problem on elliptical domains. The reported latency is the median wall-clock time for batched prediction of the entire test set ( 10 , 000 samples) on a single GPU. 
+
+Method Relative L2 Error Relative Max Error Latency (ms) Throughput (samples/s) 
+
+DeepONet 2.02 × 10 −1 2.35 × 10 −1 1.40 7.13 × 10 6
+
+FNO 4.35 × 10 −2 5.36 × 10 −2 320.19 3.12 × 10 4
+
+OT 1.51 × 10 −1 1.83 × 10 −1 3752.2 2.67 × 10 3
+
+FFT-only 2.79 × 10 −1 1.95 × 10 −1 0.65 1.53 × 10 7
+
+PPDNO-Direct 9.24 × 10 −2 1.06 × 10 −1 1.54 6.47 × 10 6
+
+PPDNO 3.17 × 10 −3 3.43 × 10 −3 2.10 4.75 × 10 6
+
+Specific Test Cases. We test the trained models on a specific ellipse ( a = 1 .0, b = 0 .8) under two exact solutions: (1) a fundamental solution u(x, y ) = 12π log p(x − 1) 2 + ( y − 1) 2 corresponding to a source located at (1 , 1) , which induces sharp gradients on the boundary, and (2) the out-of-distribution (OOD) smooth harmonic function u(x, y ) = ex cos y.Table 2 shows that PPDNO remains the most accurate on both cases. FFT-only captures the principal response but does not include the geometry-dependent residual correction. PPDNO-Direct already improves OOD extrapolation over generic baselines, indicating the benefit of the low-rank architecture, but the additional principal-part subtraction consistently gives the best errors. Pointwise prediction plots are provided in Appendix G.2. Table 2: Relative errors for the specific test cases on an ellipse. 
+
+Method Case 1: Point Source Case 2: ex cos y
+
+Rel. L2 Rel. Max Rel. L2 Rel. Max 
+
+DeepONet 1.36 × 10 −1 1.29 × 10 −1 2.79 × 10 −1 2.65 × 10 −1
+
+FNO 1.36 × 10 −2 1.88 × 10 −2 5.20 × 10 −1 5.67 × 10 −1
+
+OT 3.68 × 10 −2 5.70 × 10 −2 1.08 × 10 0 9.08 × 10 −1
+
+FFT-only 1.72 × 10 −1 8.84 × 10 −2 1.69 × 10 −1 1.06 × 10 −1
+
+PPDNO-Direct 7.28 × 10 −2 6.91 × 10 −2 1.09 × 10 −2 1.35 × 10 −2
+
+PPDNO 2.72 × 10 −3 1.95 × 10 −3 2.83 × 10 −3 2.82 × 10 −3
+
+6.3 Laplace Equation on Fourier-Parameterized Domains 
+
+To further evaluate the robustness of our method on more irregular and non-convex geometries, our second experiment considers the interior Laplace problem on randomly generated Fourier domains. 8NUMERICAL EXPERIMENTS 
+
+Data Generation. The boundaries are parameterized by x(t) = r(t) cos t and y(t) = r(t) sin t, where 
+
+r(t) = a0 +
+
+> K
+
+X
+
+> k=1
+
+(ak cos kt + bk sin kt ). (29) We draw a0 ∼ U (0 .8, 1.2) , K ∼ U{ 1, 2, 3, 4}, and ak, b k ∼ N (0 , σ 2
+
+> k
+
+) with σk = 0 .2(1 + k)−0.5. After filtering for valid curves, we sample nX = 10 ,000 geometries and generate 10 point-source solutions per geometry as in the elliptical experiment, yielding 100 ,000 paired boundary conditions. 
+
+Performance Comparison. We use r = 16 and evaluate on 20 ,000 held-out samples. Table 3 shows that PPDNO remains the most accurate model on this more variable geometry class, reducing the relative L2 error to 1.47 × 10 −2.
+
+Specific Test Cases. We also evaluate zero-shot extrapolation on a specific Fourier domain 
+
+r(θ) = 1 .1 + 0 .3 cos θ − 0.1 sin 2 θ + 0 .05 cos 4 θ. (30) As before, we test two exact solutions: (1) a fundamental solution u(x, y ) = 12π log p(x − 2.0) 2 + ( y − 2.0) 2 corre-sponding to a source located at (2 .0, 2.0) , and (2) the OOD smooth harmonic function u(x, y ) = ex(sin y + cos y).As shown in Table 4, PPDNO gives the lowest errors on both tests. OT is unstable on this case, with errors close to one, while PPDNO keeps the relative L2 error below 10 −2. Additional visualizations are provided in Appendix G.2. Table 3: Average relative errors for the Laplace problem on Fourier-parameterized domains. 
+
+Method Rel. L2 Rel. Max 
+
+DeepONet 1.66 × 10 −1 2.09 × 10 −1
+
+FNO 5.14 × 10 −2 7.95 × 10 −2
+
+OT 1.00 × 10 0 1.01 × 10 0
+
+FFT-only 2.07 × 10 −1 2.50 × 10 −1
+
+PPDNO-Direct 6.17 × 10 −2 8.60 × 10 −2
+
+PPDNO 1.47 × 10 −2 1.99 × 10 −2
+
+Table 4: Relative errors for the specific test cases on a Fourier-parameterized domain.                                                                                   
+
+> Method Point Source ex(sin y+ cos y)
+> Rel. L2Rel. Max Rel. L2Rel. Max
+> DeepONet 5.00 ×10 −26.22 ×10 −23.85 ×10 −14.24 ×10 −1
+> FNO 1.25 ×10 −22.00 ×10 −25.38 ×10 −14.70 ×10 −1
+> OT 9.99 ×10 −19.99 ×10 −19.99 ×10 −19.99 ×10 −1
+> FFT-only 1.56 ×10 −11.82 ×10 −11.07 ×10 −18.19 ×10 −2
+> PPDNO-Direct 2.99 ×10 −23.28 ×10 −26.03 ×10 −27.29 ×10 −2
+> PPDNO 8.64 ×10 −38.91 ×10 −39.94 ×10 −37.52 ×10 −3
+
+6.4 Exterior Helmholtz Equation on Rose Curves 
+
+We next consider the exterior Helmholtz DtN map on complex-valued radiating wave fields. Since DeepONet and OT are already dominated in the Laplace experiments, we compare here with the FNO baseline, PPDNO-Direct, and FFT-only. 
+
+Harmonic Trunk Encoding. For wave problems, the residual Rext  
+
+> X,k
+
+becomes increasingly oscillatory as k grows. We therefore feed the evaluation network a harmonic encoding of s:
+
+γ(s) = 
+
+
+
+cos( s), sin( s), cos(2 s), sin(2 s), . . . , cos( nmax s), sin( nmax s)
+
+⊤
+
+∈ R2nmax , (31) where nmax is a hyper-parameter and the trunk becomes MLP s(γ(s)) . The same encoding is used for all models. 
+
+Data Generation. The boundaries are rose curves 
+
+{(x(t), y (t)) : x(t) = r(t) cos t, y (t) = r(t) sin t, t ∈ [0 , 2π)},
+
+with 
+
+r(θ) = R 1 + ϵ cos( kpetal θ).
+
+9NUMERICAL EXPERIMENTS We draw R ∼ U (0 .8, 1.2) and ϵ ∼ U (0 .15 , 0.25) , fix kpetal = 5 , and generate nX = 5 ,000 geometries. Exact radiating solutions are random sums of Hankel fundamental solutions, u(x) = P
+
+j cj H(1) 0 (k|x−yj |), with sources yj placed inside 
+
+Ω. We use 10 complex-valued fields per geometry, for 50 ,000 data pairs. 
+
+Performance Comparison. We test k = 1 and k = 10 , using rank r = 14 and r = 32 for PPDNO, respectively. Table 5 reports errors on 10 ,000 held-out samples. At k = 1 , subtracting the principal part gives the best error. At k = 10 , the gap between PPDNO and PPDNO-Direct narrows, while both models remain substantially more accurate than FNO. Table 5: Average relative errors for the exterior Helmholtz problem on Rose Curve domains under different wave numbers. Errors are computed using the full complex-valued Neumann traces. 
+
+Method k = 1 k = 10 
+
+Rel. L2 Rel. Max Rel. L2 Rel. Max FNO 1.55 × 10 −2 2.88 × 10 −2 4.75 × 10 −2 7.70 × 10 −2
+
+FFT-only 1.08 × 10 0 9.69 × 10 −1 1.17 × 10 0 1.08 × 10 0
+
+PPDNO-Direct 2.54 × 10 −2 3.57 × 10 −2 1.01 × 10 −2 1.55 × 10 −2
+
+PPDNO 9.37 × 10 −3 1.05 × 10 −2 1.10 × 10 −2 1.69 × 10 −2
+
+Remark 6.1. The shrinking gap at larger k is consistent with the operator structure. The Helmholtz singularity remains the k-independent logarithmic term extracted by W0, while derivatives of the oscillatory factor make Rext 
+
+X,k dominant as 
+
+k grows. Thus the bottleneck shifts from the localized principal singularity to the oscillatory residual, where the low-rank architecture and harmonic encoding become decisive. 
+
+Specific Test Cases and OOD Generalization. We evaluate zero-shot extrapolation on a fixed rose curve ( R = 1 .0, ϵ =0.2) under two wave fields: (1) A single point source − i
+
+4 H(1) 0 (k|x − y0|) originating from the origin. (2) An OOD cylindrical wave u(r, θ ) = H(1) 
+
+n (kr )einθ with n = 1 . For the k = 10 cases in Figure 3, PPDNO has component errors mostly near 2 × 10 −3, versus 10 −2–10 −1 for FNO; detailed errors are in Appendix G.3. 2 1 0 1 2 
+
+> x
+> 2
+> 1
+> 0
+> 1
+> 2
+> y
+> Boundary
+> Exterior Domain 2
+
+(a) Exterior domain 0 1 2 3 4 5 6
+
+> t
+> 0.4
+> 0.2
+> 0.0
+> 0.2
+> 0.4
+> Value
+> Predicted
+> Exact
+> Error (Pred - Exact)
+
+(b) Case 1, real 0 1 2 3 4 5 6 
+
+> t
+> 0.6
+> 0.4
+> 0.2
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> Value
+> Predicted
+> Exact
+> Error (Pred - Exact)
+
+(c) Case 1, imaginary 0 1 2 3 4 5 6
+
+> t
+> 3
+> 2
+> 1
+> 0
+> 1
+> 2
+> Value
+> Predicted
+> Exact
+> Error (Pred - Exact)
+
+(d) Case 2, real 0 1 2 3 4 5 6 
+
+> t
+> 2
+> 1
+> 0
+> 1
+> 2
+> 3
+> Value
+> Predicted
+> Exact
+> Error (Pred - Exact)
+
+(e) Case 2, imaginary 
+
+Figure 3: Predictions of PPDNO versus the exact Neumann trace for the exterior Helmholtz problem with k = 10 .10 REFERENCES 
+
+6.5 Zero-Shot Super-Resolution 
+
+To evaluate the mesh-independence of PPDNO, we test its zero-shot super-resolution capability. Benefiting from exact spectral zero-padding in the analytic pathway and continuous coordinate mapping in MLP s, PPDNO can predict the Neumann trace at dyadically refined resolutions without retraining or altering implicit quadrature weights. We fix the input geometry and boundary data at Nin = 256 , and query the specific analytic test cases at increasingly finer output grids (Nquery = 512 , 1024 , 2048 ). As detailed in Table 7 in Appendix G.4, PPDNO maintains highly stable relative L2 errors across all refinements, consistently staying at a low error level of around 2.8 × 10 −3 for the Laplace ellipse case even up to N = 2048 .
+
+# 7 Conclusion 
+
+In this paper, we introduced Principal-Part Decomposed Neural Operators (PPDNO), a hybrid analytic-neural framework for learning Dirichlet-to-Neumann (DtN) maps across varying domains. By embedding the boundary integral decompo-sition directly into the architecture, PPDNO computes the universal, singular principal part exactly via FFT, leaving only the smoother, geometry-dependent residual to be learned by a low-rank network. This strict preservation of the analytic linear structure effectively mitigates the spectral bias inherent in black-box models and drastically simplifies the learning landscape. Extensive experiments on interior Laplace and exterior Helmholtz problems demonstrate that PPDNO achieves superior accuracy and enables robust zero-shot generalization to out-of-distribution boundary data with minor inference overhead. Our results highlight that integrating rigorous analytic operator structures into neural architectures provides a highly effective pathway for building scalable surrogate models for complex boundary value problems. The present study focuses on smooth two-dimensional boundaries and moderate-frequency wave regimes, where the principal-part decompo-sition is directly available and numerically stable. Future work will explore extensions to three-dimensional surfaces, less regular or dynamically evolving boundaries, and higher-frequency boundary PDEs. 
+
+# 8 Acknowledgement 
+
+This work is partially supported by the National Natural Science Foundation of China in the Division of Mathematical Sciences (Project No. 12471342) and the fundamental research funds for the central universities. 
+
+# References 
+
+[1] Anima Anandkumar, Kamyar Azizzadenesheli, Kaushik Bhattacharya, Nikola Kovachki, Zongyi Li, Burigede Liu, and Andrew Stuart. Neural operator: Graph kernel network for partial differential equations. In ICLR 2020 workshop on integration of deep neural models and differential equations , 2020. [2] Johannes Brandstetter, Daniel E. Worrall, and Max Welling. Message passing neural PDE solvers. In International Conference on Learning Representations , 2022. [3] Shengze Cai, Zhicheng Wang, Lu Lu, Tamer A. Zaki, and George Em Karniadakis. DeepM&Mnet: Inferring the electroconvection multiphysics fields based on operator approximation by neural networks. Journal of Computational Physics , 436:110296, 2021. [4] Alberto P Calder´ on. On an inverse boundary value problem. Computational & Applied Mathematics , 25(2-3):133– 138, 2006. [5] Shuhao Cao. Choose a transformer: Fourier or galerkin. Advances in neural information processing systems ,34:24924–24940, 2021. [6] Zhiwei Fang, Sifan Wang, and Paris Perdikaris. Learning only on boundaries: A physics-informed neural operator for solving parametric partial differential equations in complex geometries. Neural Computation , 36(3):475–498, 2024. 11 REFERENCES [7] Craig R Gin, Daniel E Shea, Steven L Brunton, and J Nathan Kutz. Deepgreen: deep learning of green’s functions for nonlinear boundary value problems. Scientific reports , 11(1):21614, 2021. [8] Yan Gu, Chuanzeng Zhang, Chaofeng Lv, Yang Yang, and Vladimir Babeshko. A novel deep learning-enhanced boundary element framework for three-dimensional elasticity. Computer Methods in Applied Mechanics and Engi-neering , 458:119058, 2026. [9] Zhongkai Hao, Zhengyi Wang, Hang Su, Chengyang Ying, Yinpeng Dong, Songming Liu, Ze Cheng, Jian Song, and Jun Zhu. Gnot: a general neural operator transformer for operator learning. In Proceedings of the 40th International Conference on Machine Learning , ICML’23. JMLR.org, 2023. [10] G.C. Hsiao and W.L. Wendland. Boundary Integral Equations . Applied Mathematical Sciences. Springer Interna-tional Publishing, 2022. [11] Pengzhan Jin, Shuai Meng, and Lu Lu. Mionet: Learning multiple-input operators via tensor product. SIAM Journal on Scientific Computing , 44(6):A3490–A3514, 2022. [12] Joseph B Keller and Dan Givoli. Exact non-reflecting boundary conditions. Journal of computational physics ,82(1):172–192, 1989. [13] Nikola Kovachki, Zongyi Li, Burigede Liu, Kamyar Azizzadenesheli, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. Neural operator: Learning maps between function spaces with applications to pdes. Journal of Machine Learning Research , 24(89):1–97, 2023. [14] Rainer Kress, Vladimir Maz’ya, and Vladimir Kozlov. Linear integral equations , volume 82. Springer, 1989. [15] Zijie Li, Kazem Meidani, and Amir Barati Farimani. Transformer for partial differential equations’ operator learning. 
+
+Transactions on Machine Learning Research , 2023. [16] Zongyi Li, Daniel Zhengyu Huang, Burigede Liu, and Anima Anandkumar. Fourier neural operator with learned deformations for pdes on general geometries. Journal of Machine Learning Research , 24(388):1–26, 2023. [17] Zongyi Li, Nikola Borislavov Kovachki, Kamyar Azizzadenesheli, Burigede liu, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. Fourier neural operator for parametric partial differential equations. In International Conference on Learning Representations , 2021. [18] Zongyi Li, Hongkai Zheng, Nikola Kovachki, David Jin, Haoxuan Chen, Burigede Liu, Kamyar Azizzadenesheli, and Anima Anandkumar. Physics-informed neural operator for learning partial differential equations. ACM / IMS J. Data Sci. , 1(3), May 2024. [19] Guochang Lin, Fukai Chen, Pipi Hu, Xiang Chen, Junqing Chen, Jun Wang, and Zuoqiang Shi. Bi-greennet: learning green’s functions by boundary integral network. Communications in Mathematics and Statistics , 11(1):103–129, 2023. [20] Guochang Lin, Pipi Hu, Fukai Chen, Xiang Chen, Junqing Chen, Jun Wang, and Zuoqiang Shi. Binet: Learn to solve partial differential equations with boundary integral networks. CSIAM Transactions on Applied Mathematics ,4(2):275–305, 2023. [21] Winfried L¨ otzsch, Simon Ohler, and Johannes Otterbach. Learning the solution operator of boundary value problems using graph neural networks. In ICML 2022 2nd AI for Science Workshop , 2022. [22] Lu Lu, Pengzhan Jin, Guofei Pang, Zhongqiang Zhang, and George Em Karniadakis. Learning nonlinear operators via deeponet based on the universal approximation theorem of operators. Nature machine intelligence , 3(3):218–229, 2021. [23] W.C.H. McLean. Strongly Elliptic Systems and Boundary Integral Equations . Cambridge University Press, 2000. 12 REFERENCES [24] H.A. Melchers, J.H.M. Prins, and M.R.A. Abdelmalik. Neural green’s operators for parametric partial differential equations. Computer Methods in Applied Mechanics and Engineering , 455:118893, 2026. [25] Nasim Rahaman, Aristide Baratin, Devansh Arpit, Felix Draxler, Min Lin, Fred Hamprecht, Yoshua Bengio, and Aaron Courville. On the spectral bias of neural networks. In International conference on machine learning , pages 5301–5310. PMLR, 2019. [26] Md Ashiqur Rahman, Zachary E Ross, and Kamyar Azizzadenesheli. U-no: U-shaped neural operators. arXiv preprint arXiv:2204.11127 , 2022. [27] Maziar Raissi, Paris Perdikaris, and George E Karniadakis. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational physics , 378:686–707, 2019. [28] S.A. Sauter and C. Schwab. Boundary Element Methods . Springer Series in Computational Mathematics. Springer Berlin Heidelberg, 2010. [29] Jacob H Seidman, Georgios Kissas, Paris Perdikaris, and George J. Pappas. NOMAD: Nonlinear manifold decoders for operator learning. In Alice H. Oh, Alekh Agarwal, Danielle Belgrave, and Kyunghyun Cho, editors, Advances in Neural Information Processing Systems , 2022. [30] Louis Serrano, Lise Le Boudec, Armand Kassa¨ ı Koupa¨ ı, Thomas X Wang, Yuan Yin, Jean-No¨ el Vittaut, and patrick gallinari. Operator learning with neural fields: Tackling PDEs on general geometries. In Thirty-seventh Conference on Neural Information Processing Systems , 2023. [31] Justin Sirignano and Konstantinos Spiliopoulos. Dgm: A deep learning algorithm for solving partial differential equations. Journal of computational physics , 375:1339–1364, 2018. [32] John Sylvester and Gunther Uhlmann. A global uniqueness theorem for an inverse boundary value problem. Annals of mathematics , pages 153–169, 1987. [33] A. Toselli and O. Widlund. Domain Decomposition Methods - Algorithms and Theory . Springer Series in Computa-tional Mathematics. Springer Berlin Heidelberg, 2004. [34] Alasdair Tran, Alexander Mathews, Lexing Xie, and Cheng Soon Ong. Factorized fourier neural operators. In The Eleventh International Conference on Learning Representations , 2023. [35] Haixin Wang, Jiaxin LI, Anubhav Dwivedi, Kentaro Hara, and Tailin Wu. BENO: Boundary-embedded neural oper-ators for elliptic PDEs. In The Twelfth International Conference on Learning Representations , 2024. [36] Sifan Wang, Hanwen Wang, and Paris Perdikaris. Learning the solution operator of parametric partial differential equations with physics-informed deeponets. Science advances , 7(40):eabi8605, 2021. [37] Yulun Wu, Miguel Aguiar, Karl Henrik Johansson, and Matthieu Barreau. Iterative training of physics-informed neural networks with fourier-enhanced features. In The Fourteenth International Conference on Learning Represen-tations , 2026. [38] Jiang Yang and Quanhui Zhu. A local deep learning method for solving high order partial differential equations. 
+
+Numerical Mathematics-Theory Methods and Applications , 2021. [39] Minglang Yin, Nicolas Charon, Ryan Brody, Lu Lu, Natalia Trayanova, and Mauro Maggioni. A scalable frame-work for learning the geometry-dependent solution operators of partial differential equations. Nature computational science , 4(12):928–940, 2024. [40] Bing Yu et al. The deep ritz method: a deep learning-based numerical algorithm for solving variational problems. 
+
+Communications in Mathematics and Statistics , 6(1):1–12, 2018. 13 DETAILS OF THE DTN PRINCIPAL-PART DECOMPOSITION 
+
+# A Green’s Function in the Free Space 
+
+This appendix provides the definitions and explicit forms of the free-space Green’s functions for the Laplace and Helmholtz equations. By definition, the Green’s function G(x) satisfies the governing differential equation with a Dirac delta function 
+
+δ(x) as the source term. 
+
+A.1 Green’s Function for the Laplace Equation 
+
+The free-space Green’s function for the Laplace equation satisfies: 
+
+∆G(x) = δ(x) (32) where ∆ is the Laplacian operator. The explicit forms in two-dimensional (2D) and three-dimensional (3D) spaces are given by: 
+
+G(x) = 12π ln |x| (d = 2) (33) 
+
+G(x) = − 14π|x| (d = 3) (34) 
+
+A.2 Green’s Function for the Helmholtz Equation 
+
+The free-space Green’s function for the Helmholtz equation satisfies: 
+
+ ∆ + k2 Gk(x) = δ(x) (35) where k is the wavenumber. Under the outward radiation condition at infinity, the explicit forms are expressed as: 
+
+Gk(x) = − i
+
+4 H(1) 0 (k|x|) (d = 2) (36) 
+
+Gk(x) = − eik |x|
+
+4π|x| (d = 3) (37) where H(1) 0 is the Hankel function of the first kind and zeroth order. 
+
+# B Details of the DtN Principal-Part Decomposition 
+
+This appendix records the boundary-integral calculation used in Section 4.1. To make the integral operator more explicit, we parameterize the closed curve Γ by X : T → R2 with T = R/(2 πZ).The solution in the form of a double-layer potential is given by 
+
+u(x) = 12π
+
+Z
+
+> T
+
+(x − X(t)) · RX′(t)
+
+|x − X(t)|2 φ(X(t)) dt, (38) where 
+
+R =
+
+ñ 0 1
+
+−1 0
+
+ô
+
+. (39) The boundary integral equation is given by 
+
+12 φ(X(s)) + 12π
+
+Z
+
+> T
+
+∆X · RX′(t)
+
+|∆X|2 φ(X(t)) dt = g(X(s)) , s ∈ T, (40) where ∆X = X(s) − X(t). The normal derivative is given by 
+
+∂nu(X(s)) = 12πRX′(s)
+
+|X′(s)| ·
+
+Z
+
+> T
+
+Å 1
+
+|∆X|2 I − 2 ∆X ⊗ ∆X
+
+|∆X|4
+
+ã
+
+RX′(t)φ(X(t)) dt, (41) 14 PROOFS FOR THE THEORETICAL ANALYSIS where I denotes the 2×2 identity matrix and ⊗ denotes the outer product. Let ˘g = g ◦X, ˘ϕ = ϕ◦X, ˘ψ = ( ∂nu◦X)|X′|,and I denote the identity mapping. We have the relations 
+
+(I + 2 K) ˘ φ = 2˘ g, ˘ψ = W ˘φ := ˘ΛX ˘g, (42) where 
+
+Kf (s) = 12π
+
+Z
+
+> T
+
+∆X · RX′(t)
+
+|∆X|2 f (t) dt, (43) and 
+
+Wf (s) = − 12π RX′(s) ·
+
+Z
+
+> T
+
+Å 1
+
+|∆X|2 I − 2 ∆X ⊗ ∆X
+
+|∆X|4
+
+ã
+
+RX′(t)f (t) dt (44) 
+
+= 12π X′(s) ·
+
+Z
+
+> T
+
+Å 1
+
+|∆X|2 I − 2 ∆X ⊗ ∆X
+
+|∆X|4
+
+ã
+
+X′(t)f (t) dt (45) 
+
+= − 12π
+
+Z
+
+> T
+
+∂s∂t log |∆X|f (t) dt, (46) 
+
+= 12π ∂s
+
+Z
+
+> T
+
+log |∆X|∂tf (t) dt, (47) 
+
+= 12π ∂s
+
+Z
+
+> T
+
+log 2 sin s − t
+
+2 ∂tf (t) dt + 12π ∂s
+
+Z
+
+> T
+
+log ∆X
+
+2 sin s−t
+
+> 2
+
+∂tf (t) dt (48) 
+
+:= W0f (s) + W1f (s). (49) The operator W0 is independent of X and can be characterized and efficiently computed using the Fourier transform: 
+
+W0f = F−1 cW0(ˆk)Ff, cW0(ˆk) = |ˆk|
+
+2 , ˆk ∈ Z, (50) where F is the Fourier transform on the torus T. The operator W1 is a smoothing operator. 
+
+# C Proofs for the Theoretical Analysis 
+
+This appendix contains the assumptions, constants, and proofs behind the concise statements in Section 5. The main text records the operator structure and the resulting rates; here we keep the detailed boundary-integral mapping argument, the low-rank remainder construction, and the discretized residual-learning bookkeeping. 
+
+C.1 Mapping Property of the Remainder Operator 
+
+We begin by examining the validity of the decomposition W = W0+W1 in Section 4.1, where W0 is defined in equation (9) and W1 is smooth. Indeed, the periodic logarithmic kernel has the Fourier series 
+
+log 2 sin θ
+
+2 = −
+
+> ∞
+
+X
+
+> k=1
+
+cos( kθ )
+
+k = − X
+
+> k∈Z\{ 0}
+
+eikθ 
+
+2|k| (51) in the distributional sense. Applying W0 to eiks and using (51) gives 
+
+W0eiks = 12π ∂s
+
+Z
+
+> T
+
+log 2 sin s − t
+
+2 ∂teikt dt = |k|
+
+2 eiks , (52) with the zero mode mapped to zero. Thus 2W0 is exactly the Fourier multiplier |k|.The only non-smooth part of the pulled-back hypersingular operator is therefore the universal circular kernel contained in W0.15 PROOFS FOR THE THEORETICAL ANALYSIS 
+
+Lemma C.1 (Cancellation of the diagonal singularity) . Let X ∈ Cn(T; R2), n ≥ 2, satisfy the chord-arc lower bound 
+
+|X(s) − X(t)| ≥ c1 2 sin s − t
+
+2 . (53) 
+
+Then the double-layer kernel 
+
+KX (s, t ) := (X(s) − X(t)) · RX′(t)
+
+|X(s) − X(t)|2 (54) 
+
+extends continuously across s = t; if n ≥ 3 it extends with Cn−2 regularity. Moreover 
+
+LX (s, t ) := log X(s) − X(t)2 sin s−t
+
+> 2
+
+(55) 
+
+extends to a Cn−1 function on T2. Thus K has a regular kernel, and, for n ≥ 3,
+
+W1f (s) = − 12π
+
+Z
+
+> T
+
+∂s∂tLX (s, t )f (t) dt (56) 
+
+for smooth periodic f . Its kernel is Cn−3 because LX ∈ Cn−1(T2).Proof. The only issue is the diagonal s = t. Work in a local lift of the torus and write h = s − t. For h̸ = 0 ,
+
+X(t + h) − X(t) = hA (t, h ), A(t, h ) := 
+
+Z 10
+
+X′(t + θh ) dθ. (57) The function A extends to h = 0 with A(t, 0) = X′(t) and has one fewer derivative than X. Similarly, 
+
+2 sin h
+
+2 = hB (h), B(h) := 2 sin( h/ 2) 
+
+h , B(0) = 1 , (58) where B is smooth and nonzero near h = 0 . Thus 
+
+|X(t + h) − X(t)|2
+
+|2 sin( h/ 2) |2 = |A(t, h )|2
+
+B(h)2 (59) extends regularly to h = 0 with diagonal value |X′(t)|2. The chord-arc bound keeps this ratio bounded away from zero globally, so taking the logarithm gives the claimed regular extension of LX .For the double-layer kernel, the apparent first-order singularity cancels because X′(t) · RX′(t) = 0 . Indeed, 
+
+(X(t + h) − X(t)) · RX′(t) = h
+
+Z 10
+
+ X′(t + θh ) − X′(t) · RX′(t) dθ. (60) For n ≥ 2 the difference inside the integral may be written as 
+
+X′(t + θh ) − X′(t) = h
+
+Z θ
+
+> 0
+
+X′′ (t + ηh ) dη. (61) Thus 
+
+(X(t + h) − X(t)) · RX′(t) = h2C(t, h ) · RX′(t), C(t, h ) := 
+
+Z 10
+
+Z θ
+
+> 0
+
+X′′ (t + ηh ) dη dθ. (62) The denominator equals h2|A(t, h )|2, and |A(t, 0) | = |X′(t)| ≥ c0. Hence, near the diagonal, 
+
+KX (t + h, t ) = C(t, h ) · RX′(t)
+
+|A(t, h )|2 (63) for h̸ = 0 , and the right-hand side gives the continuous extension. Its diagonal value is 
+
+KX (t, t ) = 12
+
+X′′ (t) · RX′(t)
+
+|X′(t)|2 (64) 16 PROOFS FOR THE THEORETICAL ANALYSIS because C(t, 0) = 12 X′′ (t). Since C is Cn−2 and the denominator is bounded away from zero, the quotient is Cn−2.Finally, 
+
+W1f (s) = 12π ∂s
+
+Z
+
+> T
+
+LX (s, t )∂tf (t) dt. (65) For smooth periodic f , integration by parts in t has no boundary term, so 
+
+W1f (s) = − 12π
+
+Z
+
+> T
+
+∂s∂tLX (s, t )f (t) dt. (66) The kernel regularity follows by differentiating the Cn−1 function LX once in each variable. For the Laplace equation, Lemma C.1 shows that the double-layer operator K has a regular kernel. The composition 
+
+WK (I + 2 K)−1 in (10) is smoothing as well: K first maps rough data into smooth boundary functions, and W acts only after this smoothing. The uniform versions of these mapping statements over admissible geometries are recorded in Definition C.3. We have the decomposition (11). 
+
+Theorem C.2 (Mapping property of the remainder operator) . Let Γ be a C∞ closed curve for which the interior Dirichlet problem is uniquely solvable. With the density convention above, the operator 
+
+RX := ˘ΛX − 2W0 (67) 
+
+is smoothing on T: for all Sobolev indices s and all integers N ≥ 0,
+
+RX : Hs(T) → Hs+N (T) (68) 
+
+is bounded. For finite Cn curves, the same argument gives a finite-smoothness kernel whose regularity is limited by n.Proof. The jump relations and invertibility of the second-kind double-layer equation on smooth curves are standard conse-quences of Fredholm boundary-integral theory [14, 23]. Hence (I + 2 K)−1 is bounded on the Sobolev and H¨ older scales used here. By Lemma C.1, K has a smooth kernel when X is C∞, and the non-circular part W1 of the hypersingular operator also has a smooth kernel. We first record the mapping consequence of having a smooth kernel. If 
+
+Af (s) = 
+
+Z
+
+> T
+
+A(s, t )f (t) dt (69) and A ∈ C∞(T2), then A : Hs(T) → Hq (T) is bounded for all s, q . To see this, write the two-variable Fourier coefficients as Aℓj . Smoothness gives, for every M1, M 2,
+
+|Aℓj | ≤ CM1,M 2 ⟨ℓ⟩−M1 ⟨j⟩−M2 , ⟨k⟩ := (1 + k2)1/2. (70) The Fourier coefficients of Af are finite linear combinations of P 
+
+> j
+
+Aℓ, −j bfj . Choosing M1 > q + 12 and M2 > 12 − s and applying Cauchy–Schwarz gives 
+
+∥Af ∥2 
+
+> Hq
+
+≤ C X
+
+> ℓ∈Z
+
+⟨ℓ⟩2q−2M1
+
+Ñ
+
+X
+
+> j∈Z
+
+⟨j⟩−M2 | bfj |
+
+é2
+
+≤ C X
+
+> ℓ∈Z
+
+⟨ℓ⟩2q−2M1
+
+X
+
+> j∈Z
+
+⟨j⟩−2( M2+s) ∥f ∥2 
+
+> Hs
+
+≤ C ∥f ∥2 
+
+> Hs
+
+.
+
+(71) Thus both K and W1 gain arbitrarily many Sobolev derivatives. Using the identity displayed before the theorem, 
+
+˘ΛX = 2 W0 + 2 W1 − 4WK (I + 2 K)−1. (72) 17 PROOFS FOR THE THEORETICAL ANALYSIS The term 2W1 is smoothing by the preceding paragraph. For the last term, fix s ∈ R and an integer N ≥ 0. Given 
+
+f ∈ Hs(T), set 
+
+g := ( I + 2 K)−1f. (73) Bounded invertibility gives ∥g∥Hs ≤ C ∥f ∥Hs . The smooth-kernel estimate for K with target index s + N + 1 gives 
+
+∥K g∥Hs+N +1 ≤ C ∥g∥Hs ≤ C ∥f ∥Hs . (74) The hypersingular operator W = W0 + W1 is bounded Ha(T) → Ha−1(T): W0 has Fourier symbol |k|/2, and W1 is smoothing. Therefore 
+
+WK (I + 2 K)−1f Hs+N ≤ C ∥f ∥Hs . (75) Combining this estimate with the smoothing bound for 2W1 proves RX : Hs(T) → Hs+N (T). If X has only Cn
+
+regularity, the same calculation applies only up to the number of kernel derivatives supplied by Lemma C.1; this is the finite-regularity situation encoded in Definition C.3. Theorem 5.1 is the reason for subtracting 2W0 before training. After the principal part is removed, the neural approxi-mation is applied only to the compact geometry-dependent remainder, not to the order-one Fourier multiplier. 
+
+C.2 Remainder Class and Low-Rank Approximation 
+
+The theory is formulated for the family of remainder operators {R X }X∈A n in equation (11). Since 2W0 is known, the unknown object to approximate is RX , uniformly over the geometry class. Let n ≥ 2 and fix positive constants M, c 0, c 1. We define the admissible class 
+
+An(M, c 0, c 1) := 
+
+
+
+X ∈ Cn(T; R2) : ∥X∥Cn(T) ≤ M, 
+
+|X′(s)| ≥ c0,
+
+|X(s) − X(t)| ≥ c1 2 sin s − t
+
+2
+
+
+
+. (76) The lower bounds prevent degenerating speeds and self-intersections, so the family describes smooth embedded curves with uniform constants. 
+
+Definition C.3 (Admissible remainder family) . Fix integers m ≥ 1, 0 ≤ μ ≤ m, and 0 ≤ ν < n . We assume that for every X ∈ A n(M, c 0, c 1) the remainder operator has the representation 
+
+RX f (s) = 
+
+Z
+
+> T
+
+R(s, t ; X)f (t) dt (77) with 
+
+sup 
+
+> X∈A n
+
+∥R(·, ·; X)∥Cm(T2) ≤ MR, (78) and 
+
+∥R(·, ·; X) − R(·, ·; Y )∥Cμ(T2) ≤ LR ∥X − Y ∥Cν (T) . (79) This assumption is the finite-regularity version of Theorem 5.1; it records only the uniform kernel bounds needed for approximation and discretization. Because R(·, ·; X) is continuous on the compact torus, RX is Hilbert–Schmidt and therefore compact as an operator 
+
+L2(T) → L2(T). We repeatedly use the following estimates: if (Af )( s) = R 
+
+> T
+
+K(s, t )f (t) dt with K ∈ L∞(T2), then H¨ older’s inequality gives 
+
+∥A∥ L2(T)→L∞(T) ≤ | T|1/2 ∥K∥L∞(T2) , (80) 
+
+∥A∥ L2(T)→L2(T) ≤ | T| ∥ K∥L∞(T2) , (81) 18 PROOFS FOR THE THEORETICAL ANALYSIS 
+
+∥A f ∥L∞(T) ≤ | T| ∥ K∥L∞(T2) ∥f ∥C0(T) . (82) The approximation class is a geometry-conditioned low-rank DeepONet with a fixed trunk 
+
+Nr,J (f, X)( s) := 
+
+> r
+
+X
+
+> k=1
+
+τk(s) ρk(f ; ZJ (X)) , (83) where ZJ (X) is built from J boundary nodes, τk are fixed trunk outputs, and ρk are branch outputs conditioned on the geometry. In the exact representation results, f 7 → ρk(f ; ZJ (X)) is allowed to be a bounded linear functional for each fixed geometry code. This is the mathematical idealization of the branch component before finite-node and neural approximation errors are added. Finite-rank kernels fit this form. If 
+
+R(s, t ; X) = 
+
+> r
+
+X
+
+> k=1
+
+ak(s)bk(t; X) (84) then 
+
+RX f (s) = 
+
+> r
+
+X
+
+> k=1
+
+ak(s)cX 
+
+> k
+
+(f ), cX 
+
+> k
+
+(f ) := 
+
+Z
+
+> T
+
+bk(t; X)f (t) dt. (85) If bk(·; X) ∈ L2(T), then 
+
+|cX 
+
+> k
+
+(f )| ≤ ∥ bk(·; X)∥L2(T) ∥f ∥L2(T) (86) by Cauchy–Schwarz, so the branch map is bounded. 
+
+C.3 Low-Rank Approximation of the Remainder Operator 
+
+The next estimate gives the constructive rank rate used below. Its important architectural feature is the order of choices: the trunk functions are selected once for the rank budget, while the factors paired with the input data may depend on the geometry. 
+
+Theorem C.4 (Low-rank approximation of the remainder operator) . Assume Definition C.3. Then for every X ∈ A n and every integer p ≥ 2 there exists a separated kernel 
+
+Rp(s, t ; X) = 
+
+> rp
+
+X
+
+> k=1
+
+ak(s)bk(t; X) (87) 
+
+with rank 
+
+rp ≤ m(p + 1) (88) 
+
+such that 
+
+∥R(·, ·; X) − Rp(·, ·; X)∥L∞(T2) ≤ Cker p−m, (89) 
+
+where Cker depends only on m, |T|, and MR, uniformly for X ∈ A n. The functions ak may depend on the rank budget but are chosen independently of X. Consequently, for every r ≥ m there exists a separated operator of rank at most r,
+
+RX,r f (s) := 
+
+> r
+
+X
+
+> k=1
+
+ak(s)cX 
+
+> k
+
+(f ), cX 
+
+> k
+
+(f ) := 
+
+Z
+
+> T
+
+bk(t; X)f (t) dt, (90) 
+
+such that 
+
+∥R X − R X,r ∥L2(T)→L∞(T) ≤ Crank ,∞r−m, (91) 
+
+∥R X − R X,r ∥L2(T)→L2(T) ≤ Crank ,2r−m, (92) 
+
+uniformly in X ∈ A n.
+
+19 PROOFS FOR THE THEORETICAL ANALYSIS 
+
+Proof. Fix p ≥ 2 and set 
+
+h := 2πp + 1 , sj := jh, j = 0 , . . . , p. (93) Let {χj }pj=0 be the periodic piecewise-linear hat partition of unity on T associated with these nodes: χj ≥ 0, P 
+
+> j
+
+χj = 1 ,and χj (s) is supported where the signed periodic distance dj (s) from sj to s satisfies |dj (s)| ≤ h. Since p ≥ 2, these supports lie in coordinate arcs where dj is a smooth local coordinate. For fixed t and X, Taylor expand the function s 7 → R(s, t ; X) at each node sj and glue the local polynomials with the partition of unity: 
+
+Pj (s, t ; X) := 
+
+> m−1
+
+X
+
+> ℓ=0
+
+∂ℓsR(sj , t ; X)
+
+ℓ! dj (s)ℓ, (94) 
+
+Rp(s, t ; X) := 
+
+> p
+
+X
+
+> j=0
+
+χj (s)Pj (s, t ; X). (95) The representation is separated in (s, t ):
+
+Rp(s, t ; X) = 
+
+> p
+
+X
+
+> j=0
+> m−1
+
+X
+
+> ℓ=0
+
+aj,ℓ (s)bj,ℓ (t; X), (96) where 
+
+aj,ℓ (s) := χj (s) dj (s)ℓ
+
+ℓ! , bj,ℓ (t; X) := ∂ℓsR(sj , t ; X). (97) There are m(p + 1) pairs (j, ℓ ), so the separated rank is at most m(p + 1) .The kernel error follows from Taylor’s theorem. If χj (s)̸ = 0 , the integral form of Taylor’s theorem gives 
+
+|R(s, t ; X) − Pj (s, t ; X)| ≤ |dj (s)|m
+
+(m − 1)! 
+
+Z 10
+
+(1 − θ)m−1 |∂ms R(sj + θd j (s), t ; X)| dθ 
+
+≤ MR
+
+m! hm.
+
+(98) Since the χj form a nonnegative partition of unity, 
+
+|R(s, t ; X) − Rp(s, t ; X)| ≤ 
+
+> p
+
+X
+
+> j=0
+
+χj (s) MR
+
+m! hm = MR
+
+m!
+
+Å 2πp + 1 
+
+ãm
+
+. (99) This is the stated kernel bound, after enlarging the constant and using (p + 1) −m ≤ p−m.Let RX,p denote the operator with kernel Rp. By (80)–(81), 
+
+∥R X − R X,p ∥L2(T)→L∞(T) ≤ | T|1/2Cker p−m, (100) 
+
+∥R X − R X,p ∥L2(T)→L2(T) ≤ | T|Cker p−m. (101) It remains to express the estimate in terms of an arbitrary rank budget r. First suppose r ≥ 3m and choose 
+
+p := 
+
+j rm
+
+k
+
+− 1. (102) Then p ≥ 2 and m(p + 1) ≤ r, while p ≥ r/ (3 m). Hence p−m ≤ (3 m)mr−m, giving (91) and (92). For the finitely many ranks m ≤ r < 3m, take the zero operator and enlarge the constants using 
+
+∥R X ∥L2→L∞ ≤ | T|1/2MR, ∥R X ∥L2→L2 ≤ | T|MR. (103) The constants remain independent of X.20 PROOFS FOR THE THEORETICAL ANALYSIS 
+
+C.4 Exact-Geometry Neural Approximation 
+
+Theorem C.5 (Exact-geometry approximation error) . Assume Definition C.3. Fix X ∈ A n and r ≥ m. Let 
+
+RX,r f (s) = 
+
+> r
+
+X
+
+> k=1
+
+ak(s)cX 
+
+> k
+
+(f ) (104) 
+
+be a rank-r approximation satisfying (91) . Assume a rank-r DeepONet 
+
+Nr (f, X)( s) = 
+
+> r
+
+X
+
+> k=1
+
+τk(s)ρk(f ; X) (105) 
+
+satisfies 
+
+sup 
+
+> s∈T
+
+|ak(s) − τk(s)| ≤ εtr  
+
+> k
+
+, sup   
+
+> ∥f∥U≤1
+
+cX 
+
+> k
+
+(f ) − ρk(f ; X) ≤ εbr  
+
+> k
+
+, (106) 
+
+for some Banach space U ,→ L2(T). Set 
+
+CU := sup   
+
+> ∥f∥U≤1
+
+∥f ∥L2(T) , Ak := ∥ak∥L∞(T) , BX 
+
+> k
+
+:= cX  
+
+> kU∗
+
+. (107) 
+
+Then 
+
+∥R X − N r (·, X)∥U→ L∞(T) ≤ Erank (r) + Eexact net (r, X), (108) 
+
+where 
+
+Erank (r) := CU Crank ,∞r−m, (109) 
+
+Eexact net (r, X) := 
+
+> r
+
+X
+
+> k=1
+
+ BX 
+
+> k
+
+εtr  
+
+> k
+
++ Akεbr  
+
+> k
+
++ εtr  
+
+> k
+
+εbr 
+
+> k
+
+ . (110) 
+
+The same algebraic rate holds for the operator norm U → L2(T), after changing the constant. Proof. Split the deterministic error as 
+
+RX − N r = ( RX − R X,r ) + ( RX,r − N r ). (111) The first term is bounded by Theorem 5.2: 
+
+∥R X − R X,r ∥U→ L∞(T) ≤ CU ∥R X − R X,r ∥L2(T)→L∞(T) ≤ CU Crank ,∞r−m. (112) For the second term, take ∥f ∥U ≤ 1 and expand 
+
+akcX 
+
+> k
+
+(f ) − τkρk = ( ak − τk)cX 
+
+> k
+
+(f ) + τk(cX 
+
+> k
+
+(f ) − ρk), (113) where ρk = ρk(f ; X). Using cX 
+
+> k
+
+(f ) ≤ BX 
+
+> k
+
+and 
+
+|τk(s)| ≤ | ak(s)| + |ak(s) − τk(s)| ≤ Ak + εtr  
+
+> k
+
+, (114) we obtain 
+
+akcX 
+
+> k
+
+(f ) − τkρk ≤ BX 
+
+> k
+
+εtr  
+
+> k
+
++ ( Ak + εtr  
+
+> k
+
+)εbr  
+
+> k
+
+. (115) Summing over k and taking the supremum in s proves (108). The corresponding U → L2(T) estimate follows from 
+
+∥g∥L2(T) ≤ | T|1/2 ∥g∥L∞(T).21 PROOFS FOR THE THEORETICAL ANALYSIS 
+
+C.5 Finite-Node Deterministic Error 
+
+Let sj = 2πj J , j = 0 , . . . , J − 1, and define 
+
+ZJ (X) :=  X(s0), . . . , X(sJ−1) ∈ (R2)J . (116) Let ΠJ be a reconstruction operator, for example trigonometric interpolation, and set 
+
+XJ := Π J ZJ (X). (117) 
+
+Assumption C.6 (Geometry reconstruction accuracy) . There exist constants CΠ and J0 such that for every X ∈ A n and every J ≥ J0, the reconstruction XJ remains admissible and satisfies 
+
+XJ ∈ A n(2 M, c 0/2, c 1/2) , (118) 
+
+and 
+
+∥X − XJ ∥Cν (T) ≤ CΠJ−(n−ν) ∥X∥Cn(T) (119) In the discrete estimates below, Definition C.3 is used on a class containing both X and its reconstruction XJ , for example An(2 M, c 0/2, c 1/2) . The constants MR and LR may change on this enlarged class; only their uniform finiteness is used. 
+
+Assumption C.7 (Input quadrature accuracy) . The same integer J is used for boundary nodes and input quadrature nodes. For some integer q ≥ 0 and all g ∈ Cq (T),
+
+Z
+
+> T
+
+g(t) dt −
+
+> J−1
+
+X
+
+> j=0
+
+ωj g(sj ) ≤ CQJ−q ∥g∥Cq (T) . (120) 
+
+Theorem C.8 (Discretized residual approximation error) . Assume Definition C.3, Assumption C.6, and Assumption C.7, and let r ≥ m, J ≥ J0. Let the rank-r kernel approximation of RXJ be 
+
+Rr (s, t ; XJ ) = 
+
+> r
+
+X
+
+> k=1
+
+ak(s)bk(t; XJ ), (121) 
+
+and assume 
+
+∥R(·, ·; XJ ) − Rr (·, ·; XJ )∥L∞(T2) ≤ Cker ,C 0 r−m. (122) 
+
+Also assume bk(·; XJ ) ∈ Cq (T) for k = 1 , . . . , r . Define the point-value DeepONet 
+
+“Nr,J (f, X)( s) := 
+
+> r
+
+X
+
+> k=1
+
+bak(s)
+
+> J−1
+
+X
+
+> j=0
+
+ωjbbk(sj ; ZJ (X)) f (sj ). (123) 
+
+Assume 
+
+sup 
+
+> s
+
+|ak(s) − bak(s)| ≤ δak , sup 
+
+> t
+
+bk(t; XJ ) − bbk(t; ZJ (X)) ≤ δbk. (124) 
+
+Then for every f ∈ Cq (T),
+
+RX f − “Nr,J (f, X) L∞(T)
+
+≤  Egeom (J) + Erank (r) + Equad (r, J ) + Edisc net (r, J ) ∥f ∥Cq (T) , (125) 
+
+where 
+
+Egeom (J) := |T|LRCΠM J −(n−ν), (126) 
+
+Erank (r) := Crank ,C 0 r−m, (127) 
+
+Crank ,C 0 := |T|Cker ,C 0 , (128) 22 PROOFS FOR THE THEORETICAL ANALYSIS 
+
+Equad (r, J ) := CQCprod (q)J−qrX
+
+> k=1
+
+∥ak∥L∞(T) ∥bk(·; XJ )∥Cq (T) , (129) 
+
+Edisc net (r, J ) := 
+
+> r
+
+X
+
+> k=1
+
+ Cω ∥bk(·; XJ )∥L∞ δak + Cω ∥ak∥L∞ δbk + Cω δak δbk
+
+ , (130) 
+
+where Cω := PJ−1 
+
+> j=0
+
+|ωj | and Cprod (q) is any constant such that 
+
+∥uv ∥Cq (T) ≤ Cprod (q) ∥u∥Cq (T) ∥v∥Cq (T) . (131) 
+
+Proof. Introduce the intermediate discrete separated operator 
+
+QX 
+
+> r,J
+
+f (s) := 
+
+> r
+
+X
+
+> k=1
+
+ak(s)
+
+> J−1
+
+X
+
+> j=0
+
+ωj bk(sj ; XJ )f (sj ), (132) and decompose 
+
+RX − “Nr,J = ( RX − R XJ ) + ( RXJ − R XJ ,r ) + ( RXJ ,r − Q X 
+
+> r,J
+
+) + ( QX 
+
+> r,J
+
+− “Nr,J ). (133) The geometry term is controlled by (79) and (119): 
+
+∥R(·, ·; X) − R(·, ·; XJ )∥L∞(T2) ≤ LRCΠM J −(n−ν). (134) Hence, by (82), 
+
+∥(RX − R XJ )f ∥L∞(T) ≤ | T|LRCΠM J −(n−ν) ∥f ∥C0(T) ≤ Egeom (J) ∥f ∥Cq (T) . (135) For the rank-truncation term, the assumed kernel approximation (122) and (82) give 
+
+∥(RXJ − R XJ ,r )f ∥L∞(T) ≤ | T|Cker ,C 0 r−m ∥f ∥C0(T) ≤ Erank (r) ∥f ∥Cq (T) . (136) For the input quadrature term, 
+
+ RXJ ,r f − Q X 
+
+> r,J
+
+f  (s) ≤
+
+> r
+
+X
+
+> k=1
+
+∥ak∥L∞
+
+Z
+
+> T
+
+bk(t; XJ )f (t) dt 
+
+−
+
+> J−1
+
+X
+
+> j=0
+
+ωj bk(sj ; XJ )f (sj ) .
+
+(137) Apply the quadrature assumption to 
+
+gk(t) := bk(t; XJ )f (t). (138) Since ∥gk∥Cq (T) ≤ ∥ bk(·; XJ )∥Cq (T) ∥f ∥Cq (T) up to a constant given by the Banach-algebra estimate for Cq (T), this yields the bound Equad (r, J ) ∥f ∥Cq (T).For the neural realization term, 
+
+ÄQX 
+
+> r,J
+
+f − “Nr,J (f, X)ä (s) ≤
+
+> r
+
+X
+
+> k=1
+> J−1
+
+X
+
+> j=0
+
+|ωj | | f (sj )| | akbk − bakbbk|, (139) where 
+
+|akbk − bakbbk| ≤ | ak|δbk + |bk|δak + δak δbk. (140) Using max j |f (sj )| ≤ ∥ f ∥Cq (T) gives the bound 
+
+QX 
+
+> r,J
+
+f − “Nr,J (f, X) L∞(T)
+
+≤ Edisc net (r, J ) ∥f ∥Cq (T) . (141) Combining the four estimates proves (125). 23 PROOFS FOR THE THEORETICAL ANALYSIS 
+
+C.6 Training Residual and Full-Map Error 
+
+Let Θr,J be a class of low-rank DeepONets, and let μ describe the ensemble of boundary data and geometries used to measure error. Define the mean residual loss 
+
+Lpop (θ) := E(X,f )∼μ ∥R X f − N θ (f, X)∥2 
+
+> L2(T)
+
+, (142) and its finite-sample counterpart 
+
+Lemp (θ) := 1
+
+N
+
+> N
+
+X
+
+> ℓ=1
+
+RXℓ f ℓ − N θ (f ℓ, Xℓ) 2
+
+> L2(T)
+
+. (143) 
+
+Theorem C.9 (Discretized residual learning and full-map error) . Assume bθ ∈ Θr,J satisfies 
+
+Lemp (bθ) ≤ inf 
+
+> θ∈Θr,J
+
+Lemp (θ) + ηopt , (144) 
+
+and set 
+
+∆N := sup 
+
+> θ∈Θr,J
+
+|L pop (θ) − L emp (θ)| . (145) 
+
+Suppose there exists θ⋆ ∈ Θr,J such that 
+
+sup   
+
+> (X,f )∈supp μ
+
+∥R X f − N θ⋆ (f, X)∥L2(T) ≤ Edet (r, J ). (146) 
+
+Then 
+
+Lpop (bθ)1/2 ≤ Edet (r, J ) + p2∆ N + √ηopt . (147) 
+
+In the exact-geometry regime, Edet may be taken from Theorem C.5. In the fully discrete regime, it may be taken from Theorem C.8, after converting the L∞(T) bound to L2(T) and imposing the corresponding bound on the input norm over 
+
+supp μ.If the final approximation uses the same exact evaluation of 2W0 as the residual target, then 
+
+Å
+
+E(X,f )∼μ ˘ΛX f − bΛX f 2
+
+> L2(T)
+
+ã1/2
+
+≤ Edet (r, J ) + p2∆ N + √ηopt . (148) 
+
+If 2W0 is truncated to 2W(K)0 , add the root-mean-square Fourier term 
+
+Å
+
+E(X,f )∼μ 2W0f − 2W(K)0 f 2
+
+> L2(T)
+
+ã1/2
+
+. (149) 
+
+Proof. Compare the finite-sample and mean residual losses. For every θ ∈ Θr,J ,
+
+Lpop (bθ) ≤ L emp (bθ) + ∆ N ≤ L emp (θ) + ηopt + ∆ N ≤ L pop (θ) + ηopt + 2∆ N . (150) Taking θ = θ⋆ and using (146) gives 
+
+Lpop (bθ) ≤ Edet (r, J )2 + ηopt + 2∆ N . (151) The square-root bound follows from √a + b + c ≤ √a + √b + √c for nonnegative a, b, c .For the full-map estimate, use the exact splitting 
+
+˘ΛX f − bΛX f = (2 W0f + RX f ) − (2 W0f + Nbθ (f, X)) = RX f − N bθ (f, X). (152) Squaring, integrating over μ, and applying the residual bound proves (148). If 2W0 is replaced by 2W(K)0 , the same identity gains the additive term 2W0f − 2W(K)0 f , and Minkowski’s inequality gives the stated Fourier contribution. 24 EXTENSION TO OTHER PDES 
+
+# D Extension to Other PDEs 
+
+The proposed decomposition (11) is not restricted to the interior Laplace equation. It extends to other elliptic PDEs and exterior problems. 
+
+Helmholtz Equation. For the interior Helmholtz equation (∆ + k2)u = 0 , the free-space Green’s function is given in Appendix A.2. Near the origin, its leading singularity coincides with that of the two-dimensional Laplace Green’s function: 
+
+Gk(x) ∼ 12π log r + 12π log 
+
+Å k
+
+2
+
+ã
+
++ γ
+
+2π − i
+
+4 , r = |x| → 0+. (153) Therefore, the same principal-part decomposition applies: 
+
+˘ΛX,k f = 2 W0f + RX,k f, (154) where 2W0 is the universal singular operator in (11), while RX,k is a smoother remainder. 
+
+Exterior Problems. The same argument also applies to exterior formulations. For the exterior Helmholtz problem, the DtN map admits 
+
+˘Λext 
+
+> X,k
+
+f = −2W0f + Rext 
+
+> X,k
+
+f. (155) A detailed derivation is provided following. Let Ω ⊂ R2 be a bounded simply connected domain with smooth boundary Γ = ∂Ω, and denote its exterior by 
+
+Ωc := R2 \ Ω.
+
+We consider the exterior Helmholtz problem 
+
+(∆ + k2)u = 0 in Ωc, (156) subject to the Dirichlet boundary condition 
+
+u = g on Γ, (157) together with the Sommerfeld radiation condition 
+
+lim  
+
+> r→∞
+
+r1/2
+
+Å ∂u ∂r − iku 
+
+ã
+
+= 0 , r = |x|. (158) The radiation condition ensures the uniqueness of the outgoing solution. For the exterior problem, the Dirichlet-to-Neumann (DtN) mapping is defined by 
+
+Λext  
+
+> k
+
+[g] := ∂nu Γ, (159) where ∂n denotes the outward normal derivative with respect to Ω (equivalently, the inward normal derivative with respect to Ωc). As in the interior case, the operator 
+
+Λext  
+
+> k
+
+: H1/2(Γ; C) → H−1/2(Γ; C)
+
+is linear and complex-valued. We represent the exterior solution using a double-layer potential 
+
+u(x) = Kk(φ)( x) = 
+
+Z
+
+> Γ
+
+∂G k(x − y)
+
+∂n y
+
+φ(y) ds y , x ∈ Ωc. (160) This representation automatically satisfies (155) and the Sommerfeld radiation condition (158). 25 DETAILED NETWORK ARCHITECTURES AND HYPERPARAMETERS The double-layer potential admits the following jump relation across Γ:
+
+lim  
+
+> x→Γ, x ∈Ωc
+
+u =
+
+Å
+
+− 12 I + Kk
+
+ã
+
+φ. (161) Imposing the Dirichlet boundary condition (157), we obtain the second-kind boundary integral equation 
+
+Å
+
+− 12 I + Kk
+
+ã
+
+φ = g on Γ. (162) Using the exact same derivation as in Section 4.1 and Appendix B, we can obtain equation (155). 
+
+# E Detailed Network Architectures and Hyperparameters 
+
+To ensure that the performance improvements of PPDNO are derived from its structural inductive bias rather than an over-parameterized capacity, we maintain a comparable parameter count across all baseline models. Specifically, the total memory footprint of trainable parameters of baseline models is comparable to, or slightly larger than, that of our PPDNO model. 
+
+E.1 Laplace Equation on Elliptical Domains 
+
+• DeepONet: The branch network is configured with 4 hidden layers of width 256 , and the trunk network uses 4
+
+hidden layers of width 256 , resulting in 723712 parameters. ReLU activation functions are used. • FNO: We employ a 1D-FNO with 4 Fourier layers, a maximum of 9 frequency modes, and a channel width of 100 .The total parameter count is 413857 . Note that most parameters in this model are complex numbers. ReLU activation functions are used. • OT: The model consists of a Transformer encoder with 8 layers to process the geometry and boundary data, and a Transformer decoder with 4 layers for pointwise evaluation. We set the hidden dimension to dmodel = 64 , the feed-forward network dimension to dff = 256 , and use 8 attention heads. The total number of trainable parameters is 684146 . ReLU activation functions are used. • PPDNO-Direct: The network architecture and hyperparameters for this ablation model are exactly identical to those of the standard PPDNO model, resulting in 646620 trainable parameters. • PPDNO: PPDNO utilizes r = 12 , with both MLP X and MLP s comprising 4 hidden layers of width 144. The total number of trainable parameters is 646620 . ReLU activation functions are used. All models are trained using the Adam optimizer with an initial learning rate of 1 × 10 −4 and a ReduceLROnPlateau 
+
+scheduler. 
+
+E.2 Laplace Equation on Fourier-Parameterized Domains 
+
+• DeepONet: The branch network is configured with 4 hidden layers of width 420 and the trunk network uses 4 hidden layers of width 420 , resulting in 1600292 parameters. ReLU activation functions are used. • FNO: We employ a 1D-FNO with 4 Fourier layers, a maximum of 9 frequency modes, and a channel width of 150 .The total parameter count is 920657 . Note that most parameters in this model are complex numbers. ReLU activation functions are used. • OT: The model consists of a Transformer encoder with 8 layers to process the geometry and boundary data, and a Transformer decoder with 4 layers for pointwise evaluation. We set the hidden dimension to dmodel = 128 , the feed-forward network dimension to dff = 256 , and use 8 attention heads. The total number of trainable parameters is 1889025 . ReLU activation functions are used. 26 DETAILED NETWORK ARCHITECTURES AND HYPERPARAMETERS • PPDNO-Direct: The network architecture and hyperparameters for this ablation model are exactly identical to those of the standard PPDNO model, resulting in 1583376 trainable parameters. • PPDNO: PPDNO utilizes r = 16 , with both MLP X and MLP s comprising 4 hidden layers of width 324. The total number of trainable parameters is 1583376 . ReLU activation functions are used. All models are trained using the Adam optimizer with an initial learning rate of 1 × 10 −4 and a ReduceLROnPlateau 
+
+scheduler. 
+
+E.3 Exterior Helmholtz Equation on Rose Curves 
+
+E.3.1 k = 1 
+
+• FNO: nmax = 5 for the harmonic encoding. We employ a 1D-FNO adapted for complex-valued inputs and outputs. To ensure architectural parity with PPDNO, the FNO utilizes real-valued weights for linear layers. The complex-valued input Dirichlet data is explicitly decomposed into its real and imaginary components, acting as independent input channels alongside the geometric coordinates and the identical harmonic trunk encoding γ(s). After processing through the real-valued Fourier layers (where complex multiplications only occur organically during the spectral convolutions), the final linear layer outputs two real-valued channels, which are subsequently merged back into the complex domain using torch.view as complex . The network is configured with 4 Fourier layers, a maximum of 10 frequency modes, and a channel width of 150 . The total parameter count is 1012436 .• PPDNO-Direct: The network architecture and hyperparameters for this ablation model are exactly identical to those of the standard PPDNO model, resulting in 1751988 trainable parameters. • PPDNO: PPDNO utilizes a rank r = 14 . The evaluation-point network MLP s takes the harmonic encoding γ(s)
+
+(with nmax = 5 , resulting in a 10-dimensional input) and processes it through 4 hidden layers of width 196. The geometry-dependent network MLP X processes the flattened boundary coordinates through 4 hidden layers of width 196. The total number of trainable parameters is 1751988 . ReLU activation functions are used in both subnetworks. All models are trained using the Adam optimizer. Given the highly oscillatory nature of the data, a slightly smaller initial learning rate of 5 × 10 −5 is employed, alongside a ReduceLROnPlateau scheduler (factor of 0.6, patience of 100 )down to a minimum learning rate of 1 × 10 −7.
+
+E.3.2 k = 10 
+
+• FNO: nmax = 10 for the harmonic encoding. The network is configured with 4 Fourier layers, a maximum of 10 
+
+frequency modes, and a channel width of 240 . The total parameter count is 2572466 .• PPDNO-Direct: The network architecture and hyperparameters for this ablation model are exactly identical to those of the standard PPDNO model, resulting in 4758592 trainable parameters. • PPDNO: PPDNO utilizes a rank r = 32 . The evaluation-point network MLP s takes the harmonic encoding γ(s)
+
+(with nmax = 10 , resulting in a 20-dimensional input) and processes it through 4 hidden layers of width 256. The geometry-dependent network MLP X processes the flattened boundary coordinates through 4 hidden layers of width 256. The total number of trainable parameters is 4758592 . ReLU activation functions are used in both subnetworks. All models are trained using the Adam optimizer. Given the highly oscillatory nature of the data, a slightly smaller initial learning rate of 5 × 10 −5 is employed, alongside a ReduceLROnPlateau scheduler (factor of 0.6, patience of 100 )down to a minimum learning rate of 1 × 10 −7.27 TRAINING DYNAMICS 
+
+# F Training Dynamics 
+
+To further illustrate the advantage of the analytic-neural decomposition, we compare the training dynamics of PPDNO against the DeepONet and FNO baselines. 
+
+F.1 Laplace Equation on Elliptical Domains 
+
+Figure 4 plots the Mean Squared Error (MSE) training loss curves over epochs for the interior Laplace problem on elliptical domains. Note that due to the drastically different memory and computational complexities inherent to each architecture, the models were trained using different batch sizes and total epochs. This ensures that every baseline was given a substantial computational time budget, allowing them to reach a stable performance plateau. In fact, the actual wall-clock training times for DeepONet, PPDNO-Direct, and PPDNO are comparable, and all are significantly shorter than the exhaustive times required by FNO and OT. 0 2500 5000 7500 10000 12500 15000 17500 20000     
+
+> Epoch
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> Training Loss
+> Loss
+
+(a) DeepONet 0 100 200 300 400 500     
+
+> Epoch
+> 10 5
+> 10 4
+> 10 3
+> Training Loss
+> Loss
+
+(b) FNO 0 100 200 300 400 500     
+
+> Epoch
+> 10 5
+> 10 4
+> 10 3
+> Training Loss
+> Loss
+
+(c) OT 0 2500 5000 7500 10000 12500 15000 17500 20000   
+
+> Epoch
+> 10 4
+> 10 3
+> Training Loss
+> Loss
+
+(d) PPDNO-Direct 0 2500 5000 7500 10000 12500 15000 17500 20000      
+
+> Epoch
+> 10 7
+> 10 6
+> 10 5
+> 10 4
+> Training Loss
+> Loss
+
+(e) PPDNO 
+
+Figure 4: Training loss curves for various models (y-axis is in log scale). While FNO and OT are trained for fewer epochs due to hardware constraints, their dense mini-batch updates ensure extensive training that equals or exceeds the computational time of the other models. • DeepONet: Exhibits the highest level of instability, characterized by significant loss spikes and a relatively high final convergence plateau of approximately 1 × 10 −4. The total training time on a single NVIDIA GeForce RTX 3080 GPU is approximately 6 minutes. • FNO: Due to the substantial memory demand during forward and backward propagation—primarily caused by intermediate activations and gradient storage in the spectral convolution layers—mini-batch training with a batch size of 1000 was strictly necessary to fit within GPU limits. Consequently, the total number of epochs was capped at 500. However, since each epoch involves multiple gradient updates, the total computational effort and actual wall-clock training time greatly exceed those of the other models. FNO shows a smoother optimization trajectory but fails to penetrate the 10 −6 threshold, eventually stagnating at 2 × 10 −6. The total training time on an NVIDIA GeForce RTX 3080 is approximately 21 minutes. 28 TRAINING DYNAMICS • OT: Similarly, the Operator Transformer incurs massive memory and computational overhead due to the generation of dense self-attention matrices. To achieve stable and memory-efficient optimization, a much smaller batch size of 500 was employed. Although trained for 500 epochs, this process encompasses a massive number of iterative parameter updates, representing the longest actual training time among all baselines. As observed, the learning curve of OT gradually levels off, reaching a practical performance plateau at approximately 1 × 10 −5. The total training time on an NVIDIA GeForce RTX 3080 is approximately 456 minutes (over 7.5 hours). • PPDNO-Direct: The ablation model without principal-part decomposition demonstrates stable convergence but ultimately stagnates at 6 × 10 −5, constrained by its inability to cleanly resolve the order-one principal part of the full DtN map. The total training time on an NVIDIA GeForce RTX 3080 is approximately 7 minutes. • PPDNO: Demonstrates superior convergence speed and accuracy. Benefiting from the analytic subtraction of the principal part, it rapidly drops below 10 −6 and reaches a final loss of 2 × 10 −8. Although the logarithmic scale visually amplifies the minor oscillations in the later stages, the absolute error remains consistently tightly bounded within the 10 −6 to 10 −8 range, significantly outperforming all purely data-driven baselines. The total training time on an NVIDIA GeForce RTX 3080 is approximately 7 minutes. 
+
+F.2 Laplace Equation on Fourier-Parameterized Domains 
+
+Figure 5 plots the Mean Squared Error (MSE) training loss curves over epochs for the interior Laplace problem on Fourier-parameterized domains. Note that due to the drastically different memory and computational complexities inherent to each architecture, the models were trained using different batch sizes and total epochs. This ensures that every baseline was given a substantial computational time budget, allowing them to reach a stable performance plateau. In fact, the actual wall-clock training times for DeepONet, PPDNO-Direct, and PPDNO are comparable, and all are significantly shorter than the exhaustive times required by FNO and OT. 0 5000 10000 15000 20000 25000 30000 35000 40000    
+
+> Epoch
+> 10 5
+> 10 4
+> 10 3
+> Training Loss
+> Loss
+
+(a) DeepONet 0 100 200 300 400 500      
+
+> Epoch
+> 10 6
+> 10 5
+> 10 4
+> 10 3
+> Training Loss
+> Loss
+
+(b) FNO 0 50 100 150 200 250   
+
+> Epoch
+> 10 3
+> Training Loss
+> Loss
+
+(c) OT 0 5000 10000 15000 20000 25000 30000 35000 40000     
+
+> Epoch
+> 10 5
+> 10 4
+> 10 3
+> 10 2
+> Training Loss
+> Loss
+
+(d) PPDNO-Direct 0 5000 10000 15000 20000 25000 30000 35000 40000     
+
+> Epoch
+> 10 6
+> 10 5
+> 10 4
+> Training Loss
+> Loss
+
+(e) PPDNO 
+
+Figure 5: Training loss curves for various models (y-axis is in log scale). While FNO and OT are trained for fewer epochs due to hardware constraints, their dense mini-batch updates ensure extensive training that equals or exceeds the computational time of the other models. 29 TRAINING DYNAMICS • DeepONet: Final loss ∼ 7 × 10 −6; training time ∼ 31 min on NVIDIA GeForce RTX 3080 .• FNO: Batch size 1000 ; stagnates at 5 × 10 −7; training time ∼ 62 min on NVIDIA GeForce RTX 3080 .• OT: Batch size 250 ; stagnates at 7 × 10 −4; training time ∼ 547 min on NVIDIA GeForce RTX 3080 .• PPDNO-Direct: Final loss ∼ 1 × 10 −5; training time ∼ 37 min on NVIDIA GeForce RTX 3080 .• PPDNO: Final loss ∼ 2 × 10 −7; training time ∼ 38 min on NVIDIA GeForce RTX 3080 .
+
+F.3 Exterior Helmholtz Equation on Rose Curves 
+
+Note that due to the drastically different memory and computational complexities inherent to each architecture, the mod-els were trained using different batch sizes and total epochs. This ensures that every baseline was given a substantial computational time budget, allowing them to reach a stable performance plateau. 
+
+F.3.1 k = 1 
+
+Figure 6 plots the training loss curves over epochs for the exterior Helmholtz problem on Rose Curve domains. Note that the loss here is defined as the Mean Squared Error over the complex plane (i.e., the sum of squared errors of the real and imaginary parts). 0 250 500 750 1000 1250 1500 1750 2000     
+
+> Epoch
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+> Training Loss
+> Loss
+
+(a) FNO 0 1000 2000 3000 4000 5000     
+
+> Epoch
+> 10 3
+> 10 2
+> 10 1
+> Training Loss
+> Loss
+
+(b) PPDNO-Direct 0 1000 2000 3000 4000 5000      
+
+> Epoch
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+> Training Loss
+> Loss
+
+(c) PPDNO 
+
+Figure 6: Complex MSE training loss curves for the exterior Helmholtz problem ( k = 1 ) on Rose Curves (y-axis is in log scale). • FNO: Batch size 1024 ; final loss 1 × 10 −4; training time ∼ 128 min on NVIDIA GeForce RTX 3080 .• PPDNO-Direct: Batch size 1024 ; final loss ∼ 6 × 10 −4; training time ∼ 67 min on NVIDIA GeForce RTX 3080 .• PPDNO: Batch size 1024 ; final loss ∼ 1 × 10 −4; training time ∼ 67 min on NVIDIA GeForce RTX 3080 .
+
+F.3.2 k = 10 
+
+Figure 7 plots the training loss curves over epochs for the exterior Helmholtz problem on Rose Curve domains. • FNO: Batch size 1024 ; final loss 6 × 10 −3; training time ∼ 95 min on NVIDIA GeForce RTX 3080 .• PPDNO-Direct: Batch size 1024 ; final loss ∼ 1 × 10 −3; training time ∼ 69 min on NVIDIA GeForce RTX 3080 .• PPDNO: Batch size 1024 ; final loss ∼ 1 × 10 −3; training time ∼ 70 min on NVIDIA GeForce RTX 3080 .30 ADDITIONAL EXPERIMENTAL DETAILS 0 200 400 600 800 1000   
+
+> Epoch
+> 10 2
+> 10 1
+> 10 0
+> 10 1
+> Training Loss
+> Loss
+
+(a) FNO 0 1000 2000 3000 4000 5000    
+
+> Epoch
+> 10 2
+> 10 1
+> 10 0
+> 10 1
+> Training Loss
+> Loss
+
+(b) PPDNO-Direct 0 1000 2000 3000 4000 5000     
+
+> Epoch
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+> 10 1
+> Training Loss
+> Loss
+
+(c) PPDNO 
+
+Figure 7: Complex MSE training loss curves for the exterior Helmholtz problem ( k = 10 ) on Rose Curves (y-axis is in log scale). 
+
+# G Additional Experimental Details 
+
+G.1 Inference Benchmark Protocol 
+
+For the latency results in Table 1, all models are profiled on a single NVIDIA GeForce RTX 3080 GPU. The reported time is end-to-end inference for the full 10 ,000 -sample test set, including neural-network forward passes, the FFT-based principal-part computation for PPDNO, and any required post-processing. DeepONet, PPDNO-Direct, and PPDNO are evaluated in one full batch of 10 ,000 samples because their memory use scales mildly with the number of evaluation functions. By contrast, FNO and OT have much larger activation foot-prints: FNO stores intermediate spectral-convolution features over the boundary grid, while OT forms attention tensors over boundary tokens. A full 10 ,000 -sample batch is therefore either infeasible or substantially less efficient for these architectures on the same GPU. We evaluate FNO and OT with mini-batches of size 64 to avoid memory pressure and keep GPU utilization stable, and accumulate the serial mini-batch times to obtain the total latency for all 10 ,000 samples. Thus the table reports the wall-clock cost of processing the same test set, not the latency of a single mini-batch. We use 50 warmup runs for full-batch models and 10 warmup runs for mini-batch models, then report the median over 
+
+500 and 50 timed runs, respectively. A torch.cuda.synchronize() call is made before each timestamp to avoid asynchronous CUDA timing bias. 
+
+G.2 Additional Laplace Specific-Case Visualizations 
+
+This appendix provides the pointwise prediction plots for the Laplace specific test cases discussed in Section 6.2 and Section 6.3. These visualizations complement the quantitative errors reported in Tables 2 and 4. 
+
+G.3 Detailed Helmholtz OOD Errors 
+
+Table 6 reports the real- and imaginary-component errors for the specific exterior Helmholtz test cases discussed in Sec-tion 6.4. 
+
+G.4 Results for Zero-Shot Super-Resolution 
+
+In this section, we evaluate the grid-independence of PPDNO under dyadically refined output resolutions while keeping the input grid fixed at Nin = 256 . This setup verifies the model’s capability to predict boundary responses on finer evaluation grids without retraining. For the analytic pathway, the super-resolution of the universal principal part 2W0 is achieved exactly through frequency-domain zero-padding. Specifically, we apply a 1D FFT to the 256-point input f to obtain its spectrum. We then insert 
+
+Nout − Nin zeros strictly at the high-frequency center of the spectrum array (the Nyquist frequency region between the 31 ADDITIONAL EXPERIMENTAL DETAILS 0 1 2 3 4 5 6
+
+t
+
+0.30 
+
+0.25 
+
+0.20 
+
+0.15 
+
+0.10 
+
+0.05 
+
+0.00 
+
+0.05 
+
+> Value
+
+Comparison of Predicted, Exact, and Error 
+
+Predicted 
+
+Exact 
+
+Error (Pred - Exact) 
+
+(a) Case 1 0 1 2 3 4 5 6
+
+t
+
+0.5 
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+2.0 
+
+2.5 
+
+> Value
+
+Comparison of Predicted, Exact, and Error 
+
+Predicted 
+
+Exact 
+
+Error (Pred - Exact) (b) Case 2 
+
+Figure 8: Prediction of PPDNO versus the exact Neumann trace on the test ellipse. 0.5 0.0 0.5 1.0 1.5 
+
+x
+
+1.0 
+
+0.5 
+
+0.0 
+
+0.5 
+
+1.0 
+
+> y
+
+Boundary 
+
+Domain 
+
+(a) Domain Ω0 1 2 3 4 5 6 
+
+> t
+> 0.10
+> 0.08
+> 0.06
+> 0.04
+> 0.02
+> 0.00
+> 0.02
+> 0.04
+> Value
+> Predicted
+> Exact
+> Error (Pred - Exact)
+
+(b) Case 1: Point Source 0 1 2 3 4 5 6 
+
+> t
+> 2
+> 0
+> 2
+> 4
+> 6
+> Value
+> Predicted
+> Exact
+> Error (Pred - Exact)
+
+(c) Case 2: ex(sin y + cos y)
+
+Figure 9: Left: the specific Fourier domain. Center and right: pointwise prediction of PPDNO versus the exact Neumann trace for the two test cases. 32 ADDITIONAL EXPERIMENTAL DETAILS Table 6: Relative errors on the specific test cases for the exterior Helmholtz equation. 
+
+(a) k = 1                                                                                                                    
+
+> Method Case 1: H(1) 0Point Source Case 2: H(1) 1(kr )eiθ (OOD) Real Part Imaginary Part Real Part Imaginary Part
+> Rel. L2Rel. Max Rel. L2Rel. Max Rel. L2Rel. Max Rel. L2Rel. Max FNO 1.68 ×10 −24.14 ×10 −21.22 ×10 −22.70 ×10 −21.09 ×10 01.58 ×10 01.29 ×10 01.27 ×10 0
+> FFT-only 1.09 ×10 01.23 ×10 01.28 ×10 01.78 ×10 01.01 ×10 08.43 ×10 −11.01 ×10 08.50 ×10 −1
+> PPDNO-Direct 3.14 ×10 −47.33 ×10 −41.53 ×10 −33.64 ×10 −36.79 ×10 −39.28 ×10 −36.45 ×10 −37.50 ×10 −3
+> PPDNO 2.12 ×10 −44.38 ×10 −42.86 ×10 −46.63 ×10 −43.34 ×10 −33.78 ×10 −33.33 ×10 −33.43 ×10 −3
+
+(b) k = 10                                                                                                                     
+
+> Method Case 1: H(1) 0Point Source Case 2: H(1) 1(kr )eiθ (OOD) Real Part Imaginary Part Real Part Imaginary Part
+> Rel. L2Rel. Max Rel. L2Rel. Max Rel. L2Rel. Max Rel. L2Rel. Max FNO 7.66 ×10 −21.21 ×10 −14.42 ×10 −21.19 ×10 −12.72 ×10 −24.58 ×10 −22.40 ×10 −24.58 ×10 −2
+> FFT-only 1.44 ×10 01.39 ×10 01.03 ×10 01.38 ×10 01.16 ×10 01.11 ×10 01.16 ×10 01.13 ×10 0
+> PPDNO-Direct 1.44 ×10 −32.59 ×10 −39.93 ×10 −41.85 ×10 −31.40 ×10 −31.82 ×10 −31.95 ×10 −33.52 ×10 −3
+> PPDNO 1.16 ×10 −32.08 ×10 −35.68 ×10 −41.05 ×10 −31.96 ×10 −32.22 ×10 −32.61 ×10 −33.68 ×10 −3
+
+positive and negative halves). After applying the target Fourier multiplier ˆW0(k) = |k|/2, an Inverse FFT of size Nout is performed. The final spatial trace is scaled by Nout /N in to maintain amplitude consistency under standard FFT normal-ization. According to the Shannon-Nyquist theorem, this procedure yields a mathematically exact, lossless trigonometric interpolation for smooth boundary data on the torus T.Concurrently, the neural residual pathway operates seamlessly under refinement. Since the boundary geometry X and input data f remain bound to the training resolution Nin = 256 , the geometry network M LP X processes the inputs exactly as it did during training, avoiding any out-of-distribution domain shift or quadrature weight mismatch. Meanwhile, the evaluation-point network M LP s acts as a continuous implicit coordinate mapping. To predict at a finer resolution, we simply query M LP s with a uniformly spaced coordinate tensor of size Nout . The resulting high-resolution basis vectors are then contracted with the branch coefficients to form the smooth residual correction. Table 7 summarizes the relative L2 errors across all four PDE settings. PPDNO exhibits exceptional stability across all grid refinements, validating the structural robustness of our analytic-neural decomposition. Unlike the Laplace equation which requires no specialized coordinate encoding, the Helmholtz equation explicitly in-troduces a harmonic feature encoding structure to resolve high-frequency wave oscillations. Under the bounded capacity of the MLP decoder, this high-frequency encoding structure inevitably induces a subtle representation residual when in-terpolating at unseen interstitial coordinates during grid refinement ( Nout > 256 ). Crucially, because the network weights are frozen post-training, this continuous mapping remains strictly invariant; further refining the grid to 512, 1024, or 2048 merely increases the sampling density over the same learned representation, thereby producing a perfectly stable error plateau. 33 ADDITIONAL EXPERIMENTAL DETAILS Table 7: Relative L2 errors of zero-shot super-resolution on specific test cases. The input resolution for geometry X and boundary data f is fixed at 256 , while the output evaluation resolution N varies under power-of-two refinements from 256 
+
+to 2048 . For the complex-valued predictions, the relative L2 error is computed via the standard complex modulus, naturally incorporating both real and imaginary components simultaneously. 
+
+Setting Specific Case Method N = 256 N = 512 N = 1024 N = 2048 
+
+Laplace (Ellipse) Point Source FFT-only 1.72e-1 1.72e-1 1.72e-1 1.72e-1 PPDNO-Direct 7.28e-2 7.28e-2 7.28e-2 7.28e-2 
+
+PPDNO 2.72e-3 2.72e-3 2.72e-3 2.72e-3 
+
+ex cos y
+
+FFT-only 1.69e-1 1.69e-1 1.69e-1 1.69e-1 PPDNO-Direct 1.09e-2 1.11e-2 1.11e-2 1.12e-2 
+
+PPDNO 2.83e-3 2.84e-3 2.85e-3 2.85e-3 
+
+Laplace (Fourier) Point Source FFT-only 1.56e-1 1.56e-1 1.56e-1 1.56e-1 PPDNO-Direct 2.99e-2 3.00e-2 3.00e-2 3.00e-2 
+
+PPDNO 8.64e-3 8.65e-3 8.65e-3 8.65e-3 
+
+ex(sin y + cos y)
+
+FFT-only 1.07e-1 1.07e-1 1.07e-1 1.07e-1 PPDNO-Direct 6.03e-2 6.04e-2 6.04e-2 6.04e-2 
+
+PPDNO 9.94e-3 9.94e-3 9.94e-3 9.94e-3 
+
+Helmholtz ( k = 1 )Point Source FFT-only 1.14e0 1.14e0 1.14e0 1.14e0 PPDNO-Direct 7.93e-4 2.03e-3 2.00e-3 2.00e-3 
+
+PPDNO 2.31e-4 1.34e-3 1.34e-3 1.34e-3 
+
+Cylindrical Wave FFT-only 1.01e0 1.14e0 1.14e0 1.14e0 PPDNO-Direct 6.62e-3 7.24e-3 7.24e-3 7.24e-3 
+
+PPDNO 3.34e-3 4.01e-3 4.05e-3 4.05e-3 
+
+Helmholtz ( k = 10 )Point Source FFT-only 1.16e0 1.16e0 1.16e0 1.16e0 PPDNO-Direct 1.13e-3 3.96e-3 3.94e-3 3.95e-3 PPDNO 7.74e-4 5.89e-3 5.75e-3 5.77e-3 Cylindrical Wave FFT-only 1.16e0 1.16e0 1.16e0 1.16e0 PPDNO-Direct 1.70e-3 4.92e-3 4.95e-3 4.96e-3 PPDNO 2.31e-3 7.85e-3 7.76e-3 7.79e-3 
+
+34

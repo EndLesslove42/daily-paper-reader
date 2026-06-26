@@ -1,0 +1,642 @@
+Title: Latent Diffusion Posterior Sampling with Surrogate Likelihood Guidance for PDE Inverse Problems
+
+URL Source: https://arxiv.org/pdf/2606.26592v1
+
+Published Time: Fri, 26 Jun 2026 00:43:34 GMT
+
+Number of Pages: 27
+
+Markdown Content:
+# LATENT DIFFUSION POSTERIOR SAMPLING WITH SURROGATE 
+
+# LIKELIHOOD GUIDANCE FOR PDE I NVERSE PROBLEMS 
+
+Yuanzhe Wang 
+
+Department of Civil and Environmental Engineering University of Illinois Urbana-Champaign Urbana, IL 61801 
+
+yuanzhe9@illinois.edu 
+
+Alexandre M. Tartakovsky 
+
+Department of Civil and Environmental Engineering University of Illinois Urbana-Champaign Urbana, IL 61801 
+
+amt1998@illinois.edu 
+
+June 26, 2026 
+
+# ABSTRACT 
+
+We propose latent-space diffusion posterior sampling (L-DPS), an approximate Bayesian framework for high-dimensional inverse problems governed by partial differential equations (PDEs). The method is motivated by three central challenges in PDE-constrained inversion: the absence of a tractable explicit form of the prior distribution when the prior is specified only through samples, the high dimensionality of spatially distributed parameters, and the high cost of repeated forward-model evaluations during posterior sampling. L-DPS addresses these challenges by combining a variational autoencoder (VAE), an unconditional latent diffusion model, diffusion posterior sampling (DPS), and a differentiable neural surrogate. The VAE maps the parameter field to a lower-dimensional latent feature space, the unconditional diffusion model learns an implicit prior score in this latent space, and DPS combines this learned prior with likelihood-based guidance. The likelihood gradient is evaluated through the decoder–surrogate composition, avoiding repeated calls to the full numerical PDE solver. We evaluate L-DPS on an inverse Darcy flow problem with an unknown spatially distributed perme-ability field inferred from sparse and noisy pressure observations. The proposed method produces accurate and robust inverse solutions. It reduces the inference cost relative to full-space DPS while outperforming amortized inverse baselines such as conditional latent diffusion and inverse FNO in sparse and noisy regimes. We also compare L-DPS with a KLE-MAP baseline, in which the parameter field is represented by a Karhunen–Loève expansion and the latent prior is approximated as Gaussian. L-DPS gives more accurate inverse solutions for the Gaussian priors considered here, and its advantage increases for non-Gaussian parameter fields, where the Gaussian approximation underlying KLE-MAP becomes less effective. We further investigate whether a single mixed-prior, or foundational, L-DPS model can be used without specifying the parameter prior at inference time. The foundational model retains competitive accuracy across Gaussian and binary prior classes, although prior-specific L-DPS models remain more accurate when the test prior is known. Finally, we quantify the sensitivity of L-DPS to surrogate model accuracy using the Fourier Neural Operator (FNO), Vision Transformer, and Deep Operator Network (DeepONet). The inverse error increases monotonically with surrogate forward error, indicating that surrogate accuracy, rather than surrogate architecture alone, is a key factor controlling the quality of L-DPS inversion. 
+
+Keywords PDE-constrained inverse problems · Posterior sampling · Latent diffusion · Neural surrogate · Darcy flow 
+
+# 1 Introduction 
+
+We propose a latent-space diffusion posterior sampling method (L-DPS), an approximate Bayesian method for solving high-dimensional inverse partial differential problems in which the functional form of the (non-Gaussian) prior distribution (density) of the unknown parameters is unavailable, and only samples from the prior are given. Bayesian 
+
+> arXiv:2606.26592v1 [cs.CE] 25 Jun 2026
+
+A PREPRINT - J UNE 26, 2026 inverse problems require sampling from the posterior distribution p(y | d), where the choice and representation of the prior p(z) play a central role in determining the appropriate inference methodology. The methods for posterior sampling can be classified into the following three categories, depending on the type of access they require to the prior distribution: (i) Density-based methods require evaluation of the prior density p(y) or its logarithm − log p(y), and include approaches such as maximum a posteriori (MAP) estimation, randomized MAP, and Markov Chain Monte Carlo (MCMC) methods, including Metropolis–Hastings and Hamiltonian Monte Carlo. (ii) Score-based methods require evaluation of the prior score ∇y log p(y), and include diffusion posterior sampling (DPS), score-based Langevin dynamics, and sampling methods based on stochastic differential equations. (iii) Sample-based methods require only the ability to draw samples from the prior distribution, without explicit access to its density or score. These include likelihood-free inference methods such as approximate Bayesian computation (ABC), as well as simulation-based approaches and particle methods in settings where only sampling from the prior or forward model is available. When the prior distribution is explicitly known , i.e., when its density p(z) or its logarithm is available in closed form, all of the aforementioned methods can, in principle, be applied. In many practical applications, however, the parameter z is (1) high-dimensional, and (2) the prior may only be accessible through samples or an implicit generative model. These two challenges significantly limit the applicability of standard approaches. For the first challenge, many classical sampling methods, including Markov chain Monte Carlo (MCMC) and sample-based methods, suffer from the curse of dimensionality, with computational cost and convergence rates deteriorating rapidly as the dimension of z increases. For the second challenge, density-based and score-based methods require access to the prior density p(z) or its gradient ∇z log p(z), which may not be available when the prior is specified implicitly through data or complex generative processes. Addressing these two challenges typically requires additional tools, such as dimensionality reduction, surrogate model-ing, or learning-based approaches that approximate the prior distribution or its score function. These considerations motivate the use of latent-variable models and diffusion-based methods, which provide tractable representations of complex high-dimensional priors while enabling efficient posterior sampling. Both challenges can be potentially removed using the expansions of the complex high-dimensional distributions in terms of a relatively small number of random variables z. For example, the Karhunen–Loève expansion (KLE) uses a linear approximation of y. When y is a multi-dimensional Gaussian, KLE can represent it as a linear combination of independent Gaussian variables z. The variational autoencoders (VAE) use a non-linear combination of z to represent a non-Gaussian y. While z is regularized toward an independent standard Normal distribution N (0 , I ), good approximation properties of VAE usually require the regularization to be weak, yielding the distribution of z to deviate from N (0 , I ) and be given implicitly by samples. In summary, for a complex non-Gaussian y, its distribution or the distribution of z in its expansion, is not explicitly known, which limits the choice of the sampling methods to the likelihood-free sampling methods, which suffer from the CoD. One alternative is to approximate the non-Gaussian distribution of y or its latent variables with a Gaussian distribution, whose mean and variance are computed from the samples of y or z. Then, both likelihood-based and score-based methods can be applied; however, the accuracy of the posterior estimate can be severely affected by how far the true prior distributions are from the Gaussian distribution. Another alternative solution is to use the Denoising Diffusion Probabilistic Model (DDPM) [ 1], which approximates the prior score using a denoising network. It is important to note that p(y) or log p(y) cannot be explicitly obtained from DDPM, which limits sampling to the score-based methods. The DDPM was used to model the prior score of the high-dimensional functions as well as their latent variables z. Of particular relevance to our work is the latent diffusion model (LDM) [ 2], in which the DDPM was applied to explicitly model the prior score of z defined by the VAE. DDPMs have mostly been used for generative purposes. DDPMs were also used to sample Bayesian posteriors for image restoration, enhancement, and inverse imaging. Of particular interest to our work is the diffusion posterior sampling (DPS) method [ 3], which uses the prior score provided by a DDPM to sample the posterior via an iterative scheme, in which the prior score of y is combined with a likelihood-based correction to guide sampling toward the posterior distribution. In this work, the DPS was used to deblur images; the DDPM was used to learn the prior score of 
+
+y from the pixel map; and the likelihood p(d | y) was computed using the blurring operator. In [ 4 ], a differentiable surrogate model was combined with a DPS-type score-based generative inversion for subsurface flow problems. DPS direct application to high-dimensional PDE inverse problems is challenging because posterior guidance requires repeated evaluations of the forward model and its gradients [ 5, 6, 7]. In our work, we propose DPS sampling in the latent space for high-dimensional inverse PDE problems. Our method combines the LDM and DPS methods and 2A PREPRINT - J UNE 26, 2026 uses a surrogate neural operator model to compute the likelihood. Its novelty lies in extending the DPS method to physics-constrained high-dimensional inverse problems by learning a DDPM in latent space and imposing physics constraints via a neural operator. Our numerical examples demonstrate that both latent representation (as opposed to learning in the space of y) and a non-Gaussian prior score model (as opposed to the Gaussian approximation) are important for obtaining accurate inverse solutions. The summary of Bayesian methods, provided above, is not intended to be exhaustive. Most notably, it does not discuss likelihood-free methods, including the normalizing flows and conditional diffusion models. Our work is focused on posterior sampling methods that explicitly incorporate the likelihood function and are therefore applicable to general inverse problems defined by a forward operator. The normalizing flows and conditional diffusion models aim to learn a direct mapping from observations d to latent variables z or parameters y, effectively approximating the conditional distribution p(z | d) (or p(y | d)) through supervised or amortized training. While such approaches can provide fast inference once trained, they require large datasets of paired samples (z, d ), are typically tied to a fixed observation operator and noise model, and may suffer from generalization issues when applied to new measurement configurations. In contrast, diffusion posterior sampling (DPS) operates in a fundamentally different regime. Rather than learning the posterior directly, DPS combines a learned prior model, represented by a diffusion process, with an explicit likelihood term derived from the forward model. This allows DPS to be applied to new observation settings without retraining, accommodates arbitrary forward operators and noise levels, and provides a mechanism for incorporating physical models directly into the inference process. Furthermore, DPS relies on score-based sampling and thus leverages the full structure of the learned prior distribution without requiring paired training data. These distinctions make DPS particularly well-suited for physics-constrained inverse problems, where forward models are known but generating representative supervised datasets for all possible observation scenarios is infeasible. In this study, L-DPS is used as a posterior-guided single-sample reconstruction method; uncertainty quantification by drawing larger ensembles is left for future work. The main contributions of this work are: (i) a latent-space DPS formulation for high-dimensional PDE inverse problems with sample-based, implicit priors; (ii) a surrogate-likelihood guidance strategy that differentiates through the decoder–surrogate composition and avoids repeated PDE solves; (iii) a normalized, noise- and observation-density-adaptive guidance rule for stabilizing posterior-guided reverse diffusion; and (iv) a systematic numerical study of latent compression, surrogate accuracy, guidance stabilization, Gaussian versus non-Gaussian priors, and mixed-prior generalization. This paper is organized as follows. The forward and inverse PDE problems are formulated in Section 2. Section 3 provides background information on the latent space unconditional diffusion model. The L-DPS model is formulated in Section 4. Section 5 presents the numerical results and ablation study. Conclusions are given in Section 6. 
+
+# 2 Problem Formulation: General PDE Inverse Problem 
+
+Consider a partial differential equation (PDE) problem of the form: 
+
+L(u(x); κ(x)) = 0 , x ∈ Ω, (1) subject to appropriate boundary conditions and forcing terms. Here L is a differential operator, κ(x) is the unknown space-dependent parameter field, u(x) is the state variable, and Ω is the computational domain. The inverse problem is to estimate κ(x) from sparse and noisy observations d = [ d1, ..., d No ]T of the system response 
+
+u(x) at the locations xo = [ xo, 1, ..., xo,N o ]T . In general, the function κ(x) is infinite-dimensional and cannot be estimated exactly. Therefore, it is common to discretize the domain Ω with N elements as part of the numerical solution of the PDE problem and replace κ(x) with the N -dimensional vector κ of the parameter field defined at each element. Then the inverse problem reduces to estimating κ. This inverse problem is ill-posed because, in general, the number of observations No is much smaller than N .Following a standard Bayesian approach, we employ the observation model 
+
+d = uo(κ) + γ ∥uo(κ)∥2
+
+√Nobs 
+
+ϵ0, ϵ0 ∼ N (0, I), (2) where uo(κ) = [ u(xo, 1, κ), . . . , u (xo,N obs , κ)] T is the vector of the PDE solution at the sensor locations and γ ≥ 0 is a dimensionless noise level (coefficient of variation) independent of the number of observations. We adopt the Bayesian formulation of the inverse problem, in which the parameter field κ is treated as a random field with prior distribution p(κ). Then, the posterior distribution of κ is given by the Bayes formula 
+
+p(κ | d) ∝ p(d | κ) p(κ), (3) 3A PREPRINT - J UNE 26, 2026 where the likelihood p(d | κ) model corresponding to the observation model in Eq (2) has the form 
+
+p(d | κ) ∝ exp 
+
+
+
+− 12σ2 ∥d − uo(κ)∥22
+
+
+
+, σ = γ ∥d∥2
+
+√Nobs 
+
+. (4) The posterior distribution provides a probabilistic description of the inverse solution accounting for uncertainty in the parameter field induced by limited and noisy observations. We assume that the explicit form of p(κ) is unknown and only samples of κ are available, as is the case for most natural systems. We develop a latent-space DPS framework to sample p(κ | d). This approach first reduces the dimensionality of κ to that of the latent variables z as defined by a VAE. Then it approximates the score of the prior distribution of z using the unconditional diffusion model. Then, the DPS model is used to sample the posterior distribution of z using its score. Furthermore, we assume that a numerical solution of u on the N -element mesh (the same mesh that is used to discretize 
+
+κ(x)) is too computationally expensive to repeatedly evaluate in the iterative DPS sampling. We approximate the numerical PDE solution with a neural operator model F mapping κ to the state variable u(x):
+
+u(x, κ) ≈ ˆu(x, κ) = F(x, κ). (5) We use F(x, κ) to approximate the PDE solution at the measurement locations, which we denote as 
+
+ˆuo(κ) = [ F(xo, 1, κ), . . . , F(xo,N obs , κ)] T . (6) The neural operator is trained using a labeled data set D = {κ(i) → u(i)}Ntrain  
+
+> i=1
+
+consisting of the Ntrain numerical solutions of the PDE problems for different realizations κ randomly drawn from a mixture of different distributions. Here, u(i) is the numerical PDE solution corresponding to the parameter vector κ(i). We consider several forms of neural operators, which are discussed in Section 5. 
+
+# 3 Background: Latent-Space Unconditional Diffusion Model 
+
+3.1 Latent Representation of the Parameter Field 
+
+Sampling high-dimensional posterior distributions is computationally demanding and can yield poor parameter predic-tion. Therefore, in this work, we propose to perform DPS sampling in the latent space of κ. Our numerical examples demonstrate that DPS sampling in the physical space of κ may yield less accurate predictions than sampling its latent posterior. In this work, the latent representation of κ is obtained with a VAE-like model presented in [ 2]. Let Eψ and Dψ denote the encoder and decoder, respectively, with parameters ψ. The VAE maps the parameter vector κ to a latent variable vector using an encoder 
+
+z = Eψ (κ) := μψ + σψ ⊙ ϵ, ϵ ∼ N (0, I), (7) where the ⊙ is the Hadamard product, the mean μψ and standard deviation σψ are the outputs of E, and z is a random variable with the Gaussian conditional distribution 
+
+z ∼ qψ (z | κ) = N (μψ , Σψ ), (8) where Σψ = diag( σ2 
+
+> ψ
+
+) is the diagonal covariance matrix. The parameter vector is then reconstructed from the latent variable through the decoder as 
+
+κ ≈ Dψ (z). (9) The VAE is trained to minimize the reconstruction loss together with a regularization term that promotes a structured latent space. Specifically, the training objective is given by 
+
+LV AE (ψ) = Eqψ (z|κ)
+
+h
+
+∥κ − Dψ [Eψ (κ)] ∥22
+
+i
+
++ β D KL (qψ (z | κ) ∥ pt(z)) , (10) where pt(z) is the target distribution of z, DKL is the Kullback–Leibler divergence, and β is a weighting parameter. The distribution pt(z) is assumed to be standard Gaussian N (0 , I ). The first term enforces accurate reconstruction of the parameter field. In contrast, the second term regularizes the latent representation and facilitates the subsequent learning of a generative prior in the latent space. 4A PREPRINT - J UNE 26, 2026 Here, we represent the discretized parameter field as a multi-channel tensor. For a three-dimensional scalar parameter field, this tensor has the form 
+
+κ ∈ RCκ×H×W ×D ,
+
+where H, W, D are the numbers of grid cells in the three spatial directions and Cκ is the number of physical input channels. For the scalar coefficient fields considered in this work, Cκ = 1 . The channel dimension is explicitly included because the encoder and decoder are convolutional networks, and their internal representations are naturally organized into multi-channel feature maps, as in standard CNNs. The VAE encoder maps the parameter field to a lower-resolution latent feature tensor, 
+
+z = Eψ (κ) ∈ RCz ×H/f ×W/f ×D/f ,
+
+where f is the spatial downsampling factor and Cz is the number of latent channels. The last three dimensions of z
+
+retain the spatial organization of the original field, but on a coarser grid. The first dimension, Cz , is not an additional spatial dimension; it is a learned feature-channel dimension. Each latent channel stores a different learned representation of the spatial structure of the parameter field, analogous to feature channels in a convolutional neural network. The downsampling factor f and the number of latent channels Cz jointly determine the dimension of the latent space. For a scalar three-dimensional field with Cκ = 1 , the full parameter dimension is 
+
+Nκ = HW D, 
+
+whereas the latent dimension is 
+
+Nz = Cz
+
+HW D f 3 .
+
+Thus, the compression ratio is 
+
+Nκ
+
+Nz
+
+= f 3
+
+Cz
+
+.
+
+Both Cz and f are architectural hyperparameters. Increasing f reduces the spatial resolution of the latent representation, while increasing Cz increases the number of learned feature maps and can partially compensate for the information lost by spatial downsampling. In practice, f and Cz are chosen together to obtain a latent representation that is sufficiently compressed for efficient posterior sampling while still accurate enough to reconstruct the parameter field. Having such multidimensional z is different from previous work on latent-space neural operators and image synthesis, which use a one-dimensional, arbitrarily ordered latent space and a relatively large β, yielding the latent variables to be approximately N (0 , 1) [8, 9, 10 ]. It was shown in [ 2] that a multidimensional correlated latent space in combination with a relatively small β better preserves the information of κ than a one-dimensional uncorrelated latent space and provides a more accurate reconstruction, while the latter provides a better generative model. Setting a relatively large β strongly constrains qψ (z | κ) to match pt(z) = N (0, I). As a result, the aggregated latent distribution 
+
+qagg (z) = 
+
+Z
+
+qψ (z | κ) pdata (κ) dκ 
+
+is close to a standard Gaussian. However, this constraint reduces the flexibility of the latent representation and may degrade reconstruction accuracy, since the encoder is restricted to use only Gaussian-compatible features. In contrast, in the weak-KL regime (β ≪ 1), the reconstruction term dominates the objective, allowing the encoder– decoder pair to learn a highly accurate representation of the parameter field. However, in this regime, μψ and Σψ will deviate from 0 and I, respectively, and will be different for different κ samples. Consequently, the aggregated latent distribution qagg (z) deviates significantly from N (0 , I ) and becomes a complex, structured, and generally non-Gaussian distribution. This non-Gaussianity is particularly pronounced for spatially correlated parameter fields such as permeability, where the encoder captures nonlinear combinations of spatial patterns, leading to dependencies and multimodal structures in the multi-dimensional latent space. The aggregated distribution of z provides an estimate of the z prior distribution, p(z) ≈ qagg (z), which can be used in the Bayesian formula to define the posterior distribution of z conditioned on data: 
+
+p(z | d) ∝ p(d | z) p(z). (11) Since the size of z is less than that of κ, sampling the posterior distribution of z is more efficient than sampling the distribution of κ.5A PREPRINT - J UNE 26, 2026 To sample the posterior distribution p(z | d) using methods such as MCMC, HMC, or the randomized MAP method, we need to know the functional form of p(z).The samples of p(z) can be obtained as z(i) = E(κ(i)). However, these samples are insufficient for methods that require likelihood evaluation. Following [ 2], we use the DDPM [ 5 ] to obtain a tractable generative representation of p(z). The DDPM model is trained on samples from p(z). Since diffusion models evolve samples in time following the diffusion process, in the following, we denote the VAE latent variable as z0, the “clean” (i.e., not corrupted by the diffusion noise) variable, and the samples of p(z0) obtained with E from different samples of κ(i) as z(i)0 .
+
+3.2 DDPM model for learning the latent prior score 
+
+We employ a denoising diffusion probabilistic model (DDPM) to construct a tractable representation of the prior distribution p(z0) from samples {z(i)0 }. Specifically, we use DDPM to approximate the prior score (the gradient of the log of the z0 prior distribution) and to sample z0. The DDPM consists of a forward (noising) process that gradually transforms z0 into a standard Gaussian variable, and a reverse (denoising) process, parameterized by a neural network, that approximately inverts this transformation. In Section 4, this learned prior model is combined with a likelihood-based correction to draw approximate samples from the posterior p(z0 | d).
+
+Forward diffusion process. The forward process is defined as a Markov chain with transitions 
+
+zt = √αt zt−1 + √1 − αt ϵt, ϵt ∼ N (0, I), t = 1 , . . . , T, (12) where {αt}Tt=1 is a sequence of noise parameters. By recursively applying this relation, one obtains the closed-form marginal distribution 
+
+zt = √¯αt z0 + √1 − ¯αt ϵ, ϵ ∼ N (0, I), (13) where ¯αt = Qts=1 αs. This expression defines the distribution of zt conditioned on z0 without explicitly simulating intermediate steps. As t → T , the distribution of zt approaches N (0, I).
+
+Reverse process and training. The reverse process is parameterized by a neural network ϵω (zt, t ) trained to predict the noise component from (zt, t ). The parameters ω are obtained by minimizing 
+
+Ldiff = Ez0, ϵ, t 
+
+h
+
+∥ϵ − ϵω (zt, t )∥22
+
+i
+
+, (14) where the expectation is taken over latent samples z0, Gaussian noise ϵ, and diffusion times t.The relation between the noise predictor and the score follows from the Gaussian forward marginal in Eq. (13) . Defining 
+
+σ2 
+
+> t
+
+= 1 − ¯αt, the distribution of zt conditioned on z0 is q(zt | z0) = N (√¯αtz0, σ 2 
+
+> t
+
+I). Therefore, 
+
+∇zt log q(zt | z0) = − zt − √¯αtz0
+
+σ2
+
+> t
+
+= − 1
+
+σt
+
+ϵ.
+
+Averaging over p(z0 | zt) gives 
+
+∇zt log pt(zt) = − 1
+
+σt
+
+E[ϵ | zt].
+
+Since the noise-prediction loss in Eq. (14) trains ϵω (zt, t ) to approximate E[ϵ | zt], the prior score is approximated by 
+
+∇zt log pt(zt) ≈ − 1
+
+√1 − ¯αt
+
+ϵω (zt, t ), (15) which provides the prior score used in the posterior sampling scheme described in Section 4. It is important to emphasize that the DDPM does not provide an explicit closed-form density p(z0) or log-density 
+
+log p(z0). Instead, the model defines an implicit generative distribution through the reverse diffusion chain. Evaluating 
+
+p(z0) would require marginalizing over all intermediate latent variables in the reverse process, which is generally intractable. The quantity made available by the trained DDPM is therefore not the density itself, but the score of the noisy marginal distribution pt(zt), approximated through the noise-prediction network as in Eq. (15) . This is why the learned prior is used within a score-based posterior sampler rather than in density-based methods such as MAP or HMC, requiring explicit evaluation of log p(z0).6A PREPRINT - J UNE 26, 2026 
+
+Sampling and denoising estimate. At inference, we use the deterministic denoising diffusion implicit model (DDIM) sampler [ 11 ], obtained by setting the per-step noise variance to zero. Starting from zT ∼ N (0, I), the reverse process yields a sample z0 approximately distributed according to p(z0).An estimate of the clean latent variable z0 at time t can be obtained as 
+
+ˆz0(zt) = zt − √1 − ¯αt ϵω (zt, t )
+
+√¯αt
+
+. (16) Both the score and ˆz0 DDPM estimates are used in Section 4 to construct tractable approximations of the log posterior gradient for solving the inverse problem. We distinguish between the trained diffusion model and the sampling scheme. The denoising network ϵω (zt, t ) is trained with the DDPM noise-prediction objective and is used to approximate the latent prior score. At inference, however, we use the DDIM reverse update as a deterministic sampler for this trained model by setting the per-step sampling variance to zero. Thus, DDPM refers to the learned latent diffusion prior, whereas DDIM refers only to the particular reverse sampler used to generate samples from that prior. 
+
+# 4 Latent-Space Diffusion Posterior Sampling 
+
+4.1 L-DPS Model Formulation 
+
+The objective of the online inversion stage is to infer the clean latent variable z0, and hence the parameter field 
+
+κ = Dψ (z0), from the observations d. In Bayesian form, the target posterior in latent space is 
+
+p(z0 | d) ∝ p(d | z0) p(z0), (17) where p(z0) is the latent prior learned by the diffusion model and p(d | z0) is the likelihood induced by the decoded parameter field and the forward PDE model. Standard diffusion posterior sampling (DPS) solves inverse problems by combining an unconditional diffusion model, which provides an approximation to the prior score, with a likelihood-gradient correction that enforces agreement with observations during the reverse diffusion process [ 3]. The original DPS formulation was developed for image inverse problems, where the unknown is typically an image, the reverse diffusion process is carried out in the ambient image space, and the likelihood gradient is evaluated through a prescribed measurement operator. In contrast, we perform posterior-guided sampling in the VAE latent space and evaluate the likelihood gradient through the decoder and the differentiable neural surrogate. The proposed latent-space DPS (L-DPS) model is summarized in Algorithm 1. The algorithm starts with a Gaussian latent variable zT ∼ N (0 , I ). At each reverse diffusion step t, the diffusion model predicts the noise component 
+
+ˆϵt = ϵω (zt, t ). This prediction is used in two ways. First, it defines the unconditional reverse diffusion update z′
+
+> t−1
+
+,which moves the sample according to the learned latent prior. Second, it gives the Tweedie denoised estimate ˆz0(zt),which approximates the clean latent variable associated with the current noisy state zt. The clean latent estimate is decoded to a parameter field, passed through the surrogate forward model, evaluated at the observation locations, and compared with the data. The resulting data-misfit gradient provides the guidance direction for correcting the unconditional reverse step. 7A PREPRINT - J UNE 26, 2026 
+
+Algorithm 1 Latent diffusion posterior-guided inversion 
+
+Require: Decoder Dψ , diffusion model ϵω , surrogate observation map ˆuo(·), data d, noise level γ, observation density 
+
+η, diffusion steps T , guidance parameters ζmin , ζ max , c 
+
+Ensure: Approximate posterior-guided sample ˆκ 
+
+> 1:
+
+Sample zT ∼ N (0 , I ) 
+
+> 2:
+
+for t = T, T − 1, . . . , 1 do  
+
+> 3:
+
+ˆϵt ← ϵω (zt, t ) 
+
+> 4:
+
+ˆz0 ←  zt − √1 − ¯αt ˆϵt
+
+ /√¯αt 
+
+> 5:
+
+ˆκt ← Dψ ( ˆ z0) 
+
+> 6:
+
+ˆuo,t ← ˆuo(ˆ κt) 
+
+> 7:
+
+Ldata ← ∥ d − ˆuo,t ∥22 
+
+> 8:
+
+gt ← ∇ zt Ldata  
+
+> 9:
+
+Compute unconditional reverse step z′ 
+
+> t−1
+> 10:
+
+ζ ← ζmin + ( ζmax − ζmin ) ηη + c γ 2 
+
+> 11:
+
+zt−1 ← z′ 
+
+> t−1
+
+− ζ gt/∥gt∥2 
+
+> 12:
+
+end for  
+
+> 13:
+
+ˆκ ← Dψ (z0) 
+
+> 14:
+
+return ˆκ
+
+Algorithm 1 shows that each reverse step requires two ingredients: a prior term and a likelihood-guidance term. The prior term is supplied by the diffusion model and keeps the evolving latent variable close to the learned latent distribution. The likelihood-guidance term is supplied by differentiating the data misfit and steers the sample toward consistency with the observations. We next derive these two terms. For the noisy latent variable zt, Bayes’ rule gives 
+
+pt(zt | d) ∝ p(d | zt) pt(zt), (18) where pt(zt) is the diffusion-time-dependent prior density of the noisy latent variable and pt(zt | d) is the corresponding posterior density conditioned on the data. The posterior score decomposes as 
+
+∇zt log pt(zt | d) = ∇zt log pt(zt) + ∇zt log p(d | zt). (19) The first term is the prior score, and the second term is the likelihood score. The prior score is provided by the latent diffusion model trained in Section 3.2. Since the DDPM is trained to predict the Gaussian noise added in the forward diffusion process, the score of the noisy latent distribution is approximated by 
+
+∇zt log pt(zt) ≈ − 1
+
+√1 − ¯αt
+
+ϵω (zt, t ). (20) Substituting Eq. (20) into Eq. (19) gives 
+
+∇zt log pt(zt | d) ≈ − 1
+
+√1 − ¯αt
+
+ϵω (zt, t ) + ∇zt log p(d | zt). (21) Thus, posterior-guided sampling requires an approximation of the likelihood score ∇zt log p(d | zt).This likelihood score is not available directly because the observations are related to the clean parameter field, or equivalently to the clean latent variable z0, whereas the reverse diffusion process evolves the noisy variable zt.Following DPS [3], we use the Tweedie denoised estimate 
+
+ˆz0(zt) = zt − √1 − ¯αt ϵω (zt, t )
+
+√¯αt
+
+, (22) and adopt the plug-in approximation 
+
+p(d | zt) ≈ p(d | ˆz0(zt)) . (23) This approximation converts the intractable likelihood of the noisy latent variable into a tractable likelihood evaluated at an estimated clean latent variable. In the proposed latent PDE setting, the clean latent estimate is first decoded to a parameter field, 
+
+ˆκt = Dψ ( ˆ z0(zt)) . (24) 8A PREPRINT - J UNE 26, 2026 The corresponding surrogate-predicted observations are then 
+
+ˆuo,t = ˆ uo(ˆ κt) = ˆ uo (Dψ [ ˆ z0(zt)]) , (25) where ˆuo(κ) denotes the neural-surrogate prediction of the PDE state at the observation locations for a given parameter field κ.Under the Gaussian observation model in Eq. (2), the plug-in likelihood is 
+
+p(d | ˆz0(zt)) ∝ exp 
+
+
+
+− 12σ2 ∥d − ˆuo,t ∥22
+
+
+
+. (26) Therefore, 
+
+∇zt log p(d | zt) ≈ − 12σ2 ∇zt ∥d − ˆuo,t ∥22 . (27) The gradient in Eq. (27) is obtained by differentiating the data misfit through the chain 
+
+zt → ˆz0(zt) → Dψ ( ˆ z0) → ˆuo (Dψ [ ˆ z0(zt)]) . (28) This is the main difference between standard DPS and the proposed L-DPS formulation: standard DPS evaluates the likelihood via the measurement operator in the ambient unknown space, whereas L-DPS evaluates it via the decoder and surrogate-predicted observations. The diffusion model provides the latent prior score, while the differentiable surrogate provides likelihood guidance without repeated PDE solves. For use in the stabilized update, we define the data-misfit gradient 
+
+gt(zt) = ∇zt ∥d − ˆuo,t ∥22 . (29) The approximate Gaussian likelihood score is proportional to −gt/(2 σ2). In the implementation below, we use the direction of gt to guide the reverse-diffusion update and to control the step length separately via a stabilized guidance weight. The likelihood correction in Eq. (27) should not be interpreted as an exact posterior transition. It relies on the learned latent representation, the DPS plug-in approximation in Eq. (23), the surrogate approximation of the forward model, and a finite-step reverse diffusion discretization. The proposed method is therefore an approximate posterior-guided inversion procedure rather than an exact posterior sampler. Algorithm 1 produces one approximate posterior sample of the parameter field. To generate an ensemble as might be required for uncertainty quantification, the steps 1-14 of the algorithm must be repeated S times, using independent initial latent variables 
+
+z(s) 
+
+> T
+
+∼ N (0 , I ), s = 1 , . . . , S, 
+
+and the same observations d, surrogate observation map ˆuo(·), and guidance parameters. Each reverse trajectory produces a terminal latent sample z(s)0 , which is decoded to obtain 
+
+κ(s) = Dψ (z(s)0 ), s = 1 , . . . , S. 
+
+The collection n
+
+κ(s)oSs=1 
+
+is interpreted as an approximate ensemble from the posterior distribution p(κ | d), subject to the approximations described above. In the numerical experiments reported below, however, we set S = 1 and report a single posterior-guided reconstruction for each test case. Thus, the present work evaluates reconstruction accuracy and computational efficiency rather than posterior uncertainty quantification. 
+
+4.2 Stabilized Guidance 
+
+The data-misfit gradient in Eq. (29) provides the direction in latent space that most rapidly reduces the discrepancy between the observed data and the surrogate-predicted observations. However, using the raw gradient magnitude directly can destabilize the reverse diffusion process. The magnitude of gt varies across diffusion steps because it depends on the observation residual, the diffusion noise level, and the Jacobians of both the decoder and the surrogate observation map. Consequently, the raw magnitude of gt is not a reliable measure of how far the latent variable should be moved at a given reverse diffusion step. 9A PREPRINT - J UNE 26, 2026 To separate the direction of the likelihood correction from its step length, we use the normalized guidance update 
+
+zt−1 = z′ 
+
+> t−1
+
+− ζ gt
+
+∥gt∥2
+
+, (30) where z′ 
+
+> t−1
+
+is the latent variable obtained from the unconditional reverse diffusion step and ζ is the guidance step size. The unconditional step incorporates the learned prior through the diffusion model, while the second term in Eq. (30) moves the sample in the direction that improves data consistency. By normalizing the guidance direction, the magnitude of the update is controlled explicitly by ζ, rather than implicitly by the possibly ill-scaled decoder–surrogate gradient. A related normalization is used in the original DPS algorithm [ 3]; here, we use gradient-magnitude normalization because it is more robust to the heterogeneous scaling introduced by the decoder and surrogate. The guidance strength should depend on both the noise level and the amount of observational information. If the data are noisy, strong guidance can overfit the observational noise. If the observations are sparse, the likelihood contains limited information relative to the dimension of the unknown field, and the update should rely more strongly on the learned prior. A formal Gaussian likelihood suggests that guidance strength is proportional to the inverse of the noise variance. Under the observation model in Eq. (2), this scaling is proportional to Nobs /γ 2. In practice, this scaling is too aggressive for L-DPS. First, the likelihood is evaluated at the Tweedie estimate ˆz0(zt), which is inaccurate at early reverse steps. Scaling the guidance by 1/γ 2 can therefore amplify errors in the plug-in approximation. Second, the factor Nobs /γ 2 can become excessively large for small γ or large Nobs , pushing the sample away from the learned latent manifold. This can occur because the guidance direction is already normalized in Eq. (30). We therefore use a bounded, noise- and density-adaptive guidance weight. Let 
+
+η = Nobs 
+
+Ntot 
+
+, (31) where Ntot is the total number of admissible observation locations. Validation experiments show two limiting regimes. In the clean-and-dense regime, the optimal guidance weight saturates at a maximum value because the observations provide reliable information and can be enforced strongly. In the noisy-or-sparse regime, the optimal guidance weight approaches a small positive floor, as the data still contains useful information but should not dominate the learned prior. We interpolate between these regimes using 
+
+ζ(η, γ ) = ζmin + ( ζmax − ζmin ) ηη + cγ 2 , (32) where ζmax is the clean-and-dense cap, ζmin is the noisy-or-sparse floor, and c controls the transition between the two regimes. This function is monotone increasing in the observation density η, monotone decreasing in the relative noise level γ, and remains bounded for both γ → 0 and large Nobs . The parameters (ζmax , ζ min , c ) are calibrated once on the validation set, as described in Section 5.8. The resulting stabilized update combines three components: the unconditional reverse diffusion step, which represents the learned latent prior; the normalized data-misfit gradient, which supplies the likelihood direction; and the adaptive scalar weight ζ(η, γ ), which determines how strongly the observations influence each reverse step. 
+
+4.3 Interpretation 
+
+The proposed method should be interpreted as an approximate posterior-guided inversion framework rather than an exact posterior sampler. The reverse diffusion model supplies an approximation to the prior score in latent space. The decoder maps the clean latent estimate to a parameter field. The surrogate observation map ˆuo(·) maps this parameter field to predicted observations. The data mismatch produces a likelihood-guidance direction. Finally, the stabilized update combines the prior-driven reverse diffusion step with the normalized likelihood guidance. The method introduces four approximations for computational tractability: 1. Representation restriction : the parameter field is restricted to the range of the VAE decoder Dψ .2. Plug-in likelihood : the intractable likelihood p(d | zt) is approximated by evaluating the likelihood at the Tweedie estimate ˆz0(zt).3. Surrogate replacement : the full PDE forward model is replaced by the differentiable surrogate observation map ˆuo(·), so that likelihood gradients can be computed without repeated numerical PDE solves. 4. Finite-step stabilized guidance : the posterior correction is applied through a discrete reverse diffusion process using normalized guidance directions and an adaptive step size. The offline and online stages are separated. Offline, we train the VAE to obtain a compact latent representation of the parameter field, train the latent diffusion model to represent the prior score of the encoded variables, and train the neural 10 A PREPRINT - J UNE 26, 2026 surrogate to approximate the PDE solution at the observation locations. Online, given observations d, we initialize 
+
+zT ∼ N (0 , I ) and run the guided reverse diffusion process in Algorithm 1. At each step, the prior score keeps the sample on the learned latent manifold, while the stabilized guidance term steers the sample toward consistency with the observations. The final estimate is obtained by decoding the terminal latent sample, 
+
+ˆκ = Dψ (z0). (33) Compared with standard DPS, which operates directly in the original unknown space and evaluates the measurement operator there, the proposed L-DPS method performs the reverse diffusion and guidance in a reduced latent space. It evaluates the likelihood through the decoded parameter field and surrogate-predicted observations. This combination makes DPS practical for high-dimensional PDE inverse problems with implicit non-Gaussian priors and expensive forward models. 
+
+Figure 1: Overview of the L-DPS framework. The VAE is trained to reconstruct the parameter field κ(x) with the encoder Eψ and decoder Dψ ; the latent diffusion prior ϵω (zt, t ) is trained on the encoded latents z0; and the neural surrogate Fϕ (FNO / DeepONet / ViT) is trained to approximate the forward PDE solver F on the full pressure field 
+
+ˆu(x). At inference, the reverse diffusion process (bottom) starts from zT , repeatedly computes the Tweedie estimate 
+
+ˆz0, decodes to ˆκ(x), evaluates the data-misfit Ldata against the sparse observations d, and applies the noise-adaptive guidance zt−1 = z′ 
+
+> t−1
+
+− ζ(η, γ ) gt/∥gt∥ until t = 0 ; the final decoded field ˆκ(x) is the estimate. 
+
+# 5 Case Study: Steady State Darcy problem 
+
+5.1 Problem setting 
+
+We assess the proposed framework on the inverse Darcy flow problem with an unknown space-dependent permeability field. The Darcy flow problem is commonly used to test methods for high-dimensional inverse PDEs. Let Ω ⊂ R2 be the computational domain. The pressure field u(x) satisfies the steady-state Darcy equation 
+
+−∇ ·  κ(x)∇u(x) = fs(x), x ∈ Ω, (34) 11 A PREPRINT - J UNE 26, 2026 subject to appropriate boundary conditions. Here, u(x) is the hydraulic head, κ(x) is the conductivity field, and fs(x)
+
+is the source term. In the inverse problem, we set Ω = [0 , 1] 2, fs(x) = 1 , zero Dirichlet boundary conditions on all boundaries, and estimate κ, the discretized parameter field, from sparse noisy observations of u(x) denoted as d. This inverse problem is challenging because κ is high-dimensional, whereas d is low-dimensional. In addition, repeated evaluations of the forward Darcy solution in posterior-guided inference are relatively expensive. These features make the inverse Darcy flow problem a suitable benchmark for assessing the proposed computational framework. 
+
+5.2 Dataset generation, observation settings, and reporting of the results 
+
+We generate 5000 log-Gaussian fields y = log κ with correlation length l = 0 .2 and σy = 1 .0 on a 128 × 128 uniform grid, split 4000/500/500 for training/validation/testing. The Darcy equation Eq. (34) is solved with a finite-difference scheme to produce paired (κ, u ) data. Sensors are placed at random interior grid points (using a fixed seed for reproducibility). The observation noise in Eq. (2) is set to 
+
+ϵ ∼ N 
+
+
+
+0, γ 2 ∥d∥22
+
+Nobs 
+
+I
+
+
+
+, (35) so that γ is the relative noise level. In the numerical experiments we vary γ ∈ { 0, 0.01 , 0.02 , 0.05 , 0.1} and 
+
+Nobs ∈ { 16 , 32 , 64 , 128 , 256 , 512 }.We report the accuracy of the inverse solution in terms of the relative ℓ2 error in the estimated y as, 
+
+ℓ2 = ∥ ˆy − yr ∥2
+
+∥yr ∥2
+
+, (36) averaged over 500 test samples. Here, yr and ˆy are the reference and estimated parameter vectors, respectively. We also compare the estimated and reference fields. No ensemble-averaged fields are shown unless stated otherwise. 
+
+5.3 Model architectures and training 
+
+In the latent DPS inverse solution and other considered inverse methods, we approximate the forward map from κ
+
+to u(x) and, ultimately, uo, the PDE solution vector at the measurement locations, using operator learning surrogate models. Three surrogates are evaluated: FNO (4.2M parameters, 0.46% test relative L2), ViT (6.0M parameters, 0.23%), and DeepONet (1.3M parameters, 0.72%). The DDPM of the latent prior is based on a VAE with β = 10 −6 (4.0M parameters, 0.3% reconstruction error) and a latent UNet model (5.3M parameters). All ML models (including surrogate models, VAE, and the latent-UNet DDPM model) are trained with a cosine learning-rate schedule, early-stopping patience of 200-250, and up to 5000 epochs. Posterior-guided inversion uses 1000 DDIM [ 11 ] reverse-diffusion steps. The noise- and density-adaptive guidance weight is given by Eq. (32) with ζmax = 0 .5, ζmin = 0 .04 , and c = 38 . These values are obtained from the validation-set grid search described in Section 5.8 and are used throughout the numerical experiments unless noted otherwise. For each test case, we generate one sample of the parameter field from its posterior, i.e., we set S = 1 in the L-DPS algorithm. Uncertainty quantification (UQ) of the inverse solution is not the focus of this paper. However, a UQ study can be performed straightforwardly by setting S >> 1.
+
+5.4 Baseline methods 
+
+We compare the proposed L-DPS framework with four methods, each representing a different family of PDE-inversion methods reported in the literature: full-κ-space DPS, direct inverse operators, conditional latent-space diffusion model, and Karhunen–Loève expansion (KLE)-defined latent-space MAP (KLE-MAP) method. All these methods use the same dataset and, where applicable, the same forward FNO surrogate so that the comparison isolates the effect of the inversion strategy. • Full-space DPS + FNO : A DDPM model (with 17 .5M parameters) of κ prior distribution is trained directly on the samples κ(i) ∈ R1×128 ×128 . Posterior sampling uses the same surrogate-based likelihood guidance as L-DPS, including the same adaptive weight Eq. (32) and the same stabilized update Eq. (30); the only difference from L-DPS is that the reverse diffusion and the guidance act on κt instead of on the latent zt. The UNet in full-space DDPM follows the same training protocol as the latent-space DDPM (cosine schedule, early-stopping patience 250 , up to 5000 epochs). This baseline isolates the effect of the latent representation. 12 A PREPRINT - J UNE 26, 2026 • Direct Inverse FNO (InvFNO) : A direct regression network (with 4.2M trainable parameters) that maps the sparse pressure observations d ∈ RNobs to the log-permeability field log κ. A new network must be trained whenever the location and number of measurements change. • Conditional Latent-Space Diffusion Model (CLDM) : A conditional latent diffusion model trained on (observation, parameter) pairs for one specific Nobs , which learns the posterior by amortization rather than by posterior guidance. A separate model is trained for each Nobs , so the method does not generalize across sensor layouts. This baseline represents the amortized-posterior family of diffusion-based inverse methods. • KLE-MAP : A parameter estimation method that uses Karhunen–Loève expansion (KLE) to define the latent parameter space and uses the maximum a posteriori (MAP) estimate of κ in this latent space. The (forward) FNO model is used to compute the log likelihood in the MAP objective function. For Gaussian random fields, the KLE provides the optimal linear mean-square representation, with Gaussian-distributed latent coefficients. Therefore, this method serves as the baseline for L-DPS for inverse problems with Gaussian parameter priors. Compared in Section 5.9. In addition to these four baselines, we consider five alternative guidance strategies applied to the same L-DPS + FNO pipeline: a constant ζ = 0 .5, the original DPS guidance of [ 3], a Bayesian scaling in which ζ is set to the inverse of the noise variance, JAPS, and DiffStateGrad. These guidance variants share the same prior and surrogate with L-DPS and differ only in the guidance rule; they are reported in Section 5.8. To assess how surrogate accuracy affects inversion performance, we compute L-DPS reconstructions using two additional neural-operator surrogates, DeepONet and ViT, alongside the FNO surrogate. 
+
+5.5 Comparison of L-DPS with benchmark inverse methods 
+
+Figure 2 provides a qualitative comparison of the inverse reconstructions obtained with L-DPS+FNO and the three benchmark methods: full-space DPS, CLDM, and InvFNO. For each test case, the figure shows the reference log-conductivity field yref , the estimated fields, and the corresponding pointwise reconstruction errors with respect to yref .The PDE solution uref and the observation locations are also shown in the reference column. The three rows correspond to increasingly different observation regimes: (a) sparse and noisy observations, Nobs = 64 and γ = 0 .1; (b) the base setting, Nobs = 128 and γ = 0 .01 ; and (c) moderate noise, Nobs = 128 and γ = 0 .05 . The CLDM errors are plotted using a separate color scale because their error range differs substantially from those of the other methods. The qualitative results show that L-DPS+FNO provides the most stable reconstructions across the three regimes. In the sparse-and-noisy case, L-DPS+FNO recovers the dominant spatial structure of the reference field. In contrast, full-space DPS and InvFNO exhibit larger structured errors, and CLDM produces a less reliable reconstruction. In the base setting, all methods recover the main features of the field, but L-DPS+FNO gives the sharpest reconstruction and the smallest visual error. Under moderate noise, the benefit of the latent prior and stabilized likelihood guidance becomes more apparent: L-DPS+FNO preserves the large-scale field structure while avoiding the stronger artifacts and smoothing observed in the benchmark reconstructions. 13 A PREPRINT - J UNE 26, 2026 
+
+Figure 2: Comparison of the reference parameter field ( yref ) and the fields estimated with the L-DPS+FNO ( ˆyL−DP S ), full-space DPS ( ˆyDP S ), CLDM ( ˆyCLDM ), and InvFNO ( ˆyInvF N O ) methods. Also shown are the reference u solution (uref ) and the point errors between estimated y and yref . The inverse solutions are obtained under three settings (different rows): (a) The number of observations Nobs = 64 and the relative noise level γ = 0 .1, (b) Nobs = 128 and 
+
+γ = 0 .01 , and (c) Nobs = 128 and γ = 0 .05 . CLDM point errors are plotted with a different color scale than the other three methods because they have a significantly smaller range. 14 A PREPRINT - J UNE 26, 2026 Figure 3 summarizes the quantitative performance by plotting the mean relative ℓ2 error in the estimated y field as a function of the number of observations Nobs for four noise levels, γ ∈ { 0, 0.01 , 0.05 , 0.1}. Across most observation and noise settings, L-DPS+FNO matches or outperforms the benchmark methods. The advantage is especially pronounced in noisy regimes, where enforcing data consistency without a sufficiently informative prior can lead to overfitting to noisy observations. For example, at Nobs = 256 and γ = 0 .1, L-DPS+FNO obtains a relative ℓ2 error of 0.178 ,compared with 0.446 for full-space DPS and 0.304 for InvFNO. In contrast, under noiseless observations, full-space DPS is competitive with L-DPS+FNO, indicating that strong data consistency can compensate for the weaker full-space prior when measurements are error-free. Overall, the results in Figures 2 and 3 indicate that the latent representation and the stabilized surrogate-based guidance are most beneficial when observations are sparse and/or noisy. 
+
+Figure 3: Relative ℓ2 reconstruction error on y = log κ versus number of sensors Nobs across four noise levels 
+
+γ ∈ { 0, 0.01 , 0.05 , 0.1} (one panel each). L-DPS+FNO consistently matches or beats the baselines across the grid; the gap widens in the sparse/noisy regime, where amortized methods (CLDM, InvFNO) and full-space DPS degrade noticeably. 
+
+5.6 Effect of the latent representation 
+
+To isolate the effect of the latent representation, we first focus on the two DPS-based methods from the benchmark comparison in Section 5.5: L-DPS+FNO and full-space DPS+FNO. We compare the performance of the two models for measurements with the different noise levels γ. Both methods use the same FNO surrogate, adaptive guidance rule, observation model, and diffusion training protocol; they differ only in the space in which the diffusion prior and posterior-guided sampling are defined. 15 A PREPRINT - J UNE 26, 2026 For the Darcy problem, the unknown log-conductivity field is a scalar field on a 128 × 128 grid and is represented as a single-channel tensor, 
+
+y ∈ RCκ×H×W = R1×128 ×128 ,
+
+with Cκ = 1 and 1 × 128 × 128 = 16 ,384 degrees of freedom. In the VAE encoder, we set f = 8 and Cz = 4 , so that 
+
+y is mapped to a lower-resolution latent feature tensor, 
+
+z ∈ RCz ×H/f ×W/f = R4×16 ×16 .
+
+Table 1 reports the inverse relative ℓ2 error at Nobs = 256 for the two methods. Under noiseless observations, the two methods achieve comparable accuracy: L-DPS gives 0.022 , and full-space DPS gives 0.023 . When the observations are noiseless and dense, the surrogate-based guidance is strong enough to pull either representation close to the truth, and the choice of the representation space is secondary. The gap between the two methods widens once noise is added. At 
+
+Nobs = 256 and γ = 0 .05 , full-space DPS achieves 0.148 , while L-DPS achieves 0.127 . At γ = 0 .1, full-space DPS degrades to 0.229 , while L-DPS reaches 0.178 , a 22% relative improvement. The same pattern holds at fixed γ = 0 .02 
+
+across sensor counts: at Nobs = 64 , full-space DPS produces a 43% larger error than L-DPS ( 0.174 vs. 0.122 ). Three observations follow from Table 1 and the trends in Figure 3. First, compressing the sampling space by a factor of 16 (16,384 → 1024) does not sacrifice accuracy when using noiseless data–the latent representation is rich enough to encode the smooth log-permeability fields used here. Second, the latent prior regularizes more effectively under observation noise: because the VAE concentrates prior mass on a smooth manifold, a noisy likelihood gradient that would otherwise drag the full-space sample off the plausible set is projected back onto the learned manifold in the latent space. Third, operating in 1024 dimensions rather than 16384 reduces the per-step computational cost by roughly a factor of five, yielding a combined benefit in accuracy and efficiency. Finally, we study the accuracy of the VAE latent-space representation to determine whether the VAE encoder–decoder pair is the limiting factor in inverse solution accuracy. Specifically, we study the VAE’s accuracy in reconstructing 
+
+κ from its latent representation z0. For this test, we consider three y fields with three different prior distributions: the Gaussian with a single-correlation length exponential covariance function (baseline with the correlation length 
+
+l = 0 .2 considered in Section 5.5), a multiscale Gaussian (a superposition of two Gaussian random fields with the exponential covariance functions with correlation lengths l = 0 .4 and l = 0 .2), and a binary random field generated by transforming the Gaussian ˜y with zero mean, Matérn covariance function, and the correlation length l = 0 .2 as 
+
+yij = 2 .485 (κij = 12 ) for ˜yij ≥ 0 and yij = 1 .386 (κij = 4 ) for ˜yij < 0.We generate 5000 samples from each distribution (4000 for training, 500 for validation, and 500 for testing) and train three VAE models, one for each sample set. We perform reconstruction and compute the ℓ2 reconstruction error for each sample in the test set. Figure 4 shows the reconstructed κ corresponding to the median ℓ2 reconstruction error for the three priors considered in this work. Figure 5 shows the distribution of the reconstruction relative ℓ2 for each prior distribution. The median reconstruction errors are 0.003 , 0.001 , and 0.015 , respectively, and the 95 th percentile stays below 0.04 for all three priors. The reconstruction errors, even for the non-Gaussian prior, are relatively small. For the baseline Gaussian prior, the reconstruction error is an order of magnitude smaller than the errors in the inverse solutions reported in Table 1. Table 1: The relative ℓ2 errors in the inverse y = log κ solutions obtained with the latent and full-space DPS+FNO models as functions of γ. The training, validation, and testing sets are generated from the Gaussian distribution with correlation length l = 0 .2. The inverse solutions are obtained using Nobs = 256 u observations. The errors are averaged over 500 test samples. Also reported are the dimensions of the estimated parameter space, the total number of trainable parameters, and the time to generate one sample of the inverse solution for both DPS models. The DPS models use the same adaptive guidance weight Eq. (32) and FNO surrogate.                       
+
+> Method Sampling dim Params (M) Time/sample γ=0 γ=0 .05 γ=0 .1
+> L-DPS + FNO (ours) 1024 14.5 ∼1min 0.022 0.127 0.178 Full-space DPS + FNO 16384 21.7 ∼5min 0.023 0.148 0.229
+
+Later in Section 5.10, we mix samples from three distributions, yielding a complex non-Gaussian prior. We use the combined samples to train a single latent-space DDPM model, FNO surrogate, and DPS, yielding a single L-DPS+FNO pipeline for parameter estimation without specifying any of the three underlying distributions. 16 A PREPRINT - J UNE 26, 2026 
+
+Figure 4: VAE reconstruction quality for three priors. Rows: single-scale Gaussian, multi-scale Gaussian, and binary non-Gaussian. Columns: reference κ, VAE reconstruction, and the reconstruction error. Each row shows the median-error test sample. 
+
+Figure 5: Distribution of the VAE reconstruction relative ℓ2 error over 500 test samples for each prior. The three distributions are concentrated well below 4% .17 A PREPRINT - J UNE 26, 2026 
+
+5.7 Effect of surrogate-based guidance 
+
+A central design choice in L-DPS is the use of a differentiable neural surrogate Fϕ ≈ F to provide the likelihood-gradient correction at each reverse-diffusion step. In the proposed method, this gradient is computed by differentiating the data misfit through the decoder–surrogate chain in Eq (28) rather than by repeatedly evaluating and differentiating the full PDE solver. This surrogate-based guidance is computationally attractive, but it raises an important question: how sensitive is the inverse reconstruction error to the accuracy of the surrogate forward model? To assess this dependence, we compare L-DPS reconstructions obtained with three neural-operator surrogates: FNO, ViT, and DeepONet. In all comparisons, the VAE encoder–decoder, latent DDPM prior, observation model, guidance rule, and inversion hyperparameters are held fixed; only the surrogate model used to evaluate the predicted observations and likelihood-gradient direction is varied. This isolates the effect of the surrogate approximation on the posterior-guided inverse solution. We evaluate this effect in two complementary ways. First, we compare the best validation checkpoints of the three surrogate architectures, whose forward relative ℓ2 errors are reported in Table 2. Second, to separate surrogate accuracy from architecture choice, we save intermediate checkpoints of each surrogate during training, producing a collection of surrogate models with different forward accuracies. Specifically, we use ten training checkpoints for FNO and ViT and eight checkpoints for DeepONet. Each checkpoint is inserted into the same L-DPS pipeline, and the resulting inverse relative ℓ2 error is computed on the same test set. This checkpoint study allows us to examine whether inverse accuracy is controlled primarily by the surrogate architecture or by the forward accuracy of the surrogate. All surrogate models are trained with the Adam optimizer and a cosine learning-rate schedule for up to 5000 epochs, with early stopping based on the validation relative ℓ2 error using a patience of 200 epochs; full hyperparameters are given in Table 8 of Appendix A. Unless otherwise stated, the forward errors reported below are test-set relative ℓ2 errors of the best-validation checkpoint for each surrogate. Table 2: Surrogate forward error vs. inverse error at Nobs = 128 , γ = 0 .01 . All three surrogates share the same L-DPS pipeline (VAE + latent UNet + adaptive guidance). Forward error is the surrogate’s relative ℓ2 test error; inverse error is the mean relative ℓ2 on y = log κ over 500 test samples.                         
+
+> Surrogate Params (M) Forward relative ℓ2Inverse relative ℓ2Time/sample FNO 4.2 0.46% 0.045 ∼1min ViT 6.0 0.23% 0.042 ∼1min DeepONet 1.3 0.72% 0.051 ∼0.5min
+
+Figure 6: Errors in the inverse L-DPS solutions versus errors in the FNO, ViT, and DeepONet (forward) surrogate models. The errors in the FNO and ViT surrogate models correspond to 10 training checkpoints and 8 checkpoints for DeepONet. Left panel reports L-DPS inverse results for Nobs = 64 and γ = 0 .01 and the right panel for Nobs = 256 
+
+and γ = 0 .01 .18 A PREPRINT - J UNE 26, 2026 Table 2 summarizes the relative ℓ2 errors in the inverse solution obtained with FNO, ViT, and DeepONet surrogate models. The table also lists relative ℓ2 errors in the forward solutions obtained with the three surrogates. Both errors in the forward and inverse solutions are averaged over 500 test samples. Figure 6 shows relative ℓ2 errors in the inverse L-DPS solutions versus errors in the FNO, ViT, and DeepONet surrogate models. The L-DPS errors are reported for 
+
+Nobs = 64 and 256 measurements with the relative noise of γ = 0 .01 .Two patterns emerge from Table 2 and Figure 6. First, at a fixed operating point (128 sensors, γ = 0 .01 ), the inverse error ranks the three architectures in the same order as the forward error: ViT ( 0.042 ) < FNO ( 0.045 ) < DeepONet (0.051 ), matching the forward-error ordering 0.23% < 0.46% < 0.72% . Second, this ordering is not specific to the type of surrogate model but the accuracy of the surrogate model: for surrogate model errors spanning roughly an order of magnitude, the inverse error monotonically increases with the error in the forward surrogate prediction. Different surrogate models with matched forward error produce comparable inverse error. This observation has two practical implications. First, improving the surrogate improves the inverse solution accuracy: halving the forward error translates to a proportional reduction in inverse error across the range we tested. Second, the choice of surrogate architecture is largely interchangeable in L-DPS, as long as the forward quality is matched. We stop short of claiming architecture independence of L-DPS in the strongest form for two reasons. The surrogate’s 
+
+gradient quality is what L-DPS actually uses, and we measure only its forward solution error; at very low forward error, the gradient noise floor may differ between architectures in ways the forward solution error metric does not capture. Second, the range of forward errors we tested ( 0.2% –0.7% ) is narrow relative to what could be produced by, for example, severely undertrained or poorly specified models. 
+
+5.8 Effect of stabilized guidance 
+
+The guidance update is sensitive to two design choices: the gradient normalization (Eq. (30)) and the step size ζ(γ, η ).We compare six guidance strategies for the L-DPS+FNO model, including (1) the proposed here noise-adaptive rule in Eq. (32), (2) the constant ζ = 0 .5, (3) the DPS guidance proposed in [ 3 ], (4) the Bayesian scaling in which ζ is set to the noise variance [ 3], (5) JAPS [ 12 ], and (6) DiffStateGrad [ 13 ]. Figure 7 reports the inverse relative ℓ2 error versus 
+
+Nobs for four noise levels γ. All methods share the same L-DPS+FNO pipeline and differ only in the guidance rule. Three observations follow. First, our noise-adaptive rule matches or outperforms every baseline guidance rule across for all considered combinations of Nobs and γ, and the advantage is largest at high noise: at γ = 0 .1, Nobs = 128 
+
+our rule gives 0.213 versus 0.612 for the constant-ζ baseline and 0.543 for DPS original. Second, a single ζ cannot serve both the noiseless and noisy regimes—a large ζ overfits to noisy observations (constant ζ degrades rapidly under noise), while a small ζ underfits noiseless observations. Third, gradient normalization alone is not sufficient; JAPS and Bayesian, which also normalize the gradient, produce larger errors than our rule because they do not adapt ζ to the observation density η = Nobs /N tot .We calibrate our guidance rule Eq. (32) on the validation set across the (Nobs , γ ) grid, and select (ζmax , ζ min , c ) by minimizing the mean validation inverse error. The resulting values are ζmax = 0 .5, ζmin = 0 .04 , and c = 38 . With these coefficients, Eq. (32) is within 1.5% of the validation-optimal mean inverse error across the 24 cells with γ > 0
+
+and Nobs ≥ 32 , while the previous hand-picked rule ζ(γ) = 0 .5/(1 + ( γ/ 0.03) 2) is within 11 .4% . The calibrated values generalize to the test set without further tuning. 19 A PREPRINT - J UNE 26, 2026 
+
+Figure 7: Inverse relative ℓ2 errors versus the number of observations Nobs for six guidance strategies across four noise levels γ ∈ { 0.01 , 0.02 , 0.05 , 0.1}. All methods share the same L-DPS+FNO pipeline and differ only in the guidance rule. 
+
+5.9 Comparison with the KLE-MAP method 
+
+We compare L-DPS+FNO against the KLE-MAP baseline for the three different y priors described in Section 5.7. For Gaussian priors, KLE-MAP provides a natural classical baseline based on a Gaussian latent representation. Comparison with KLE-MAP for the Gaussian prior provides a test of how effectively the latent DPS framework represents the prior structure and produces posterior-guided reconstructions. For non-Gaussian distributions, this comparison identifies the inverse-solution errors arising from the Gaussian approximation in the KLE-MAP method. We instantiate KLE-MAP by retaining the KY terms in KLE of the y covariance matrix computed from the y training samples. The number of KLE terms is selected to preserve 99 .99% of the variance spectrum. The MAP problem is formulated in the latent space of y defined by KY coefficients of KLE and solved using the L-BFGS algorithm. The likelihood in the MAP is computed using the FNO surrogate, which is also used in the L-DPS+FNO model. Table 3 reports relative errors in the KLE-MAP and L-DPS+FNO inverse solutions for the three priors. The inverse solutions are obtained with Nobs = 128 observations with γ = 0 .01 -noise added. We find that for all considered cases, L-DPS solutions are more accurate than KLE-MAP solutions. The gap between the two solution errors is smallest for the Gaussian prior (10%) and largest for the binary prior, at 33%. This comparison indicates that the latent diffusion model provides an effective representation of the prior structure and that the KLE Gaussian approximation can introduce significant errors, especially for the binary prior, despite using many KL terms (29 for the Gaussian prior versus 3912 for the binary prior). 20 A PREPRINT - J UNE 26, 2026 Table 3: Relative errors in the KLE-MAP and L-DPS+FNO inverse solutions for three prior distributions of y. For each prior, errors are computed for 500 test samples and reported as the mean error ± standard deviation. The inverse solutions are obtained with Nobs = 128 observations with γ = 0 .01 -noise added. Also reported are the number of KLE terms, KY , and the relative difference in the KLE-MAP and L-DPS+FNO errors.                               
+
+> Prior KYKLE-MAP rel. ℓ2L-DPS+FNO rel. ℓ2Gap Single-scale Gaussian (CL = 0 .2)29 0.048 ±0.017 0.044 ±0.012 10%
+> Multi-scale Gaussian 23 0.045 ±0.019 0.036 ±0.008 26%
+> Binary 3912 0.140 ±0.034 0.105 ±0.028 33%
+
+5.10 Robustness to non-Gaussian and mixed parameter fields 
+
+In Section 5.9, we presented inverse solutions for three different parameter priors obtained with the “problem-specific” L-DPS+FNO models. In that section, three L-DPS+FNO models were trained, one for each prior distribution. Our results show that the errors in the inverse solutions are higher for the non-Gaussian binary prior than for the Gaussian priors with single-scale and multiscale covariances. However, we found that L-DPS+FNO solutions for the non-Gaussian prior are more accurate than the KLE-MAP solutions, where a non-Gaussian prior is approximated with a Gaussian prior. In this section, we train a foundational L-DPS+FNO model on prior samples, combining samples from the three distributions described in Section 5.9. Once trained, the foundational L-DPS+FNO model provides an inverse solution given measurements of u without specifying which of the three priors are associated with these measurements. Figure 8 presents results of L-DPS+FNO models trained separately for each of the three prior distributions as described in Section 5.9. Specifically, Figure 8 shows the reference y fields, inverse L-DPS+FNO solutions, and the point errors in the inverse solutions for the three prior distributions. The shown solutions are for the test cases with median errors across 500 test samples for each prior. Table 4 reports the average relative ℓ2 errors over 500 test samples. Figure 9 presents the inverse solutions obtained from the foundational L-DPS+FNO model obtained for the same sets of u measurements (i.e., for the same test samples) as in Figure 8. Table 4 summarizes average ℓ2 errors in the problem-specific and foundational solutions for each of the parameter distributions. Table 4: L-DPS+FNO inverse relative ℓ2 error at Nobs = 128 , γ = 0 .01 across the three priors.         
+
+> Prior Problem-specific L-DPS+FNO Foundational L-DPS+FNO Single-scale (baseline) 0.044 0.099
+> Multi-scale 0.036 0.052
+> Binary 0.105 0.149
+
+Overall, the foundational L-DPS model remains competitive across the three prior families, but it does not uniformly match the accuracy of prior-specific models. For the multi-scale Gaussian prior, the loss of accuracy relative to the prior-specific model is modest, whereas for the single-scale Gaussian and binary priors the mixed-prior model produces larger errors. Nevertheless, the mixed-prior model can be applied without identifying the prior class at inference time and remains comparable to, or better than, the KLE-MAP baseline for the non-Gaussian binary case. These results suggest that a single mixed-prior diffusion model can provide a practical general-purpose inverse model, although prior-specific training remains preferable when the parameter-field family is known. 21 A PREPRINT - J UNE 26, 2026 
+
+Figure 8: Inverse reconstructions at Nobs = 128 , γ = 0 .01 for three priors. Rows from top to bottom: Single-scale Gaussian, multi-scale Gaussian, Non-Gaussian binary. Columns from left to right: reference yref , L-DPS+FNO estimate ˆyL−DP S , and point errors ˆyL−DP S − yref . Solutions are shown for the test cases corresponding to the median 
+
+ℓ2 errors. 22 A PREPRINT - J UNE 26, 2026 
+
+Figure 9: Inverse reconstructions at Nobs = 128 , γ = 0 .01 from a single L-DPS+FNO model trained on a mixed dataset. Rows correspond to the three source priors; the model is not told which prior a test sample came from. 23 A PREPRINT - J UNE 26, 2026 
+
+5.11 Computational efficiency 
+
+Table 5 summarizes the per-sample inference cost (i.e., time to generate one sample of inverse solution from its posterior distribution) and the corresponding inverse error of the models considered in this work, including L-DPS+FNO, L-DPS+ViT, L-DPS+DeepONet, full-space DPS+FNO, CLDM, and InvFNO. The models are compared for the baseline setting (single-scale Gaussian parameter prior, Nobs = 256 , and γ = 0 .01 ). L-DPS+FNO takes about one minute per sample and produces an inverse error of 0.022 . The full-space DPS requires about five minutes for comparable accuracy. Amortized methods are much faster at inference time: both CLDM and InvFNO achieve a solution in less than 0.071 
+
+second per sample. However, both these methods have higher inverse solution errors. Also, amortized methods must be retrained whenever the number of measurements changes. Table 5: Inference cost and inverse error at Nobs = 256 , γ = 0 .01 . Timings are per sample computed on one A100-class GPU.                                    
+
+> Method Inverse relative ℓ2Time/sample Needs retraining per Nobs ?L-DPS+FNO (ours) 0.022 ∼1min No L-DPS+ViT 0.016 ∼1min No L-DPS+DeepONet 0.032 ∼0.5min No Full-space DPS+FNO 0.023 ∼5min No CLDM 0.038 ∼0.07 sYes Sparse InvFNO 0.039 <0.01 sYes
+
+# 6 Conclusions 
+
+We proposed L-DPS, an approximate Bayesian framework for posterior-guided inversion of high-dimensional coefficient fields in PDE models. The method combines a variational autoencoder to construct a compact latent representation of the parameter field, an unconditional latent diffusion model to learn an implicit prior score in this latent space, and a differentiable neural surrogate to evaluate likelihood-gradient guidance without repeated calls to the full numerical PDE solver. Posterior-guided sampling is performed directly in the learned latent space using a normalized, noise- and density-adaptive guidance update. We evaluated L-DPS on the inverse Darcy flow problem with an unknown spatially distributed permeability field inferred from sparse and noisy pressure observations. The results show that L-DPS provides accurate and robust inverse solutions across a range of measurement counts and noise levels. Compared with full-space DPS, L-DPS achieves comparable accuracy for noiseless observations and improved accuracy under noisy observations, while reducing the per-sample inference time by approximately a factor of five. L-DPS also outperforms the amortized inverse baselines considered here, including conditional latent diffusion and inverse FNO, particularly in sparse and noisy regimes where applying likelihood guidance at inference time is beneficial. We further compared L-DPS with the KLE-MAP baseline, in which the parameter field is represented by a Karhunen– Loève expansion and the latent prior is approximated as Gaussian. L-DPS gives lower inverse errors for all three prior classes considered. The improvement is modest for the single-scale Gaussian prior, where KLE-MAP is well matched to the prior structure, but becomes larger for the multi-scale Gaussian and binary priors. These results indicate that learning the latent prior score with a diffusion model can improve posterior-guided inversion beyond what a Gaussian latent-prior approximation can. We also assessed the impact of surrogate model accuracy by comparing FNO, ViT, and DeepONet surrogates within the same L-DPS pipeline. The inverse error increases monotonically with the forward error of the surrogate, while different surrogate architectures with comparable forward accuracy lead to comparable inverse accuracy. This indicates that, within the range of models tested, the quality of the surrogate approximation is more important than the surrogate architecture itself. Finally, we investigated a mixed-prior, or foundational, L-DPS model trained on samples from multiple parameter-field families. This model can be applied without specifying which prior class generated a given test case. Although prior-specific L-DPS models remain more accurate when the test prior is known, the mixed-prior model retains competitive accuracy across Gaussian and binary prior classes. This suggests that a single latent diffusion prior trained on heterogeneous parameter samples can provide a practical general-purpose inverse model, reducing the need to train a separate diffusion prior for each parameter distribution. Several limitations remain. The numerical study focuses on single-sample posterior-guided reconstruction rather than full posterior uncertainty quantification, and all reported inversions use S = 1 . In addition, the accuracy of L-DPS 24 A PREPRINT - J UNE 26, 2026 depends on the quality of the VAE representation and the differentiable surrogate, and the posterior guidance remains approximate because it uses the Tweedie plug-in likelihood, surrogate replacement of the PDE solver, and finite-step stabilized reverse diffusion. Extending the framework to larger posterior ensembles, time-dependent multiphysics models, and adaptive surrogate refinement is a natural direction for future work. 
+
+# 7 Acknowledgements 
+
+This research was supported by CUSSP (Center for Understanding Subsurface Signals and Permeability), an Energy Earthshot Research Center funded by the U.S. Department of Energy (DOE), Office of Science under FWP 81834, and the SRI (Strategic Research Initiative) Program at the UIUC’s Grainger College of Engineering. 
+
+# References 
+
+[1] Yang Song et al. Score-based generative modeling through stochastic differential equations. ICLR , 2021. [2] Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Björn Ommer. High-resolution image synthesis with latent diffusion models. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 10684–10695, 2022. [3] Hyungjin Chung et al. Diffusion posterior sampling for general noisy inverse problems. ICLR , 2023. [4] Zhao Feng, Bicheng Yan, Luanxiao Zhao, Xianda Shen, Renyu Zhao, Wenhao Wang, and Fengshou Zhang. Surgin: Surrogate-guided generative inversion for subsurface multiphase flow with quantified uncertainty. arXiv preprint arXiv:2509.13189 , 2025. [5] Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffusion probabilistic models. NeurIPS , 2020. [6] Hyungjin Chung, Jeongsol Kim, Michael T Mccann, Marc L Klasky, and Jong Chul Ye. Diffusion posterior sampling for general noisy inverse problems. arXiv preprint arXiv:2209.14687 , 2022. [7] Bahjat Kawar, Michael Elad, Stefano Ermon, and Jiaming Song. Denoising diffusion restoration models. Advances in neural information processing systems , 35:23593–23606, 2022. [8] Patrick Esser, Robin Rombach, and Bjorn Ommer. Taming transformers for high-resolution image synthesis. In 
+
+Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 12873–12883, 2021. [9] Aditya Ramesh, Mikhail Pavlov, Gabriel Goh, Scott Gray, Chelsea Voss, Alec Radford, Mark Chen, and Ilya Sutskever. Zero-shot text-to-image generation. In International conference on machine learning , pages 8821–8831. Pmlr, 2021. [10] Yifei Zong and Alexandre M Tartakovsky. Vae-dnn: Energy-efficient trainable-by-parts surrogate model for parametric partial differential equations. arXiv preprint arXiv:2508.03839 , 2025. [11] Jiaming Song, Chenlin Meng, and Stefano Ermon. Denoising diffusion implicit models. arXiv preprint arXiv:2010.02502 , 2020. [12] Liav Hen, Tom Tirer, Raja Giryes, and Shady Abu-Hussein. Robust posterior diffusion-based sampling via adaptive guidance scale. arXiv preprint arXiv:2511.18471 , 2025. [13] Rayhan Zirvi, Bahareh Tolooshams, et al. Diffusion state-guided projected gradient for inverse problems. In 
+
+International Conference on Learning Representations , volume 2025, pages 31217–31242, 2025. 25 A PREPRINT - J UNE 26, 2026 
+
+# A Hyperparameters 
+
+Table 6 lists the hyperparameters of the VAE, Table 7 those of the latent UNet diffusion prior, and Table 8 those of the three surrogate architectures used in this work. All models are trained with the Adam optimizer, a cosine learning-rate schedule, and early stopping on the validation loss. Unless noted otherwise, training uses a single A100-class GPU. Inversion-time hyperparameters are summarized in Table 9. Table 6: VAE hyperparameters. 
+
+Parameter Value Input shape 1 × 128 × 128 
+
+Latent shape 4 × 16 × 16 
+
+Base channels 64 
+
+β (KL weight) 10 −6
+
+Parameters (M) 4.0
+
+Optimizer Adam Learning rate 10 −4
+
+Batch size 32 
+
+Epochs (max) 5000 
+
+Early-stopping patience 200 
+
+Table 7: Latent UNet diffusion prior hyperparameters. 
+
+Parameter Value Input/output shape 4 × 16 × 16 
+
+Backbone 2D UNet (attention at 8 × 8)Base channels 64 
+
+Parameters (M) 5.3
+
+Diffusion steps ( T ) 1000 
+
+Noise schedule Linear, β ∈ [10 −4, 2×10 −2]
+
+Optimizer Adam Learning rate 2×10 −4 (cosine) Batch size 64 
+
+Epochs (max) 5000 
+
+Early-stopping patience 250 
+
+Table 8: Surrogate hyperparameters. 
+
+Parameter FNO ViT DeepONet Parameters (M) 4.2 6.0 1.3
+
+Input κ field κ field κ field + query grid Output Pressure field Pressure field Pressure field Modes / patches / branch width 12 modes 8 × 8 patches 128 
+
+Layers 4 6 4 (branch), 4 (trunk) Optimizer Adam Adam Adam Learning rate 10 −3 (cosine) 10 −3 (cosine) 10 −3 (cosine) Batch size 32 32 32 
+
+Epochs (max) 5000 5000 5000 
+
+Early-stopping patience 200 200 200 
+
+26 A PREPRINT - J UNE 26, 2026 Table 9: Inversion-time hyperparameters. 
+
+Parameter Value Reverse diffusion sampler DDIM Number of reverse steps 1000 
+
+Guidance weight ζ(η, γ ) ζmax = 0 .5, ζmin = 0 .04 , c = 38 
+
+Gradient normalization ℓ2 (global) Ensemble size S = 1 (no ensembling) 
+
+27
