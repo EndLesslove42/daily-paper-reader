@@ -1,0 +1,1054 @@
+Title: Physics-Informed Neural Networks for coupled stiff transport systems
+
+URL Source: https://arxiv.org/pdf/2606.21236v1
+
+Published Time: Tue, 23 Jun 2026 00:41:52 GMT
+
+Number of Pages: 21
+
+Markdown Content:
+# Physics-Informed Neural Networks for coupled stiff transport systems 
+
+Laetitia Laguzet ∗ Gabriel Turinici †
+
+March 1, 2026 
+
+Abstract Purpose Physics-Informed Neural Networks (PINNs) struggle with stiff, regime-changing transport equations due to instability, loss im-balance, and violations of physical consistency. This paper investi-gates these failures through the Marshak wave equations — a canon-ical benchmark from radiative transport — where initial and bound-ary conditions differ by up to 12 orders of magnitude, and proposes targeted modifications to the standard PINN framework to overcome them. 
+
+Design/methodology/approach Three modifications are intro-duced: (1) a ScaledSigmoid final activation enforcing physical bounds and positivity of the unknowns; (2) a logarithmic MSE loss replac-ing the standard quadratic loss for initial and boundary conditions, enabling training across extreme scale disparities; and (3) explicit en-forcement of global conservation laws derived from the governing equa-tions as an additional physics loss term. Monte Carlo sampling with exponential time weighting is used throughout. 
+
+Findings The proposed framework successfully recovers the Mar-shak wave dynamics - including the hot, cold, and wave-front regions -in agreement with a reference Implicit Monte Carlo solution, with run times under 30 minutes. Ablation studies confirm that each ingredi-ent is essential: linear activation, absence of the logarithmic loss, or 
+
+> ∗
+
+CEA-DAM-DIF, F-91297 Arpajon, France, Latitia.Laguzet@cea.fr,ORCID 0009-0000-9655-0880 
+
+> †
+
+CEREMADE, Université Paris Dauphine - PSL, Paris 75116, Paris, France; Gabriel.Turinici@dauphine.fr, https://turinici.com, ORCID 0000-0003-2713-006X 
+
+1 
+
+> arXiv:2606.21236v1 [physics.comp-ph] 19 Jun 2026 removal of the PDE term each independently cause the method to fail qualitatively.
+> Originality/value This work identifies and resolves three concrete failure modes of standard PINNs on stiff hyperbolic systems with non-linear coupling. The combination of bounded activations, scale-aware loss functions, and conservation law enforcement constitutes a novel and practically validated framework, with applicability to radiative transport and other coupled stiff PDE systems in engineering.
+
+## 1 Motivation 
+
+Physics-Informed Neural Networks (PINN) are a class of neural networks designed to integrate physical laws directly into the learning process allowing to learn solutions that automatically respect those underlying equations. By embedding prior knowledge in the form of governing equations, PINN enable the modeling and prediction of complex physical systems even when available data are limited or incomplete. For such systems, the governing equations (typically ordinary or partial differential equations), together with initial and boundary conditions, are enforced as soft constraints in the training objective. PINN were introduced by Raissi et al. [1] and have since found applica-tions in physics, engineering, and fluid mechanics, in particular for solving partial differential equations (PDEs) and other dynamical systems [2]. In fluid dynamics, PINN have been applied to canonical and complex flows governed by the Navier–Stokes equations, including laminar and transitional or moderately turbulent regimes, as well as advection–diffusion–reaction sys-tems [3, 4]. Their ability to incorporate boundary conditions and other phys-ical constraints is especially valuable in regimes where experimental or high-fidelity simulation data are scarce. Beyond forward simulations, PINN are particularly well suited for inverse problems, where unknown physical parameters, source terms, or constitutive relations must be identified from partial and noisy observations while preserv-ing physical consistency [5]. This capability makes them attractive for data assimilation, system identification, and optimization tasks in multi-physics settings. PINN can also serve as physics-consistent surrogate models for uncer-tainty quantification and rapid evaluation of parameter-dependent PDEs, 2offering advantages over purely data-driven surrogates, particularly in ex-trapolative or data-scarce regimes [6]. Recent research increasingly focuses on improving the robustness and scal-ability of PINN for multiscale and stiff problems, for which standard formu-lations often fail [7]. Active research directions include adaptive loss balanc-ing strategies, domain decomposition approaches, physics-informed operator learning frameworks such as DeepONets and neural operators, and hybrid methods combining classical numerical solvers with PINN components [8, 9]. Parallel efforts in Bayesian PINN and uncertainty quantification aim to pro-vide calibrated predictions and stronger theoretical guarantees, reinforcing the role of PINN as reliable tools in scientific computing [6, 2]. 
+
+1.1 Our case and short literature review 
+
+Within this ongoing effort we focus in this contribution on stiff transport equations that proved to be challenging for the usual implementations of PINN. There are not many use cases of PINN for transport equations similar to the ones we are interested in stiff, regime changing evolution; among those, Wang et al. [10] discuss a case of neutron transport (and also eigenvalue-type cases) and introduce the "conservative PINN" (cPINN), working in particular on interface conditions between subdomains in a specific way; they mention that imposing boundary conditions is very delicate (see Section 3.3); however, the constants make their regime still different and less dynamic than ours (see next section). On the other hand Liang et al. [11] focus on conservative-form equations, whether time-dependent or not, and note that PINN have difficulties finding good solutions; they explicitly mention the case of quotient-type equations (such as ours, where one unknown quantity divides another) where they state they cannot provide a solution because it is physically inconsistent. Motivated by the same empirical remarks, [12], written by one of the inventors of the method, observe that the terms of the loss functional L(·) in (7)-(8) are very fragile to optimize together and that care must be taken in choosing the best coefficients cϕ, cic , cbc to use in (7)-(8). In this general context we propose in this work some adaptations to the PINN framework that are necessary to solve stiff, regime-changing transport equations. With respect to the existing literature we introduce specific ac-tivation functions, a logarithmic MSE loss to treat the initial and boundary conditions, and explicitly include conservation laws in the loss functional. 3The balance of the paper is as follows: we present in Section 2 the main notations for PINN and in Section 3 the Marshak equations. The method-ology including the original modifications to PINN framework is presented in Section 4; the numerical results are the object of Section 5 followed by concluding remarks in Section 6. 
+
+## 2 PINN notations 
+
+PINN (Physics-Informed Neural Networks) rely on the use of a multi-layer neural network to approximate a function u(t, x ) that satisfies the following constraints: 
+
+• it solves some ordinary differential equation (ODE) or partial differen-tial equation (PDE), 
+
+• has associated initial conditions and boundary conditions, 
+
+• is coherent with (possibly partial) measurements within the domain or other observations, 
+
+• certain specific constraints like positivity, conserved quantities and so on. Let θ be the set of parameters of the neural network that will construct the approximation of the function u; we designate uθ this approximation; more precisely, the NN takes as input a generic couple (t, x ) and outputs a real number (or vector) uθ(t, x ) as in Figure 1, that we hope close to the real solution u(t, x ).Let a general PDE be given in the form: 
+
+F[u]( t, x ) = 0 , x ∈ X , t ∈ [0 , T ], (1) where F is the differential operator describing the physics of the problem and X the spatial domain, PINN aim to minimize a loss function defined as follows: 
+
+L = Ldata + Lphysics , (2) where: 4• Ldata represents the error with respect to observed data: initial condi-tions, boundary conditions, other measurements or observations; the discrepancy between the network predictions and the training data is measured, for example, via the mean squared error; this is where boundary or initial conditions are taken into account (see [13] for a more structural approach to these conditions). 
+
+• Lphysics enforces that the solution u(t, x ) satisfies the physical laws described by Fu. For instance, assume we look for the solution of 
+
+∂tu + a∂ xu = 0 ; with previous notations: 
+
+F[u]( t, x ) = ∂tu(t, x ) + a∂ xu(t, x ). (3) and the equation error is 
+
+fθ(t, x ) := F[uθ]( t, x ) = ∂tuθ(t, x ) + a∂ xuθ(t, x ). (4) In the continuous version, the term Lphysics could contain: 
+
+Lphysics =
+
+Z
+
+> X
+
+Z T
+
+> 0
+
+∥fθ(t, x )∥2 dt dx + (other similar terms) (5) whereas in the discrete version, it contains, for example, the error of the differential equation evaluated at collocation points ti, x i:
+
+Ldiscrete physics = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+∥fθ(ti, x i)∥2 + (other similar terms) , (6) The term Ldiscrete physics may also contain some other terms that describe impor-tant physical laws of the evolution system. Putting together all the parts, the PINN solution is the minimizer of the following function (we disregard smoothness conditions for now) : 
+
+L(θ) := cϕ
+
+Z
+
+> X
+
+Z T
+
+> 0
+
+fθ(t, x )2dtdx + (other similar terms) 
+
+| {z }
+
+> Lphysics
+
+(7) 
+
++ cic · L ic (uθ(0 , x ), ξ (x)) + cbc · L bc (uθ(t, x ), u bc (t, x )) 
+
+| {z }
+
+> Ldata
+
+, (8) 5where cϕ, cic et cbc are positive constants that translate relative optimization priorities of the three parts of the loss functional L(·).The loss functions in (8) convey the requirement that uθ(0 , x ) needs to be close to ξ(x) (initial condition) and uθ(t, x ) to ubc (t, x ) (boundary conditions); popular candidates are the mean square integrals: 
+
+LL2 
+
+> ic
+
+(uθ(0 , x ), ξ (x)) = 
+
+Z
+
+> D
+
+(uθ(0 , x ) − ξ(x)) 2dx (9) 
+
+LL2 
+
+> bc
+
+(uθ(t, x ), u bc (t, x )) = 
+
+Z 
+
+> [0 ,T ]×∂D
+
+(uθ(t, x ) − ubc (t, x )) 2dxdt, (10) but other choices can be made. The original reference [1] is highly cited in the numerical modeling and computational physics literature. Several extensions have been proposed to address certain limitations of the initial formulation. For example, among the most recent ones, PIKANs propose an extension beyond classical neural networks, see the recent article [14]. Here we present a first approach for the case of coupling a transport equation with another physical measurement. 
+
+2.1 Neural network component of PINN 
+
+PINN rely on neural networks to approximate the solution u(t, x ) of the dif-ferential equation. The neural network is composed of multiple layers, using suitable nonlinear activation functions (for example, “ReLU3” or “ tanh ”) to capture complex structures in the data. The role of the network is twofold: to approximate the unknown solution u(t, x ) in terms of the input variables (for example, spatial coordinates x and temporal coordinates t) and to di-rectly integrate the physical laws into the optimization process via the loss function. The PINN approach leverages the fact that neural networks are imple-mented in libraries such as TensorFlow (Keras), PyTorch, etc., which pro-vide automatic differentiation, i.e., the ability to automatically compute the derivative of any function coded within the library. Moreover, it has been shown that neural networks are sufficiently expressive to approximate any desired function. 6t
+
+> x
+> ...
+> ...
+> ...
+
+u
+
+> Neural Network to train
+
+Figure 1: Illustration of a neural network generating the solution as a function (to be learned) of the inputs. The advantage is that standard “deep learning” libraries can easily compute the derivatives of the output with respect to the inputs and also with respect to the network parameters. 
+
+## 3 Stiff hyperbolic systems: the Marshak wave example 
+
+Although PINN were seen to obtain good results in general, the situation of non-linear coupling of PDEs has not been previously treated, especially for stiff hyperbolic systems. Interested by a Marshak wave application, we will consider in this work the following PDE system, see [15, 16, 17, 18, 19, 20]: 
+
+∀ t ≤ T, x ∈ X , ω ∈ Ω : 1
+
+c ∂t ˜u(t, x, ω ) + ω∇x ˜u(t, x, ω ) + ˜cσ
+
+˜T 3(t, x ) ˜u(t, x, ω ) = ˜ csb ˜T (t, x ) (11) 
+
+˜cv∂t ˜T (t, x ) = ˜cσ
+
+˜T 3(t, x )⟨˜u⟩(t, x ) − ˜csb ˜T (t, x ), ∀t ≤ T, x ∈ X (12) 
+
+˜T (t = 0 , x ) = ˜Tinit , ∀x ∈ X (13) 
+
+˜T (t, x = xmin ) = ˜Tlef tbct , ∀t ≤ T (14) 
+
+˜u(t = 0 , x, ω ) = ˜ uinit , ∀x ∈ X , ω ∈ Ω (15) 
+
+˜u(t, x max , ω ) = ˜ uinit , ∀t ≤ T, ω ∈ Ω (16) 
+
+˜u(t, x min , ω ) = ˜ ulef tbcu , ∀ω ∈ Ωx, (17) with the constants in the Table 1, and where 7• for any ψ:
+
+⟨ψ(t, x )⟩ := Eω uniform over Ω[ψ(t, x, ω )] . (18) 
+
+• the spatial domain is X = [ xmin , x max ]
+
+• the time domain is t ∈ [0 , T ]
+
+• ω ∈ Ω designates propagation directions; using the SN formalism (see [21]) we will take Ω to be : 
+
+ΩN = {ωk = cos(2 πk/N ); k = 0 , ..., N − 1}. (19) When the number of directions is implicitly known we will just write 
+
+Ω instead of ΩN .
+
+• ∂X = {xmin , x max } is the boundary of X
+
+• ∂Ωx is the set of directions that enter X at the point x of its border: 
+
+Ωx = {ω ∈ Ω : ⟨ω, x ⟩ ≥ 0}. (20) 
+
+• the functions ˜u(x, t, ω ) and ˜T (x, t ) ∈ R are the unknowns; often we write ˜u(x, t ) ∈ RN to designate the vector (˜ u(x, t, ω )) ω∈ΩN ;
+
+• the Equations (13)-(17) specify the initial and boundary conditions; the dynamics is generated by entering particles through the left boundary; we suppose the right boundary is far enough such that the wave front does not reach it before T .One of the difficulties of this setting lies in the difference of 12 orders of magnitude between the boundary conditions ˜ulef tbcu and the initial conditions 
+
+˜uinit for ˜u.
+
+Remark 1. Note that boundary and initial conditions for ˜u are incoherent, i.e., there are discontinuous at t = 0 , x = xmin where the t = 0 side is of order 10 −12 while the x = xmin side is of order 1. This loss of continuity is expected for such stiff transport equations and will make the task of the NN difficult because it has to fit both data. 
+
+Remark 2. With respect to standard Marshak formulas [15, 16, 17] we oper-ated as rescaling on the usual intensity and temperature variables. To obtain the standard variables denoted u, and T , use the relations: 
+
+u = ˜ u · 10 −3 , T = 10 · ˜T . (21) 8xmin 0(cm) xmax 0.5 (cm) 
+
+T 1 (ns) N 7c 30 (cm/ns) ˜cσ 468 ( cm −1 · M K 3)
+
+˜csb 84.465 ( g · cm −1 · ns −3) ˜cv 2.585   gcm ·ns 2·M K 
+
+
+
+˜Tinit 1.1604 · 10 −3 (MK) ˜Tlef tbct 1.1604 (MK) 
+
+˜uinit 0.3272382 · 10 −12 ˜ulef tbcu 0.3272382 
+
+nneurons 32 nbatch 1024 · 8
+
+ncons 10 nM onteCarlo 1000 
+
+vmin for ˜u 0.999 · ˜uinit (fixed) vmax for ˜u 1.001 · ˜ulef tbcu (fixed) 
+
+vmin for ˜T 0.999 · ˜Tinit (fixed) vmax for ˜T 1.001 · ˜Tlef tbct (fixed) 
+
+ccons 1 cϕ 10 2 for ˜u, 10 2 for ˜Tcic 10 5 cbc 10 5
+
+λ 1/T T {1ns, 5ns, 10 ns }
+
+niter 10 ,000 optimizer Adam 
+
+ϵL 10 −14 
+
+Table 1: Values and units used in the numerical simulation of the propagation of a Marshak-type wave in an opaque medium, reference case. 
+
+## 4 Methodology 
+
+Let us now describe to the PINN implementation in detail and the insights into the construction of an efficient NN architecture. 
+
+4.1 Network architecture 
+
+First note that here we have two unknowns, ˜u(t, x ) ∈ RN and ˜T (t, x ) ∈ R;a first architecture decision is whether one should create a single network that outputs ˜u jointly with ˜T . In this case the input size would be 2 (one dimension for t and other for x) and the output N +1 . The alternative would be to have two disjoint networks, one for u and the other for T .The advantage of having one network is simplicity but also that ˜u and ˜T
+
+share some common features learned in the initial layers of the network. After some preliminary numerical tests (not shown here) we concluded that, even if the possibility of having two distinct networks may enhance the results for some parameter values, the critical advancements come from other choices so we retain the option of having a common trunk network followed for 9Input: (t, x )shape (N one, 2)      
+
+> Polynomial embedding degree 2
+> Dense layer
+> nneurons
+> tanh
+> Dense layer
+> nneurons
+> tanh
+> Dense layer
+> Noutputs Activation →˜u
+> Dense layer
+> nneurons
+> tanh
+> Dense layer 1 output Activation →˜T
+
+Figure 2: Actual architecture of the neural network. 
+
+both u and T by a specific part. As it is classic in PINN we also added an embedding, here a polynomial embedding of order 2 which means that the input t, x is transformed into a vector t, x, t 2, tx, x 2; combined with a fully connected architecture this gives the layout (see Figure 2): 1. Network structure: input of size (None, 2), (’None’ is a placeholder for the batch size) followed by a polynomial of degree 2 embedding and a dense layer with nneurons , ‘tanh’ activated; the output of this layer is then feed to two different networks: (a) a linear, tanh activated layer with nneurons , followed with another layer with N dimensional output which after activation, discussed below, provides the u vector (b) a linear, tanh activated layer with nneurons , followed with an-other layer with one-dimensional output which after activation, discussed below, provides the T value a dense layer with N + 1 dimensional output; the final activation func-tion is described below; according to standard conventions, ‘None’ rep-resents the batch size, which during prediction depends on the user’s request. 2. ’batch size‘ nbatch = 1024 · 8; we have also tested with 256 and 1024, as one can imagine, more the better; the value 256 seems to be the minimum required to obtain qualitatively coherent solutions. 10 3. the computation of the integrals in the loss function (7)-(8) is done by Monte Carlo sampling. For the PDE residuals we used uniform sam-pling in x and exponential truncated sampling (see [22, 23]) simulated as: 
+
+− 1
+
+λ log 1 − U · (1 − e−λT ) , U = uniform law on [0 , 1] . (22) where λ > 0 is the rate parameter of the truncated exponential distri-bution (value in Table 1); the choice λ = 1 /T concentrates sampling near t = 0 , where the solution varies most rapidly. For other losses (the boundary condition loss, initial condition, ...) we used uniform sampling over relevant domains. See Table 1 for various parameter values. Let us discuss the final activation. 1. Tanh activation: the canonical choice of the ’tanh’ activation is in-valid here because ’tanh’ cannot represent values outside [−1, 1] which are required by the boundary data for ˜T ;2. No activation (also called ’linear’ activation) This activation has the drawback of producing values that can be negative, which do not comply with the physical interpretation of ˜u and ˜T . Moreover, dividing by ˜T 3 can become very unstable if it crosses zero (or is around it). Therefore, during convergence it is necessary to use activations that guarantee positivity. This is not surprising, since we are dealing with intensities and temperatures. See Figure 7 for numerical results. 3. ReLU family To address the positivity constraint, one option would be to use the famous ReLU function ReLU (x) = x+ except that its sec-ond derivative vanishes almost everywhere so one cannot obtain mean-ingful information for PDE loss. As an alternative, proposals in the literature include its powers: ReLU2 (x) = ( ReLU )2(x), ReLU3 (x) = (ReLU )3(x). Some possible variations include ’SafeSoftplus’, SafeSoftplus (x) = 1
+
+βSSP 
+
+log  1 + exp( βSSP x) + ϵSSP (23) parameterized by ϵSSP > 0 and βSSP > 0. Nevertheless, the results for these functions appeared less satisfactory compared to the next choice. 11 4. ScaledSigmoid: the previous choices do not prevent ˜u or ˜T from tak-ing very small values, which causes instabilities; similarly, very large values slow down learning. We therefore looked for activations with output within a prescribed range. In particular we noted that a renor-malized sigmoid has good practical properties: ScaledSigmoid (x) = vmin + ( vmax − vmin ) · 11 + e−x . (24) This activation takes values in ]vmin , v max [1. Note that one or both parameters vmin and vmax can be learned by the algorithm; in practice, we know that our system satisfies the maximum principle and thus 
+
+˜u ∈ [˜ uinit , ˜ulef tbcu ]N and ˜T ∈ [ ˜Tinit , ˜Tlef tbct ] so we use this information but we could also let vmin / vmax to be learnable. See Table 1 for initial values. 
+
+4.2 Loss function (I): log MSE loss 
+
+As discussed before, one difficulty for this problem comes from the large parameter range, with initial values of order 10 −12 and boundary values of order 10 0. In this case just fitting the boundary and initial data is very difficult. In practice a quadratic loss will only fit 10 0 values and will have a huge relative order for the 10 −12 regime. Our original proposal comes from the idea that we need to have training information on a logarithmic scale, so we looked for a loss function with derivative involving the logarithm of the relative error of the current value with respect to the target. To this end we introduce a MSE logarithmic loss. It is defined for positive vectors x and y as: 
+
+DlogMSE (x ∥ y) = X
+
+> i
+
+[log( |xi| + ϵL) − log( |yi| + ϵL)] 2 , (25) with ϵL a very small constant (see Table 1) that ensures the logarithm has finite value. The following loss function formulation is used for both initial and boundary conditions instead of definitions in (10): 
+
+LDlogMSE  
+
+> ic
+
+(uθ(0 , x ), ξ (x)) = 
+
+Z
+
+> D
+
+DlogMSE (uθ(0 , x ), ξ (x)) dx (26) 
+
+LDlogMSE  
+
+> bc
+
+(uθ(t, x ), u bc (t, x )) = 
+
+Z 
+
+> [0 ,T ]×∂D
+
+DlogMSE (uθ(t, x ), u bc (t, x )) dxdt, (27)     
+
+> 1We recover the classical sigmoid function for vmin = 0 ,vmax = 1 .
+
+12 4.3 Loss function (II): Conservation laws 
+
+Note that the system (11)-(17) admits a conservation law that can be found in the following way; first take the average over ω of ˜u(t, x, ω ) then sum up all equations; the terms ˜cσ  
+
+> ˜T3(t,x )
+
+⟨˜u⟩(t, x ) and ˜csb ˜T (t, x ) will cancel out and we obtain: 
+
+1
+
+c ∂t⟨˜u⟩(t, x ) + ⟨ω∇x ˜u⟩(t, x ) + ˜ cv∂t ˜T (t, x ) = 0 . (28) Now integrate over [xmin , x max ] × [0 , t ] to obtain: 
+
+1
+
+c
+
+Z xmax 
+
+> xmin
+
+⟨˜u⟩(t, x ) − ⟨ ˜u⟩(0 , x )dx +
+
+Z t
+
+> 0
+
+⟨ω˜u⟩(τ, x max ) − ⟨ ω˜u⟩(τ, x min )dτ 
+
++ ˜ cv
+
+Z xmax 
+
+> xmin
+
+˜T (t, x ) − ˜T (0 , x )dx = 0 . (29) If we consider now that the value xmax has been chosen large enough such that on the right border there is still equilibrium i.e. ˜u(t, x max ) = ˜ uinit and denote eω the average over the entrant directions 
+
+eω = 1
+
+N
+
+X
+
+> k
+
+ωk · 1ωk ≥0 (30) we obtain 
+
+∀t ≤ T : Cons (˜ u, ˜T , t ) = 0 , (31) where 
+
+Cons (˜ u, ˜T , t ) := 1
+
+c
+
+Z xmax 
+
+> xmin
+
+(⟨˜u⟩(t, x ) − ˜uinit )dx + ˜ cv
+
+Z xmax 
+
+> xmin
+
+( ˜T (t, x ) − ˜Tinit )dx 
+
++ eω · t · (˜ uinit − ˜ulef tbcu ) + 1
+
+N
+
+X 
+
+> ω∈ΩN,ω< 0
+
+Z t
+
+> 0
+
+ω · (˜ uinit − ˜u(τ, x min , ω )) dτ. 
+
+(32) The conservation laws convey an important part of the system’s physics. As such we included it in the Lphysics loss part (see Equation (8)). In practice we take ncons time instants t1, ..., tncons equally distributed between T / 100 
+
+and T and add to Lphysics the average of all square conservation law errors 
+
+Cons (˜ u, ˜T , t k)2. The integrals in (32) are computed through a Monte Carlo sampling (each integral has nM onteCarlo equally spaced samples) and the over-all result was multiplied with a coefficient ccons as the other terms in (8) (value in Table 1). 13 0.0 0.1 0.2 0.3 0.4 0.5 
+
+> x
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> 1.2
+> T( ,  x)
+> Implicit MC t=1.0ns
+> Implicit MC t=5.0ns
+> Implicit MC t=10.0ns
+
+Figure 3: Reference solution for the problem (11)-(17) obtained by the Im-plicit Monte Carlo method [24, 25]. For this method the x grid is spaced by 
+
+∆x = 0 .05 cm and the time step is ∆t = 2 × 10 −1 ns. We see that the Mar-shak wave reaches x ∼ 0.03 cm by 1ns , ∼ 0.08 cm by 5ns and ∼ 0.12 −0.14 cm 
+
+by 10 ns .
+
+## 5 Numerical results 
+
+The main output of the Marshak wave computation is the temperature evo-lution ˜T ; it is known, see [15, 16, 17, 18, 19, 20], that, in the t, x space, the temperature dependence can be divided in several regions: 
+
+• a ’cold’ region where the previous equilibrium is still in place, i.e. ˜u ∼
+
+uinit and ˜T (t, x ) ∼ ˜Tinit ;
+
+• a ’hot’ region where the new equilibrium is observed i.e. ˜u ∼ ulef tbcu 
+
+and ˜T (t, x ) ∼ ˜Tlef tbct ;
+
+• a transitory region between the two, called the ’wave front’. The quality of the simulation is given by the presence of these three regions and, if possible, by a good estimation of the propagation speed of the ’wave front’. Such a dynamics is seen in Figure 3. We will plot the profiles ˜T (tℓ, x )
+
+with tℓ ∈ T taken as representative time instants, see Table 1 for values. The result in Figure 3 will be considered to be the reference solution. 14 0.0 0.1 0.2 0.3 0.4 0.5            
+
+> x
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> 1.2
+> Profiles
+> T(x,t= 1.0 ns )
+> T(x,t= 5.0 ns )
+> T(x,t= 10 ns )0.0 0.1 0.2 0.3 0.4 0.5
+> Space x
+> 0
+> 2
+> 4
+> 6
+> 8
+> 10
+> Time t
+> T
+> 0.00
+> 0.15
+> 0.30
+> 0.45
+> 0.60
+> 0.75
+> 0.90
+> 1.05
+> 1.20
+
+Figure 4: Execution result after niter = 10 k iterations using the Adam opti-mizer (learning rate and other parameters are PyTorch defaults). Left: the Marshak profiles at different time instances. Right: the complete ˜T evolu-tion, time is the ordinate. We note that the t, x space is clearly separated in three regions: ’hot’ (yellow), ’wave’ (red) and ’cold’ (blue). 
+
+5.1 Nominal results 
+
+We present in Figure 4 the numerical results for our procedure. We observe that the results are completely coherent with the reference in Figure 3; more-over the Marshak wave and its regions are perfectly clear on the figure. We also plot in Figure 5 some of the previous iterates; we see that some work is done in order to stabilize the estimations of the Marshak wave but once the solution is found it is stable (despite inherent oscillations present in a stochastic search algorithm). Overall we interpret this result as positive because of the correct qualita-tive results; the total run time is less than 30 minutes which is competitive with alternatives (finite differences or Implicit Monte Carlo method [24, 25]); moreover the procedure arrives to handle correctly the 11 orders of magnitude difference between the term ˜u of order 10 0 and ˜cσ  
+
+> ˜T3(t,x )
+
+of order 10 11 .As mentioned before, the initial and boundary conditions are key for obtaining good solutions; to attest on the good agreement with these re-quirements we plot in Figure 6 the initial and boundary conditions for the solution in Figure 4. 15 0.0 0.1 0.2 0.3 0.4 0.5 
+
+x
+
+0.1 
+
+0.2 
+
+0.3 
+
+0.4 
+
+0.5 
+
+0.6 
+
+0.7 
+
+0.8 
+
+Profiles 
+
+T(x, t = 1.0 ns )
+
+T(x, t = 5.0 ns )
+
+T(x, t = 10 ns )0.0 0.1 0.2 0.3 0.4 0.5 
+
+x
+
+0.0 
+
+0.1 
+
+0.2 
+
+0.3 
+
+0.4 
+
+0.5 
+
+0.6 
+
+0.7 
+
+0.8 
+
+Profiles 
+
+T(x, t = 1.0 ns )
+
+T(x, t = 5.0 ns )
+
+T(x, t = 10 ns )0.0 0.1 0.2 0.3 0.4 0.5 
+
+x
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+1.2 
+
+Profiles 
+
+T(x, t = 1.0 ns )
+
+T(x, t = 5.0 ns )
+
+T(x, t = 10 ns )0.0 0.1 0.2 0.3 0.4 0.5 
+
+x
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+1.2 
+
+Profiles 
+
+T(x, t = 1.0 ns )
+
+T(x, t = 5.0 ns )
+
+T(x, t = 10 ns )Figure 5: Convergence evolution for the result in Figure 4; we plot the profiles for 3k, 5k, 8k and ultimately 10 k iterations. 0.0 0.2 0.4 
+
+x
+
+10 9
+
+10 6
+
+10 3
+
+10 0
+
+u1(t = 0, x)
+
+numerical 
+
+exact 
+
+0.0 0.2 0.4 
+
+x
+
+10 9
+
+10 6
+
+10 3
+
+10 0
+
+u2(t = 0, x)
+
+numerical 
+
+exact 
+
+0.0 0.2 0.4 
+
+x
+
+10 9
+
+10 6
+
+10 3
+
+10 0
+
+u3(t = 0, x)
+
+numerical 
+
+exact 
+
+0.0 0.2 0.4 
+
+x
+
+10 9
+
+10 6
+
+10 3
+
+10 0
+
+u4(t = 0, x)
+
+numerical 
+
+exact 
+
+0.0 0.2 0.4 
+
+x
+
+10 9
+
+10 6
+
+10 3
+
+10 0
+
+u5(t = 0, x)
+
+numerical 
+
+exact 
+
+0.0 0.2 0.4 
+
+x
+
+10 9
+
+10 6
+
+10 3
+
+10 0
+
+u6(t = 0, x)
+
+numerical 
+
+exact 
+
+0.0 0.2 0.4 
+
+x
+
+10 9
+
+10 6
+
+10 3
+
+10 0
+
+u7(t = 0, x)
+
+numerical 
+
+exact 
+
+0.0 0.2 0.4 
+
+x
+
+10 9
+
+10 6
+
+10 3
+
+10 0
+
+u8(t = 0, x)
+
+numerical 
+
+exact 
+
+0.0 0.2 0.4 
+
+x
+
+10 3
+
+10 2
+
+10 1
+
+T(t = 0, x)
+
+numerical 
+
+exact 
+
+0.0 0.2 0.4 
+
+x
+
+0.5 
+
+1.0 
+
+1.5 
+
+2.0 
+
+T(t = tmax , x)
+
+profile at Tmax 0 5 10 
+
+Time t 
+
+10 3
+
+10 2
+
+10 1
+
+10 0
+
+T(t, x = 0.0) 
+
+numerical 
+
+exact 
+
+0 5 10 
+
+Time t 
+
+10 9
+
+10 6
+
+10 3
+
+10 0
+
+u1(t, x = 0.0) 
+
+numerical 
+
+0 5 10 
+
+Time t 
+
+10 9
+
+10 6
+
+10 3
+
+10 0
+
+u2(t, x = 0.0) 
+
+numerical 
+
+0 5 10 
+
+Time t 
+
+10 9
+
+10 6
+
+10 3
+
+10 0
+
+u3(t, x = 0.0) 
+
+numerical 
+
+0 5 10 
+
+Time t 
+
+10 9
+
+10 6
+
+10 3
+
+10 0
+
+u4(t, x = 0.0) 
+
+numerical 
+
+0 5 10 
+
+Time t 
+
+10 9
+
+10 6
+
+10 3
+
+10 0
+
+u5(t, x = 0.0) 
+
+numerical 
+
+exact 
+
+0 5 10 
+
+Time t 
+
+10 9
+
+10 6
+
+10 3
+
+10 0
+
+u6(t, x = 0.0) 
+
+numerical 
+
+exact 
+
+0 5 10 
+
+Time t 
+
+10 9
+
+10 6
+
+10 3
+
+10 0
+
+u7(t, x = 0.0) 
+
+numerical 
+
+exact 
+
+0 5 10 
+
+Time t 
+
+10 9
+
+10 6
+
+10 3
+
+10 0
+
+u8(t, x = 0.0) 
+
+numerical 
+
+exact 
+
+Figure 6: Initial conditions and left boundary conditions for the result in Figure 4; excellent agreement is obtained. The target values are those with legend ’exact’. Top row of plots: ˜uk(t = 0 , x ) k = 1 , N followed by ˜T (t =0, x ). Bottom row: ˜uk(t, x = xmin ) k = 1 , ..., N followed by ˜T (t, x = xmin ).When direction ωk is not entering the domain, no boundary condition is to be imposed so no target value is plotted. 16 0.0 0.1 0.2 0.3 0.4 0.5 
+
+x
+
+0.40 
+
+0.45 
+
+0.50 
+
+0.55 
+
+0.60 
+
+Profiles 
+
+T(x, t = 1.0 ns )
+
+T(x, t = 5.0 ns )
+
+T(x, t = 10 ns )0.0 0.1 0.2 0.3 0.4 0.5 
+
+x
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+1.2 
+
+Profiles 
+
+T(x, t = 1.0 ns )
+
+T(x, t = 5.0 ns )
+
+T(x, t = 10 ns )Figure 7: Same as Figure 4 except that in each case we take out a single ingredient. Left: we use ’linear’ activation; the profiles are clearly not correct; Right: no PDE (i.e. cϕ = 0 ). 0.0 0.2 0.4                                                                   
+
+> x
+> 10 9
+> 10 6
+> 10 3
+> 10 0
+> u1(t= 0, x)
+> numerical
+> exact
+> 0.0 0.2 0.4
+> x
+> 10 9
+> 10 6
+> 10 3
+> 10 0
+> u2(t= 0, x)
+> numerical
+> exact
+> 0.0 0.2 0.4
+> x
+> 10 9
+> 10 6
+> 10 3
+> 10 0
+> u3(t= 0, x)
+> numerical
+> exact
+> 0.0 0.2 0.4
+> x
+> 10 9
+> 10 6
+> 10 3
+> 10 0
+> u4(t= 0, x)
+> numerical
+> exact
+> 0.0 0.2 0.4
+> x
+> 10 9
+> 10 6
+> 10 3
+> 10 0
+> u5(t= 0, x)
+> numerical
+> exact
+> 0.0 0.2 0.4
+> x
+> 10 9
+> 10 6
+> 10 3
+> 10 0
+> u6(t= 0, x)
+> numerical
+> exact
+> 0.0 0.2 0.4
+> x
+> 10 9
+> 10 6
+> 10 3
+> 10 0
+> u7(t= 0, x)
+> numerical
+> exact
+> 0.0 0.2 0.4
+> x
+> 10 9
+> 10 6
+> 10 3
+> 10 0
+> u8(t= 0, x)
+> numerical
+> exact
+> 0.0 0.2 0.4
+> x
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+> T(t= 0, x)
+> numerical
+> exact
+> 0.0 0.2 0.4
+> x
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> T(t=tmax ,x)
+> profile at Tmax
+
+Figure 8: Left boundary conditions when replacing the MSE log loss with mean square error. It is seen that, even after 50 ,000 iterations there is no agreement between the exact and numerical conditions on the left border, with 6 orders of magnitude mismatch for ˜u and 1.5 for ˜T ; compare with Figure 6. Obtaining accurate initial conditions is very difficult in this case. 
+
+5.2 Ablation studies: linear activation, no PDE, no MSE log loss 
+
+We start now a series of comparisons to illustrate the necessity of our main ingredients: the specific activation we use and MSE log loss. The results are presented in Figure 7. We see that the linear activation is not able to understand the physics of the problem and the solution is not only due to the conservation laws because when eliminating the PDE term the solution becomes unstable. Finally, we see in Figure 8 that the lack of MSE log term deteriorates the precision on the initial/ boundary conditions. 17 6 Conclusion 
+
+In this work we addressed the challenging case of stiff, regime-changing trans-port equations within the PINN framework, using the Marshak wave equation as a representative benchmark. By combining bounded, positivity-preserving activations, a logarithmic MSE loss to handle extreme scale disparities, and the explicit enforcement of global conservation laws, we obtained stable and physically consistent solutions where standard PINN formulations fail. The numerical results and ablation studies indicate that these ingredients are not merely incremental refinements but play a central role in capturing the correct dynamics of the coupled hyperbolic system. Starting solely from the governing PDEs and associated conservation laws, the proposed PINN frame-work is able to recover key physical phenomena, such as the Marshak wave, without prior knowledge of the solution structure or ad hoc modifications of the network architecture. The results thus establish a proof of concept on a canonical stiff transport problem and provide a foundation for future extensions to more general geometries and parameter regimes. 
+
+## References 
+
+[1] M. Raissi, P. Perdikaris, and G. E. Karniadakis, “Physics-informed neu-ral networks: A deep learning framework for solving forward and inverse problems involving partial differential equations,” Journal of Computa-tional Physics , vol. 378, pp. 686–707, 2019. [2] G. E. Karniadakis, I. G. Kevrekidis, L. Lu, P. Perdikaris, S. Wang, and L. Yang, “Physics-informed machine learning,” Nature Reviews Physics ,vol. 3, no. 6, pp. 422–440, 2021. [3] L. Sun, H. Gao, S. Pan, and J. Wang, “Surrogate modeling for fluid flows based on physics-constrained deep learning without simulation data,” 
+
+Computer Methods in Applied Mechanics and Engineering , vol. 361, p. 112732, 2020. [4] A. D. Jagtap, K. Kawaguchi, and G. E. Karniadakis, “Adaptive ac-tivation functions accelerate convergence in deep and physics-informed neural networks,” Journal of Computational Physics , vol. 404, p. 109136, 2020. 18 [5] M. Raissi, P. Perdikaris, and G. E. Karniadakis, “Hidden physics models: Machine learning of nonlinear partial differential equations,” Journal of Computational Physics , vol. 357, pp. 125–141, 2018. [6] L. Yang, X. Meng, and G. E. Karniadakis, “B-pinns: Bayesian physics-informed neural networks for forward and inverse pde problems with noisy data,” Journal of Computational Physics , vol. 425, p. 109913, 2021. [7] S. Wang, Y. Teng, and P. Perdikaris, “When and why pinns fail to train: A neural tangent kernel perspective,” Journal of Computational Physics ,vol. 449, p. 110768, 2022. [8] L. Lu, P. Jin, G. Pang, Z. Zhang, and G. E. Karniadakis, “Learning nonlinear operators via deeponet based on the universal approximation theorem of operators,” Nature Machine Intelligence , vol. 3, no. 3, pp. 218–229, 2021. [9] Z. Li, N. Kovachki, K. Azizzadenesheli, B. Liu, K. Bhattacharya, A. Stu-art, and A. Anandkumar, “Fourier neural operator for parametric partial differential equations,” arXiv preprint arXiv:2010.08895 , 2021. [10] J. Wang, X. Peng, Z. Chen, B. Zhou, Y. Zhou, and N. Zhou, “Surrogate modeling for neutron diffusion problems based on conservative physics-informed neural networks with boundary conditions enforcement,” 
+
+Annals of Nuclear Energy , vol. 176, p. 109234, 2022. [Online]. Available: https://www.sciencedirect.com/science/article/pii/S0306454922002699 [11] H. Liang, Z. Song, C. Zhao, and X. Bian, “Continuous and discontinuous compressible flows in a converging–diverging channel solved by physics-informed neural networks without exogenous data,” 
+
+Scientific Reports , vol. 14, no. 1, p. 3822, Feb. 2024. [Online]. Available: https://doi.org/10.1038/s41598-024-53680-2 [12] S. Wang, Y. Teng, and P. Perdikaris, “Understanding and Mitigating Gradient Flow Pathologies in Physics-Informed Neural Networks,” 
+
+SIAM Journal on Scientific Computing , vol. 43, no. 5, pp. A3055– A3081, 2021. [Online]. Available: https://doi.org/10.1137/20M1318043 [13] L. Lu, R. Pestourie, W. Yao, Z. Wang, F. Verdugo, and S. G. Johnson, “Physics-informed neural networks with hard 19 constraints for inverse design,” SIAM Journal on Scientific Computing ,vol. 43, no. 6, pp. B1105–B1132, 2021. [Online]. Available: https://doi.org/10.1137/21M1397908 [14] J. D. Toscano, V. Oommen, A. J. Varghese, Z. Zou, N. A. Daryakenari, C. Wu, and G. E. Karniadakis, “From PINNs to PIKANs: Recent advances in physics-informed machine learning,” 2024. [Online]. Available: https://arxiv.org/abs/2410.13228 [15] R. E. Marshak, “Effect of radiation on shock wave behavior,” Physics of Fluids , vol. 1, no. 1, pp. 24–29, 1958. [16] R. G. McClarren and R. B. Lowrie, “The effects of slope limiting on asymptotic-preserving numerical methods for hyperbolic conservation laws,” Journal of Computational Physics , vol. 227, no. 23, pp. 9711– 9726, 2008. [17] L. Laguzet and G. Turinici, “The Quantization Monte Carlo method for solving radiative transport equations,” 
+
+Journal of Quantitative Spectroscopy and Radiative Trans-fer , vol. 329, p. 109178, 2024. [Online]. Available: https://www.sciencedirect.com/science/article/pii/S0022407324002851 [18] J. Fu, W. Li, P. Song, and Y. Wang, “An Asymptotic-Preserving IMEX Method for Nonlinear Radiative Transfer Equation,” Journal of Scientific Computing , vol. 92, no. 1, p. 27, Jun. 2022. [Online]. Available: https://doi.org/10.1007/s10915-022-01870-3 [19] W. Sun, S. Jiang, and K. Xu, “An asymptotic preserving unified gas kinetic scheme for gray radiative transfer equations,” Journal of Computational Physics , vol. 285, pp. 265–279, 2015. [Online]. Available: https://www.sciencedirect.com/science/article/pii/S0021999115000121 [20] T. Xiong, W. Sun, Y. Shi, and P. Song, “High or-der asymptotic preserving discontinuous galerkin methods for gray radiative transfer equations,” Journal of Computational Physics , vol. 463, p. 111308, 2022. [Online]. Available: https://www.sciencedirect.com/science/article/pii/S0021999122003709 [21] B. Carlson and G. Bell, “Solution of the transport equation by the Sn method,” Los Alamos Scientific Lab., N. Mex., Tech. Rep., 1958. 20 [22] G. Turinici, “Optimal Time Sampling in Physics-Informed Neural Net-works,” in Pattern Recognition , A. Antonacopoulos, S. Chaudhuri, R. Chellappa, C.-L. Liu, S. Bhattacharya, and U. Pal, Eds. Cham: Springer Nature Switzerland, 2025, pp. 218–233. [23] ——, “Regime-aware time weighting for physics-informed neu-ral networks,” Journal of Computational and Applied Math-ematics , vol. 473, p. 116858, 2026. [Online]. Available: https://www.sciencedirect.com/science/article/pii/S0377042725003723 [24] A. B. Wollaber, “Four decades of implicit Monte Carlo,” Journal of Computational and Theoretical Transport , 02 2016. [Online]. Available: https://www.osti.gov/biblio/1255843 [25] J. Fleck and J. Cummings, “An implicit Monte Carlo scheme for calculating time and frequency dependent non-linear radiation transport,” Journal of Computational Physics ,vol. 8, no. 3, pp. 313–342, 1971. [Online]. Available: https://www.sciencedirect.com/science/article/pii/0021999171900155 21
