@@ -1,0 +1,489 @@
+Title: Attention mechanism for scalable mesh-based neural surrogates of free-surface fluids
+
+URL Source: https://arxiv.org/pdf/2606.23251v1
+
+Published Time: Tue, 23 Jun 2026 03:41:53 GMT
+
+Number of Pages: 25
+
+Markdown Content:
+# ATTENTION MECHANISM FOR SCALABLE MESH -BASED NEURAL SURROGATES OF FREE -SURFACE FLUIDS 
+
+A P REPRINT 
+
+Federico Lanteri 1,∗, Massimiliano Cremonesi 11Department of Civil and Environmental Engineering, Politecnico di Milano Piazza Leonardo da Vinci, 32, 20133, Milano, Italy 
+
+> ∗
+
+federico.lanteri@polimi.it 
+
+June 23, 2026 
+
+# ABSTRACT 
+
+High-fidelity simulations of free-surface flows using Lagrangian methods such as the Particle Finite Element Method (PFEM) are computationally intensive due to the need to continuously update the computational domain and solve the underlying governing equations. This challenge is further amplified in the presence of non-Newtonian rheologies, where material nonlinearities can significantly increase computational cost. These limitations motivate the development of efficient surrogate models capable of approximating the evolution of PFEM simulations at a reduced computational expense. While data-driven deep learning approaches are promising, a key challenge lies in designing models that can effectively operate on arbitrary and evolving geometries. In this work, we propose a self-attention-based neural surrogate for PFEM simulations of free-surface flows. The proposed architecture leverages attention mechanism to model interactions between nodes to capture complex spatial dependencies. At the same time, it preserves the underlying PFEM discretization, which provides a geometric and topological framework for remeshing and node redistribution. This helps in preserving good quality spatial discretization and geometrical representation during rollouts, enhancing long-term stability, and enables the reconstruction of derived mechanical quantities through standard finite element operators. Two attention formulations are investigated: a standard self-attention variant and a linear attention variant designed to alleviate the computational limitations of standard attention and improve scalability to larger problem sizes. The proposed models are evaluated on representative two- and three-dimensional free-surface flow benchmarks involving evolving geometries, varying material parameters, and non-Newtonian flu-ids. The results demonstrate accurate prediction of both transient dynamics and final free-surface configurations, while significantly improving scalability to large problem sizes. Furthermore, the mesh-based formulation enables the reconstruction of derived mechanical quantities, such as stress fields, directly from the predicted solution. Overall, the proposed framework provides an accurate and scalable surrogate modeling strategy for PFEM simulations of free-surface flows, enabling the application of data-driven Lagrangian surrogates to engineering-scale problems involving evolving geometries. 
+
+Keywords Attention mechanism · Linear attention · Surrogate model · Free surface flows · Particle Finite Element Method (PFEM) 
+
+# 1 Introduction 
+
+Free-surface flows are characterized by the presence of a moving interface between a fluid and the surrounding air. More generally, many fluid mechanics problems involve interfaces whose position evolves in time, including multiphase flows, where the interface separates immiscible fluids, and fluid–structure interaction (FSI) problems, where the fluid interacts with deformable solid bodies. In these problems, the interface evolves dynamically as a result of the underlying 
+
+> arXiv:2606.23251v1 [cs.CE] 22 Jun 2026
+
+Attention mechanism for scalable mesh-based neural surrogates of free-surface fluids fluid motion and its interaction with the surrounding media. Since the interface position is part of the unknown solution, the computational domain changes continuously in time, giving rise to highly transient configurations with complex evolving geometries. Such flows arise in a wide range of applications, including industrial processes, geotechnical engineering and natural hazards. The Particle Finite Element Method (PFEM) [ 1, 2] is a Lagrangian mesh-based technique specifically designed to address these challenges. The Lagrangian description offers several advantages, including the natural tracking of free surfaces and the elimination of nonlinear convective terms from the governing equations. However, in a Lagrangian approach, large deformations or displacements progressively deteriorate the computational mesh, compromising accuracy and stability. PFEM overcomes this limitation by equipping a standard Lagrangian finite element framework with an efficient re-meshing technique. Over the years, PFEM has been successfully applied to a broad range of problems, including landslides [ 3 ], geotechnical applications [ 4], non-Newtonian fluids [ 5, 6], multiphase flows [ 7], and fluid–structure interaction [ 8, 9, 10 ], as well as industrial processes such as glass forming [ 11 ] and 3D concrete printing [12]. Despite continuous advances in numerical algorithms, meshing strategies [ 13 ], and computational power, high-fidelity PFEM simulations remain extremely demanding. This is further complicated when modeling complex non-Newtonian fluid behavior, where material nonlinearities significantly complicate the convergence and increase computational cost. This has motivated the development of surrogate models that approximate the input–output behavior of the physical system, bypassing the need to solve computationally expensive Full-Order Models (FOMs). Projection-based Reduced-Order Models (ROMs), such as Proper Orthogonal Decomposition (POD) or Proper Generalized Decomposition (PGD), have shown remarkable results in many applications [ 14 ]. However, these methods typically assume a fixed computational domain throughout the parametric manifold of interest, and their extension to problems involving moving boundaries or evolving geometries is complex. The reduced basis must be continuously adapted to account for the domain deformation and topological changes, often requiring sophisticated mapping or domain-tracking strategies. In [15], a first attempt in this direction was presented, but it remains limited to relatively simple cases. Deep learning surrogate models provide an attractive alternative in this context, as modern architectures have demon-strated strong capabilities in handling arbitrary and time-evolving geometries [ 16 ]. Several approaches have been proposed to learn the dynamics of physical systems directly from simulation data. Among these, Graph Neural Networks (GNNs) have emerged as a powerful framework for learning the dynamics of physical systems [ 17 , 18 ], particularly in the context of meshfree, particle-based simulations [ 19 , 20 , 21 ]. In these formulations, particles are typically represented as nodes carrying physical quantities (e.g., position, velocity, pressure), while edges, defined through fixed-radius neighborhoods, encode pairwise interactions through message passing operations. These approaches learn the time evolution of the system in an autoregressive manner and have demonstrated strong predictive capabilities across a wide range of applications, including granular flows in geotechnics [22] and molecular dynamics [23]. While effective, particle-based GNN surrogates incur significant computational and memory costs. A key limitation stems from the local nature of message passing: information is exchanged only between neighboring nodes at each layer, requiring multiple message-passing steps to propagate information across the computational domain. In [ 24 ], it is shown that for parabolic and elliptic systems, a sufficient number of message passing steps is required to propagate information across the entire domain, with the required depth depending on mesh topology and the geometry of the domain. This requirement becomes particularly challenging in large-scale three-dimensional simulations, where each node interacts with many neighbors and the resulting graph contains a very large number of edges. Consequently, both memory consumption and computational cost increase rapidly with problem size. In addition, autoregressive graph-based surrogates are known to be sensitive to error accumulation, which can progressively degrade predictive accuracy during long-term rollouts. Mesh-based surrogates offer significant advantages over purely meshless approaches by directly exploiting the compu-tational mesh as an underlying interaction structure. A representative example is NeuralPFEM [ 25 ], which operates by exploiting the mesh connectivity naturally available in PFEM simulations both in training and prediction. At inference, on unseen cases, the mesh is reconstructed using the same efficient meshing algorithm employed in the numerical solver. This strategy enables the use of established PFEM tools for mesh quality preservation and field interpolation, helping maintain a uniform node distribution and improving robustness during long autoregressive rollouts. Although mesh-based connectivity generally yields fewer edges than particle-based neighborhood searches, the explicit storage of edge embeddings and the repeated application of message-passing operations remain a significant memory bottleneck, limiting scalability to large engineering problems. To address the scaling limitations of graph-based models, neural surrogate architectures based on attention mechanisms have recently emerged as a promising alternative. Originally introduced for sequence modeling in natural language processing [ 26 ], attention mechanisms have since demonstrated strong performance across a wide range of domains, including computer vision [ 27 ] and computational biology [ 28 ]. By leveraging attention, these models compute 2Attention mechanism for scalable mesh-based neural surrogates of free-surface fluids interactions in a data-adaptive manner, without requiring the explicit construction, storage, or update of a fixed graph structure. Attention-based architectures have been investigated for surrogate modeling [ 29 , 30 , 31 , 32 ]. However, most existing studies focus on fixed-domain or weakly deforming fluid problems, while applications to free-surface flow problems [ 33 , 34 ] and non-Newtonian fluids [ 35 ] remain relatively scarce. In this work, we propose a novel strategy to integrate an attention-based neural surrogate within a mesh-based Lagrangian framework, mitigating the memory bottlenecks associated with GNN-based formulations while preserving the advantages of a dynamically evolving mesh representation. In contrast to GNNs, where interactions are explicitly defined through graph connectivity, attention mechanisms model interactions through weights computed from dot products between node embeddings. This allows the network to learn spatial correlations adaptively, without relying on predefined neighborhood structures, explicit edge features, or multiple message-passing iterations to propagate information across the domain. As a result, the memory overhead associated with edge embeddings is eliminated. Moreover, since the model does not explicitly depend on edge lengths, it is not tied to a specific mesh resolution and can therefore better accommodate discretizations that differ from those used during training, as well as resolution changes arising from mesh adaptation. This reduces the sensitivity of the model to variations in inter-particle distances, which can become significant during autoregressive rollouts even for well-trained models. A well-known limitation of standard attention is its quadratic computational and memory complexity with respect to the number of nodes. Recent developments, such as FlashAttention [ 36 ], alleviate the memory bottleneck by reformulating attention computation to achieve linear memory complexity. Nevertheless, the computational cost remains quadratic, which can become prohibitive for large-scale simulations. To address this limitation, several recent works have proposed strategies to reduce the effective cost without altering the attention operator itself, enabling applications to larger problems [ 37 , 38 ]. An alternative approach is provided by linear attention mechanisms [ 39 , 40 ], which reformulate the attention operator so that the expensive pairwise interaction matrix is never explicitly constructed. By exploiting the associativity of matrix multiplication and removing or approximating the softmax normalization, the computation can be reorganized to achieve linear complexity with respect to the number of nodes. We evaluate the proposed architecture through a comparative study against a GNN baseline, considering both standard and linear attention variants. The assessment focuses on predictive accuracy, computational cost, and memory footprint across representative free-surface flow benchmarks. In addition to geometric variability, these benchmarks incorporate variations in material properties, with particular emphasis on the model’s ability to accurately capture and reproduce the dynamical response of non-Newtonian fluids. The results show that attention-based NeuralPFEM models achieve competitive predictive performance while reducing computational and memory requirements and improving scalability. These characteristics make attention-based architectures a promising alternative for scalable surrogate modeling of large-scale PFEM simulations. 
+
+# 2 Mathematical modeling and numerical approximation 
+
+The numerical framework employed to perform the simulations and generate the datasets was originally presented in [ 6], where it was validated against two- and three-dimensional benchmarks involving free-surface flows of Newtonian and non-Newtonian fluids. Governing equations and modeling assumptions are briefly recalled below. 
+
+2.1 Governing equations 
+
+We consider the motion of a homogeneous, incompressible fluid governed by the Navier–Stokes equations, which express the conservation of momentum and mass: 
+
+ρ dv
+
+dt = ∇x · σ + ρb in Ωt × [0 , T ], (1) 
+
+∇x · v = 0 in Ωt × [0 , T ], (2) where ρ is the fluid density, v = v(x, t ) is the velocity field, p = p(x, t ) is the pressure field, σ = σ(x, t ) is the Cauchy stress tensor, b is the vector of the external accelerations and d(•) 
+
+> dt
+
+= ∂(•) 
+
+> ∂t x
+
++ c · ∇ x(•) represents the total time derivative, with c being the convective velocity. The Cauchy stress tensor σ can be decomposed into a volumetric and a deviatoric part: 
+
+σ = −pI + τ , (3) 3Attention mechanism for scalable mesh-based neural surrogates of free-surface fluids where I is the identity tensor and τ denotes the deviatoric stress tensor. The latter is related to the deviatoric strain rate tensor D = 12 (∇xv + ∇xvT) through a rheological law of the form: 
+
+τ = 2 ηeff (D)D, (4) where ηeff denotes the effective viscosity. For Newtonian fluids, ηeff is constant, yielding a linear relationship between stress and strain rate. In contrast, non-Newtonian fluids exhibit a non-linear dependence of the deviatoric stress on the strain rate. A particularly important class of such materials is described by the Bingham model, which captures the behavior of viscoplastic fluids. Bingham materials are characterized by the presence of a yield stress τ0. The material behaves as a rigid body when the applied shear stress is below τ0, and flows as a viscous fluid once this threshold is exceeded. This behavior is representative of a wide range of natural and industrial flows, including mudflows, debris flows and fresh concrete. The constitutive law for a Bingham fluid can be expressed as: 
+
+
+
+D = 0, if |τ | ≤ τ0,
+
+τ =
+
+
+
+τ0
+
+D
+
+|D| + 2 μD
+
+
+
+, if |τ | > τ 0, (5) where | · | denotes the second invariant of the deviatoric tensor, and μ is the plastic viscosity, defining the slope of the stress–strain rate curve in the yielded regime. The discontinuous nature of the Bingham law and the sharp fluid-to-solid transition, may lead to numerical instabilities. To facilitate numerical solution, the rheological law is regularized through an exponential viscosity model [41]. 
+
+2.2 Space and time discretizations 
+
+In the numerical framework adopted in this work, Navier–Stokes equations are solved using the Finite Element Method (FEM). The continuum domain is discretized with a finite element mesh employing standard Galerkin shape functions. Since PFEM relies on frequent remeshing, linear shape functions are employed to simplify the interpolation and transfer of field variables between successive meshes. It is worth noting that this choice, which employs shape functions of the same order for both velocity and pressure fields, violates the Ladyzhenskaya–Babuška–Brezzi (LBB) stability condition. To address this limitation, the present framework incorporates a Pressure Stabilizing Petrov–Galerkin (PSPG) formulation [ 42 ], enabling the stable use of equal-order velocity–pressure approximations. Time discretization is then performed by subdividing the time interval of interest into finite time steps ∆t and approximating derivatives using the implicit backward Euler scheme. This choice provides unconditional stability for the time integration scheme. Further details regarding the spatial and temporal discretization, as well as the solution of the resulting linearized algebraic system, can be found in [6]. 
+
+2.3 Particle Finite Element Method (PFEM) 
+
+The Particle Finite Element Method (PFEM) [ 43 , 2] combines a standard Lagrangian finite element formulation with an efficient remeshing strategy, enabling the simulation of problems characterized by large deformations and evolving free surfaces. The computational domain is initially discretized using a finite element mesh, on which the discretized Navier–Stokes equations are solved. The resulting velocity field is then used to update the mesh nodes according to the Lagrangian description. As the simulation progresses, large deformations may significantly deteriorate mesh quality, compromising numerical accuracy and stability. To address this issue, the mesh is periodically regenerated by preserving the nodal set while reconstructing the connectivity. The new mesh is obtained through a Delaunay triangulation of the nodes. The physical domain is subsequently reconstructed from the triangulation, typically using the α-shape technique [44], which identifies and removes the unphysical most distorted elements. As the nodes are advected with the flow, their spatial distribution gradually becomes non-uniform, with some regions exhibiting excessive nodal concentration and others suffering from insufficient resolution. This imbalance further degrades mesh quality and may affect numerical accuracy. To preserve an adequate nodal distribution throughout the simulation, several strategies have been proposed in the literature, including mesh smoothing techniques [ 45 ], adopted in the present framework, and mesh adaptation procedures [ 13 ]. These operations play an important role in maintaining a regular discretization of the domain and, as clarified later, will be particularly beneficial for long autoregressive surrogate simulations, where excessive node clustering may otherwise amplify prediction errors. 4Attention mechanism for scalable mesh-based neural surrogates of free-surface fluids 
+
+# 3 NeuralPFEM framework 
+
+Figure 1: A scheme of NeuralPFEM framework during the prediction phase. NeuralPFEM [ 25 ] is a mesh-based autoregressive Lagrangian neural surrogate designed to simulate free-surface fluid flows. As illustrated in Figure 1, the method retains the key components of the PFEM pipeline but replaces the most computationally expensive step, the solution of the discretized Navier–Stokes equations, with a learned model. More specifically, starting from a given configuration at time t, the fluid domain is represented by a set of nodes carrying physical quantities and connected through a mesh defining the domain geometry. The current state, including nodal positions, velocities, pressures, and material parameters, is provided as input to the deep learning architecture. The model predicts the physical state at the next time step t + ∆ t, effectively learning the time-advancing operator that, in PFEM, is obtained through the numerical solution of the governing equations. Once the new velocities are predicted, node positions are updated through a Lagrangian advection step, so that the mesh moves consistently with the flow. Because this motion can lead to mesh distortion, a remeshing procedure is periodically applied to restore mesh quality and maintain a suitable discretization of the domain. After remeshing, physical quantities are transferred or interpolated onto the new mesh before proceeding to the next step. The autoregressive formulation lies in the recursive use of the predicted state at t + ∆ t as input for subsequent steps, enabling the simulation of arbitrary temporal horizons. Training is carried out on pairs of consecutive states extracted from high-fidelity PFEM simulations, allowing the network to approximate the underlying time-advancing operator. A known limitation of autoregressive models is error accumulation [ 46 ]: small inaccuracies compound over successive steps, gradually driving the solution away from the true physical trajectory. In a Lagrangian framework, this effect is particularly pronounced because the system state is defined not only by physical variables (e.g., velocity, pressure), but also by the geometry itself, represented by node positions and mesh connectivity. Consequently, errors in the predicted dynamics directly induce errors in the geometry. Nodes may progressively move far from their correct locations, leading to incorrect spatial discretization and a degraded reconstruction of the domain shape. This issue becomes especially critical for models that rely on edge-based features, such as inter-nodal distances. During training, these distances are typically close to uniform due to the regularity of the discretization. However, as errors accumulate during rollout, the geometry can become increasingly irregular. Such configurations deviate significantly from those seen during training and therefore fall outside the model’s learned data distribution. When the model encounters these out-of-distribution states, its predictions become less reliable, further amplifying the error. This creates a loop in which inaccuracies in the dynamics degrade the geometry, and the degraded geometry, in turn, leads to increasingly inaccurate predictions. Several strategies have been proposed to mitigate these instabilities [ 47 ]. Noise injection during training, as adopted in the Graph Neural Simulator (GNS) [ 19 ], improves robustness while maintaining computational efficiency. An alternative is to exploit the stabilization mechanisms already embedded in the numerical frameworks. As shown in [ 25 ], remeshing and mesh adaptation procedures help preserve mesh quality and maintain a well-distributed set of nodes throughout the simulation. By periodically regenerating the mesh connectivity and redistributing nodes, while consistently interpolating the field variables onto the updated discretization, these operations limit node clustering. As a result, the occurrence of out-of-distribution configurations is reduced, mitigating error accumulation and improving the stability of long autoregressive rollouts. 5Attention mechanism for scalable mesh-based neural surrogates of free-surface fluids 
+
+3.1 Graph Neural Network architecture 
+
+Figure 2: A schematic of the GNN architecture during the prediction phase. The model leverages mesh connectivity to define graph edges. The encoder embeds node and edge features into a latent graph representation, after which the processor performs multiple message-passing steps. Finally, the decoder outputs the predicted physical quantities, and nodes are advected according to the resulting velocity field. Mesh-based surrogates typically rely on a Graph Neural Network (GNN) processor [ 48 , 49 ], a natural choice given that the finite element mesh inherently defines a graph over the fluid domain. Unlike purely particle-based Lagrangian surrogates, which dynamically construct graph connectivity by linking particles within a fixed interaction radius [ 19 , 20 ], the GNN-based NeuralPFEM exploits the existing mesh connectivity to define graph edges, avoiding the overhead of dynamic neighbor search and preserving the geometric structure of the discretization. The model follows an encoder–processor–decoder architecture, illustrated in Figure 2. To provide the network with short-term temporal information, node features fi ∈ Rm include a history of C consecutive velocity v and pressure p
+
+states: 
+
+fi =
+
+h
+
+v(t−C+1)  
+
+> i
+
+, . . . , v(t) 
+
+> i
+
+, . . . , p (t−C+1)  
+
+> i
+
+, . . . p (t)
+
+> i
+
+i
+
+. (6) where i ∈ { 1, . . . , N } denotes the node index, and N is the total number of nodes in the mesh. Additionally, other relevant nodal characteristics, such as material properties or boundary condition indicators, can be appended to this feature vector. Edge features eij ∈ Rq consist of the normalized relative distance vector between connected nodes i
+
+and j and its magnitude, providing the model with local geometric awareness: 
+
+eij =
+
+ xi − xj
+
+|xi − xj | , |xi − xj |
+
+
+
+. (7) The encoder maps node and edge features to latent representations f ∗ 
+
+> i
+
+∈ Rd and e∗ 
+
+> ij
+
+∈ Rd via independent multi-layer perceptrons (MLPs) ψn and ψe, respectively. d denotes the dimension of the latent space 1. The processor then applies 
+
+M message-passing blocks γ1, . . . , γ M , each updating node representations by aggregating transformed features from neighboring nodes and edges. Formally, at each block, the node representation is updated as 
+
+f ∗(k+1)  
+
+> i
+
+= γk
+
+f ∗(k) 
+
+> i
+
+, X 
+
+> j∈N (i)
+
+ϕk
+
+
+
+f ∗(k) 
+
+> i
+
+, f ∗(k) 
+
+> j
+
+, e∗
+
+> ij
+
+ , (8) where ϕk is a learnable message function, and N (i) is the set of neighbors of node i. Stacking M such blocks allows information to propagate across increasingly large neighborhoods, with the effective receptive field of each node growing with depth. Finally, the decoder ψd applies a nodewise MLP to map the processed latent representations to the predicted physical quantities — nodal velocities and pressures at the next time step — after which nodes are advected according to the predicted velocity field. 
+
+> 1For notational simplicity, we use a single symbol, although the dimensionality may differ for node and edge features.
+
+6Attention mechanism for scalable mesh-based neural surrogates of free-surface fluids 
+
+3.1.1 Challenges of GNN-based approaches 
+
+Despite its strong predictive performance, the GNN formulation carries a memory cost that scales unfavorably with problem size [ 50 ]. At each message-passing layer, the network must keep in memory the intermediate processed node features, edge features, and associated gradients for every node and every edge in the graph. As node counts grow with mesh resolution, edge counts scale aggressively as O(N · k), where k is the average number of neighbors per node. In three-dimensional unstructured meshes k can easily exceed ten, causing the edge count to exceed the node count by an order of magnitude. Since edge embeddings must be stored and updated at every message passing step, they constitute the dominant term in the memory budget. This cost is further amplified by the requirement of bidirectional message passing: each undirected mesh edge is represented as two directed edges, one in each direction, doubling the number of stored quantities. To perform backpropagation through M message passing steps, all intermediate node and edge activations must be retained during the forward pass to enable gradient computation via the chain rule, yielding a total memory cost that scales as O(M · (N + E) · d), where E is the number of directed edges and d the dimension of the latent space. Critically, the number of message passing M cannot be freely reduced to lower this cost without sacrificing predictive quality. As shown in [ 24 ], full propagation of information across the computational domain yields significantly improved performance. This behavior suggests that these data-driven operators benefit from a global receptive field, unlike numerical FEM solvers, where interactions are restricted to immediate neighbors. The value M for which this condition is satisfied, however, increases substantially with mesh resolution and domain extent, making this condition highly demanding in practice and generally feasible only in simple problems. Moreover, too many message passing steps in GNNs are known to lead to the undesired phenomenon of oversmoothing [ 51 ]. As the number of message-passing layers increases, node representations are repeatedly aggregated with those of their neighbors. While this promotes information propagation, it also progressively reduces the distinguishability of node features: embeddings tend to converge toward a common, low-variance representation across the graph. Beyond a certain depth, this loss of feature diversity counteracts the benefits of additional information propagation, leading to a saturation—or even degradation—of predictive performance. In practice, M is typically treated as a hyperparameter, selecting it empirically at the point where performance saturates and further depth yields diminishing returns, an optimal intermediate regime, where the receptive field is sufficiently large without incurring excessive smoothing A second limitation of GNN formulations is their dependence on a fixed mesh resolution [ 52 ]. In typical graph-based discretizations, edge features are constructed from normalized inter-nodal distances, which implicitly encode the characteristic element size of the training mesh. As a result, the model does not learn scale-invariant physical interactions, but rather relationships that are tied to a specific discretization length scale. When the model is applied to meshes with different resolutions, these geometric features no longer correspond to the same physical distances, leading to a mismatch between the learned representation and the underlying physics. Consequently, the mapping between edge features and physical interactions deteriorates, resulting in a loss of accuracy. This limits the transferability of the trained model and poses challenges for applications involving mesh adaptivity or multi-resolution discretizations. 
+
+3.2 Self-attention architecture 
+
+The memory bottleneck of the GNN processor is fundamentally rooted in its edge representations. As analyzed above, storing and updating edge embeddings across M message-passing layers constitutes the dominant term in the memory budget, and this cost cannot be relieved by reducing M without sacrificing the global receptive field required for accurate simulation. This motivates the search for an architecture that achieves global information propagation without relying on explicit edge representations. The self-attention mechanism offers a natural solution to this problem. In this section we propose a new architecture for the NeuralPFEM based on the self-attention mechanism. As established in [ 53 ], the self-attention mechanism can be interpreted as a message-passing operating on a fully connected graph: self-attention computes pairwise interactions between all nodes simultaneously, with the attention weights playing the role of learned, dynamic edge weights. Crucially, this graph-like communication is never explicitly instantiated as a set of edges. Both GNNs and self-attention aggregate pairwise node interactions into updated representations, but while the GNN is topologically constrained to communicate along mesh edges, self-attention learns from data alone which inter-node relationships are relevant. In our context, this reinterpretation carries a concrete practical implication with respect to the depth condition of [ 24 ]. Full domain-wide information propagation is achieved by self-attention in a single layer, since every node attends to every other node regardless of distance. To process the physical state, the proposed architecture employs the same node encoder and decoder structures detailed for the GNN architecture described in the previous Section, mapping the nodal history to latent representations and back to physical quantities. However, self-attention does not require an edge representation and therefore the edge 7Attention mechanism for scalable mesh-based neural surrogates of free-surface fluids encoder is removed, eliminating the dominant source of memory overhead. Spatial awareness is instead incorporated directly into the node representations via a dedicated positional encoding module, described in Section 3.2.3. This modification also reduces the dependence of the learned representation on the characteristic length scales of the training mesh. In the absence of explicit geometric edge features tied to a specific element size, attention-based models have been shown to be less sensitive to the characteristic length scale of the training mesh [29]. Although self-attention mechanisms do not inherently require an explicit connectivity structure between nodes, the PFEM mesh remains advantageous for several reasons. First, it provides a geometric and topological framework that enables consistent remeshing and node redistribution. In particular, the mesh defines elements with quantifiable quality metrics, which are essential for detecting mesh degradation and guiding corrective operations such as node insertion, removal, or repositioning. As demonstrated in [ 25 ], this is beneficial in maintaining a uniform spatial resolution during long autoregressive rollouts, enhancing stability over time. Second, the mesh supports the a posteriori evaluation of spatial derivatives through finite element shape functions. This allows the reconstruction of gradients and derived physical quantities, such as stresses or internal forces, in a manner consistent with the underlying discretization. Finally, retaining the mesh structure facilitates the development of hybrid approaches that combine the classical PFEM finite element solver with the neural surrogate model. In such frameworks, the surrogate can be selectively applied in regions of the domain or during time intervals where its predictions are sufficiently reliable, while the remaining computations are delegated to the numerical solver, thereby improving robustness and overall accuracy. The resulting architecture combines the global communication capabilities of attention mechanisms with the geometric and numerical advantages provided by the PFEM discretization. We consider two variants of the attention processor, differing in how pairwise interactions are computed: a standard softmax formulation and a linearized variant that reduces the quadratic complexity in the number of nodes. Both are described below. 
+
+3.2.1 Standard attention 
+
+Figure 3: Standard self-attention architecture during the prediction phase. Here, sm denotes the softmax function. The attention mechanism removes explicit edge representations, so the model operates on an unordered set of nodes rather than a graph structure. Because this makes the architecture geometrically agnostic, node coordinates are incorporated to provide positional information. The overall structure of standard self-attention NeuralPFEM is presented in Figure 3. Given the encoded node features f ∗ 
+
+> i
+
+∈ Rd, the processor begins by independently projecting each node representation as 
+
+qi = ϕQ(f ∗ 
+
+> i
+
+), ki = ϕK (f ∗ 
+
+> i
+
+), vi = ϕV (f ∗ 
+
+> i
+
+), (9) where ϕQ, ϕ K , ϕ V : Rd → Rd are three independent MLPs. These individual vectors are then stacked to form the query, key and value matrices Q, K, V ∈ RN ×d. The attention score between nodes i and j is computed as the scaled dot product of their respective query and key vectors. These scores are subsequently normalized across all target nodes 8Attention mechanism for scalable mesh-based neural surrogates of free-surface fluids 
+
+j via a softmax operation to produce the final attention weights: 
+
+sij = q⊤ 
+
+> i
+
+kj
+
+√d , αij = softmax j (sij ) = exp( sij )
+
+P 
+
+> j′
+
+exp( sij ′ ) . (10) The √d scaling factor ensures that dot products do not grow excessively large in magnitude as the embedding dimension increases; without it, the softmax function would be pushed into regions of near-zero gradients, destabilizing the training process. By definition, the softmax operation ensures that αij ≥ 0 and P 
+
+> j
+
+αij = 1 . This nonlinearity exponentially amplifies high-scoring pairs, encouraging the model to concentrate its attention on the most physically relevant nodes rather than distributing it uniformly across the computational domain. The updated representation of node i is then a weighted aggregation of all value vectors: 
+
+f ′ 
+
+> i
+
+=
+
+> N
+
+X
+
+> j=1
+
+αij vj . (11) The query–key interaction acts as a data-driven adaptive kernel measuring pairwise compatibility between nodes, which is then used to weight the aggregation of the value vectors representing the nodal quantities of the physical fields. The explicit computation of the N × N score matrix S = [ sij ] ∈ RN ×N is the source of the O(N 2d) complexity of standard attention. To avoid explicitly constructing this matrix in memory, which would introduce a quadratic memory cost and offset the gains from removing edge embeddings, we adopt the FlashAttention implementation [ 36 ], which computes exact attention without storing the full attention matrix, yielding significant reductions in GPU memory consumption without any approximation. Multiple attention heads are employed in parallel, each projecting node features into a distinct query-key-value subspace and computing an independent attention pattern. The outputs of all heads are concatenated and linearly projected back to the original embedding dimension. This multi-head structure allows the model to simultaneously capture different types of relationships within a single layer enhancing representational capacity. 
+
+3.2.2 Linear attention 
+
+Figure 4: Linear self-attention architecture during the prediction phase. By removing the softmax nonlinearity, attention consists in two matrix multiplications. Reordering these operations avoids constructing the full pairwise attention matrix, instead computing a global context representation that is applied to all queries. This reduces computational complexity from quadratic to linear scaling with respect to the number of nodes. Despite the memory savings achieved by employing FlashAttention implementation, standard attention retains O(N 2)
+
+computational complexity, which becomes prohibitive for large problems. A linearized alternative [ 39 , 40 ] can be derived by observing that, when the softmax nonlinearity is removed, the attention output reduces to two consecutive matrix multiplications: 
+
+f ′ =  QK ⊤ V . (12) 9Attention mechanism for scalable mesh-based neural surrogates of free-surface fluids Since matrix multiplication is associative, this expression can be equivalently reordered as: 
+
+f ′ = Q  K⊤V  . (13) Rather than forming the N × N interaction matrix A = QK ⊤, one first computes the d × d context matrix C = K⊤V ,which is then applied to all query vectors simultaneously. This reordering reduces the overall complexity from O(N 2d)
+
+to O(N d 2), which scales linearly in the number of nodes. Since d ≪ N in practice, this term does not constitute a new computational bottleneck. However, this simplification comes at the cost of reduced expressivity. In standard attention, softmax induces a normalized interaction across all pairs of nodes, while the linearized formulation relies entirely on dot products, resulting in a more diffuse, global aggregation of features where nodes interact through a shared low-rank operator. The linearized attention block can simply replace the standard one, leaving the rest of the architecture untouched (Figure 4). This linearized formulation was employed in the context of operator learning [ 54 ], where it admits a natural interpretation as a Galerkin-type approximation of an integral operator: the context matrix C
+
+acts as a global, data-driven kernel applied uniformly to all query vectors, in analogy with the projection of a solution onto a set of basis functions in classical variational methods. This theoretical grounding has motivated its adoption in surrogate modeling [29]. 
+
+3.2.3 Positional encoding 
+
+The attention mechanism is inherently position-agnostic when no positional information is provided in the input features: nodes with identical feature vectors are treated as indistinguishable regardless of their spatial location, and the model has no means of inferring geometric structure from the input alone. Several strategies have been proposed to inject positional information into attention-based models. The Transformer [ 26 ] introduces fixed sinusoidal encodings added to the input token embeddings before the first attention layer, where each position is mapped to a vector of sine and cosine functions at geometrically increasing frequencies. A more direct approach, adopted in [ 54 ], consists of concatenating raw spatial coordinates to the input features. Although simple to implement, this encodes absolute positions, making the model sensitive to the global coordinate frame and potentially limiting generalization across domains of different size or location. Given the limitations of absolute position encodings, we adopt a more effective alternative that is Rotary Positional Embeddings (RoPE) [ 55 ], which have been shown to lead to superior performance in computational physics applications [ 29 ]. RoPE incorporates positional information directly into the attention mechanism by modifying the query and key vectors prior to the dot product. Specifically, each vector is rotated in latent space by an angle determined by the spatial position of the corresponding node. As a result, the dot product between two vectors implicitly depends on their relative positional difference. Consequently, attention scores reflect not only feature similarity but also the spatial relationship between nodes. This formulation is particularly well-suited to physical simulations, where interactions depend primarily on relative geometry rather than absolute coordinates. Although originally introduced for one-dimensional sequences, RoPE extends naturally to higher-dimensional domains by applying independent rotations along each spatial coordinate, enabling the encoding of relative positional information in two- and three-dimensional settings. 
+
+3.2.4 Material properties 
+
+Several strategies have been proposed in the literature to encode material characteristic into node- and particle-based neural surrogates. In [ 19 ], different materials are identified by a discrete tag appended to the node features. However, this approach restricts the model to a fixed and finite set of predefined materials, preventing generalization to unseen combinations of physical parameters. A more flexible alternative, adopted for example in [ 22 ], consists of appending the material property values directly to the feature vector of each node. This formulation can in principle handle spatially varying material distributions, but in the common setting where material properties are uniform across the domain it introduces a high degree of redundancy: the same values are replicated identically across all N node feature vectors, contributing no additional information while unnecessarily inflating the input dimensionality. For spatially uniform material properties, we propose a conditioning strategy based on Feature-wise Linear Modulation (FiLM) [ 56 ]. Rather than appending identical material parameters to every node feature, the material properties are isolated and processed globally. A dedicated MLP evaluates the material properties once, projecting them into a scaling vector s and bias vector b. These are used to modulate the node features via an affine transformation 
+
+s ⊙ ψn(f ∗ 
+
+> i
+
+) + b where ⊙ denotes elementwise multiplication. The material information is thus injected into the latent node representations in a single global operation, without any replication across nodes. This design cleanly separates the encoding of local physical state, handled by the node MLP, from the encoding of global material description, handled by the FiLM MLP, while allowing the latter to influence all node representations in a parameter-efficient, non-redundant manner. 10 Attention mechanism for scalable mesh-based neural surrogates of free-surface fluids The effectiveness of the conditioning strategy also depends on the representation adopted for the material parameters. In [ 57 ] we have shown that using physically informed, aggregated parameters as model inputs — rather than the raw dimensional quantities individually — can significantly benefit the learning process. Condensing correlated parameters into dimensionless groups reduces the effective input dimensionality, encodes known physical relationships between variables directly into the model inputs, enhancing generalization: even if individual dimensional parameters fall outside the training range, accurate predictions can still be obtained as long as the corresponding dimensionless groups remain within the learned domain. For Bingham fluids, the flow dynamics are more appropriately characterized by the dimensionless yield stress, τ ∗ 
+
+> 0
+
+= τ0 
+
+> ρgD
+
+,where g is the gravitational acceleration and D represents a characteristic length scale. This formulation condenses the absolute yield stress τ0 and fluid density ρ into a single parameter that quantifies the ability of the material’s microstructure to counterbalance gravity-induced stresses. Rather than providing τ0 and ρ as separate inputs, only τ ∗
+
+> 0
+
+and μ are supplied, reducing the material feature vector from three components to two while embedding physically meaningful structure into the input representation. This principle extends naturally to other families of materials. It is important to note that, although τ ∗ 
+
+> 0
+
+is used as a model input, the training dataset is generated by sampling the original dimensional parameters. This is dictated by the requirements of the underlying PFEM solver, which operates on dimensional quantities. Since the mapping from dimensional to dimensionless parameters is not one-to-one, multiple combinations of τ0 and ρ may yield the same value of τ ∗ 
+
+> 0
+
+. Therefore, defining a sampling strategy directly on the dimensionless parameter would require a non-trivial inverse mapping and additional constraints to ensure physical admissibility. 
+
+3.2.5 Training and Evaluation 
+
+The models are trained in a supervised manner to predict the next-step velocities and pressures. To balance the gradient contributions of different physical quantities, the input features and target variables are normalized to zero mean and unit variance using statistics computed over the training dataset prior to optimization. For all architectures, the network parameters Θ are optimized by minimizing the Mean Squared Error (MSE) between the predicted normalized fields and the reference PFEM targets. While MSE serves as the single step training objective, the overall geometric accuracy of autoregressive rollouts is evaluated using the Chamfer distance. In Lagrangian frameworks, continuous advection eliminates the direct point-to-point correspondence required for standard Eulerian node-to-node error metrics. To address this, the domains are treated as unordered point clouds. Given predicted nodal positions A ⊂ Rn and reference positions B ⊂ Rn, (where n is the space dimension, n = 2 in 2D and n = 3 in 3D), the Chamfer distance Mv is defined as: 
+
+Mv = Ch (A, B ) = X
+
+> a∈A
+
+min  
+
+> b∈B
+
+dX (a, b ) (14) where dX is the Euclidean distance. This metric provides a measure of the geometric discrepancy between the predicted and reference configurations independently of node ordering. 
+
+# 4 Results 
+
+In this section, the proposed attention-based NeuralPFEM architectures are evaluated on three benchmark problems involving free-surface fluid flows of increasing complexity. The benchmarks are designed to assess predictive accuracy, memory consumption, and computational cost, while also investigating the ability of the models to handle evolving geometries and varying material properties, including non-Newtonian rheologies. Both standard and linear attention formulations are considered and compared against the original GNN-based NeuralPFEM. The test cases span two- and three-dimensional configurations, ranging from moderate-scale problems to large-scale simulations. In addition to the prediction of the primary variables, the analysis also considers the reconstruction of derived quantities of engineering interest obtained from spatial derivatives of the predicted fields. For all benchmarks, predictions are compared against high-fidelity PFEM reference solutions on configurations not seen during training. 
+
+4.1 2D Bingham flow on inclined plane 
+
+The first benchmark considers a two-dimensional visco-plastic Bingham fluid released from rest on an inclined plane. The initial configuration consists of a rectangular block of dimensions a × b, placed on a surface inclined at an angle α
+
+with respect to the horizontal (Figure 5a). Upon release, the fluid spreads under the action of gravity. Unlike Newtonian fluids, which would continue to flow indefinitely, Bingham fluids exhibit a different behavior: as stated in Section 2.1, flow occurs only where the local deviatoric stress exceeds the threshold set by the yield stress value τ0, while material 11 Attention mechanism for scalable mesh-based neural surrogates of free-surface fluids  
+
+> (a) (b)
+
+Figure 5: 2D inclined plane benchmark: initial configuration (left) and final equilibrium state (right). in sub-yield regions behaves as a rigid body. As the fluid spreads and the free surface flattens, the gravitational driving stress progressively decreases until it falls below τ0 everywhere in the domain, at which point the material arrests and a static equilibrium is reached. Depending on the material properties and inclination angle, two qualitatively distinct outcomes are possible: the fluid either reaches the end of the inclined section and continues spreading onto the horizontal plane (as in Figure 5b), or comes to rest on the slope before reaching the transition point. All simulations are carried out until this equilibrium state is achieved, making the final deposit geometry, in addition to the transient dynamics, a meaningful validation target. Since Bingham fluids provide a natural model for geomaterials such as debris flows and mudslides, this configuration is widely used as a benchmark in geotechnical and civil engineering applications. A series of PFEM simulations were carried out to generate the training, validation, and test datasets. In total, 60 simulations were used for training, 10 for validation, and 20 for testing. The initial rectangular geometry was identical across all simulations, with a = 0 .2 m and b = 0 .3 m . The variability in the dataset arises from the material properties— density ρ, yield stress τ0, and viscosity μ—as well as from the inclination angle α of the plane. A characteristic mesh size of m = 5 · 10 −3 m was adopted, resulting in approximately 2800 particles. PFEM solution snapshots were stored every ∆t = 0 .005 s , which corresponds to the timestep used by the NeuralPFEM model. The main parameters of the simulations, including the range of variability of the varying material and geometric parameters are summarized in Table 1. Table 1: Summary of the inclined plane Bingham fluid test case parameters. 
+
+Symbol and unit Value Fixed parameters 
+
+Block length a [m] 0.2
+
+Block height b [m] 0.3
+
+Variable parameters 
+
+Inclination angle α [◦] [10 , 40] 
+
+Density ρ [kg /m3] [1500 , 2500] 
+
+Yield stress τ0 [Pa] [15 , 1000] 
+
+Viscosity μ [Pa · s] [1 , 100] 
+
+Numerical parameters 
+
+Mesh size m [m] 5 × 10 −3
+
+Number of nodes N [−] 2813 Time step ∆t [s] 5 × 10 −3
+
+Once training is complete, the best-performing model, selected via validation performance, is then evaluated against reference PFEM solutions on the 20 unseen test simulations. Figure 6 presents three temporal snapshots for representative test cases whose material parameters are reported in Table 2, with pressure visualised as a scalar field on the deformed mesh. The three cases exhibit markedly different physical behaviours as a direct consequence of their distinct material properties and inclination angles. In Case I1 (Figures 6a- 6c), the high yield stress causes the fluid to arrest well before reaching the end of the incline, despite the 12 Attention mechanism for scalable mesh-based neural surrogates of free-surface fluids                                  
+
+> (a) Case I1, t= 0 .1s(b) Case I1, t= 0 .5s(c) Case I1, t= 2 s
+> (d) Case I2, t= 0 .1s(e) Case I2, t= 0 .5s(f) Case I2, t= 2 s
+> (g) Case I3, t= 0 .1s(h) Case I3, t= 0 .5s(i) Case I3, t= 2 s
+
+Figure 6: Temporal snapshots of NeuralPFEM with standard self-attention predictions (top row of each pair) and reference PFEM solutions (bottom row) for test cases I1 (6a-6c), I2 (6d-6f), and I3 (6g-6i) at selected time steps. The pressure is visualised as a scalar field on the deformed mesh. steep inclination angle. In Cases I2 (Figures 6d- 6f) and I3 (Figures 6g- 6i), the reduced yield stress facilitates flow even at shallower inclinations. Although the inclination angles in these two cases are nearly identical, the influence of material properties is clearly discernible: I3 barely reaches the transition point before settling into equilibrium (Figure 6i), whereas I2 traverses the entire inclined section and continues flowing along the horizontal plane (Figure 6f). These three scenarios collectively span a wide range of dynamic and equilibrium behaviours, and also involve geometrically distinct configurations: varying the inclination angle alters not only the flow dynamics but also the geometry of the boundary on which conditions must be imposed. Despite this diversity, NeuralPFEM consistently reproduces the correct qualitative and quantitative behaviour across all cases. The model accurately captures the different responses associated with distinct material properties and adapts effectively to changes in geometry and boundary conditions. In addition, the pressure field is also well reproduced in all configurations. The predicted free-surface shapes closely match the reference PFEM results at all reported time steps, including the final equilibrium configurations. The normalised runout 13 Attention mechanism for scalable mesh-based neural surrogates of free-surface fluids   
+
+> (a) Case I1 (b) Case I2 (c) Case I3
+
+Figure 7: Comparison of the normalized runout evolution over time obtained with PFEM ( ), NeuralPFEM with standard ( ) and linear ( ) self-attention for the test cases shown in Figure 6. Table 2: Material parameters of the test cases shown in Figure 6. 
+
+ID α [rad] ρ [kg/m 3] μ [Pa ·s] τ0 [Pa] I1 0.472 1717 74 942 I2 0.237 1876 47 18 I3 0.223 1410 61 179 curves in Figure 7 confirm this accuracy quantitatively: the predicted runout evolution closely tracks the reference trajectory throughout the simulation, capturing the transient spreading phase, the deceleration regime, and the final arrested state. Table 3 reports the predictive accuracy and peak memory footprint of the different NeuralPFEM variants on the 2D Bingham flow benchmark. GNN, standard self-attention, and linear self-attention achieve comparable levels of accuracy on this task. In all cases, the mean Chamfer distance over the test dataset remains below the characteristic mesh size adopted in the simulation, indicating that the predicted node positions are, on average, within the discretization error of the reference solution. For the GNN processor, the results reflect the behavior discussed in Section 3.1.1. Achieving adequate predictive accuracy requires a sufficiently large number of message-passing steps: when M is too small, information remains too localized and cannot propagate across the domain, leading to poor predictions. Conversely, increasing M improves accuracy, but at the cost of a rapid growth in memory consumption. This trade-off is already evident in this relatively small 2D problem, highlighting a limitation in scalability. In the present configuration, the theoretical condition M = Lh ,where L is the characteristic domain length, yields M = 60 message-passing steps. The empirical results indicate that increasing M beyond 20 does not lead to further improvements, probably due to the presence of oversmoothing phenomena. Nonetheless, even satisfying this empirical depth requirement carries a substantial memory cost compared to the problem size. This exposes the major limitation of GNN-based processors: the need of sufficiently deep architectures to ensure adequate information propagation makes high memory consumption unavoidable, ultimately restricting their applicability to larger and higher-resolution problems. Table 3: Comparison of error, memory footprint, and computational cost for GNN, standard self-attention, and linear self-attention variants of NeuralPFEM on the 2D Bingham flow on an inclined plane. 
+
+Model MP steps Mean Chamfer distance [m] Peak memory [MB] Time / step [s] GNN 
+
+1 1.7 · 10 −1 470 0.02 10 8.5 · 10 −3 808 0.04 20 3.5 · 10 −3 1356 0.06 60 3.6 × 10 −3 4682 0.13 
+
+Self-attention 
+
+Standard – 3.3 · 10 −3 493 0.04 Linear – 3.5 · 10 −3 572 0.05 14 Attention mechanism for scalable mesh-based neural surrogates of free-surface fluids Table 4: Chamfer distance comparison as a function of mesh size. 
+
+Mesh size [m] Mean Chamfer distance [m]
+
+GNN Attention 
+
+0.002 9.9 · 10 −3 3.5 · 10 −3
+
+0.004 4.2 · 10 −3 3.1 · 10 −3
+
+0.005 3.5 · 10 −3 3.3 · 10 −3
+
+0.006 3.8 · 10 −3 3.5 · 10 −3
+
+0.009 5.4 · 10 −2 3.8 · 10 −3
+
+0.010 6.7 · 10 −2 4.0 · 10 −3
+
+Both the standard and linear attention variants achieve an accuracy comparable to the M = 20 GNN while requiring substantially lower peak memory. This is a direct consequence of the architectural properties described in Section 3.2: self-attention enables global information exchange in a single layer, thereby satisfying the depth condition of [ 24 ] by construction, without the need for iterative message passing or explicit edge storage. As a result, the dominant memory term associated with edge embeddings is entirely eliminated. Comparing the two attention mechanisms, the standard softmax formulation provides a marginally lower error, reflecting its higher expressiveness due to exact pairwise interactions. The linear attention variant, while slightly less accurate, remains within the same error regime. Its primary benefit lies in its improved scalability, as it reduces the quadratic complexity in the number of nodes to linear, which becomes critical for larger problem sizes. In the present setting, where the number of nodes is limited, this advantage is not reflected in the computational cost, which is instead slightly higher. At the same time, the comparable memory consumption between the two variants suggests that the FlashAttention implementation effectively mitigates the theoretic memory overhead of standard attention. A key advantage of the proposed approach with respect to GNN-based formulations is its ability to generalize across mesh resolutions at inference time, even when they differ from those used during training. In GNNs, edge features are typically constructed with inter-nodal distances, which tie the model to the characteristic element size of the training meshes. As a result, changing the mesh resolution in prediction alters these geometric features and degrade accuracy. In contrast, the self-attention processor removes the need for explicit geometric edge features altogether. Spatial information is instead encoded via nodal positional embeddings, which represent each node’s location independently of the mesh density. This design allows the same trained model to be applied to discretizations that differ from those used during training. Unlike Eulerian problems with fixed geometries, where increasing resolution at inference time merely leads to an oversampling of the solution learned at the resolution of the training meshes, this property is particularly beneficial in Lagrangian free-surface settings. Higher resolution enhances geometric representation of the evolving boundary, yielding a more accurate reconstruction of the free surface. To quantify this generalization capability, we evaluate NeuralPFEM on the test dataset using meshes with characteristic sizes different from the training resolution of h = 0 .005 m spanning from a coarser mesh at h = 0 .01 m and a finer mesh at h = 0 .002 m . As shown in Table 4, the accuracy metrics obtained with the standard attention model remain consistent across these resolutions, indicating a robust generalization without performance degradation. In contrast, the GNN model exhibits increasing performance deterioration as the mesh resolution deviates further from the training configuration. It is worth remarking that the practical value of resolution invariance is particularly pronounced in our Lagrangian free-surface setting. In standard fixed-mesh applications, using a model on a finer grid at inference time simply oversamples the originally learned dynamics, offering no actual increase in physical accuracy. In our framework, however, discretization resolution plays an additional geometrical role. The domain shape emerges directly from the distribution of the points, where the boundary of the node set defines the free surface. Thus, a finer mesh can more accurately resolve the shape, capturing more complex shape features and reducing geometric error. Resolution invariance is therefore practically valuable here: a single trained model can be paired with a finer mesh at inference time to obtain a more faithful geometric representation of the free surface, without any retraining cost. 
+
+4.2 3D Bingham cone slump test 
+
+The second benchmark extends the evaluation to three dimensions through a Bingham fluid cone slump test. The initial configuration is a truncated cone whose dimensions match those of the standard Abrams cone, a benchmark widely used in civil engineering practice to characterize the workability and rheological properties of cementitious materials such as fresh concrete (Figure 8a). The base diameter is a = 0 .2 m , the top diameter b = 0 .1 m , and the 15 Attention mechanism for scalable mesh-based neural surrogates of free-surface fluids  
+
+> (a) (b)
+
+Figure 8: 3D bingham cone slump experiment: initial configuration (left) and final equilibrium state (right). height c = 0 .3 m . At the initial instant, the conical box is removed and the fluid spreads freely under gravity until the driving stress falls below the yield threshold and the material arrests (Figure 8b). The final spread diameter is a standard metric for assessing material workability in practice and serves here as a validation target alongside the full transient evolution of the flow. This test case serves a dual purpose. In addition to assessing the model’s performances in a three-dimensional setting, it is used to evaluate the ability of NeuralPFEM to reproduce derived mechanical quantities — specifically, the stress field within the flowing material. The mesh structure of NeuralPFEM enables the computation of spatial derivatives of the predicted velocity and pressure fields through finite element shape functions. For a Bingham fluid, the deviatoric stress tensor τ is related to the strain rate tensor by the constitutive relation 5. The strain rate field is recovered by differentiating the predicted velocity field through the finite-element shape functions defined on the current mesh, and the stress field is then recovered elementwise through the constitutive law. This post-processing step is performed at inference time and relies entirely on the accuracy of the predicted velocity field and on the geometric information encoded in the mesh. Accurate stress reconstruction therefore serves as an indirect but stringent assessment of the quality of the velocity predictions, since errors in velocity gradients are amplified by differentiation. The dataset was generated by varying the material parameters (density ρ, yield stress τ0, and viscosity μ) over the ranges reported in Table 5, while keeping the initial geometry fixed. A characteristic mesh size of h = 10 −2 m was adopted, yielding approximately 5000 nodes per simulation. Solution snapshots were stored every ∆t = 0 .005 s . The dataset consists of 60 training simulations, 10 for validation, and 20 for testing. As reported in Table 7, linear and standard attention yield Chamfer distances of 8.3 · 10 −3 and 7.8 · 10 −3, respectively. Consistent with previous observations, the standard attention model achieves slightly better accuracy, although both remain below the characteristic mesh size adopted in the simulations. At this higher node count, the computational advantage of the linear attention formulation becomes apparent in terms of runtime, while memory usage remains comparable between the two approaches, as expected. Figure 9 shows three temporal snapshots obtained with standard attention model for the three representative test cases S1, S2, and S3, whose material parameters are reported in Table 6. The three cases span a wide range of rheological behaviors: Case S1, characterized by a relatively low yield stress, exhibits pronounced spreading and reaches large final diameter. Case S2, with higher viscosity and yield stress, exhibits slower and more constrained spreading. Case S3 has the highest yield stress among the three, which arrests the flow at an early stage and produces the smallest slump diameter. Across all cases, NeuralPFEM accurately reproduces both the transient spreading dynamics and the final equilibrium configuration, capturing the correct three-dimensional free-surface geometry throughout the simulation. Importantly, this agreement extends to the reconstructed stress fields. The model is able to recover physically consistent stress distributions. In particular, high-stress zones are concentrated near the base and along regions of significant deformation, while stress magnitudes decrease as the material approaches arrest. This reflects the model’s ability to reproduce the yield behavior intrinsic to Bingham fluids and demonstrates 16 Attention mechanism for scalable mesh-based neural surrogates of free-surface fluids Table 5: Summary of the 3D Bingham cone slump test case parameters. 
+
+Symbol and unit Value Fixed parameters 
+
+Base diameter a [m] 0.2
+
+Top diameter b [m] 0.1
+
+Height c [m] 0.3
+
+Variable parameters 
+
+Density ρ [kg /m3] [2000 , 2500] 
+
+Yield stress τ0 [Pa] [100 , 1800] 
+
+Viscosity μ [Pa · s] [10 , 100] 
+
+Numerical parameters 
+
+Mesh size m [m] 10 −2
+
+Number of nodes N [−] 4768 
+
+Time step ∆t [s] 0.005 
+
+that NeuralPFEM not only predicts geometrically accurate flow evolution but also preserves the underlying mechanical structure of the problem, validating the quality of the learned velocity gradients. This result highlights one of the main advantages of retaining the PFEM discretization within the surrogate framework: derived mechanical quantities can be reconstructed directly from the predicted fields using standard finite-element operators. Table 6: Material parameters of the test cases shown in Figure 9. 
+
+ID ρ (kg/m 3) μ (Pa ·s) τ0 (Pa) S1 2469 17 238 S2 2486 67 468 S3 2292 24 1416 Table 7: Comparison of error, memory footprint, and computational cost for standard self-attention and linear self-attention variants of NeuralPFEM on the 3D Bingham slump. 
+
+Model Mean Chamfer distance [m] Peak memory [MB] Time / step [s] 
+
+Standard attention 8.3 · 10 −3 745 0.09 Linear attention 7.8 · 10 −3 891 0.06 17 Attention mechanism for scalable mesh-based neural surrogates of free-surface fluids                                  
+
+> (a) Case S1, t= 0 .1s(b) Case S1, t= 0 .25 s(c) Case S1, t= 0 .5s
+> (d) Case S2, t= 0 .1s(e) Case S2, t= 0 .25 s(f) Case S2, t= 0 .5s
+> (g) Case S3, t= 0 .1s(h) Case S3, t= 0 .25 s(i) Case S3, t= 0 .5s
+
+Figure 9: Temporal snapshots of NeuralPFEM with standard self-attention predictions (top row of each pair) and reference PFEM solutions (bottom row) for test cases S1 (9a-9c), S2 (9d-9f), and S3 (9g-9i) at selected time steps. The von Mises stress is visualised as a scalar field on the deformed mesh, recovered from the predicted nodal velocities and pressures through finite element shape functions and the Bingham constitutive relation. 18 Attention mechanism for scalable mesh-based neural surrogates of free-surface fluids 
+
+4.3 3D casting test   
+
+> (a) (b) (c)
+
+Figure 10: 3D casting experiment: the fluid, initially suspended above the container, is released and flows under gravity through the bottom opening, progressively filling the box. As a final test case, we consider the casting of a Newtonian fluid into a rigid parallelepipedal container. The initial configuration consists of a truncated cone of fluid suspended above the box (Figure 10a). At the initial time, the constraint at the bottom base is removed, allowing the fluid to flow freely under gravity through the resulting opening. Following an initial free-fall phase, the fluid first impacts the bottom surface and subsequently the lateral walls, progressively filling the container (Figures 10b–10c). Compared to the two previous benchmarks, this problem exhibits substantially more complex dynamics, with the fluid undergoing large free-surface deformation as it impacts the box walls. Moreover, in this test the domain is discretized with approximately N = 10 5 nodes, deliberately chosen to test the scalability of the proposed architectures and to probe the practical limits of the standard softmax attention formulation. The simulation parameters are summarized in Table 8. Table 9 reports the memory consumption and computational cost of the two attention variants. As shown in the first column, the FlashAttention implementation is highly effective at limiting memory usage. However, it does not reduce the computational complexity, which remains O(N 2) in terms of floating-point operations. Consequently, at this scale in the number of nodes, standard attention incurs a prohibitive computational cost. Linear attention, on the other hand, reduces the computational complexity to O(N d 2), resulting in a substantial decrease in training time per step. Interestingly, it exhibits a higher memory consumption compared to standard attention, which is not expected from a theoretical standpoint. This discrepancy is likely attributable to the efficiency of the FlashAttention implementation, which is highly optimized, in contrast to our more naive implementation of linear attention. All results presented in this section were obtained with the linear attention variant. Due to the high computational cost of three-dimensional PFEM simulations at this resolution, and since the test was performed mainly to assess the computational scalability of the neural surrogate, the dataset size was intentionally kept limited: 30 simulations were generated, varying only the fluid viscosity μ into a limited range. As a result, the evaluation is qualitative, assessing whether NeuralPFEM with linear attention is capable of reproducing the correct flow morphology, free-surface dynamics, and final filling configuration across the range of viscosities considered. Figure 11 presents representative snapshots of the predicted and reference PFEM solutions at selected time steps for two test cases, C1 and C2, corresponding to viscosity values of μ = 10 Pa · s and μ = 60 Pa · s, respectively. These cases display clearly distinct flow regimes. In the low-viscosity case, the fluid undergoes a rapid free fall followed by an energetic spreading after impact with the bottom surface, with pronounced inertial effects producing sharper free-surface deformations and more complex interactions with the container walls (Figures 11a–11d). Conversely, the higher-viscosity case exhibits a slower and more damped evolution, characterized by reduced spreading, smoother interfaces, and a more gradual filling process dominated by viscous dissipation (Figures 11e–11h). Despite these substantial differences in flow behavior, the surrogate model accurately reproduces the dynamics in both regimes. Close agreement with PFEM reference solutions across all time steps highlights the ability of the model to generalize effectively to previously unseen viscosity values within the training range, consistently capturing both inertia-dominated and viscosity-dominated flow features. 19 Attention mechanism for scalable mesh-based neural surrogates of free-surface fluids Table 8: Summary of the 3D casting test case parameters. 
+
+Symbol and unit Value Fixed parameters 
+
+Base diameter a [m] 0.55 
+
+Top diameter b [m] 1.2
+
+Height c [m] 0.85 
+
+Density ρ [kg /m3] 2000 
+
+Variable parameters 
+
+Viscosity μ [Pa · s] [5 , 70] 
+
+Numerical parameters 
+
+Mesh size m [m] 1.8 · 10 −2
+
+Number of nodes N [−] 93618 
+
+Time step ∆t [s] 0.005 
+
+Table 9: Comparison between standard and linear attention in memory and computational time for 1 step training in the 3D casting example. 
+
+Model Peak memory [MB] Time / step [s] 
+
+Standard attention 2876 1.06 Linear attention 4522 0.16 This benchmark demonstrates that NeuralPFEM with linear attention is capable of scaling to large, complex three-dimensional problems where the computational cost of standard attention becomes prohibitive. Linear attention therefore provides a practical solution for large-scale surrogate modeling within the NeuralPFEM framework. 20 Attention mechanism for scalable mesh-based neural surrogates of free-surface fluids                             
+
+> (a) Case C1, t= 0 .2s(b) Case C1, t= 0 .5s
+> (c) Case C1, t= 0 .8s(d) Case C1, t= 1 .5s
+> (e) Case C2, t= 0 .2s(f) Case C2, t= 0 .5s
+> (g) Case C2, t= 0 .8s(h) Case C2, t= 1 .5s
+
+Figure 11: Temporal snapshots of NeuralPFEM with linear self-attention predictions and reference PFEM solutions for test cases C1 ( μ = 10 Pa · s, 11a-11d) and C2 ( μ = 60 Pa · s, 11 e − 11 h) at selected time steps. The velocity magnitude is visualised as a scalar field on the deformed mesh. 21 Attention mechanism for scalable mesh-based neural surrogates of free-surface fluids 
+
+# 5 Conclusions 
+
+In this work, we introduced a novel self-attention-based architecture for mesh-based Lagrangian fluid simulations within the NeuralPFEM framework. To overcome the memory bottlenecks of message-passing graph neural networks, where the explicit storage and updating of edge embeddings become prohibitive in large-scale three-dimensional scenarios, we adopted a framework that learns spatial correlations adaptively, without imposing predefined structures. We demonstrated that self-attention provides a principled and memory-efficient alternative to explicit message passing, enabling domain-wide information exchange without relying on graph edges. Two variants of the attention mechanism were developed and evaluated. Standard softmax attention achieves full expressiveness through learned, data-driven interaction weights, and its memory footprint is kept tractable via the FlashAttention implementation. To further enhance scalability, a linear attention variant was also investigated. By discarding the softmax operation and exploiting the associativity of matrix multiplication, this formulation avoids the explicit construction of the pairwise interaction matrix, significantly reducing both memory and computational complexity. This enables training on large-scale datasets where standard attention would otherwise be computationally intractable. The proposed architectures were validated on free-surface flow benchmarks involving non-Newtonian fluids. By training and testing on datasets with varying material parameters, we demonstrated that the models accurately capture a wide diversity of rheological behaviors. The attention-based formulations match the predictive accuracy of the message-passing baseline while delivering substantial reductions in memory consumption. Furthermore, by removing explicit geometric edge features, the model generalizes effectively across mesh resolutions not encountered during training. Crucially, by retaining the underlying mesh topology, the framework preserves the ability to reconstruct derived mechanical quantities, such as stress fields, from the predicted kinematics using standard finite element shape functions. In particular, the linear attention formulation demonstrates the capacity to scale to complex, three-dimensional problems, providing a highly practical solution for large-scale surrogate modeling. However, since linear attention remains less expressive than full softmax attention exploring architectures that bridge this gap represents a natural direction for future research. Recent approaches such as Transolver [ 37 ] and UPT [ 38 ] have shown that it is possible to efficiently apply standard attention to problems with millions of degrees of freedom. These methods rely on reducing the effective sequence length processed by the attention mechanism while preserving global interaction information, thereby retaining the expressive power of softmax attention without incurring prohibitive computational costs. Another particularly relevant direction is represented by hybrid architectures such as GAOT [ 58 ], which combine graph neural networks (GNNs) with attention mechanisms. In this approach, the GNN is first used to encode the unstructured mesh into a lower-dimensional latent representation, effectively reducing the number of tokens on which attention must be applied. Attention is then performed in this compressed space, enabling significantly improved scalability. This strategy is especially well suited for NeuralPFEM, where the data is naturally defined on an unstructured mesh, making it straightforward to leverage GNN-based encodings. 
+
+# Declarations 
+
+The authors declare no potential conflict of interest. 
+
+# References 
+
+[1] S. Idelsohn, E. Oñate, F. D. Pin, The particle finite element method: A powerful tool to solve incompressible flows with free-surfaces and breaking waves, International Journal for Numerical Methods in Engineering 61 (7) (2004) 964–989. doi:10.1002/nme.1096 .[2] M. Cremonesi, A. Franci, S. Idelsohn, E. Oñate, A State of the Art Review of the Particle Finite Element Method (PFEM), Arch Computat Methods Eng 27 (5) (2020) 1709–1735. doi:10.1007/s11831-020-09468-4 .[3] A. Franci, M. Cremonesi, U. Perego, G. Crosta, E. Oñate, 3D simulation of Vajont disaster. Part 1: Numerical formulation and validation, Engineering Geology 279 (2020) 105854. doi:10.1016/j.enggeo.2020.105854 .[4] J. M. Carbonell, L. Monforte, M. O. Ciantia, M. Arroyo, A. Gens, Geotechnical particle finite element method for modeling of soil-structure interaction under large deformation conditions, Journal of Rock Mechanics and Geotechnical Engineering 14 (3) (2022) 967–983. doi:10.1016/j.jrmge.2021.12.006 .[5] G. Rizzieri, L. Ferrara, M. Cremonesi, Simulation of viscoelastic free-surface flows with the Particle Finite Element Method, Comp. Part. Mech. 11 (5) (2024) 2043–2067. doi:10.1007/s40571-024-00730-1 .22 Attention mechanism for scalable mesh-based neural surrogates of free-surface fluids [6] G. Rizzieri, L. Ferrara, M. Cremonesi, A partitioned Lagrangian finite element approach for the simulation of viscoelastic and elasto-viscoplastic free-surface flows, Computer Methods in Applied Mechanics and Engineering 443 (2025) 118071. doi:10.1016/j.cma.2025.118071 .[7] S. Idelsohn, M. Mier-Torrecilla, E. Oñate, Multi-fluid flows with the Particle Finite Element Method, Computer Methods in Applied Mechanics and Engineering 198 (33) (2009) 2750–2767. doi:10.1016/j.cma.2009.04. 002 .[8] S. Meduri, M. Cremonesi, U. Perego, O. Bettinotti, A. Kurkchubasche, V. Oancea, A partitioned fully explicit Lagrangian finite element method for highly nonlinear fluid-structure interaction problems, International Journal for Numerical Methods in Engineering 113 (1) (2018) 43–64. doi:10.1002/nme.5602 .[9] M. L. Cerquaglia, D. Thomas, R. Boman, V. Terrapon, J. P. Ponthot, A fully partitioned Lagrangian framework for FSI problems characterized by free surfaces, large solid deformations and displacements, and strong added-mass effects, Computer Methods in Applied Mechanics and Engineering 348 (2019) 409–442. doi:10.1016/j.cma. 2019.01.021 .[10] C. Fu, M. Cremonesi, U. Perego, A hybrid Lagrangian–Eulerian particle finite element method for free-surface and fluid–structure interaction problems, International Journal for Numerical Methods in Engineering 125 (5) (2024) e7402. doi:10.1002/nme.7402 .[11] P. B. Ryzhakov, J. García, E. Oñate, Lagrangian finite element model for the 3D simulation of glass forming processes, Computers & Structures 177 (2016) 126–140. doi:10.1016/j.compstruc.2016.09.007 .[12] G. Rizzieri, L. Ferrara, M. Cremonesi, Numerical simulation of the extrusion and layer deposition processes in 3D concrete printing with the Particle Finite Element Method, Comput Mech 73 (2) (2024) 277–295. doi: 10.1007/s00466-023-02367-y .[13] T. Leyssens, M. Henry, J. Lambrechts, J.-F. Remacle, A Delaunay refinement algorithm for the particle finite element method applied to free surface flows, International Journal for Numerical Methods in Engineering 125 (18) (2024) e7554. doi:10.1002/nme.7554 .[14] A. Quarteroni, A. Manzoni, F. Negri, Reduced Basis Methods for Partial Differential Equations, Vol. 92 of UNITEXT, Springer International Publishing, Cham, 2016. doi:10.1007/978-3-319-15431-2 .[15] M. Beckermann, R. Scanff, M. Cremonesi, A. Barbarulo, A new strategy using the Proper Generalized De-composition to model time evolving spatial domains, Computers & Structures 316 (2025) 107860. doi: 10.1016/j.compstruc.2025.107860 .[16] S. Brivio, S. Fresca, A. Manzoni, Handling geometrical variability in nonlinear reduced order modeling through Continuous Geometry-Aware DL-ROMs, Computer Methods in Applied Mechanics and Engineering 442 (2025) 117989. doi:10.1016/j.cma.2025.117989 .[17] A. Tierz, I. Alfaro, D. González, F. Chinesta, E. Cueto, Graph neural networks informed locally by thermodynamics, Engineering Applications of Artificial Intelligence 144 (2025) 110108. doi:10.1016/j.engappai.2025. 110108 .[18] V. Sharma, O. Fink, A physics-informed graph neural network conserving linear and angular momentum for dynamical systems, Nat Commun 17 (1) (2026) 1045. doi:10.1038/s41467-025-67802-5 .[19] A. Sanchez-Gonzalez, J. Godwin, T. Pfaff, R. Ying, J. Leskovec, P. W. Battaglia, Learning to Simulate Complex Physics with Graph Networks (Sep. 2020). arXiv:2002.09405 , doi:10.48550/arXiv.2002.09405 .[20] Z. Li, A. B. Farimani, Graph neural network-accelerated Lagrangian fluid simulation, Computers & Graphics 103 (2022) 201–211. doi:10.1016/j.cag.2022.02.004 .[21] S. Zhao, H. Chen, J. Zhao, A physical-information-flow-constrained temporal graph neural network-based simulator for granular materials, Computer Methods in Applied Mechanics and Engineering 433 (2025) 117536. 
+
+doi:10.1016/j.cma.2024.117536 .[22] Y. Choi, K. Kumar, Graph Neural Network-based surrogate model for granular flows, Computers and Geotechnics 166 (2024) 106015. doi:10.1016/j.compgeo.2023.106015 .[23] Z. Li, K. Meidani, P. Yadav, A. Barati Farimani, Graph neural networks accelerated molecular dynamics, J. Chem. Phys. 156 (14) (2022) 144103. doi:10.1063/5.0083060 .[24] L. Tesán, M. M. Iparraguirre, D. González, P. Martins, E. Cueto, On the under-reaching phenomenon in message passing neural PDE solvers: Revisiting the CFL condition, Computer Methods in Applied Mechanics and Engineering 449 (2026) 118476. doi:10.1016/j.cma.2025.118476 .[25] F. Lanteri, M. Cremonesi, A mesh-based Graph Neural Network approach for surrogate modeling of Lagrangian free surface fluid flows, Computers & Fluids 301 (2025) 106773. doi:10.1016/j.compfluid.2025.106773 .23 Attention mechanism for scalable mesh-based neural surrogates of free-surface fluids [26] A. Vaswani, N. Shazeer, N. Parmar, J. Uszkoreit, L. Jones, A. N. Gomez, Ł. ukasz Kaiser, I. Polosukhin, Attention is All you Need, in: Advances in Neural Information Processing Systems, Vol. 30, Curran Associates, Inc., 2017. [27] A. Dosovitskiy, L. Beyer, A. Kolesnikov, D. Weissenborn, X. Zhai, T. Unterthiner, M. Dehghani, M. Minderer, G. Heigold, S. Gelly, J. Uszkoreit, N. Houlsby, An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale (Jun. 2021). arXiv:2010.11929 , doi:10.48550/arXiv.2010.11929 .[28] J. Jumper, R. Evans, A. Pritzel, T. Green, M. Figurnov, O. Ronneberger, K. Tunyasuvunakool, R. Bates, A. Žídek, A. Potapenko, A. Bridgland, C. Meyer, S. A. A. Kohl, A. J. Ballard, A. Cowie, B. Romera-Paredes, S. Nikolov, R. Jain, J. Adler, T. Back, S. Petersen, D. Reiman, E. Clancy, M. Zielinski, M. Steinegger, M. Pacholska, T. Berghammer, S. Bodenstein, D. Silver, O. Vinyals, A. W. Senior, K. Kavukcuoglu, P. Kohli, D. Hassabis, Highly accurate protein structure prediction with AlphaFold, Nature 596 (7873) (2021) 583–589. doi:10.1038/ s41586-021-03819-2 .[29] Z. Li, K. Meidani, A. B. Farimani, Transformer for Partial Differential Equations’ Operator Learning (Apr. 2023). 
+
+arXiv:2205.13671 , doi:10.48550/arXiv.2205.13671 .[30] H. Wu, H. Luo, H. Wang, J. Wang, M. Long, Transolver: A Fast Transformer Solver for PDEs on General Geometries (Jun. 2024). arXiv:2402.02366 , doi:10.48550/arXiv.2402.02366 .[31] C. Adams, R. Ranade, R. Cherukuri, S. Choudhry, GeoTransolver: Learning Physics on Irregular Domains Using Multi-scale Geometry Aware Physics Attention Transformer (Dec. 2025). arXiv:2512.20399 , doi: 10.48550/arXiv.2512.20399 .[32] M. M. Iparraguirre, I. Alfaro, D. Gonzalez, E. Cueto, MeshGraphNet-Transformer: Scalable Mesh-based Learned Simulation for Solid Mechanics (Feb. 2026). arXiv:2601.23177 , doi:10.48550/arXiv.2601.23177 .[33] N. Wang, S. Zheng, Y. Chen, H. Zhao, Z. Fang, FluidFormer : Transformer with continuous convolution for particle-based fluid simulation, Neural Networks 198 (2026) 108631. doi:10.1016/j.neunet.2026.108631 .[34] B. Alkin, M. Bleeker, R. Kurle, T. Kronlachner, R. Sonnleitner, M. Dorfer, J. Brandstetter, AB-UPT: Scaling Neural CFD Surrogates for High-Fidelity Automotive Aerodynamics Simulations via Anchored-Branched Universal Physics Transformers (Oct. 2025). arXiv:2502.09692 , doi:10.48550/arXiv.2502.09692 .[35] M. Saberi, A. B. Farimani, S. Jamali, RheOFormer: A generative transformer model for simulation of complex fluids and flows (Oct. 2025). arXiv:2510.01365 , doi:10.48550/arXiv.2510.01365 .[36] T. Dao, D. Fu, S. Ermon, A. Rudra, C. Ré, FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness, Advances in Neural Information Processing Systems 35 (2022) 16344–16359. [37] H. Zhou, H. Wu, H. Shangguan, Y. Ma, H. Weng, J. Wang, M. Long, Transolver-3: Scaling Up Transformer Solvers to Industrial-Scale Geometries (Feb. 2026). arXiv:2602.04940 , doi:10.48550/arXiv.2602.04940 .[38] B. Alkin, T. Kronlachner, S. Papa, S. Pirker, T. Lichtenegger, J. Brandstetter, NeuralDEM – Real-time Simulation of Industrial Particulate Flows (Feb. 2025). arXiv:2411.09678 , doi:10.48550/arXiv.2411.09678 .[39] A. Katharopoulos, A. Vyas, N. Pappas, F. Fleuret, Transformers are RNNs: Fast autoregressive transformers with linear attention, in: Proceedings of the 37th International Conference on Machine Learning, Vol. 119 of ICML’20, JMLR.org, 2020, pp. 5156–5165. [40] S. Zhuoran, Z. Mingyuan, Z. Haiyu, Y. Shuai, L. Hongsheng, Efficient Attention: Attention with Linear Com-plexities, in: 2021 IEEE Winter Conference on Applications of Computer Vision (WACV), 2021, pp. 3530–3538. 
+
+doi:10.1109/WACV48630.2021.00357 .[41] T. C. Papanastasiou, Flows of materials with yield, J. Rheol. 31 (5) (1987) 385–404. doi:10.1122/1.549926 .[42] T. J. R. Hughes, L. P. Franca, M. Balestra, A new finite element formulation for computational fluid dynamics: V. Circumventing the babuška-brezzi condition: A stable Petrov-Galerkin formulation of the stokes problem accommodating equal-order interpolations, Computer Methods in Applied Mechanics and Engineering 59 (1) (1986) 85–99. doi:10.1016/0045-7825(86)90025-3 .[43] E. Oñate, S. R. Idelsohn, F. Del Pin, R. Aubry, The particle finite element method — an overview, Int. J. Comput. Methods 01 (02) (2004) 267–307. doi:10.1142/S0219876204000204 .[44] H. Edelsbrunner, E. P. Mücke, Three-dimensional alpha shapes, in: Proceedings of the 1992 Workshop on Volume Visualization, VVS ’92, Association for Computing Machinery, New York, NY, USA, 1992, pp. 75–82. 
+
+doi:10.1145/147130.147153 .[45] S. Meduri, M. Cremonesi, U. Perego, An efficient runtime mesh smoothing technique for 3D explicit Lagrangian free-surface fluid flow simulations, International Journal for Numerical Methods in Engineering 117 (4) (2019) 430–452. doi:10.1002/nme.5962 .24 Attention mechanism for scalable mesh-based neural surrogates of free-surface fluids [46] H. Zhou, S. Cheng, Improving long-term autoregressive spatiotemporal predictions: A proof of concept with fluid dynamics, Computer Methods in Applied Mechanics and Engineering 447 (2025) 118332. doi:10.1016/j.cma. 2025.118332 .[47] M. McCabe, P. Harrington, S. Subramanian, J. Brown, Towards Stability of Autoregressive Neural Operators, Transactions on Machine Learning Research (Jun. 2023). [48] F. Scarselli, M. Gori, A. C. Tsoi, M. Hagenbuchner, G. Monfardini, The Graph Neural Network Model, IEEE Transactions on Neural Networks 20 (1) (2009) 61–80. doi:10.1109/TNN.2008.2005605 .[49] P. W. Battaglia, J. B. Hamrick, V. Bapst, A. Sanchez-Gonzalez, V. Zambaldi, M. Malinowski, A. Tacchetti, D. Raposo, A. Santoro, R. Faulkner, C. Gulcehre, F. Song, A. Ballard, J. Gilmer, G. Dahl, A. Vaswani, K. Allen, C. Nash, V. Langston, C. Dyer, N. Heess, D. Wierstra, P. Kohli, M. Botvinick, O. Vinyals, Y. Li, R. Pascanu, Relational inductive biases, deep learning, and graph networks (Oct. 2018). arXiv:1806.01261 , doi:10. 48550/arXiv.1806.01261 .[50] K. Duan, Z. Liu, P. Wang, W. Zheng, K. Zhou, T. Chen, X. Hu, Z. Wang, A Comprehensive Study on Large-Scale Graph Training: Benchmarking and Rethinking (Mar. 2023). arXiv:2210.07494 , doi:10.48550/arXiv. 2210.07494 .[51] T. K. Rusch, M. M. Bronstein, S. Mishra, A Survey on Oversmoothing in Graph Neural Networks (Mar. 2023). 
+
+arXiv:2303.10993 , doi:10.48550/arXiv.2303.10993 .[52] Z. Li, N. B. Kovachki, C. Choy, B. Li, J. Kossaifi, S. P. Otta, M. A. Nabian, M. Stadler, C. Hundt, K. Azizzade-nesheli, A. Anandkumar, Geometry-informed neural operator for large-scale 3D PDEs, in: Proceedings of the 37th International Conference on Neural Information Processing Systems, NIPS ’23, Curran Associates Inc., Red Hook, NY, USA, 2023, pp. 35836–35854. [53] C. K. Joshi, Transformers are Graph Neural Networks (Jun. 2025). arXiv:2506.22084 , doi:10.48550/arXiv. 2506.22084 .[54] S. Cao, Choose a Transformer: Fourier or Galerkin, in: Advances in Neural Information Processing Systems, Vol. 34, Curran Associates, Inc., 2021, pp. 24924–24940. [55] J. Su, M. Ahmed, Y. Lu, S. Pan, W. Bo, Y. Liu, RoFormer: Enhanced transformer with Rotary Position Embedding, Neurocomputing 568 (2024) 127063. doi:10.1016/j.neucom.2023.127063 .[56] E. Perez, F. Strub, H. de Vries, V. Dumoulin, A. Courville, FiLM: Visual Reasoning with a General Conditioning Layer (Dec. 2017). arXiv:1709.07871 , doi:10.48550/arXiv.1709.07871 .[57] G. Rizzieri, F. Lanteri, L. Ferrara, M. Cremonesi, ShapeGen3DCP : A deep learning framework for layer shape prediction in 3D concrete printing, Computers & Structures 323 (2026) 108142. doi:10.1016/j.compstruc. 2026.108142 .[58] S. Wen, A. Kumbhat, L. Lingsch, S. Mousavi, Y. Zhao, P. Chandrashekar, S. Mishra, Geometry Aware Operator Transformer as an efficient and accurate neural surrogate for PDEs on arbitrary domains, Advances in Neural Information Processing Systems 38 (2026) 155423–155501. 25

@@ -1,0 +1,641 @@
+Title: Spectrally Safe Neural Operator Warm-Starts for Large-Scale Newton Solvers
+
+URL Source: https://arxiv.org/pdf/2606.21828v1
+
+Published Time: Tue, 23 Jun 2026 01:40:57 GMT
+
+Number of Pages: 23
+
+Markdown Content:
+SPECTRALLY SAFE NEURAL OPERATOR WARM-STARTS FOR LARGE-SCALE NEWTON SOLVERS 
+
+JAEMIN OH ∗, YOUNGKYU LEE ∗, J ´ER ˆOME DARBON ∗, AND GEORGE EM KARNIADAKIS ∗
+
+Abstract. Neural operators are increasingly used to warm-start Newton solvers for nonlinear PDEs, on the premise that a low test error places the initial guess inside the basin of attraction. We show that this premise is unreliable. An operator trained to the relative L2 error O(10 −3) can still produce an initial state in which the discrete Jacobian is indefinite, because the mean-squared training controls error on average while leaving localized pointwise violations of the underlying physics. For a nearly incompressible hyperelasticity problem, we trace this to the predicted volume change: the operator disperses det F well away from one, and the resulting Jacobian acquires negative eigenvalues even when the predicted field is visually indistinguishable from the reference. At a small scale, this is a nuisance; at a multi-million degree-of-freedom scale, it is disqualifying, since the conjugate gradient and other Krylov solvers needed for memory-feasible Newton steps assume a definite spectrum. We then show that a short, label-free fine-tuning phase—penalizing the operator against the discrete energy, with no additional solution data—shifts the Jacobian spectrum back to positive definite. Combined with an inexact outer loop, this gives a warm-started Newton method that converges across the full loading range where the unregularized operator fails, reaching up to 5.4 × wall-clock speedup over incremental continuation on a 3D problem with 6.4 million degrees of freedom. 
+
+Key words. Neural operators, Newton’s method, Hybrid methods, Failure modes 
+
+MSC codes. 65N22, 65H20, 68T07 
+
+1. Introduction. Since the advent of neural operators [32, 29], data-driven sur-rogates have emerged as a powerful paradigm for numerically solving partial differ-ential equations (PDEs). In many-query settings – where traditional solvers must be executed repeatedly under varying parameters, boundary conditions, or source terms – classical numerical methods incur prohibitive computational overhead. Con-versely, once trained across diverse parametric spaces, boundary conditions, and geo-metric configurations, neural operators can predict PDE solutions for unseen con-figurations rapidly [26, 11]. This exceptional evaluation speed has catalyzed their adoption in large-scale simulations, engineering design, and many-query optimization tasks [7, 43, 33]. Nevertheless, a primary bottleneck of purely data-driven surrogates remains their limited accuracy [4]. In principle, universal approximation theorems guarantee the existence of a neu-ral operator capable of mapping underlying solution operators with arbitrary pre-cision [10, 8]. In practice, however, sampling errors during dataset generation and non-convex optimization hurdles during training frequently prevent these models from reaching their theoretical limits [27, 19]. To bridge this gap, hybrid frameworks com-bining neural operators with classical numerical methods have emerged as a promising paradigm [45, 24, 14]. By pairing the rapid inference of data-driven surrogates with the convergence of classical solvers, these hybrid methodologies accelerate computa-tion while strictly preserving exactness. For linear problems, neural operators can be used as preconditioners for itera-tive methods. Motivated by the observation that neural networks inherently resolve low-frequency components first – a phenomenon known as spectral bias [37] – Zhang et al. [45] proposed blending neural operators with classical relaxation methods (e.g., 
+
+> ∗
+
+Division of Applied Mathematics, Brown University, Providence, RI 02912, USA (jaemi-noh.math@gmail.com). 1
+
+> arXiv:2606.21828v1 [math.NA] 20 Jun 2026
+
+2 J. OH, Y. LEE, J. DARBON, AND G. E. KARNIADAKIS 
+
+Jacobi or Gauss–Seidel) that efficiently eliminate high-frequency errors. Similarly, Kopanivcakova and Karniadakis [24] leveraged the trunk networks of deep operator networks [32] as localized basis functions to construct prolongation and restriction op-erators within the subspace correction framework [44]. Taking a direct initialization approach, Eshaghi et al. [14] initialized standard Krylov-subspace iterative solvers with neural operator predictions to reduce the iteration count required for conver-gence. Extending these hybrid methods to nonlinear problems requires coupling neu-ral operators with Newton-based iterative schemes. Although the classical Newton method exhibits quadratic convergence, this rapid behavior is local and lacks global guarantees; convergence is achieved only if the initial guess resides within the local basin of attraction. Because trained neural operators provide high-quality approx-imations to solutions, they can serve as excellent initial guesses that reliably place the system within this basin. Consequently, several neural operator-based warm-start Newton frameworks (WS-Newton) have recently emerged. In solid mechanics, the Neural-Initialized Newton framework proposed by Taghikhani et al. [40] learns parametric solution spaces to warm-start finite element simulations. Similarly, Wang et al. [41, 42] utilized physics-informed and data-driven training stages to construct initial solutions, which are subsequently refined via classical finite element routines. Alternatively, Lee et al. [28] proposed a neural operator-based nonlinear precondi-tioning strategy (NP-Newton) where a trained neural operator repeatedly corrects intermediate iterates, thereby helping the solver escape line-search traps and severe unbalanced nonlinearities [25]. Beyond the Newton method, Zhou et al. [46] demon-strated that neural operator-based super-fidelity schemes can successfully warm-start steady-state fluid flow simulations. Despite these foundational contributions, the existing literature – including WS-Newton and NP-Newton – lacks a systematic exposition of the challenges and failure modes that arise when scaling neural operator-based hybrid Newton methods to high-dimensional, multi-million degree-of-freedom (DOF) nonlinear 3D systems. To address this critical gap, this work systematically identifies the fundamental failure modes inherent to neural operator-based hybrid Newton methods. Impor-tantly, we demonstrate that hybridization can fail even when the underlying neural operator achieves an excellent average relative L2 error of O(10 −3) on the test dataset. We show that this hybridization failure stems from the objective functions of data-driven neural operators, which typically minimize errors in Euclidean spaces, such as the mean-squared error. Consequently, while their predictions may appear highly accurate globally, they frequently exhibit severe, localized violations of physical con-straints. In nonlinear regimes, these localized errors dramatically degrade the condi-tion number or induce spurious negative eigenvalues in the discrete Jacobian matrices. This phenomenon fundamentally exacerbates unbalanced nonlinearities, trapping the standard Newton loop in local minima or line-search stagnation points. To overcome these vulnerabilities, we introduce a streamlined, dual-stage com-putational framework. We first pre-train a neural operator in a data-driven manner to capture large-scale features. This is followed by a targeted, physics-informed fine-tuning stage. By explicitly regularizing the neural operator against the discrete al-gebraic operator, our approach suppresses localized errors and ensures compatibility with the classical solver. This strategy guarantees stable convergence where WS-Newton fails, achieving up to 5.4 × wall-clock speedup over incremental continuation on a 3D problem with 6.4 million degrees of freedom. The remainder of this paper is organized as follows. Section 2 revisits Newton’s SPECTRALLY SAFE NEURAL OPERATOR 3method and neural operator-based hybrid formulations. Section 3 details the potential failure modes inherent to these hybrid frameworks through four examples. Finally, Section 4 discusses our findings and concludes the work. 
+
+2. Preliminaries. 2.1. Newton’s method. Consider a nonlinear algebraic system resulting from the spatial discretization of a governing PDE, expressed as: 
+
+r(u) = 0 ,
+
+where u ∈ RN represents the state vector of DOFs, and r : RN → RN denotes the discrete nonlinear residual vector. The classical Newton–Raphson method iteratively updates an initial state estimate u0 via the following linearized sequence: (2.1) J(uk)δu k = −r(uk), uk+1 = uk + ηkδu k,
+
+where J(uk) = ∂r ∂u uk
+
+∈ RN ×N is the system Jacobian matrix, δu k is the search direction, and ηk ∈ (0 , 1] is a scalar step length determined via globalization strategies such as line-search or trust-region frameworks [35]. When the initial guess u0 is chosen within the local basin of attraction, the se-quence exhibits a quadratic rate of asymptotic convergence [21]. However, for severely nonlinear problems, the radius of this local convergence basin shrinks considerably. If 
+
+u0 resides outside this critical boundary, the linear corrections become highly suscep-tible to stagnation, line-search step-size collapse, or catastrophic divergence. For such ill-conditioned cases, a continuation method is conventionally employed to stabilize convergence. 
+
+2.1.1. Newton continuation method. Suppose the nonlinear residual vector is parameterized by a scalar or vector λ ∈ R, such that our target problem is given by: 
+
+r(u; λ∗) = 0 ,
+
+where λ∗ denotes a parameter value (e.g., a high Reynolds number in fluid mechanics or a large load increment in solid mechanics) that renders the system highly nonlinear and makes direct optimization via (2.1) unstable. To circumvent this instability, the incremental continuation Newton method (IC-Newton) constructs a discrete para-metric path ( λ1, λ 2, . . . , λ K ) originating from a trivial or easily solvable state λ1, and terminating at the target parameter λK = λ∗. The IC-Newton method then sequen-tially solves a sequence of problems r(u; λk+1 ) = 0 for k = 1 , . . . , K − 1, where the initial guess for the ( k + 1)-th step is taken as the converged solution of the k-th step, 
+
+u∗(λk). Provided that the partition of the parametric path is sufficiently fine, the ini-tial guess for each subproblem remains within its respective local basin of attraction, ensuring robust convergence to the final target solution u∗(λ∗) [1]. 
+
+2.2. Neural operators. In contrast to standard deep learning architectures that map between discrete, finite-dimensional Euclidean vectors, neural operators learn mappings between infinite-dimensional function spaces. Let A and U be bounded Banach spaces of functions defined over a compact spatial domain Ω ⊂ Rd. A neural operator Gθ : A → U , parameterized by a vector of weights and biases θ ∈ Θ, aims to approximate an underlying nonlinear solution operator G that maps a parametric PDE input (e.g., varying boundary conditions, source terms, or spatial material profiles) to its corresponding solution field. 4 J. OH, Y. LEE, J. DARBON, AND G. E. KARNIADAKIS 
+
+The mathematical foundation of this paradigm rests upon the universal approx-imation theorems for operators [10], which guarantee that a neural operator with sufficiently wide or deep architectures can approximate any continuous operator on a compact set to arbitrary precision ϵ > 0, such that sup a∈A ∥G (a) − G θ (a)∥U < ϵ .Thus, given an input instance a(x) ∈ A , the neural operator infers the continuous solution field via a forward pass: 
+
+u(x) ≈ uθ (x) =  Gθ a (x), x ∈ Ω.
+
+Once optimized offline, evaluating Gθ bypasses the traditional, computationally ex-pensive assembly and inversion of high-dimensional algebraic matrices, yielding near-instantaneous functional inferences. While various operator architectures have been proposed in literature [32, 29, 43], this work primarily utilizes the Transolver [43] and the Fixed-Point Neural Operator (FPNO) [28] frameworks. 
+
+2.3. Neural operator-based hybrid Newton methods. Hybrid computa-tional frameworks seek to exploit the complementary advantages of data-driven sur-rogates and classical numerical analysis: the rapid, generalized approximation ca-pabilities of neural operators and the exact, quadratically convergent refinement of classical Newton solvers. To effectively interface these distinct strategies, two promi-nent paradigms have emerged in the scientific machine learning literature. 
+
+Warm-started Newton method (WS-Newton). This strategy employs the neural operator strictly as an initial state generator for the classical Newton loop. Specifically, the neural operator prediction uθ = Gθ (a) is assigned as the initial guess 
+
+u0 in (2.1), contrasting with the standard, uninformed choice of u0 = 0. If uθ success-fully falls within the local basin of attraction of the target problem, the downstream classical Newton iteration immediately activates its quadratic convergence property, bypassing expensive incremental parametric continuation schedules. This convergence behavior is formalized below: 
+
+Proposition 2.1. Let A be the parameter space and K ⊂ A be a compact subset. Let G : K → U denote the exact, continuous solution operator mapping an input instance a ∈ K to the true discrete solution u. Assume that for each a ∈ K, the residual Jacobian J(u; a) satisfies the following conditions within an open neighborhood 
+
+B(G(a), ρ a) ⊂ U :
+
+1. The Jacobian operator is boundedly invertible at the exact solution: 
+
+∥J(G(a); a)−1∥ ≤ αa.
+
+2. The Jacobian operator is Lipschitz continuous with respect to the state vari-able: 
+
+∥J(u; a) − J(v; a)∥ ≤ βa∥u − v∥, ∀u, v ∈ B (G(a), ρ a).
+
+Furthermore, assume that αa, βa, and ρa are strictly positive and depend continuously on a ∈ K. Then, for any parameter input a ∈ K, the WS-Newton method initialized by a sufficiently accurate neural operator exhibits local quadratic convergence to G(a).Proof. For each parameter a ∈ K, the standard Newton–Kantorovich theorem asserts that Newton’s method converges quadratically to the unique local solution 
+
+G(a) provided the initial guess u0 lies within the basin of attraction B(G(a), δ a), where the radius of convergence is given by: 
+
+δa = min 
+
+
+
+ρa, 12αaβa
+
+
+
+> 0.SPECTRALLY SAFE NEURAL OPERATOR 5Consider the mapping a 7 → δa. Because αa, βa, and ρa are strictly positive and vary continuously with a over the compact domain K, the radius function δa is continuous and bounded away from zero. By the Extreme Value Theorem, there exists a uniform lower bound: 
+
+ε := min  
+
+> a∈K
+
+δa > 0.
+
+By the universal approximation capabilities of neural operators over compact do-mains [10], for any given ϵ > 0, there exists a neural operator Gθ such that the uniform approximation error satisfies: sup 
+
+> a∈K
+
+∥G θ (a) − G (a)∥C0 < ε. 
+
+Consequently, for all a ∈ K, the initialization provided by the neural operator satisfies 
+
+∥G θ (a)−G (a)∥ < δ a. Thus, the warm-started initial state falls strictly within the local quadratic convergence zone of the classical Newton solver. 
+
+Neural operator preconditioned Newton method (NP-Newton). Pio-neered by Lee et al. [28], this strategy treats the neural operator as a dynamic, con-tinuous nonlinear preconditioner rather than a static initial guess generator. The formal NP-Newton updates are expressed as: 
+
+vk = GFPNO (uk, r (uk); θ),(2.2) 
+
+uk+1 = vk − ηkJ(vk)−1r(vk),(2.3) where vk represents the intermediate state preconditioned dynamically by the fixed-point neural operator ( GFPNO ), and uk+1 is the subsequent classical Newton correction computed utilizing the preconditioned variable. Both hybrid formulations have demonstrated impressive empirical acceleration across several examples [40, 28]. However, their numerical robustness remains largely unmapped. A comprehensive understanding of the failure modes inherent to these emerging techniques is a vital prerequisite for engineering reliable hybrid numerical solvers. In the subsequent section, we evaluate the limits of both the WS-Newton and NP-Newton methods by exposing them to highly challenging, strongly nonlinear physical regimes. 
+
+3. Failure modes in hybridization. In this section, we systematically dissect the primary numerical failure modes encountered when hybridizing neural operators with classical Newton’s method. We begin by analyzing a low-dimensional, highly nonlinear algebraic system designed to isolate specific algorithmic vulnerabilities. 
+
+3.1. A pedagogical toy example. To isolate and systematically investigate the numerical pathologies and structural failure modes associated with hybrid Newton methods, we first examine a highly nonlinear, two-dimensional algebraic system of equations. We define the discrete system residual r(x) = 0 as: 
+
+r(x) = r(x, y ) = 
+
+(x − y3 + 1) 5 − y5
+
+x + 2 y − 3
+
+
+
+,
+
+which possesses an exact analytical solution at x∗ = (1 , 1) ⊤. Initializing the classical Newton solver from an unguided guess of x0 = (2 , 2) ⊤ presents a severe numerical challenge; owing to the sharp cubic and quintic nonlinearities embedded within the first residual component, the standard Newton method requires 13 iterations to satisfy standard convergence criteria. 6 J. OH, Y. LEE, J. DARBON, AND G. E. KARNIADAKIS 
+
+The left panel of Figure 1 maps the corresponding residual norm landscape over-laid with this discrete Newton trajectory. To establish a quantitative diagnostic for this severe scaling imbalance, we evaluate the Euclidean L2-norm condition number, 
+
+κ(J), of the system Jacobian matrix at each discrete step k. At the initial state 
+
+x0, the condition number is excessively high, registering at κ ≈ 3.24 × 10 4. As the iterative trajectory approaches the root, the spectrum stabilizes, compressing κ to a well-behaved magnitude of O(10 1). Correlating these algebraic metrics with the geometric features shown in Figure 1, a large condition number manifests as a highly stretched, anisotropic, and narrow valley, whereas a low condition number indicates an isotropic, balanced residual landscape. Importantly, we emphasize that this spectral interpretation remains strictly local to the current state iterate. 0 1 2            
+
+> x
+> 0.6
+> 0.8
+> 1.0
+> 1.2
+> 1.4
+> 1.6
+> 1.8
+> 2.0
+> y
+> 2.5e+00
+> 2.5e+00
+> 4.0e+01
+> 4.0e+01
+> 6.3e+02
+> 1.0e+04
+> 0510 15 20
+> Iteration
+> 10 12
+> 10 9
+> 10 6
+> 10 3
+> 10 0
+> 10 3
+> ‖r(x, y )‖2
+> Newton WS-Newton NP-Newton FPNO NINO
+
+Fig. 1: Numerical behavior and optimization trajectories for the pedagogical toy problem. Left: Two-dimensional residual norm landscape ∥r(x, y )∥2 overlaid with the iterative paths of the classical Newton, WS-Newton, and NP-Newton solvers. The classical Newton method exhibits initial stagnation due to severe nonlinearity along the x-coordinate direction, whereas the hybrid methods leverage operator predictions to place the initial state near the exact root x∗. Right: Residual convergence histories across iterations. While the well-initialized WS-Newton framework triggers immedi-ate asymptotic quadratic convergence, an undertrained neural operator causes the dynamic preconditioning loop in the NP-Newton method to exhibit severe numerical oscillations. 
+
+Dataset and neural operator training. To train the operator, we collect the discrete state trajectories ( xk)Kk=0 generated during the successful convergence of the classical Newton method from x0 = (2 , 2) ⊤ to the exact root xK = x∗ =(1 , 1) ⊤. To fulfill the input requirements of the FPNO framework utilized in the NP-Newton method, we simultaneously record the corresponding algebraic residual trajectory ( rk)Kk=0 , where rk = r(xk). Both the backbone and scaling networks of the FPNO architecture are parameterized as Multi-Layer Perceptrons (MLPs) featuring a uniform hidden width of 10 channels, a depth of 3 layers, and the hyperbolic tangent activation function. The neural operator is trained with Adam optimizer [23] by SPECTRALLY SAFE NEURAL OPERATOR 7minimizing the mean squared error (MSE) loss function: 
+
+L(θ) = 1
+
+K
+
+> K
+
+X
+
+> k=0
+
+∥x∗ − G FPNO (xk, r k; θ)∥22 .
+
+Owing to the low-dimensional nature of the system, this optimization phase requires negligible computational effort: within seconds on an Apple M3 Central Processing Unit (CPU) with JAX [9]. 
+
+Numerical result. We first compare the hybrid methods with a fully data-driven Newton-informed neural operator (NINO) [17] that approximates the Newton direction −J(x)−1r(x) by a neural operator. As illustrated in the right panel of Figure 1, the NINO fails to reduce the residual norm below 10 −3 and stagnates. By contrast, when the FPNO is fully optimized to a tight training tolerance (e.g., 
+
+L(θ) < 10 −4), both the WS-Newton and NP-Newton methods successfully locate the exact analytical solution within a single iteration. As illustrated in the left panel of Figure 1, the optimized neural operator maps the unguided initial guess x0 directly into the immediate neighborhood of the root x∗. By bypassing the ill-conditioned subregions governed by severe, unbalanced quintic nonlinearities, the hybrid Newton methods trigger immediate convergence. An instructive numerical failure mode emerges, however, if the neural network training is intentionally terminated early, thereby introducing minor prediction errors into the operator’s inference space. To simulate this scenario, optimization is halted when the empirical loss reaches a threshold of L(θ) ≈ 10 −3. Under this regime of imperfect surrogate representation, the behavior of the hybrid Newton methods becomes different. As demonstrated by the residual histories in the right panel of Figure 1, the standard Newton and WS-Newton methods exhibit standard asymptotic quadratic convergence. Conversely, the alternating NP-Newton loop stagnates, near 
+
+∥r(xk)∥2 ≈ 10 −8.A detailed algorithmic inspection of the NP-Newton updates defined in Equa-tions (2.2) and (2.3) 1 clarifies the mechanics of this stagnation. Although the Newton step (2.3) effectively reduces the residual norm from O(10 −4) at the preconditioned state vk down to O(10 −8) at the next state iterate xk+1 , the subsequent unregularized evaluation (2.2) of the imperfect operator, vk+1 = GFPNO (xk+1 , r k+1 ; θ), systemati-cally corrupts the trajectory. This step reinjects a localized prediction error that inflates the intermediate residual norm back above 10 −4. This oscillatory cycle pre-vents the hybrid solver from satisfying strict convergence tolerances, underscoring the critical necessity of a rich dataset that can cover Newton trajectories in various scenarios. While this low-dimensional example provides valuable intuition regarding the os-cillatory instabilities inherent to alternating preconditioned updates, the acceleration achieved by the WS-Newton method remains trivial because the underlying baseline system converges in fewer than 20 iterations. In the subsequent section, we evaluate these hybrid paradigms against a significantly more challenging benchmark wherein the classical Newton solver completely fails to converge. 
+
+3.2. Lid-driven Cavity Flow. To evaluate the performance of the proposed framework on a fluid dynamics benchmark, we consider the steady-state incompress-ible Navier–Stokes equations modeled via the stream function–vorticity formulation.    
+
+> 1For the two-dimensional pedagogical system, the state variable uis substituted by x.
+
+8 J. OH, Y. LEE, J. DARBON, AND G. E. KARNIADAKIS 
+
+The physical domain is defined as a unit square Ω = (0 , 1) 2 with a closed boundary Γ = ∂Ω. The boundary conditions for the velocity field u = ( ux, u y )⊤ prescribe a regularized top-driven lid, expressed as: 
+
+ux =
+
+(
+
+1, on Γ top = {(x, y ) ∈ ¯Ω : y = 1 },
+
+0, on Γ \ Γtop , and uy = 0 on Γ .
+
+To resolve the discontinuities at the two corners, we use 1 − cosh( r(x−0.5)) cosh(0 .5r) with r = 50 for smoothing. The governing coupled steady-state partial differential equations are formulated as: (u · ∇ )ω = 1Re ∇2ω, (3.1) 
+
+−∇ 2ψ = ω, (3.2) 
+
+u =
+
+ ∂ψ ∂y , − ∂ψ ∂x 
+
+⊤
+
+,(3.3) where Re denotes the dimensionless Reynolds number and the scalar vorticity is re-lated to the velocity field via ω = ∇ × u = ∂u y 
+
+> ∂x
+
+− ∂u x 
+
+> ∂y
+
+. This system constitutes the classic lid-driven cavity flow benchmark problem [16]. As the Reynolds number increases, the diffusive term in (3.1) becomes progres-sively dominated by the nonlinear convective transport term. From a spectral per-spective, this convective dominance makes the vorticity field ω decay slowly, implying the generation of high-frequency spatial modes that complicate the overall solution profile. Physically, this manifests as the formation of thin, highly sharp boundary layers along the solid walls and the emergence of eddies at the corners. To accurately resolve these high-gradient boundary layers, the spatial domain is discretized using a high-order spectral element method [22] with the scheme described in [30]. We employ an 8 th -order nodal expansion over a structurally graded algebraic mesh comprising 51 × 51 nodes clustered near the boundaries. Figure 2 illustrates the non-uniform dis-cretization alongside the steady-state stream function and vorticity fields computed at Re = 7500. 
+
+Dataset and neural operator training. For dataset generation, we sam-ple M = 200 dimensionless Reynolds numbers from a uniform distribution, Re ∼U(10 3, 10 4). To overcome the severe convective nonlinearities encountered at high Reynolds numbers, the IC-Newton method (subsection 2.1.1) is employed using 20 uniform loading steps. Specifically, the numerical solver sequentially steps the system from an initial state of Re /20 up to the target value Re, recording the intermediate stream functions ψk and algebraic residual vectors rk = r(ψk, ω k) at each step. A FPNO ( GFPNO ), configured with a Transolver++ [34] backbone and scaling network architecture, is trained to predict the steady-state stream function field ψ.The neural operator is optimized via a component-wise relative L2 loss function for-mulated as: 
+
+L(θ) = 1
+
+M
+
+> M
+
+X
+
+> m=1
+
+ 1
+
+KmKmX
+
+> k=0
+
+ψ∗,(m) − G FPNO (ψ(m) 
+
+> k
+
+, r (m) 
+
+> k
+
+; θ)
+
+|ψ∗,(m)| + ε
+
+> 22
+
+ ,
+
+where the superscript ( m) denotes the m-th randomly sampled Reynolds number instance, ψ∗,(m) is the corresponding ground-truth high-fidelity stream function solu-tion, and ε = 10 −2 is a small regularization parameter preventing division by zero. SPECTRALLY SAFE NEURAL OPERATOR 90.0 0.2 0.4 0.6 0.8 1.0           
+
+> x
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> y
+> Mesh
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> x
+> Stream Function
+> 0.000
+> 0.000
+> 0.000
+> 0.000
+> 0.000
+> 0.008
+> 0.016
+> 0.024
+> 0.032
+> 0.040
+> 0.048
+> 0.056
+> 0.064
+> 0.072
+> 0.080
+> 0.088
+> 0.096
+> 0.104
+> 0.112
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> x
+> Vorticity
+
+Fig. 2: Numerical discretization and steady-state solution profiles for the lid-driven cavity flow at Re = 7500. Left: Structurally graded mesh topology designed to resolve boundary layers. Center: Two-dimensional contour plot of the computed stream function ψ. Right: Two-dimensional contour plot of the resolved vorticity field ω. The underlying nonlinear system was converged to ∥r∥2 ≈ 1.94 × 10 −14 .The associated velocity field u and vorticity field ω are subsequently reconstructed from the predicted stream function ψ via exact numerical differentiation utilizing (3.3). The network optimization is executed using the AdamW [23, 31] optimizer with a batch size of 100, a learning rate of 10 −4, and a weight decay of 5 × 10 −4. Training is terminated after achieving a mean relative L2 error of 5 × 10 −3 on the unseen test dataset. The total training phase required approximately 4.19 hours of computational time on a single NVIDIA H100 Graphics Processing Unit (GPU). 
+
+Numerical result at a high Reynolds number. The performance of the hy-brid schemes is evaluated at a target test Reynolds number of Re = 7500. Although the FPNO is trained across the broader parametric range Re ∼ U (10 3, 10 4), evalu-ating steady-state solvers beyond Re ≥ 8000 introduces physical anomalies; at these regimes, the flow undergoes a transition to turbulence, meaning a steady-state solu-tion lacks physical realizability [38, 13]. The left panel of Figure 3 details the relative residual convergence profiles for both the WS-Newton and NP-Newton formulations. Table 1 provides a detailed quantitative comparison of the total cumulative itera-tion counts and the corresponding wall-clock times required to satisfy the convergence criteria. When benchmarked against the IC-Newton method requiring 65 cumula-tive iterations across 15 loading steps, both neural operator-based hybrid frameworks achieve an approximate 10 × computational speedup. Notably, despite requiring one additional iteration, the WS-Newton method yields the lowest total wall-clock time (83 .8 seconds). This efficiency stems from bypassing the repeating intermediate infer-ence evaluations of the neural operator that are embedded within the active iterative loop of the NP-Newton scheme. 
+
+Robustness under imperfect surrogates. To systematically investigate the limits of algorithmic robustness, we relax the neural operator’s training termination criterion from a strict learning tolerance ( Ltol = 5 × 10 −3) to a relaxed threshold (Ltol = 5 × 10 −2). Concurrently, the evaluation suite is expanded across a broader range of flows: Re ∈ { 1500 , 3000 , 4500 , 6000 , 7500 }. Table 2 summarizes the resulting 10 J. OH, Y. LEE, J. DARBON, AND G. E. KARNIADAKIS 0 2 4 6 8    
+
+> Iteration
+> 10 12
+> 10 9
+> 10 6
+> 10 3
+> 10 0
+> ‖r‖2
+
+Case 1   
+
+> 0510
+> Iteration
+
+Case 2   
+
+> WS-Newton NP-Newton FPNO
+
+Fig. 3: Residual norm convergence profiles for hybrid and classical numerical solvers under varying training limits and flow regimes. Left (Case 1): strict error tolerance 
+
+Ltol = 5 × 10 −3 at Re = 7500. Right (Case 2): relaxed error tolerance Ltol = 5 × 10 −2
+
+at Re = 3000. Table 1: Computational performance comparison for the lid-driven cavity flow at Re = 7500. A direct linear solver is used on a single core. 
+
+Method ∥r∥2 Iterations Wall Time (s) Speedup 
+
+IC-Newton (15 steps) 1.11 × 10 −12 65 920.0 1.00 (baseline) NP-Newton 1.86 × 10 −14 7 97.9 9.40 ×
+
+WS-Newton 1.85 × 10 −14 8 83.8 11 .0×
+
+convergence characteristics. 2
+
+Importantly, the performance under an undertrained neural operator contrasts with the low-dimensional findings in subsection 3.1. While the static WS-Newton framework fails to converge for all regimes where Re ≥ 3000, the dynamically precon-ditioned NP-Newton loop successfully resolves the flow fields up to Re = 4500. This phenomenon indicates that the NP-Newton formulation exhibits greater algorithmic resilience when trained with sufficient data that includes various Newton trajectories. This robustness can be attributed to FPNO’s continuous structural, state-dependent corrections at every iterative step rather than relying on a single, static initialization. The right panel of Figure 3 tracks the step-by-step residual histories for both hybrid approaches at Re = 3000. Circles indicate neural operator outputs. Cross and triangle markers denote Newton updates. While the WS-Newton path experiences divergence starting at the fifth iteration, the FPNO correction in the NP-Newton loop prevents the divergence, successfully driving the solution below the predefined convergence tolerance.      
+
+> 2For a severely relaxed learning tolerance of Ltol = 1 ×10 −1, both the WS-Newton and NP-Newton formulations diverged immediately across all tested regimes. SPECTRALLY SAFE NEURAL OPERATOR
+
+11 Table 2: Algorithmic robustness for the lid-driven cavity flow under varying training tolerances ( Ltol ) and Reynolds numbers (Re). Data entries correspond to iteration counts formatted as (WS-Newton / NP-Newton) required to satisfy a strict relative residual convergence threshold of ∥r∥2/∥r0∥2 < 10 −9. The label “–” designates failure to converge. 
+
+Ltol 
+
+Re 1500 3000 4500 6000 7500 5 × 10 −2 7 / 7 – / 8 – / 8 – / – – / – 1 × 10 −2 5 / 6 5 / 7 6 / 7 6 / 8 6 / 8 5 × 10 −3 5 / 5 5 / 5 5 / 6 6 / 6 8 / 7 Table 2 presents the overall result, confirming that while both hybrid approaches perform well when paired with a highly accurate surrogate ( Ltol = 5 × 10 −3), their behaviors diverge as surrogate fidelity degrades. Notably, the WS-Newton method typically required fewer iterations to converge, if it started to converge. The only exception was Ltol = 5 × 10 −3 and Re = 7500 case. In the subsequent section, we move beyond these canonical scenarios to expose a far more severe class of numerical failure modes: scenarios where hybridization breaks down even when paired with a fully optimized, highly accurate neural operator. 
+
+3.3. 2D hyperelasticity. In this section, we revisit the 2D hyperelasticity prob-lem considered in [28, Section 3.2]. Let Ω ⊂ [0 , 1] 2 denote the reference domain in a unit square. Figure 4 visualizes the domain. The total potential energy functional Π( u) in terms of the displacement field u is given by: (3.4) Π( u) = 
+
+Z
+
+> Ω
+
+ μ
+
+2 (Ic − 3) − μ ln(det F) + λLam´ e
+
+2 (det F − 1) 2
+
+
+
+dx,
+
+where F = I + ∇u represents the deformation gradient tensor, C = F⊤F is the right Cauchy–Green deformation tensor, and Ic = tr( C) is its first invariant. The material parameters are defined via Lam´ e constants calculated from Young’s modulus E = 1 .0and Poisson’s ratio ν = 0 .49: (3.5) μ = E
+
+2(1 + ν) , λLam´ e = Eν 
+
+(1 + ν)(1 − 2ν) .
+
+Note that as ν approaches to 0 .5, λLam´ e approaches to ∞, enforcing the incompress-ibility condition det F = 1 strictly. Thus, ν = 0 .49 places the system in a nearly incompressible limit, prone to extreme numerical instability. Equation (3.4) is discretized using standard P 1 Lagrange finite elements over a structured tetrahedral mesh Th, defining the discrete space: 
+
+Vh = {u ∈ [H1(Ω)] 2 : u|T ∈ [P 1(T )] 2 ∀T ∈ T h}.
+
+The boundary conditions are split into a clamped bottom domain Γ 1 = {(x, y ) ∈ Ω : 
+
+y = 0 } and a displaced top surface Γ 2 = {(x, y ) ∈ Ω : y = 1 } such that: 
+
+u = (0 , 0) ⊤ on Γ 1, u = (0 , τ )⊤ on Γ 2.12 J. OH, Y. LEE, J. DARBON, AND G. E. KARNIADAKIS 0.0 0.2 0.4 0.6 0.8 1.0       
+
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 1.25
+> 1.50
+> 1.75
+> 2.00 Reference
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Predicted
+
+Fig. 4: Overlay of the original domain and deformed domain for τ = 1. Left: reference deformation found by the reference solver. Right: deformation predicted by a neural operator. Both reference deformation and predicted deformation look similar, but there are slight gaps in the top corners. We seek to find the deformed state by 
+
+u∗ = arg min  
+
+> u
+
+Π( u).
+
+We solve the minimization problem with the first-order optimality condition, i.e., finding the solution to 
+
+r(u) := ∇uΠ( u) = 0 .
+
+We evaluate the performance of our framework under a computationally demand-ing many-query setup, where the top boundary displacement τ is varied continuously within the interval [0 , 2]. Large displacement fields ( τ ≥ 1.0) introduce severe geomet-ric and material nonlinearities, making standard iterative methods highly sensitive to initial conditions. 
+
+Numerical result with FPNO. Following the framework established by Lee et al. [28], a training dataset was originally constructed by sampling initial state guesses from Gaussian random fields and parametric boundary conditions from a uniform dis-tribution, τ ∼ U (0 , 2). Optimization trajectories were subsequently collected from a baseline Newton solver whose step size ηk is dynamically found at each iteration by a trust-region method (Newton-TR). The FPNO is trained to map these current iterates and their corresponding residuals directly to their final converged solutions, aiming to SPECTRALLY SAFE NEURAL OPERATOR 13 Table 3: Robustness and numerical result for 2D hyperelasticity with FPNO. Values denote iterations required to achieve a relative residual norm below 10 −9. The symbol “–” indicates solver divergence or stagnation. 
+
+Method τ
+
+1.00 1.25 1.50 1.60 1.75 1.80 2.00 Newton 107 133 159 169 185 190 211 WS-Newton 5 – 6 – – – –NP-Newton 6 7 9 – 10 – –bypass ill-conditioned regions dominated by highly unbalanced nonlinearities. When evaluated at a specific loading parameter of τ = 1, the dynamically preconditioned NP-Newton loop reportedly yields a 6 .98 × computational acceleration over the stand-alone Newton-TR baseline [28, Table 3], utilizing the MUMPS sparse direct LU solver framework. While this structural acceleration is conceptually compelling, it remains criti-cal to identify precisely whether the continuous online corrections or merely the initial warm start drives the performance within the NP-Newton loop. To isolate these mechanisms, we conduct an algorithmic ablation study wherein the FPNO preconditioning is systematically deactivated after the initial iteration ( k > 0), ef-fectively reducing the framework to a static WS-Newton method. Table 3 details the results of this robustness test evaluated across an escalated loading regime: τ ∈{1, 1.25 , 1.5, 1.6, 1.75 , 1.8, 2}.Our ablation study reveals two critical numerical phenomena. First, in the rare instances where the WS-Newton method successfully converges, it requires fewer total iterations than the fully preconditioned NP-Newton scheme, bypassing the minor overhead of iterative surrogate evaluations. Second, and more importantly, both hybrid approaches exhibit a profound lack of robustness compared to the Newton-TR baseline as τ increases. Despite being explicitly trained on trajectories spanning 
+
+τ ∼ U (0 , 2), both the WS-Newton and NP-Newton formulations suffer from divergence across the majority of the higher loading parameters. This vulnerability highlights a fundamental generalization collapse when the operator encounters highly strained states. 
+
+Scalability limit of the NP-Newton method. The total number of DOFs for this low-dimensional validation case is only 2,059. Within this small-scale regime, the baseline Newton-TR solver requires a few seconds on a single CPU, even for the most severe loading state of τ = 2. When factoring in the immense offline computational cost required for trajectory data collection and subsequent operator training, neural operator-based hybrid solvers become practically uncompetitive unless they can be scaled up to multi-million DOF engineering systems. However, scaling the NP-Newton or FPNO frameworks to large-scale 3D regimes exposes a severe data-storage and scalability bottleneck. As shown in Table 3, a single unguided Newton trajectory requires approximately 100 discrete steps on average to reach convergence. Sampling a modest group of 200 parameter variations requires storing approximately 20 , 000 distinct state-residual-solution triplets ( uk, r k, u ∗) to assemble the training dataset. For large-scale 3D models where a single state vector demands much bigger memory, storing full iterative trajectories becomes entirely pro-14 J. OH, Y. LEE, J. DARBON, AND G. E. KARNIADAKIS 
+
+Table 4: Robustness result and step counts for the WS-Newton method under pre-trained and fine-tuned regimes. Convergence is defined by achieving a relative residual tolerance of ∥r∥2/∥r0∥2 < 10 −9 under trust-region method. The symbol “–” denotes solver divergence or stagnation. 
+
+neural operator linear solver τ
+
+1.00 1.25 1.50 1.60 1.75 1.80 2.00 pretrained CG – – – – – – –FGMRES – 8 8 – – – 5LU 8 – – – – – 14 finetuned CG 4 5 5 5 6 6 –FGMRES 4 4 5 5 6 6 6LU 5 5 6 6 6 6 7hibitive. Consequently, the NP-Newton method that depends fundamentally on full trajectory histories suffers from severe scalability limits. To achieve true computa-tional scalability, we must pivot exclusively to a warm-started framework driven by a parameter-to-state operator architecture trained on a direct static mapping τ 7 → u∗,which requires only a single converged snapshot per parameter sample. Furthermore, moving to large-scale simulations imposes a strict constraint: itera-tive linear solvers become favorable due to the prohibitive memory footprint of sparse direct solvers. While finite element discretizations naturally preserve Jacobian spar-sity, direct factorization scales poorly with domain size. Recognizing this imperative, we explore the employment of iterative linear solvers and study associated pathologies in the WS-Newton method. 
+
+3.3.1. Towards a scalable WS-Newton method. To establish a computa-tionally scalable framework for the WS-Newton solver, we pivot from an iterative framework to a direct parameter-to-state mapping, approximating the static solution operator τ 7 → u∗. We utilize the Transolver architecture [43] rather than an FPNO, thereby completely bypassing the requirement for storing full, multi-step Newton trajectories. Specifically, we adopt the memory-efficient Transolver++ variant [34], wherein we substitute the stochastic Gumbel-Softmax trick with a standard, deter-ministic Softmax function to ensure permutation equivariance. To construct the training dataset, we sample M = 300 parametric loading states from a uniform distribution, τ ∼ U (0 , 2), and record only the final, converged high-fidelity snapshots to assemble the dataset {(τ (m), u ∗,(m))}300 
+
+> m=1
+
+. By shifting from full trajectory sequences to static end-state snapshots, the data-storage footprint is suc-cessfully reduced by two orders of magnitude. The operator is subsequently pre-trained on this dataset to a relative L2 learning tolerance of Ltol = 3 × 10 −3.The first three rows of Table 4 outline the convergence performance of the pre-trained operator when used as an initializer. Because this neural operator approxi-mates the direct map τ 7 → u∗, it is evaluated exclusively within the static WS-Newton framework. To rigorously evaluate scalability constraints, we combine the framework with both Krylov subspace iterative linear solvers – specifically, the Conjugate Gra-dient (CG) method and Flexible GMRES (FGMRES) – and a baseline direct LU factorization method, all backed by a trust-region method. The trained neural operator exhibits a poor robustness profile similar to the SPECTRALLY SAFE NEURAL OPERATOR 15 FPNO configurations, converging successfully in only a few cases. The pre-trained neural operator triggers divergence across all test cases when paired with the CG linear solver. To uncover the structural drivers of these convergence behaviors, we isolate and inspect the spectral properties of the initial system Jacobian matrix under three distinct initialization strategies: a default zero initial guess ( u0 = 0), a baseline state tracking the solution from the previous parameter step ( uτ =0 .9), and the raw inference field provided by the data-driven pre-trained operator. Figure 5 plots the 20 smallest eigenvalues of the discrete system Jacobian evaluated at these states for 
+
+τ = 1. For the reference state uτ =0 .9, the minimum eigenvalue λmin remains strictly pos-itive, satisfying classical local convex minimization requirements. Conversely, the Jacobian evaluated at the pre-trained operator’s prediction yields 9 distinct negative eigenvalues. This indicates that, while the continuous variational formulation guar-antees a symmetric and positive-definite (SPD) system Jacobian near the solution, the unregularized, raw neural network predictions inject localized errors. The right panel of Figure 4 presents the raw neural operator prediction for τ = 1 – such lo-calized errors are difficult to capture by the eyes. These localized defects distort the discrete Jacobian, destroying its positive definiteness and causing the underlying CG algorithm to stall or diverge. 0 5 10 15 
+
+> Mode
+> 0.6
+> 0.4
+> 0.2
+> 0.0
+> Eigenvalue
+> pretrained
+> finetuned
+> previous
+> zero
+
+Fig. 5: The 20 smallest eigenvalues of the initial system Jacobian matrices evaluated at τ = 1 across different initialization configurations: the baseline zero guess, the previous step reference ( τ = 0 .9), the unregularized pre-trained neural operator, and the physics-regularized fine-tuned operator. To connect this pathology to the underlying continuum mechanics, we evaluate the local volume change, det F. Figure 6 visualizes the spatial distribution and statistical spread of det F at τ = 1. As presented in the first and third panels, the det F values of the pre-trained operator field deviate significantly from the reference solution. The histogram in the fourth panel highlights that the unregularized neural operator yields a broad dispersion of local volume changes. While the maximum values coincide near 1.20, the minimum value is approximately 0 .40 for the pre-trained neural operator 16 J. OH, Y. LEE, J. DARBON, AND G. E. KARNIADAKIS 
+
+compared to a value of 0 .80 in the reference solution. We hypothesize that these severe localized fluctuations in unpenalized volume change can destroy the global spectrum of the Jacobian. To regularize this defect, we fine-tuned the pre-trained neural operator with a physics-informed loss targeting the minimization of the incompressibility constraint penalty: 
+
+LPI = λLam´ e
+
+2
+
+Z
+
+> Ω
+
+(det F(x) − 1) 2 dx.
+
+In particular, the loss derivatives with respect to the state vector, ∂LPI /∂u θ , are computed via efficient finite-element routines executed on the CPU. These terms are subsequently passed to the GPU to complete backpropagation through the network parameters via automatic differentiation: 
+
+∂L
+
+∂θ = ∂L
+
+∂u θ
+
+> ⊤
+
+| {z } 
+
+> FEM (CPU)
+
+∂u θ
+
+∂θ |{z} 
+
+> AD (GPU)
+
+.
+
+The fine-tuning phase is executed over 200 epochs using 30 equispaced values of 
+
+τ ∈ [0 , 2], utilizing the AdamW optimizer with a learning rate of 5 × 10 −6. It requires negligible computational overhead, concluding in less than one minute on a single CPU. 0.0 0.5 1.0        
+
+> x
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> y
+> pretrained
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> 1.0
+> 1.1
+> 1.2
+> 0.0 0.5 1.0
+> x
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> finetuned
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> 1.0
+> 1.1
+> 1.2
+> 0.0 0.5 1.0
+> x
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> reference
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> 1.0
+> 1.1
+> 1.2
+> 0.6 0.8 1.0 1.2
+> det F
+> 0
+> 50
+> 100
+> 150
+> 200
+> 250
+> 300
+> histogram
+> pretrained
+> finetuned
+> reference
+
+Fig. 6: Spatial distributions and statistical frequencies of the deformation gradient determinant det F at τ = 1. Left to right: unregularized pre-trained operator pre-diction, regularized fine-tuned operator prediction, reference solution, and histograms across configurations. The orange square markers in Figure 5 show the spectral recovery achieved fol-lowing this physics-informed regularizing step. Every single eigenvalue shifts into the positive half-plane, establishing a strictly positive-definite system Jacobian. This spectral shift is explained by the det F values visualized in the second panel of Fig-ure 6; the field from the fine-tuned neural operator is similar to that of the reference solution. As a direct consequence of this restored spectrum, the WS-Newton framework paired with the CG iterative linear solver achieves complete convergence across all loading parameters, with the sole exception of the extreme τ = 2 case where the system requires a flexible CG variant. Importantly, as outlined in the lower blocks of Table 4, this data-free regularized WS-Newton approach significantly outperforms the trajectory-trained NP-Newton paradigm, achieving both superior iteration reduction and an eliminated storage footprint. SPECTRALLY SAFE NEURAL OPERATOR 17 
+
+3.4. 3D hyperelasticity. In this section, we scale up the hyperelasticity prob-lem (3.4) and (3.5) in 3D, consisting of millions of DOFs. To isolate pathologies that arise in large-scale problems, we consider a simple geometry of the unit cube Ω = [0 , 1] 3 as the computational domain. A clamped zero-displacement boundary condition is imposed on the bottom surface, defined as {(x, y, 0) : ( x, y ) ∈ [0 , 1] 2},while a prescribed displacement boundary condition u = (0 , 0, τ ) is enforced on the top surface, {(x, y, 1) : ( x, y ) ∈ [0 , 1] 2}. The boundary displacement parameter τ is varied continuously from 0 to 2. 
+
+Dataset and neural operator training. To evaluate the scalability and per-formance of the proposed framework under a large-scale 3D regime, we discretize the physical domain with N 3 = 64 3 elements, yielding approximately 0 .8 × 10 6 DOFs. Within this high-dimensional setting, a trajectory-based dataset required to train an FPNO would exceed 600 GB of raw state memory. Furthermore, memory allocation constraints inherent to the Transolver architecture restrict the training batch sizes, rendering the computational cost of an iterative fixed-point optimization phase pro-hibitively expensive. Consequently, we restrict our large-scale evaluation exclusively to the WS-Newton strategy. To construct the parameter-to-state training dataset, we sample M = 100 discrete loading parameters from a uniform distribution, τ ∼ U [0 , 2]. The corresponding reference solutions u∗(τ ) are computed utilizing the IC-Newton solver with 10 steps. This offline data generation phase successfully converges all target residuals below a threshold of 10 −7, requiring 4 .22 hours of wall-clock time distributed across 64 parallel CPU cores. The neural operator is subsequently optimized to approximate the direct static solution map τ 7 → u∗(τ ) with the MSE loss, finally achieving a relative L2 test error of 10 −3 after 42 .4 hours of training on a single NVIDIA H100 GPU. 
+
+Numerical result. The performance of the WS-Newton scheme is first tested at an intermediate displacement of τ = 0 .8. At this discretization scale, direct solvers exceed available hardware memory allocations (1TB). To bypass this limitation, we employ the CG linear solver preconditioned via an algebraic multigrid (AMG) scheme to execute fast, memory-efficient Newton steps. Under this arrangement, the nu-merical solver successfully refines the operator’s initial inference field, satisfying the strict relative stopping criterion of ∥rk∥2/∥r0∥2 ≤ 10 −8 within 4 iterations. However, comprehensive evaluation across a broader, highly strained spectrum of boundary dis-placements ( τ ∈ { 0.2, 0.4, . . . , 2}) demonstrates that a purely data-driven initialization lacks the requisite robustness to solve a large-scale energy minimization problem. Table 5 outlines the robustness test result. Here, “PT” denotes the baseline pre-trained neural operator optimized solely via macroscopic, data-driven losses. As observed in the first column, the WS-Newton loop accelerated by the unregular-ized, purely data-driven surrogate successfully converges in only two test cases ( τ ∈{0.2, 0.8}), diverging across all other highly strained states. To expand the radius of convergence and filter out localized prediction errors, we inject a nonlinear preconditioning step utilizing a Nonlinear GMRES (NGM-RES) solver immediately before entering the linearized system updates. This macro-smoothing step effectively removes localized high-gradient artifacts, enhancing the robustness. While this combined “PT + NGMRES” framework improves the suc-cess rate from 20% to 50%, it remains insufficient to resolve the severe instabilities triggered at highly nonlinear loading states such as τ = 1 .2 or τ = 1 .8. To overcome this persistent barrier, we apply the physics-informed fine-tuning strategy (denoted as “FT”) again, adjusting the underlying neural operator param-18 J. OH, Y. LEE, J. DARBON, AND G. E. KARNIADAKIS 
+
+Table 5: Newton iteration counts for the large-scale robustness evaluation on the 64 3 grid (0 .8 × 10 6 DOFs) across varying boundary displacements τ . Convergence is defined by achieving a relative residual norm tolerance of ∥rk∥2/∥r0∥2 ≤ 10 −8 under AMG-preconditioned CG linear solvers. The label “–” designates solver divergence or stagnation prior to meeting the target tolerance.                                             
+
+> τPT PT + NGMRES FT FT + NGMRES
+> 0.2 44540.4 ––540.6 –5550.8 44651.0 –5661.2 ––661.4 ––771.6 ––771.8 ––772.0 –5–8
+
+eters θ directly against the governing energy. The fine-tuning phase comprises 60 AdamW optimization steps evaluating the energy across 30 equispaced τ values per it-eration. This explicit energy minimization dramatically stabilizes the hybrid method, eliminating the majority of previous failure points, with the extreme loading case of 
+
+τ = 2 remaining the sole instance of failure. Ultimately, combining the fine-tuned neural operator with the nonlinear smoothing loop (“FT + NGMRES”) makes the hybrid method converge to all test cases, demonstrating the viability of the framework for large-scale systems. 
+
+Numerical result at a finer mesh with super-resolution. Finally, we eval-uate the scalability limits of the proposed hybrid architecture under a multi-million scale discretization utilizing an N 3 = 128 3 mesh. This extreme configuration com-prises approximately 6 .44 × 10 6 DOFs. To circumvent the prohibitive offline compu-tational costs associated with training neural operators directly at this scale, we reuse the neural operator trained on the coarser N 3 = 64 3 grid. We investigate two distinct super-resolution projection strategies: direct inference and interpolation . The direct inference strategy leverages the mesh-free nature of neural operators, evaluating the operator directly at the 128 3 nodal coordinate matrix. Conversely, the interpolation strategy executes inference at the native resolution scale (64 3) before projecting the fields onto the refined 128 3 mesh via linear interpolation. To resolve the Newton direction from these super-resolved states, we initially im-plemented the standard AMG preconditioned CG linear solver. However, this combi-nation triggered immediate numerical stagnation. As the spatial mesh size h refines, the condition number of the discrete system Jacobian scales accordingly, drastically magnifying sensitivity to localized field perturbations. Because the underlying hyper-elasticity formulation (3.4) is highly nonlinear, the localized errors embedded within the super-resolved field projections may break the positive definiteness of the initial discrete Jacobian, as discussed in subsection 3.3.1. To bypass this spectral instability, we restructure the downstream solver within an inexact Newton framework. We sub-stitute the strict inner linear system solver with the FGMRES method, choosing linear tolerance adaptively following [12]. This variable tolerance configuration serves as an SPECTRALLY SAFE NEURAL OPERATOR 19 Table 6: Performance comparison between IC-Newton and the zero-shot super-resolved WS-Newton on the 128 3 mesh. Values in parentheses indicate the total number of sequential continuation steps. All simulations were benchmarked on 128 cores.                                 
+
+> τMethod ∥r∥2Iterations Wall Time (s) Speedup
+> 1IC-Newton (10 steps) 1.68 ×10 −622 538.2 1.00 (baseline) WS-Newton 1.45 ×10 −77132.9 4.05 ×
+> 2IC-Newton (20 steps) 2.21 ×10 −642 1074.0 1.00 (baseline) WS-Newton 4.44 ×10 −710 199.7 5.38 ×
+
+algorithmic low-pass filter, making the outer iterative path robust to super-resolution noise. Equipped with this stabilization trick, the hybrid framework overcomes the stagnation and drives the system to convergence. 0 2 4    
+
+> Iteration
+> 10 8
+> 10 6
+> 10 4
+> 10 2
+> 10 0
+> ‖r‖2/‖r0‖2
+
+τ = 1     
+
+> 0.0 2.5 5.0 7.5 10.0
+> Iteration
+
+τ = 2    
+
+> Interp NN-Interp Direct NN-Direct
+
+Fig. 7: Convergence plots of the relative residual norm ∥rk∥2/∥r0∥2 at N 3 = 128 3
+
+mesh for target loading steps τ = 1 and τ = 2. Figure 7 presents convergence plots for two super-resolution strategies evaluated at τ ∈ { 1, 2}. The neural operator-driven initializations immediately reduce the ini-tial relative residual norm by approximately two to three orders of magnitude (circle and square). Beginning from these optimized initial configurations, WS-Newton suc-cessfully reduces the residual norm below the threshold for τ = 1. However, the 
+
+direct strategy does not work for τ = 2. Because of this reason, we shall only con-sider the interpolation strategy for the following comparison study with IC-Newton. Moreover, we note that the global convergence profiles do not exhibit quadratic rates; this linear-to-superlinear degradation is the expected trade-off when adopting loose, adaptive inner solver tolerances to regularize indefinite Jacobian matrices. Table 6 summarizes the performance comparison between the WS-Newton and the baseline IC-Newton evaluated at loading steps τ = 1 and τ = 2. For the IC-Newton baseline, the number of loading intervals was selected to minimize total computational 20 J. OH, Y. LEE, J. DARBON, AND G. E. KARNIADAKIS 
+
+wall time (1 step per ∆ τ = 0 .1). The classical incremental technique demands 22 cumulative iterations across 10 steps to resolve the τ = 1 path, increasing up to 42 iterations across 20 steps at τ = 2. By contrast, the WS-Newton framework with interpolation converges within only 7 and 10 iterations, respectively. This reduction translates into a 4 .05 × wall-clock speedup for τ = 1 and a 5 .38 × acceleration for 
+
+τ = 2 , demonstrating excellent computational efficiency gains. 0.2 0.6 1.0 1.4 1.8          
+
+> τ
+> 5
+> 10
+> 15
+> 20
+> 25
+> 30
+> 35
+> 40
+> Iterations
+> 0.2 0.6 1.0 1.4 1.8
+> τ
+> 10 8
+> 10 7
+> 10 6
+> 10 5
+> ‖r‖2
+> IC-Newton WS-Newton
+
+Fig. 8: Quantitative performance profiles across a parameter sweep τ ∈ { 0.2, 0.4, . . . 2}
+
+at the 128 3 grid scale. Left: Newton iteration counts till convergence. Right: Final converged relative residual norm magnitudes. Lastly, Figure 8 tracks solver behavior across a comprehensive parametric sweep of the displacement boundary condition, τ ∈ { 0.2, 0.4, . . . , 2.0}. The left panel maps the total Newton iteration counts, and the right panel presents the final relative residual norms, demonstrating the strict preservation of robustness at large-scale dimensions. We note that we intentionally set a stricter convergence criterion for WS-Newton in order to ensure a fair comparison for iteration counts. 
+
+4. Conclusion. In this work, we presented the numerical failure modes that arise within recently emerging neural operator-based hybrid Newton solvers. We demonstrated that while the NP-Newton method provides better robustness, its train-ing dataset requires storing trajectories, which limits its scalability to multi-million DOF systems. Conversely, while the WS-Newton method exhibits worse robustness when optimized purely via data-driven losses, it does not require a trajectory dataset, hence more scalable. Furthermore, our eigenvalue analysis revealed that errors from neural operator predictions can introduce negative eigenvalues into the discrete sys-tem Jacobian matrix, causing Krylov iterative linear solvers to stall or diverge. We showed that a physics-informed fine-tuning phase serves as an efficient remedy, ex-panding the solver’s radius of convergence. Taken together, our findings establish that specialized treatments are mandatory to construct stable, effective hybridizations of machine learning and the Newton method. Several critical avenues for future research remain open. First, because the prac-SPECTRALLY SAFE NEURAL OPERATOR 21 tical viability of hybrid solvers depends fundamentally on the offline training phase, developing efficient data collection pipelines, such as utilizing optimal experimental design [39], remains important. Second, establishing formal theoretical guarantees is indispensable; while Proposition 2.1 provides an insight into the convergence of the WS-Newton method, a parallel convergence proof for the NP-Newton loop re-mains unknown. Finally, transitioning these hybrid methods from academic research benchmarks to widespread industrial deployment demands investigation under more complex and challenging scenarios. 
+
+Appendix A. Computating environments. Neural operator predictions and automatic differentiation are handled by PyTorch [36], while the finite element discretizations and underlying linear algebra systems are handled by FEniCS [2, 6], PETSc [5], and Gmsh [15]. Figures are generated using Matplotlib [20] and NumPy [18]. MUMPS direct linear solver package [3] is used by default. Apple M3 CPU in subsection 3.1. AMD EPYC 9554 64-core processors in the other examples. 
+
+Appendix B. Fixed-point neural operator. FPNO was first proposed in [28]. It consists of backbone Bθ and scaling Sθ networks. It approximates the solution 
+
+u∗ by 
+
+uθ = uk + tanh  ∥rk∥2Sθ (rk/∥rk∥2) Bθ (uk).
+
+The tanh  ∥rk∥2Sθ (rk/∥rk∥2) part ensures that the update size is small enough when-ever the current iterate uk is close to the solution u∗, because ∥rk∥2 will be small in such a case. It is possible to choose arbitrary neural networks for the backbone and scaling networks. 
+
+Appendix C. Details for neural operators. Table 7 records architectural details for neural operators employed in Section 3. Table 7: Details for neural operators 
+
+examples architecture hyperparameters 
+
+Subsection 3.1 MLP [2, 10, 10, 2], tanh Subsection 3.2 Transolver++ dh = 128, 8 heads, 32 slices, gelu, depth (5, 2) for ( Bθ , S θ )Subsection 3.3 MLP The same as [28]. Subsection 3.4 Transolver++ dh = 128, 8 heads, 32 slices, gelu, depth 5 
+
+Acknowledgement. The first author gratefully acknowledges Ehsan Kharazmi for his valuable comments during the early stages of this work. Part of this research was conducted using the computational resources and services provided by the Center for Computation and Visualization at Brown University.       
+
+> REFERENCES [1] E. L. Allgower and K. Georg ,Introduction to numerical continuation methods , SIAM, 2003. [2] M. S. Alnaes, A. Logg, K. B. Ølgaard, M. E. Rognes, and G. N. Wells ,Unified form lan-guage: A domain-specific language for weak formulations of partial differential equations ,ACM Transactions on Mathematical Software, 40 (2014), https://doi.org/10.1145/2566630. [3] P. R. Amestoy, I. S. Duff, J.-Y. L’Excellent, and J. Koster ,A fully asynchronous multi-frontal solver using distributed dynamic scheduling , SIAM Journal on Matrix Analysis and Applications, 23 (2001), pp. 15–41.
+
+22 J. OH, Y. LEE, J. DARBON, AND G. E. KARNIADAKIS [4] A. Bacho, A. G. Sorokin, X. Yang, T. Bourdais, E. Calvello, M. Darcy, A. Hsu, B. Hosseini, and H. Owhadi , Operator learning at machine precision , arXiv preprint arXiv:2511.19980, (2025). [5] S. Balay, S. Abhyankar, M. F. Adams, J. Brown, P. Brune, K. Buschelman, E. M. Constantinescu, L. Dalcin, S. Benson, A. Dener, et al. , Petsc/tao users manual revision 3.24 , tech. report, Argonne National Laboratory (ANL), Argonne, IL (United States), 09 2025, https://doi.org/10.2172/2998643, https://www.osti.gov/biblio/2998643. [6] I. A. Baratta, J. P. Dean, J. S. Dokken, M. Habera, J. S. Hale, C. N. Richardson, M. E. Rognes, M. W. Scroggs, N. Sime, and G. N. Wells , DOLFINx: the next generation FEniCS problem solving environment . preprint, 2023, https://doi.org/10.5281/zenodo. 10447666. [7] B. Bonev, T. Kurth, C. Hundt, J. Pathak, M. Baust, K. Kashinath, and A. Anand-kumar , Spherical fourier neural operators: Learning stable dynamics on the sphere , in International conference on machine learning, PMLR, 2023, pp. 2806–2823. [8] N. Boull´ e, D. Halikias, and A. Townsend , Elliptic pde learning is provably data-efficient ,Proceedings of the National Academy of Sciences, 120 (2023), p. e2303904120. [9] J. Bradbury, R. Frostig, P. Hawkins, M. J. Johnson, C. Leary, D. Maclaurin, G. Nec-ula, A. Paszke, J. VanderPlas, S. Wanderman-Milne, and Q. Zhang , JAX: compos-able transformations of Python+NumPy programs , 2018, http://github.com/google/jax. [10] T. Chen and H. Chen , Universal approximation to nonlinear operators by neural networks with arbitrary activation functions and its application to dynamical systems , IEEE transactions on neural networks, 6 (1995), pp. 911–917. [11] J. Choi, T. Yun, N. Kim, and Y. Hong , Spectral operator learning for parametric pdes with-out data reliance , Computer Methods in Applied Mechanics and Engineering, 420 (2024), p. 116678. [12] S. C. Eisenstat and H. F. Walker , Choosing the forcing terms in an inexact newton method ,SIAM Journal on Scientific Computing, 17 (1996), pp. 16–32. [13] E. Erturk , Discussions on driven cavity flow , International journal for numerical methods in fluids, 60 (2009), pp. 275–294. [14] M. S. Eshaghi, C. Anitescu, N. Valizadeh, Y. Wang, X. Zhuang, and T. Rabczuk , Nows: Neural operator warm starts for accelerating iterative solvers , Computer Methods in Ap-plied Mechanics and Engineering, 458 (2026), p. 118989. [15] C. Geuzaine and J.-F. Remacle , Gmsh: A 3-d finite element mesh generator with built-in pre-and post-processing facilities , International journal for numerical methods in engineering, 79 (2009), pp. 1309–1331. [16] U. Ghia, K. N. Ghia, and C. Shin , High-re solutions for incompressible flow using the navier-stokes equations and a multigrid method , Journal of computational physics, 48 (1982), pp. 387–411. [17] W. Hao, X. Liu, and Y. Yang , Newton informed neural operator for solving nonlinear par-tial differential equations , Advances in neural information processing systems, 37 (2024), pp. 120832–120860. [18] C. R. Harris, K. J. Millman, S. J. Van Der Walt, R. Gommers, P. Virtanen, D. Cour-napeau, E. Wieser, J. Taylor, S. Berg, N. J. Smith, et al. , Array programming with NumPy , nature, 585 (2020), pp. 357–362. [19] Y. Hong, S. Ko, and J. Yong Lee , Error analysis for finite element operator learning meth-ods for solving parametric second-order elliptic pdes , IMA Journal of Numerical Analysis, (2026), p. draf146. [20] J. D. Hunter , Matplotlib: A 2d graphics environment , Computing in Science & Engineering, 9 (2007), pp. 90–95, https://doi.org/10.1109/MCSE.2007.55. [21] L. V. Kantorovich , Functional analysis and applied mathematics (in russian) , Uspekhi Mat Nauk, 3 (1948), p. 89. [22] G. Karniadakis and S. Sherwin , Spectral/hp Element Methods for Computational Fluid Dynamics , Oxford University Press, 06 2005, https://doi.org/10.1093/acprof:oso/ 9780198528692.001.0001. [23] D. P. Kingma and J. Ba , Adam: A method for stochastic optimization , arXiv preprint arXiv:1412.6980, (2014). [24] A. Kopaniˇ c´ akov´ a and G. E. Karniadakis , Deeponet based preconditioning strategies for solving parametric linear systems of equations , SIAM Journal on Scientific Computing, 47 (2025), pp. C151–C181. [25] P. J. Lanzkron, D. J. Rose, and J. T. Wilkes , An analysis of approximate nonlinear elim-ination , SIAM Journal on Scientific Computing, 17 (1996), pp. 538–559. [26] J. Y. Lee, S. Ko, and Y. Hong , Finite element operator network for solving elliptic-type SPECTRALLY SAFE NEURAL OPERATOR 23 
+
+parametric pdes , SIAM Journal on Scientific Computing, 47 (2025), pp. C501–C528. [27] S. Lee and Y. Shin , On the training and generalization of deep operator networks , SIAM Journal on Scientific Computing, 46 (2024), pp. C273–C296. [28] Y. Lee, S. Liu, J. Darbon, and G. E. Karniadakis , A neural-operator preconditioned newton method for accelerated nonlinear solvers , arXiv preprint arXiv:2511.08811, (2025). [29] Z. Li, N. B. Kovachki, K. Azizzadenesheli, B. liu, K. Bhattacharya, A. Stuart, and A. Anandkumar , Fourier neural operator for parametric partial differential equations ,in International Conference on Learning Representations, 2021, https://openreview.net/ forum?id=c8P9NQVtmnO. [30] J.-G. Liu and E. Weinan , Simple finite element method in vorticity formulation for incom-pressible flows , Mathematics of Computation, (2001), pp. 579–593. [31] I. Loshchilov and F. Hutter , Decoupled weight decay regularization , in International Confer-ence on Learning Representations, 2019, https://openreview.net/forum?id=Bkg6RiCqY7. [32] L. Lu, P. Jin, G. Pang, Z. Zhang, and G. E. Karniadakis , Learning nonlinear operators via deeponet based on the universal approximation theorem of operators , Nature machine intelligence, 3 (2021), pp. 218–229. [33] L. Lu, R. Pestourie, S. G. Johnson, and G. Romano , Multifidelity deep neural operators for efficient learning of partial differential equations with application to fast inverse design of nanoscale heat transport , Physical Review Research, 4 (2022), p. 023210. [34] H. Luo, H. Wu, H. Zhou, L. Xing, Y. Di, J. Wang, and M. Long , Transolver++: An accurate neural solver for pdes on million-scale geometries , in International Conference on Machine Learning, PMLR, 2025, pp. 41432–41449. [35] J. Nocedal and S. J. Wright , Numerical optimization , Springer, 1999. [36] A. Paszke, S. Gross, F. Massa, A. Lerer, J. Bradbury, G. Chanan, T. Killeen, Z. Lin, N. Gimelshein, L. Antiga, et al. , Pytorch: An imperative style, high-performance deep learning library , Advances in neural information processing systems, 32 (2019). [37] N. Rahaman, A. Baratin, D. Arpit, F. Draxler, M. Lin, F. Hamprecht, Y. Bengio, and A. Courville , On the spectral bias of neural networks , in International conference on machine learning, PMLR, 2019, pp. 5301–5310. [38] P. Shankar and M. Deshpande , Fluid mechanics in the driven cavity , Annual review of fluid mechanics, 32 (2000), pp. 93–136. [39] Y. Shin and D. Xiu , Nonadaptive quasi-optimal points selection for least squares linear re-gression , SIAM Journal on Scientific Computing, 38 (2016), pp. A385–A411. [40] K. Taghikhani, Y. Yamazaki, J. P. Varghese, M. Apel, R. N. Asl, and S. Rezaei , Neural-initialized newton: Accelerating nonlinear finite elements via operator learning , arXiv pre-print arXiv:2511.06802, (2025). [41] Y. Wang, Z. Hao, M. S. Eshaghi, C. Anitescu, X. Zhuang, T. Rabczuk, and Y. Liu ,
+
+Pretrain finite element method: A pretraining and warm-start framework for pdes via physics-informed neural operators , arXiv preprint arXiv:2601.03086, (2026). [42] Y. Wang, X. Li, Z. Yan, S. Ma, J. Bai, B. Liu, X. Zhuang, T. Rabczuk, and Y. Liu ,
+
+A pretraining-finetuning computational framework for material homogenization , Interna-tional Journal of Mechanical Sciences, (2026), p. 111388. [43] H. Wu, H. Luo, H. Wang, J. Wang, and M. Long , Transolver: A fast transformer solver for PDEs on general geometries , in Forty-first International Conference on Machine Learning, 2024, https://openreview.net/forum?id=Ywl6pODXjB. [44] J. Xu , Iterative methods by space decomposition and subspace correction , SIAM review, 34 (1992), pp. 581–613. [45] E. Zhang, A. Kahana, A. Kopaniˇ c´ akov´ a, E. Turkel, R. Ranade, J. Pathak, and G. E. Karniadakis , Blending neural operators and relaxation methods in pde numerical solvers ,arXiv preprint arXiv:2208.13273, (2022). [46] X.-H. Zhou, J. Han, M. I. Zafar, E. M. Wolf, C. R. Schrock, C. J. Roy, and H. Xiao ,
+
+Neural operator-based super-fidelity: A warm-start approach for accelerating steady-state simulations , Journal of Computational Physics, 529 (2025), p. 113871.
