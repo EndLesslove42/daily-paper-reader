@@ -1,0 +1,2278 @@
+Title: Higher-Order Fourier Neural Operator: Explicit Mode Mixer for Nonlinear PDEs
+
+URL Source: https://arxiv.org/pdf/2606.28122v1
+
+Published Time: Mon, 29 Jun 2026 01:03:26 GMT
+
+Number of Pages: 46
+
+Markdown Content:
+# Higher-Order Fourier Neural Operator: Explicit Mode Mixer for Nonlinear PDEs 
+
+Alex Colagrande 1 Paul Caillon 1 Eva Feillet 2 Alexandre Allauzen 1,31Miles Team, LAMSADE, Université Paris Dauphine-PSL, Paris, France 
+
+> 2
+
+Université Paris-Saclay, CNRS, LISN, 91400, Orsay, France 
+
+> 3
+
+ESPCI PSL, Paris, France 
+
+alex.colagrande@dauphine.psl.eu 
+
+Abstract 
+
+Neural operators provide deep neural networks for learning mappings between function spaces. Among them, the Fourier Neural Operator (FNO) is particularly effective: its spectral convolution relies on low-dimensional Fourier-domain repre-sentations and can handle inputs at different resolutions. This design aligns well with settings where the Fourier basis diagonalizes the underlying operator, such as linear, constant-coefficient PDEs on periodic domains, in which Fourier modes evolve independently. However, nonlinear PDEs may benefit from an additional inductive bias, as they exhibit structured interactions between modes, governed by polynomial nonlinearities. To capture this inductive bias, we introduce the 
+
+Higher-Order Spectral Convolution , a spectral mixer that extends FNO from di-agonal modulation to explicit n-linear mode mixing, aligned with the dynamics of nonlinear PDEs. Our experiments on standard benchmarks show that the proposed Higher-Order FNO (HO-FNO) retains the efficiency of FNO-based architectures and consistently improves over other spectral neural operators. HO-FNO also performs on par with or better than state-of-the-art transformers and state-space models on several datasets, with stronger gains in highly nonlinear regimes, such as the Poisson equation with polynomial forcing, where a single HO-FNO layer outperforms FNO models with up to 16 layers. We open-source our code for reproducibility at: https://github.com/AlexColagrande/HO-FNO .
+
+1 Introduction 
+
+Partial differential equations (PDEs) are central to modeling physical and engineering systems, in-cluding fluid dynamics, porous-media transport, solid mechanics, and atmospheric flows [Staniforth, 2022]. Since closed-form solutions are rarely available, these problems typically require numerical approximation. Over the past decades, traditional numerical, physically grounded methods such as the finite ele-ment method [Johnson, 1994], the finite volume method [LeVeque, 2002], and the finite difference method [LeVeque, 2007] have achieved both accuracy and interpretability. Despite their strengths, these methods face two main limitations: very high computational cost due to fine spatiotemporal discretization and reliance on complete knowledge of the governing PDEs. Recently, motivated by the remarkable achievements of deep learning for modeling complex functions, numerous data-driven PDE solvers have been introduced to overcome the limitations of traditional numerical methods. Among these approaches, the operator learning framework [Kovachki et al., 2023, Berner et al., 2025] stands out as the most physically grounded. Neural operators, in particular, aim to approximate the underlying solution operator that maps input functions, such as coefficients, forcing terms, or initial conditions, to output solutions, thereby providing an efficient alternative to classical discretization-based schemes. The Fourier Neural Operator (FNO) [Li et al., 2020] is inspired by spectral methods,   
+
+> Preprint.
+> arXiv:2606.28122v1 [cs.CE] 26 Jun 2026 HO Fourier Layer 1 ...
+> HO Fourier Layer
+> HO Fourier Layer 2 HO Fourier Layer L
+
+Figure 1: Overview of the proposed HO-FNO architecture , adapted from [Li et al., 2020]. Top: the input 
+
+a is lifted by L, processed by L HO-FNO layers, and projected by P to obtain the output u. Bottom: each HO-Fourier layer transforms an intermediate representation v to Fourier space, mixes the N Fourier modes into higher-order pseudo-modes, keeps the lowest M pseudo-modes, applies a learned linear transform R, and maps the result back with an inverse Fourier transform, F−1. The output is combined with a local linear skip connection W , followed by a nonlinearity σ.
+
+which provide the highest spatial accuracy and exponential convergence on regular grids. The FNO and its variants explicitly model the input function in a spectral basis via the standard or a generalized Fourier transform, with or without encoder–decoder components. Such models typically combine linear layers with nonlinear activations. These linear layers are usually implemented as global convolutions over a truncated set of modes, and they act independently on each Fourier coefficient, i.e., without explicit mode mixing. In this work, to increase the modeling capacity of spectral layers in neural operators, we propose an n-order spectral convolution that implements an n-linear global mixing of Fourier coefficients while retaining the computational efficiency of a Fourier truncation. Our contributions are the following: 1. Higher-Order Fourier Neural Operator. We design the first spectral neural operators modeling explicitly the mode interaction of non-linear PDEs. 2. Interaction on different geometries. We showcase the effect of modeling order 2 interac-tions on spherical data by combining our method with Spherical Harmonic convolutions. 3. Experiments and ablation studies. Through extensive experiments, we show the advan-tages of the proposed method in standard benchmarks, including regular grids, structured meshes, and point clouds. We also show that the model provides additional benefits in highly non-linear settings, for which it is designed, and that higher-order interactions maintain FNO’s ability to generalize across resolution. 
+
+2 Related work 
+
+Spectral neural operators Among neural operators, FNO stands out for modeling dynamical systems on equally spaced meshes and for its ability to transfer across resolutions without retraining, a consequence of its explicit representation in the Fourier basis, which remains consistent under mesh refinement. For complex geometries, several variants of FNO have been introduced by changing the spectral basis, for instance, the Spherical Fourier Neural Operator (SFNO) [Bonev et al., 2023] on the sphere, and NORM [Chen et al., 2023] on general Riemannian manifolds. Furthermore, extensions to irregular meshes have been proposed by mapping them onto regular grids, either via a non-uniform Fourier transform (GNO [Li et al., 2023d]), a learnable diffeomorphism implemented via message-passing (GEO-FNO [Li et al., 2023c]), or an optimal transport map (OTNO [Li et al., 2025]). In a complementary direction, DSFNO Gao et al. [2025] replaces FNO’s static spectral kernel with hypernetwork-generated dynamic convolutions from truncated activations, but yields largely unstructured kernels. We build on this idea of using an input-dependent convolution by explicitly structuring the kernel to reflect the interaction patterns of solution operators for polynomial nonlinear PDEs. 
+
+In the following, we refer to FNO and its variants as Spectral Neural Operators (SNOs). 2The spectral convolution of a Fourier-based neural operator closely mimics the action of the Green function, a kernel whose convolution yields the solution of linear PDEs with constant coefficients on periodic domains [Stakgold and Holst, 2011]. However, for nonlinear PDEs, the Green function no longer provides a useful representation, whereas the composition of linear spectral convolutions with nonlinear activations endows SNOs with universal approximation capabilities [Kovachki et al., 2021]. 
+
+Attention-based models Transformer models have become ubiquitous not only in language and vision but also in physical modeling [Alkin et al., 2024, Colagrande et al., 2025]. A key factor behind the success of transformers is the attention’s ability to capture pairwise interactions within the input sequence. This mechanism has recently been generalized to model interactions among an arbitrary number n of entities, opening a line of work on higher-order attention [Clift et al., 2019]. Despite their O(N n) complexity in the sequence length N , these higher-order variants of the transformer architecture show better scaling laws [Roy et al., 2025] and exponentially improved depth efficiency [Sanford et al., 2023] compared to standard attention-based models. Following this line of work, we introduce a new framework that realizes n-order interactions between coefficients directly in the Fourier domain, providing the spectral analog of higher-order attention, which operates in the Dirac domain. Crucially, our method avoids the O(N n) complexity blow-up of higher-order attention. Instead, it matches the complexity of FFT-based operators with a cost of O(N log( N )) per layer. Finally, the triangular attention mechanism of the Edge Transformer [Bergen et al., 2021] and the triangle attention of AlphaFold2 [Jumper et al., 2021] are also close to our work. In both cases, the triangle refers to three-way interactions in the spatial domain : given a triplet of nodes, triangular attention models the dependencies along the edges of the corresponding triangle, enabling richer modeling power. In our work, the triadic spectral convolution (order n = 2 ) realizes the analog of triangular attention in the Fourier domain . So the triangle corresponds to a triplet of frequency modes whose wavevectors satisfy a closure relation (e.g. k1 + k2 = k3). The motivation is to capture the nonlinear triadic interactions that govern, for instance, energy transfer in PDE dynamics. For 
+
+n > 2, our method is the Fourier analog of an n-symplicial extension of these attention mechanisms. 
+
+3 Background 
+
+We consider a time-dependent PDE on a spatial domain Ω ⊂ Rd, with boundary ∂Ω, and on the time interval [0 , T ]. A solution u : Ω × [0 , T ] → R satisfies 
+
+∀x ∈ Ω, ∀t ∈ (0 , T ], ∂u ∂t (x, t ) = F  ν, t, x, u (x, t ), ∇xu(x, t ), ∇2
+
+> x
+
+u(x, t ), . . .  ,
+
+∀x ∈ ∂Ω, ∀t ∈ (0 , T ], B(u)( x, t ) = 0 , ∀x ∈ Ω, u(x, 0) = u0(x),
+
+(1) where ν denotes PDE coefficients, B encodes the boundary conditions, and u0 ∼ p0 is sampled from a probability distribution on L2(Ω; R), the space of real valued square-integrable functions on the spatial domain Ω.
+
+Neural Operator. For dynamics governed by fixed coefficients ν, the operator learning task consists of approximating the one-step solution operator G†, for a fixed time step ∆t > 0 and t ∈ [0 , T − ∆t]:
+
+G† : L2(Ω; R) → L2(Ω; R),u(·, t ) 7 → u(·, t + ∆ t). (2) Following [Kovachki et al., 2023], we approximate G† by a neural operator Gθ composed of a pointwise lifting network L, L learnable operator layers Q1, . . . , QL, and a pointwise projection network P:
+
+Gθ = P ◦ Q L ◦ · · · ◦ Q 1 ◦ L . (3) Let vℓ ∈ L2(Ω; Rcℓ ) denote the hidden representation at layer ℓ, with v0 = L(u(·, t )) . For ℓ =1, . . . , L , the layer Qℓ : vℓ−1 7 → vℓ is defined by 
+
+vℓ(x) = Qℓ(vℓ−1)( x) = σ(Wℓvℓ−1(x) + Kℓ(vℓ−1)( x) + bℓ(x)) , x ∈ Ω, (4) where Wℓ is a pointwise linear map, bℓ is a bias term, Kℓ is a nonlocal integral operator, and σ is a pointwise activation function. In the following, when there is no ambiguity, we drop the layer index. 3Fourier Neural Operator (FNO). FNO [Li et al., 2020] implements the nonlocal operator Kℓ as a global convolution parameterized in the Fourier domain, after a truncation of the input in the spectral domain. Let M ⊂ Zd denote the retained set of Fourier modes. Assuming a periodic rectangular domain, with the convention Ω = Td = Rd/(2 πZ)d, the Fourier truncation is 
+
+TMv(x) = X
+
+> k∈M
+
+bv(k)eik ·x. (5) Then, for a given layer ℓ, the spectral convolution can be written in physical space as in Eq. 6: 
+
+Cθℓ (v)( x) = 
+
+Z
+
+> Ω
+
+κθℓ (x − y)TMv(y) dy. (6) Equivalently, it is implemented in Fourier space by 
+
+\Cθℓ (v)( k) = 
+
+(
+
+R(k) 
+
+> ℓ
+
+bv(k), k ∈ M ,
+
+0, k / ∈ M , (7) where R(k) 
+
+> ℓ
+
+is a learned complex-valued matrix acting on the channel dimension of the k-th Fourier mode. The output is then transformed back to the physical space with inverse FFT. We remark that, 
+
+within each linear spectral convolution, retained Fourier modes are updated independently of each other and cross-mode interactions are induced only through the pointwise nonlinearities between FNO layers .
+
+Polynomial nonlinearities in PDEs. Let α = ( α1, . . . , α d) ∈ Nd 
+
+> 0
+
+be a multi-index, with |α| =
+
+α1 + · · · + αd, and define 
+
+Dαx u = ∂|α|u∂x α1 
+
+> 1
+
+· · · ∂x αd
+
+> d
+
+. (8) We use the convention D0
+
+> x
+
+u = u. For a PDE of spatial order m, the collection of spatial derivatives up to order m is {Dαx u : 0 ≤ | α| ≤ m}. Thus Eq. 1 can be written in multi-index form as 
+
+∀x ∈ Ω, ∀t ∈ (0 , T ], ∂u ∂t (x, t ) = F (ν, t, x, {Dαx u(x, t ) : 0 ≤ | α| ≤ m}) ,
+
+∀x ∈ ∂Ω, ∀t ∈ (0 , T ], B(u)( x, t ) = 0 , ∀x ∈ Ω, u(x, 0) = u0(x).
+
+(9) When the right-hand side is polynomial in u and its spatial derivatives, it can be decomposed into homogeneous components: 
+
+∂u ∂t (x, t ) = 
+
+> n
+
+X
+
+> j=0
+
+PIj ,j [u]( x, t ). (10) Here PIj ,j denotes the j-homogeneous component of the PDE nonlinearity. More precisely, denoting as α a set of multi-indices (α(1) , . . . , α (j)) ∈ (Nd
+
+> 0
+
+)j , where each α(r) is a spatial multi-index, let 
+
+Ij ⊂ (Nd
+
+> 0
+
+)j be the set of multi-index tuples appearing in degree-j terms. Then 
+
+PIj ,j [u]( x, t ) = X
+
+> α∈I j
+
+cα
+
+> j
+
+Y
+
+> r=1
+
+Dα(r) 
+
+> x
+
+u(x, t ). (11) We refer to the maximal value of j in Eq. 10 as the polynomial degree of the PDE nonlinearity and denote it by n. For instance, quadratic nonlinearities appear in Burgers’ equation and in the advective term of the incompressible Navier–Stokes equations. Now, we focus on the degree-n component, 
+
+PIn,n [u]( x, t ) = X
+
+> α∈I n
+
+cα
+
+> n
+
+Y
+
+> r=1
+
+Dα(r) 
+
+> x
+
+u(x, t ). (12) On the torus Ω = Td, we expand scalar functions as 
+
+u(x, t ) = X
+
+> k∈Zd
+
+bu(k, t )eik ·x, bu(k, t ) ∈ C. (13) 4Taking the Fourier transform of Eq. 12 gives 
+
+\PIn,n [u]( k, t ) = X
+
+> α∈I n
+
+X
+
+> k1+··· +kn=kk1,...,k n∈Zd
+
+Cα(k1, . . . , k n)
+
+> n
+
+Y
+
+> r=1
+
+bu(kr , t ), (14) with Cα(k1, . . . , k n) = cα
+
+Qnr=1 (ik r )α(r)
+
+, (ik r )α(r)
+
+:= Qdq=1 (ik r,q )α(r) 
+
+> q
+
+.
+
+The inner sum in Eq. 14 is an n-fold convolution of Fourier modes. It makes explicit how polyno-mial nonlinearities mix frequencies, whereas standard spectral neural operators use linear spectral convolutions that act mode-wise and rely on pointwise nonlinearities to induce such mixing. This is precisely this mixing that our proposed higher-order spectral convolution is designed to model. 
+
+4 Beyond pointwise non-linearities 
+
+Motivation. Pointwise non-linearities already induce interactions between Fourier coefficients. However, as discussed previously, current approaches do not distinguish between different orders of non-linearity nor between the individual factors appearing in the nonlinear terms. Indeed, as noted by Azeglio et al. [2024], the current formulation of spectral neural operators modulates all interactions with the same set of weights inherited from the preceding linear layer. This limitation becomes clear by expanding a pointwise non-linearity as a polynomial series. Consider, for simplicity, the expansion of a scalar non-linearity applied after a linear combination: 
+
+σ(w1x1 + w2x2) ≈λ0 + λ1(w1x1 + w2x2) + λ2(w1x1 + w2x2)2 + . . . 
+
+=λ0 + λ1w1x1 + λ1w2x2 + λ2w12x21 + λ2w22x22 + 2 λ2w1w2x1x2 + . . . 
+
+(15) In Eq. 15, all quadratic interactions are tied through the same weights w1, w 2 and coefficient λ2. As a result, the model cannot independently control the different higher order terms (e.g., x21, x22, or x1x2), leading to a weight-sharing constraint across nonlinear orders and factors. In contrast, our Higher-Order Convolution explicitly parameterizes each nonlinear interaction term . We argue that this distinction is crucial when modeling nonlinear operators arising in partial differential equations. For instance, modeling the quadratic advection term in Navier-Stokes requires controlling distinct bilinear interactions between components and derivatives, which a linear layer followed by a pointwise non-linearity can only capture implicitly with enough depth. Next, we present, as a concrete example, the non-linear interactions on the incompressible Navier-Stokes equation. 
+
+Example of Navier-Stokes equation. We express the PDE in the vorticity form as follows in Equation 16: 
+
+∂tw(x, t ) = ν∆w(x, t ) − (∇⊥∆−1w)( x, t ) · ∇ w(x, t ) + f (x),u(x, t ) = ∇⊥∆−1w(x, t ), ∇ · u(x, t ) = 0 , w(x, 0) = w0(x).
+
+(16) where x ∈ (0 , 1) 2, t ∈ (0 , T ]. Throughout this example, we assume that w has zero spatial mean, so that ∆−1 is well-defined on the nonzero Fourier modes. To observe the interaction of the Fourier modes of the vorticity, we take the Fourier transform, for k ∈ Z2, t ∈ (0 , T ]:
+
+∂t( bw)( k, t ) = −ν(2 π)2|k|2 bw(k, t ) − X
+
+> p+q=k
+
+(p + q) · p⊥
+
+|p|2 bw(p, t ) bw(q, t ) + bf (k, t ). (17) with p = ( p1, p 2) and p⊥ = ( −p2, p 1). In Fourier space, the nonlinear advection term of Eq. 17 takes the form of a convolution, inducing triadic interactions that redistribute kinetic energy across Fourier modes. We refer to the appendix D for a more detailed discussion on Navier-Stokes equation. As highlighted by Cheung and Zaki [2014], the primary difficulty in working with the spectral Navier–Stokes equations described in Eq.17 is to appropriately account for all nonlinear interactions. An analytical treatment requires some means of tracking energy transfer from two arbitrary modes p
+
+and q into a third mode k. Therefore, it motivates the use of architectures that go beyond diagonal modulation of Fourier coefficients by explicitly parameterizing higher-order interactions in the spectral domain. 5Higher-Order Fourier Neural Operators (HO-FNO). We extend the kernel map to incorporate explicit m-linear interactions via the following Higher-Order Spectral Convolution, given in Eq. 18, where each Ai is a learnable linear operator acting channel-wise in physical space. In this work, we instantiate the Ai as point-wise linear maps shared across spatial locations but not across layers. We report in Appendix H ablation results about the structure of the Ai matrices. The m-linear point-wise products of Eq. 18 in physical space induce a structured m-linear global mixing among Fourier coefficients as given by Eq. 19. 
+
+ Hθ u(x) = 
+
+Z
+
+> Ω
+
+kθ (x − y)TM
+
+ (A1u)( A2u) · · · (Amu)(y)dy (18) 
+
+( dHθ v)( k) = R(k) X
+
+> k1+... +km=k
+
+A1bv(k1)A2bv(k2) · · · Ambv(km) (19) Thus, each mode k aggregates all m-tuples of modes with indices summing to k, mirroring the nonlinear interaction structure of PDEs with polynomial nonlinearities. We provide further illus-trations of the method in Appendix B, and formalize the interest of the proposed inductive-bias in Appendix C.1. There, we introduce a local expansion of the Fourier-truncated one-step solution operator, define the tied class of higher-order interactions induced by pointwise nonlinearities and the order-n HO-FNO class realized by equation 19. We show that in the matched case m = n, HO-FNO exactly matches the degree-n Fourier interaction while shallow FNO is restricted to modeling a tied subclass of interactions. Hence, this proves that a local approximation gap remains between FNO and HO-FNO whenever the target interaction lies outside that class of interactions. Regarding point clouds, we build on the Geometry-Aware Fourier Neural Operator framework Li et al. [2023c] to extend our spectral neural operator to this setting. 
+
+5 Experiments 
+
+To showcase the interest of the higher-order spatial convolution, we introduce in subsection 5.1 a simulated dataset consisting of a Poisson equation with polynomial forcing. On this dataset, HO-FNO with a single layer outperforms FNO with multiple layers (up to 16 ). Then, we evaluate the proposed HO-FNO across a wide range of PDE problems and compare it with over 20 recent operator-learning methods, including attention-based and state-space models. Table 4 provides a summary of the datasets, which span different geometry types, number of spatial dimensions, and problem sizes. We provide further information on the benchmarks and hyperparameter settings in Appendix L. We provide several ablations to assess the zero-shot super-resolution capabilities of HO-FNO in AppendixG, measure its improved efficiency compared to Transformers and state-space models, and isolate the specific contribution of higher-order spectral convolutions relative to other experimental choices. Finally, we ablate the matrix structure used to induce higher-order mixing in Appendix H. 
+
+5.1 A single HO-FNO layer is worth 16 FNO layers: Poisson Equation with Polynomial source 
+
+We introduce the Polynomial-Source Poisson dataset, a controlled nonlinear elliptic PDE benchmark designed to evaluate whether neural operators can efficiently represent multiplicative field interactions of increasing order. The dataset is parameterized by an integer degree p that indicates the order of non-linearity of the equation. For each sample, the model receives p independent input fields 
+
+u1, . . . , u p and must predict the solution v of a Poisson equation whose source term is the pointwise product of these input fields. The PDE is the following: 
+
+−∆v(x, y ) = 
+
+> p
+
+Y
+
+> ℓ=1
+
+uℓ(x, y ) − 1
+
+|Ω|
+
+Z
+
+> Ω
+> p
+
+Y
+
+> ℓ=1
+
+uℓ(x′, y ′) dx ′ dy ′, (x, y ) ∈ Ω. (20) The benchmark is motivated by a common structure in physics-based PDEs: nonlinear interactions between fields often appear as source terms, forcing terms, or closure terms[Klimenko and Pope, 2003], typical in electrostatics[Gray and Stiles, 2018, Baker, 2004], phase-field models[Allen and Cahn, 1979], and pressure recovery in incompressible fluid dynamics[Temam, 2024]. A detailed description of the equation and data-generation procedure is provided in Appendix E.8. 6Results Across all considered Poisson datasets in Figure 2, every HO-FNO variant consistently outperforms FNO with the same number of layers. Moreover, on all the nonlinear Poisson datasets (p ∈ { 2, 3, 5}) a single-layer HO-FNO of order p already outperforms FNOs with up to 16 layers. The largest gap is observed on the most challenging dataset, p = 5 , where HO-FNO achieves a loss that is two orders of magnitude lower than that of FNO. Since each HO-FNO layer has roughly the same number of parameters as an FNO layer, this means that, on these benchmarks, HO-FNO can outperform FNO models with up to 16 times more layers and parameters. On the Poisson equation with linear forcing ( p = 1 ), the trend is similar, but the gap between FNO and HO-FNO variants is much smaller than in the nonlinear cases. This suggests that HO-FNO can also help on linear PDEs, while its largest gains emerge in nonlinear regimes.                        
+
+> 124816
+> 10 −3
+> 10 −2
+> Number of Layers
+> Test MSE
+> p= 1
+> 124816
+> 10 −3
+> 10 −2
+> 10 −1
+> Number of Layers
+> p= 2
+> 124816
+> 10 −3
+> 10 −2
+> 10 −1
+> 10 0
+> Number of Layers
+> p= 3
+> 124816
+> 10 −2
+> 10 −1
+> 10 0
+> Number of Layers
+> p= 5
+> FNO (order 1) HO-FNO (order 2) HO-FNO (order 3) HO-FNO (order 5)
+
+Figure 2: Test MSE as a function of the number of layers on the Polynomial-Source Poisson datasets for 
+
+p = 1 , 2, 3, and 5. Solid lines denote the mean over runs, and shaded bands indicate one standard deviation. Lower values indicate better performance. Tables with quantitative results are provided in Appendix I. 
+
+5.2 Isolating the Effect of Higher-Order Spectral Convolutions 
+
+To isolate the contribution of the proposed Higher-Order spectral convolution from the choice of backbone architecture, we train both FNO and HO-FNO using the simpler backbone of the original FNO [2020]. In all other experiments, both models use a modern residual backbone; the differences between the two backbones are detailed in Appendix L.2. We conduct this controlled comparison on the three Navier–Stokes datasets reported in Table 1. These datasets, introduced by Li et al. [2020], differ only in the viscosity, ν ∈ { 10 −3, 10 −4, 10 −5}. Further details are provided in Appendix E.8. 
+
+Results HO-FNO outperforms FNO in all the 3 fluid regimes, in all the 3 reported metrics, with best performance at the highest viscosity where HO-FNO has a rollout loss that is almost an order of magnitude lower than the one of FNO. Additionally, HO-FNO performs better than DSFNO in the reported results and performs better than LaMO in the two datasets with higher viscosity while being slightly behind in the low viscosity benchmark. Additionally, the ablation shows that the order-3 model brings only marginal improvements over the order-2 version. This is consistent with both our theoretical motivation and the experiments on the Poisson dataset in Section 5.1: the three benchmarks considered here involve PDEs with quadratic nonlinearities, and therefore we do not expect HO-FNO variants of order greater than 2 to yield substantial additional gains. 
+
+5.3 Main results Tasks. We consider six PDE surrogate tasks that were introduced by Li et al. [2020] and Li et al. [2023c] and have since become a standard suite for operator-learning work, as they represent a broad spectrum of physical phenomena, namely material stress/deformation (Elasticity, Plasticity), fluid dynamics governed by the Navier–Stokes equations (Airfoil, Pipe, and a spatio-temporal Navier–Stokes case), and porous-media flow described by Darcy’s law. 
+
+Baselines We compare HO-FNO against baselines reported in [Tiwari et al., 2025, Wu et al., 2024, Curvo et al., 2026], spanning classical models (e.g. Deep-O-Net Lu et al. [2021], frequency-based neural operators (FNO etc.), transformers, and state space models. We report the relative L2 error between predicted and ground-truth fields. We conduct all the experiments building on the code and benchmark setup of LaMO [Tiwari et al., 2025]. 7Table 1: Test performance on Navier–Stokes datasets. We report the number of parameters, the test MSE , the normalized MSE ( nRMSE ), the rollout nRMSE . 
+
+model FNO HO-FNO DSFNO ∗ LaMO order 1 2 3N. parameters 1.09 M 1.09 M 1.10 M 1.06 M 1.54 M
+
+NS ( ν = 10 −3)
+
+MSE 3.0 × 10 −7 7.8 × 10 −8 7.6 × 10 −8 – 1.6 × 10 −7
+
+nRMSE 4.4 × 10 −4 2.8 × 10 −4 2.7 × 10 −4 – 4.0 × 10 −4
+
+Rollout 1.2 × 10 −2 1.8 × 10 −3 1.6 × 10 −3 5.6 × 10 −3 3.8 × 10 −3
+
+NS ( ν = 10 −4)
+
+MSE 2.6 × 10 −3 7.9 × 10 −4 7.9 × 10 −4 – 8.3 × 10 −4
+
+nRMSE 2.9 × 10 −2 1.3 × 10 −2 1.3 × 10 −2 – 1.4 × 10 −2
+
+Rollout 7.7 × 10 −2 4.6 × 10 −2 4.6 × 10 −2 6.0 × 10 −2 5.0 × 10 −2
+
+NS ( ν = 10 −5)
+
+MSE 1.8 × 10 −2 1.7 × 10 −2 1.7 × 10 −2 – 1.4 × 10 −2
+
+nRMSE 6.7 × 10 −2 6.5 × 10 −2 6.8 × 10 −2 – 5.8 × 10 −2
+
+Rollout 1.3 × 10 −1 1.1 × 10 −1 1.2 × 10 −1 – 1.1 × 10 −1 
+
+> ∗
+
+Original errors reported in Gao et al. [2025], single-step metrics and results for Navier–Stokes with ν = 10 −5 were not provided. 
+
+Results Across all benchmarks reported in Table 2, HO-FNO consistently outperforms other frequency-based models, and often by a wide margin over FNO. Moreover, HO-FNO is the only frequency-based model that is competitive with the strongest Transformer and state-space baselines .It attains the best reported error on Navier–Stokes (0 .0319) and Plasticity (0 .0006) , supporting the intuition that higher-order spectral interactions are a useful inductive bias for PDEs with high-order nonlinear structure. While Navier–Stokes contains a quadratic convection term, Plasticity involves analytic nonlinearities that are not finite-degree polynomials and can be locally approximated by an infinite power series. This suggests that the higher-order spectral bias may remain useful beyond strictly polynomial PDEs. Table 2: Main results across standard datasets, reported as mean relative ℓ2 error (Eq. 49; lower is better). 
+
+HO-FNO (Ours) is evaluated under a parameter budget matched to LaMO on each task. orange denotes the best baseline, blue the second-best, and violet the third-best. Best result for each dataset is in bold .OPERATOR RESOLUTION REGULAR GRID STRUCTURED MESH POINT CLOUD 
+
+EQUIVARIANT NAVIER –S TOKES DARCY PLASTICITY AIRFOIL PIPE ELASTICITY 
+
+> CLASSIC
+
+UNET [2015] ✗ 0.1982 0.0080 0.0051 0.0079 0.0065 0.0235 
+
+RESNET [2015] ✗ 0.2753 0.0587 0.0233 0.0391 0.0120 0.0262 
+
+SWIN [2021] ✗ 0.2248 0.0397 0.0170 0.0270 0.0109 0.0283 
+
+DEEP ON ET [2021] ✗ 0.2972 0.0588 0.0135 0.0385 0.0097 F
+
+> TRANSFORMER
+
+GALERKIN [2021] ✗ 0.1401 0.0084 0.0120 0.0118 0.0098 0.0240 
+
+HT-N ET [2022] ✗ 0.1847 0.0079 0.0333 0.0065 0.0059 /OF ORMER [2023 A] ✗ 0.1705 0.0124 0.0017 0.0183 0.0168 0.0183 
+
+GNOT [2023] ✗ 0.1380 0.0105 0.0336 0.0076 0.0047 0.0086 
+
+FACT FORMER [2023 B] ✗ 0.1214 0.0109 0.0312 0.0071 0.0060 /ONO [2024] ✓ 0.1195 0.0076 0.0048 0.0061 0.0052 0.0118 
+
+TRANSOLVER [2024] ✗ 0.0957 0.0059 0.0013 0.0053 0.0046 0.0064 
+
+ERWIN [2025] ✗ - - 0.0010 0.0257 0.0061 0.0034 
+
+TRANSOLVER ++ [2025] ✗ 0.0719 0.0058 0.0011 0.0048 0.0061 0.0052 
+
+MSPT [2026] ✗ 0.0632 0.0063 0.0010 0.0051 0.0031 0.0048 
+
+> SSM
+
+LAMO [2025] ✗ 0.0460 0.0039 0.0007 0.0041 0.0038 0.0050 FREQUENCY  WMT [2021] ✗ 0.1541 0.0082 0.0076 0.0075 0.0077 0.0359 
+
+U-FNO [2022] ✓ 0.2231 0.0183 0.0039 0.0269 0.0056 0.0239 
+
+FNO [2020, 2023 C] ✓ 0.1556 0.0108 0.0074 0.0138 0.0067 0.0229 
+
+U-NO [2022] ✓ 0.1713 0.0113 0.0034 0.0078 0.0100 0.0258 
+
+F-FNO [2023] ✓ 0.2322 0.0077 0.0047 0.0078 0.0070 0.0263 
+
+LSM [2023] ✗ 0.1535 0.0065 0.0025 0.0059 0.0050 0.0218 
+
+FNO with modern backbone ( Ours) ✓ 0.0976 0.0068 0.0066 0.0065 0.0069 0.0205 
+
+HO-FNO (O URS ) ✓ 0.0319 0.0052 0.0006 0.0051 0.0049 0.0199 
+
+INCREMENT OVER FNO WITH MODERN BACKBONE 67 .3% 23 .5% 90 .9% 21 .5% 29 .0% 2.9%
+
+INCREMENT OVER THE BEST FREQUENCY MODEL 67 .3% 20 .0% 76 .0% 13 .6% 2.0% 3.0%
+
+INCREMENT OVER THE BEST TRANSFORMER MODEL 55 .2% 11 .9% 40 .0% 3.8% −58 .1% −485 .3% 
+
+INCREMENT OVER THE BEST RES . E QUIV . MODEL 79 .5% 32 .5% 82 .4% 34 .6% 12 .5% 13 .1%
+
+5.4 Extension to manifolds: SWE on the sphere. 
+
+The classical Fourier transform is naturally defined on periodic euclidean domains, such as the torus 
+
+Td. For functions defined on a manifold M ⊂ RD , applying the standard Fourier transform after embedding in the ambient space ignores the intrinsic geometry of M. A geometry-aware alternative is given by the spectral decomposition of the Laplace–Beltrami operator, 
+
+−∆g ϕj = λj ϕj on M, (21) 8whose eigenfunctions {ϕj } act as generalized Fourier modes and eigenvalues {λj } as frequencies. This induces a natural notion of spectral convolution on manifolds, allowing Higher-Order Spectral Convolutions to extend beyond euclidean geometries. We refer to Appendix F for the extended discussion, and evaluate this setting on the spherical Shallow Water Equation in Table 3. 
+
+Results HO-SFNO consistently outperforms SFNO on the spherical SWE benchmark across all metrics. The improvement is particularly strong for the full rollout, where the error decreases from 7.7 × 10 −1 to 7.0 × 10 −1, and for the early rollout interval (0 , 10) , where the error drops from 9.9 × 10 −2 to 8.0 × 10 −2. This suggests that higher-order spectral interactions improve both short-term prediction accuracy and long-horizon stability on non-Euclidean geometries. Table 3: Test performance on SWE dataset. Models are trained with MSE. We report variants of MSE for time intervals (0 , 10) , (11 , 25) , (26 , 50) and full rollout. Best per metric in bold .                                      
+
+> Metric MSE NRMSE Rollout ( 0 : 10 )Rollout ( 11 : 25 )Rollout ( 26 : 50 )Rollout SFNO 8.23 1.7×10 −29.9×10 −23.0×10 −17.2×10 −17.7×10 −1
+> HO-SFNO (ours) 5.56 1.3×10 −28.0×10 −22.6×10 −16.2×10 −17.0×10 −1
+
+5.5 Efficiency Analysis 
+
+A primary motivation for HO-FNO is to match transformers and SSMs performance while retaining FNO’s efficiency. We provide a parameter count computation and we analyze computational and memory cost, measuring wall-clock time for inference, training and peak GPU memory usage. Denoting by C the number of input/output channels, M the number of retained Fourier modes and m
+
+the order of HO-FNO, the parameter count of an HO spectral layer is M C 2 + mC 2, which grows linearly with the interaction order m. Since typically m ≪ M and an FNO convolution has M C 2
+
+parameters, the additional parameters introduced by higher-order mixing are negligible in practice. 
+
+Results The analysis 11 shows that HO-FNO adds no visible overhead compared to FNO across the considered metrics, while remaining more efficient than competing models. Transolver is the most expensive method in all categories and benchmarks. Compared to LaMO, HO-FNO is substantially faster at inference across all settings, and more memory-efficient and faster to train on two benchmarks.          
+
+> NS Airfoil Pipe
+> 0
+> 1
+> 2
+> 3
+> Normalized training time
+> NS Airfoil Pipe
+> 0
+> 1
+> 2
+> 3
+> Normalized inference time
+> NS Airfoil Pipe
+> 0
+> 0.5
+> 1
+> 1.5
+> Normalized memory
+> LaMO FNO HO-FNO Transolver
+
+Figure 3: Efficiency comparison on NS, Airfoil, and Pipe after normalization with respect to FNO for each dataset and metric on a single Nvidia A100 GPU. Raw values are available in Appendix J.2. 
+
+6 Conclusion and Future Work 
+
+This paper introduces the Higher-Order Fourier Neural Operator (HO-FNO) for solving non-linear PDEs. Thanks to its HO-Spectral Convolution, a spectral mixer that mirrors polynomial interactions present in nonlinear PDEs, HO-FNO retains the efficiency of FFT-based methods while performing on par, or better, than more costly models such as Transformers and State-space models. Experimental results show state-of-the-art accuracy on standard PDE benchmarks and a remarkable depth efficiency in strongly non-linear dynamics. Future works include a specialized version on point clouds data to bridge the gap in that setting between frequency-based models and transformers, as well as exploring input-dependent conditioning of the higher-order kernels and multi-physics adaptations. 9Acknowledgments 
+
+This work was granted access to the HPC resources of IDRIS under the allocations AD010616824, AD011016345 and A0191016927 made by GENCI. This work has received support from the French government, managed by the National Research Agency, under the France 2030 program with the reference “PR[AI]RIE-PSAI” (ANR-23-IACL-0008) and "PEPR-SHARP" (ANR-23-PEIA-0008). 10 References 
+
+Benedikt Alkin, Andreas Fürst, Simon Schmid, Lukas Gruber, Markus Holzleitner, and Johannes Brandstetter. Universal physics transformers: A framework for efficiently scaling neural operators. 
+
+Advances in Neural Information Processing Systems , 37:25152–25194, 2024. Samuel M Allen and John W Cahn. A microscopic theory for antiphase boundary motion and its application to antiphase domain coarsening. Acta metallurgica , 27(6):1085–1095, 1979. Simone Azeglio, Olivier Marre, Peter Neri, and Ulisse Ferrari. Convolution goes higher-order: a biologically inspired mechanism empowers image classification. arXiv preprint arXiv:2412.06740 ,2024. Nathan A Baker. Poisson–boltzmann methods for biomolecular electrostatics. In Methods in enzymology , volume 383, pages 94–118. Elsevier, 2004. Leon Bergen, Timothy O’Donnell, and Dzmitry Bahdanau. Systematic generalization with edge transformers. Advances in Neural Information Processing Systems , 34:1390–1402, 2021. Julius Berner, Miguel Liu-Schiaffini, Jean Kossaifi, Valentin Duruisseaux, Boris Bonev, Kamyar Azizzadenesheli, and Anima Anandkumar. Principled approaches for extending neural architectures to function spaces for operator learning. arXiv preprint arXiv:2506.10973 , 2025. Boris Bonev, Thorsten Kurth, Christian Hundt, Jaideep Pathak, Maximilian Baust, Karthik Kashinath, and Anima Anandkumar. Spherical fourier neural operators: Learning stable dynamics on the sphere. In International conference on machine learning , pages 2806–2823. PMLR, 2023. Keaton J Burns, Geoffrey M Vasil, Jeffrey S Oishi, Daniel Lecoanet, and Benjamin P Brown. Dedalus: A flexible framework for numerical simulations with spectral methods. Physical Review Research ,2(2):023068, 2020. Claudio Canuto, MY Hussaini, A Quarteroni, and TA Zang. Spectral methods . Springer New York, 1996. Shuhao Cao. Choose a transformer: Fourier or galerkin, 2021. URL https://arxiv.org/abs/ 2105.14995 .Gengxiang Chen, Xu Liu, Qinglu Meng, Lu Chen, Changqing Liu, and Yingguang Li. Learning neural operators on riemannian manifolds. arXiv preprint arXiv:2302.08166 , 2023. Lawrence C. Cheung and Tamer A. Zaki. An exact representation of the nonlinear triad interaction terms in spectral space. Journal of Fluid Mechanics , 748:175–188, 2014. doi: 10.1017/jfm.2014. 179. James Clift, Dmitry Doryn, Daniel Murfet, and James Wallbridge. Logic and the 2-simplicial transformer. arXiv preprint arXiv:1909.00668 , 2019. Alex Colagrande, Paul Caillon, Eva Feillet, and Alexandre Allauzen. Linear attention with global context: A multipole attention mechanism for vision and physics. arXiv preprint arXiv:2507.02748 ,2025. Pedro MP Curvo, Jan-Willem van de Meent, and Maksim Zhdanov. Mspt: Efficient large-scale physi-cal modeling via parallelized multi-scale attention. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 12924–12933, 2026. Wenhan Gao, Jian Luo, Ruichen Xu, and Yi Liu. Dynamic schwartz-fourier neural operator for enhanced expressive power. Transactions on Machine Learning Research , 2025. URL https: //openreview.net/forum?id=B0E2yjrNb8 .CG Gray and Peter John Stiles. Nonlinear electrostatics: the poisson–boltzmann equation. European Journal of Physics , 39(5):053002, 2018. Gaurav Gupta, Xiongye Xiao, and Paul Bogdan. Multiwavelet-based operator learning for differential equations, 2021. URL https://arxiv.org/abs/2109.13459 .11 Zhongkai Hao, Zhengyi Wang, Hang Su, Chengyang Ying, Yinpeng Dong, Songming Liu, Ze Cheng, Jian Song, and Jun Zhu. Gnot: A general neural operator transformer for operator learning, 2023. URL https://arxiv.org/abs/2302.14376 .Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. Deep residual learning for image recognition, 2015. URL https://arxiv.org/abs/1512.03385 .Hans Hersbach, Bill Bell, Paul Berrisford, Shoji Hirahara, András Horányi, Joaquín Muñoz-Sabater, Julien Nicolas, Carole Peubey, Raluca Radu, Dinand Schepers, Adrian Simmons, Cornel Soci, Saleh Abdalla, Xavier Abellan, Gianpaolo Balsamo, Peter Bechtold, Gionata Biavati, Jean Bidlot, Massimo Bonavita, Giovanna De Chiara, Per Dahlgren, Dick Dee, Michail Diamantakis, Rossana Dragani, Johannes Flemming, Richard Forbes, Manuel Fuentes, Alan Geer, Leo Haimberger, Sean Healy, Robin J. Hogan, Elías Hólm, Marta Janisková, Sarah Keeley, Patrick Laloyaux, Philippe Lopez, Cristina Lupu, Gabor Radnoti, Patricia de Rosnay, Iryna Rozum, Freja Vamborg, Sebastien Villaume, and Jean-Noël Thépaut. The era5 global reanalysis. Quarterly Journal of the Royal Meteorological Society , 146(730):1999–2049, 2020. doi: https://doi.org/10.1002/qj.3803. URL 
+
+https://rmets.onlinelibrary.wiley.com/doi/abs/10.1002/qj.3803 .C Johnson. Numerical solution of partial differential equations by the finite element method . Stu-dentlitteratur, 1994. John Jumper, Richard Evans, Alexander Pritzel, Tim Green, Michael Figurnov, Olaf Ronneberger, Kathryn Tunyasuvunakool, Russ Bates, Augustin Žídek, Anna Potapenko, Alex Bridgland, Clemens Meyer, Simon A. A. Kohl, Andrew J. Ballard, Andrew Cowie, Bernardino Romera-Paredes, Stanislav Nikolov, Rishub Jain, Jonas Adler, Trevor Back, Stig Petersen, David Reiman, Ellen Clancy, Michal Zielinski, Martin Steinegger, Michalina Pacholska, Tamas Berghammer, Sebastian Bodenstein, David Silver, Oriol Vinyals, Andrew W. Senior, Koray Kavukcuoglu, Push-meet Kohli, and Demis Hassabis. Highly accurate protein structure prediction with AlphaFold. 
+
+Nature , 596(7873):583–589, August 2021. ISSN 1476-4687. doi: 10.1038/s41586-021-03819-2. URL https://doi.org/10.1038/s41586-021-03819-2 .A. Y. Klimenko and S. B. Pope. The modeling of turbulent reactive flows based on multiple mapping conditioning. Physics of Fluids , 15(7):1907–1925, 07 2003. ISSN 1070-6631. doi: 10.1063/1.1575754. URL https://doi.org/10.1063/1.1575754 .Jean Kossaifi, Nikola Kovachki, Kamyar Azizzadenesheli, and Anima Anandkumar. Multi-grid tensorized fourier neural operator for high-resolution pdes. arXiv preprint arXiv:2310.00120 ,2023. Jean Kossaifi, Nikola Kovachki, Zongyi Li, David Pitt, Miguel Liu-Schiaffini, Robert Joseph George, Boris Bonev, Kamyar Azizzadenesheli, Julius Berner, Valentin Duruisseaux, et al. A library for learning neural operators. arXiv preprint arXiv:2412.10354 , 2024. Nikola Kovachki, Samuel Lanthaler, and Siddhartha Mishra. On universal approximation and error bounds for fourier neural operators. Journal of Machine Learning Research , 22(290):1–76, 2021. Nikola Kovachki, Zongyi Li, Burigede Liu, Kamyar Azizzadenesheli, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. Neural operator: Learning maps between function spaces with applications to pdes. Journal of Machine Learning Research , 24(89):1–97, 2023. R. J. LeVeque. Finite Volume Methods for Hyperbolic Problems . Cambridge University Press, 2002. ISBN 0-521-00924-3. URL http://www.clawpack.org/fvmhp_materials/ .Randall LeVeque. Finite Difference Methods for Ordinary and Partial Differential Equations: Steady-State and Time-Dependent Problems (Classics in Applied Mathematics Classics in Applied Mathemat) . Society for Industrial and Applied Mathematics, USA, 2007. ISBN 0898716292. Xinyi Li, Zongyi Li, Nikola Kovachki, and Anima Anandkumar. Geometric operator learning with optimal transport. arXiv preprint arXiv:2507.20065 , 2025. Zijie Li, Kazem Meidani, and Amir Barati Farimani. Transformer for partial differential equations’ operator learning, 2023a. URL https://arxiv.org/abs/2205.13671 .12 Zijie Li, Dule Shu, and Amir Barati Farimani. Scalable transformer for pde surrogate modeling, 2023b. URL https://arxiv.org/abs/2305.17560 .Zongyi Li, Nikola Kovachki, Kamyar Azizzadenesheli, Burigede Liu, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. Fourier neural operator for parametric partial differential equations. 
+
+arXiv preprint arXiv:2010.08895 , 2020. Zongyi Li, Daniel Zhengyu Huang, Burigede Liu, and Anima Anandkumar. Fourier neural operator with learned deformations for pdes on general geometries. Journal of Machine Learning Research ,24(388):1–26, 2023c. Zongyi Li, Nikola Kovachki, Chris Choy, Boyi Li, Jean Kossaifi, Shourya Otta, Mohammad Amin Nabian, Maximilian Stadler, Christian Hundt, Kamyar Azizzadenesheli, et al. Geometry-informed neural operator for large-scale 3d pdes. Advances in Neural Information Processing Systems , 36: 35836–35854, 2023d. Phillip Lippe, Bastiaan S. Veeling, Paris Perdikaris, Richard E. Turner, and Johannes Brandstetter. Pde-refiner: Achieving accurate long rollouts with neural pde solvers, 2023. URL https:// arxiv.org/abs/2308.05732 .Xinliang Liu, Bo Xu, and Lei Zhang. Ht-net: Hierarchical transformer based operator learning model for multiscale pdes. 2022. Ze Liu, Yutong Lin, Yue Cao, Han Hu, Yixuan Wei, Zheng Zhang, Stephen Lin, and Baining Guo. Swin transformer: Hierarchical vision transformer using shifted windows, 2021. URL 
+
+https://arxiv.org/abs/2103.14030 .Ilya Loshchilov and Frank Hutter. SGDR: Stochastic gradient descent with warm restarts. In 
+
+International Conference on Learning Representations , 2017. URL https://openreview.net/ forum?id=Skq89Scxx .Ilya Loshchilov and Frank Hutter. Decoupled weight decay regularization. In International Conference on Learning Representations , 2019. URL https://openreview.net/forum?id= Bkg6RiCqY7 .Lu Lu, Pengzhan Jin, Guofei Pang, Zhongqiang Zhang, and George Em Karniadakis. Learning nonlinear operators via deeponet based on the universal approximation theorem of operators. 
+
+Nature Machine Intelligence , 3(3):218–229, March 2021. ISSN 2522-5839. doi: 10.1038/ s42256-021-00302-5. URL http://dx.doi.org/10.1038/s42256-021-00302-5 .Huakun Luo, Haixu Wu, Hang Zhou, Lanxiang Xing, Yichen Di, Jianmin Wang, and Mingsheng Long. Transolver++: An accurate neural solver for pdes on million-scale geometries, 2025. URL 
+
+https://arxiv.org/abs/2502.02414 .Harris Abdul Majid and Francesco Tudisco. Mixture of neural operators: Incorporating historical information for longer rollouts. In ICLR 2024 Workshop on AI4DifferentialEquations In Science ,2024. Michael McCabe, Peter Harrington, Shashank Subramanian, and Jed Brown. Towards stability of autoregressive neural operators. arXiv preprint arXiv:2306.10619 , 2023. Alain Miranville. The Cahn–Hilliard Equation: Recent Advances and Applications . So-ciety for Industrial and Applied Mathematics, Philadelphia, PA, 2019. doi: 10.1137/1. 9781611975925. URL https://epubs.siam.org/doi/abs/10.1137/1.9781611975925 ._eprint: https://epubs.siam.org/doi/pdf/10.1137/1.9781611975925. Ruben Ohana, Michael McCabe, Lucas Meyer, Rudy Morel, Fruzsina Agocs, Miguel Beneitez, Marsha Berger, Blakesly Burkhart, Stuart Dalziel, Drummond Fielding, et al. The well: a large-scale collection of diverse physics simulations for machine learning. Advances in Neural Information Processing Systems , 37:44989–45037, 2024. Md Ashiqur Rahman, Zachary E Ross, and Kamyar Azizzadenesheli. U-no: U-shaped neural operators. arXiv preprint arXiv:2204.11127 , 2022. 13 Olaf Ronneberger, Philipp Fischer, and Thomas Brox. U-net: Convolutional networks for biomedical image segmentation, 2015. URL https://arxiv.org/abs/1505.04597 .Aurko Roy, Timothy Chou, Sai Surya Duvvuri, Sijia Chen, Jiecao Yu, Xiaodong Wang, Manzil Zaheer, and Rohan Anil. Fast and simplex: 2-simplicial attention in triton. arXiv preprint arXiv:2507.02754 , 2025. Clayton Sanford, Daniel J Hsu, and Matus Telgarsky. Representational strengths and limitations of transformers. Advances in Neural Information Processing Systems , 36:36677–36707, 2023. Ivar Stakgold and Michael J Holst. Green’s functions and boundary value problems . John Wiley & Sons, 2011. Andrew N Staniforth. Global Atmospheric and Oceanic Modelling: Fundamental Equations . Cam-bridge University Press, 2022. Roger Temam. Navier–Stokes equations: theory and numerical analysis , volume 343. American Mathematical Society, 2024. Karn Tiwari, Niladri Dutta, N M Anoop Krishnan, and Prathosh AP. Latent mamba operator for partial differential equations, 2025. URL https://openreview.net/forum?id=Y4BDcJmb8t .Alasdair Tran, Alexander Mathews, Lexing Xie, and Cheng Soon Ong. Factorized fourier neural operators, 2023. URL https://arxiv.org/abs/2111.13802 .Gege Wen, Zongyi Li, Kamyar Azizzadenesheli, Anima Anandkumar, and Sally M. Benson. U-fno – an enhanced fourier neural operator-based deep-learning model for multiphase flow, 2022. URL 
+
+https://arxiv.org/abs/2109.03697 .David L. Williamson, John B. Drake, James J. Hack, Rüdiger Jakob, and Paul N. Swarztrauber. A standard test set for numerical approximations to the shallow water equations in spherical geometry. Journal of Computational Physics , 102(1):211–224, 1992. ISSN 0021-9991. doi: https://doi.org/10.1016/S0021-9991(05)80016-6. URL https://www.sciencedirect.com/ science/article/pii/S0021999105800166 .Haixu Wu, Tengge Hu, Huakun Luo, Jianmin Wang, and Mingsheng Long. Solving high-dimensional pdes with latent spectral models, 2023. URL https://arxiv.org/abs/2301.12664 .Haixu Wu, Huakun Luo, Haowen Wang, Jianmin Wang, and Mingsheng Long. Transolver: A fast transformer solver for pdes on general geometries, 2024. URL https://arxiv.org/abs/2402. 02366 .Zipeng Xiao, Zhongkai Hao, Bokai Lin, Zhijie Deng, and Hang Su. Improved operator learning by orthogonal attention, 2024. URL https://arxiv.org/abs/2310.12487 .Maksim Zhdanov, Max Welling, and Jan-Willem Van De Meent. Erwin: A tree-based hierarchical transformer for large-scale physical systems. In International Conference on Machine Learning ,pages 78023–78040. PMLR, 2025. 14 Appendix 
+
+A Notations 17 B Comparison of Mode Mixing in FNO and HO-FNO 18 C Theoretical Results 19 
+
+C.1 A local inductive-bias induced by the polynomial Fourier structure . . . . . . . . . 19 C.2 Motivation from the local expansion of the solution operator . . . . . . . . . . . . 20 C.3 From the scalar PDE notation to the hidden representation . . . . . . . . . . . . . 20 C.4 Two degree-n coefficient-family classes . . . . . . . . . . . . . . . . . . . . . . . 21 C.5 Pointwise nonlinearities induce the tied class . . . . . . . . . . . . . . . . . . . . 21 C.6 Order-n HO-FNO realizes the HO class . . . . . . . . . . . . . . . . . . . . . . . 22 C.7 Distance to the tied class . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 22 C.8 Main theorem . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 22 C.9 Conditional consequence for a local model . . . . . . . . . . . . . . . . . . . . . . 23 C.10 Interpretation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 23 
+
+D Extended Derivation of Fourier Mixing in Navier–Stokes 23 E Datasets 25 
+
+E.1 2D Navier Stokes equations [Li et al., 2020] . . . . . . . . . . . . . . . . . . . . . 25 E.2 Darcy Flow [Li et al., 2020] . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 25 E.3 Plasticity Li et al. [2023c] . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 26 E.4 Airfoil Li et al. [2023c] . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 27 E.5 Pipe Li et al. [2023c] . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 27 E.6 Elasticity Li et al. [2023c] . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 28 E.7 PlanetSWE [Ohana et al., 2024] . . . . . . . . . . . . . . . . . . . . . . . . . . . 28 E.8 Proposed Poisson equation with polynomial source (Polynomial-Source Poisson) . 29 
+
+F Detailed discussion on the extension to manifolds: example of SWE on the sphere. 33 G Ablation study on resolution-equivariance 33 H Ablation study on the structure of the matrices added to induce higher order interactions 34 I Extended results on the Poisson equation with polynomial source 35 J Extended Efficiency Analysis 36 
+
+J.1 Exact parameter count . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 36 J.2 Wall-Clock Times and Memory Usage . . . . . . . . . . . . . . . . . . . . . . . . 37 
+
+K Spectral Analysis 39 
+
+15 L Implementation Details 40 
+
+L.1 Training Details . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 41 L.2 Backbone Details . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 42 L.3 Baselines . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 42 L.4 Metrics description . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 44 
+
+M Visualizations of the predictions 46 
+
+16 A Notations 
+
+We summarize here the notations used throughout the paper. 
+
+Symbol Meaning 
+
+Ω Spatial domain. 
+
+∂Ω Boundary of the spatial domain. 
+
+d Number of spatial dimensions. 
+
+[0 , T ] Temporal domain. 
+
+Td d-dimensional torus, used as a periodic spatial domain. 
+
+x ∈ Ω Spatial coordinate. 
+
+t ∈ [0 , T ] Time variable. 
+
+u(x, t ) ∈ R Scalar solution field evaluated at space–time point (x, t ).
+
+u0 Initial condition, with u(x, 0) = u0(x).
+
+p0 Probability distribution from which initial conditions are sampled. 
+
+ν PDE coefficients, such as diffusivity (Burger), viscosity (Navier-Stockes, or hyperdiffusion coefficients (SWE). 
+
+B(u) Boundary condition operator. 
+
+α = ( α1, . . . , α d) Spatial multi-index, where αq is the derivative order in direction xq .
+
+|α| Total order of the multi-index, |α| = α1 + · · · + αd.
+
+Dαx u Spatial derivative associated with α: Dαx u = ∂|α|u∂x α11 ··· ∂x αdd
+
+.m spatial order of the PDE. 
+
+G† Exact one-step solution operator mapping u(·, t ) to u(·, t + ∆ t).
+
+Gθ Learned neural operator that approximates G†.
+
+L Pointwise lifting network. 
+
+P Pointwise projection network. 
+
+Qℓ ℓ-th learnable operator layer. 
+
+L Number of learnable operator layers. 
+
+vℓ ∈ L2(Ω; Rcℓ ) Hidden representation at layer ℓ, with cℓ latent channels. 
+
+Wℓ, bℓ Pointwise linear map and bias term in layer ℓ.
+
+Kℓ Nonlocal integral operator in layer ℓ.
+
+M ⊂ Zd Set of retained Fourier modes. 
+
+bu(k, t ) ∈ C Fourier coefficient of u(·, t ) at Fourier mode ki Imaginary unit, i2 = −1.
+
+TM Fourier truncation operator retaining only modes in M.
+
+Cθℓ Spectral convolution operator in FNO layer ℓ.
+
+κθℓ Kernel of the convolution operator Cθℓ .
+
+R(k) 
+
+> ℓ
+
+Learned complex-valued matrix acting on the channel dimension of Fourier mode k in layer ℓ.
+
+N Number of retained Fourier modes, N = |M| .
+
+j Polynomial degree of a homogeneous component. 
+
+n Maximal polynomial degree of the PDE nonlinearity. 
+
+α = ( α(1) , . . . , α (j)) Tuple of j spatial multi-indices appearing in a degree-j monomial. 
+
+Ij ⊂ (Nd)j Set of multi-index tuples appearing in the degree-j homogeneous component. 
+
+PIj ,j [u] Degree-j homogeneous component of the PDE right-hand side. 
+
+cα Scalar coefficient associated with the monomial indexed by α.
+
+Cα(k1, . . . , k j ) Fourier-domain coefficient induced by the spatial derivatives in the monomial indexed by α.17 B Comparison of Mode Mixing in FNO and HO-FNO 
+
+In the following, we further detail the differences between the spectral convolution of FNO and the higher-order variants introduced in this work. 
+
+Mode mixing in standard FNO. In the standard FNO layer, each retained Fourier mode is updated independently through a learned complex-valued linear transformation. Therefore, the spectral convolution acts diagonally across modes: the updated representation of mode mi only depends on the input representation at the same mode mi. In Figure 4, this corresponds to the left diagram, where each retained mode is mapped to itself without interacting with the other modes. 
+
+Higher-order mode mixing. In contrast, our higher-order spectral convolution allows the update of a retained mode to depend on multiplicative interactions between several input modes. The right diagram in Figure 4 shows an order-2 example: pairs of modes are multiplied together, and all pairwise contributions that point to the same output mode are aggregated to form its updated representation. This induces a richer spectral mixing mechanism, where information from non-retained or different retained modes can contribute to the evolution of a given retained mode through higher-order interactions. 
+
+Interpretation. This mechanism is particularly relevant for nonlinear PDEs, where products in physical space correspond to convolutions in Fourier space. As a result, nonlinearities naturally generate interactions between Fourier modes. While the standard FNO spectral convolution only applies a learned linear transformation to each retained mode, the proposed higher-order convolution explicitly parameterizes such mode interactions. This provides an architectural bias better aligned with nonlinear operators, while preserving the efficiency of working in a truncated Fourier representation. 
+
+Figure 4: Example of mode mixing for a signal with 4 Fourier modes, among which 2 are retained. Diagonal modulation induced by the spectral convolution in FNO is compared with the proposed Higher Order mode mixing of order 2. Arrows of the same color indicate modes that are multiplied together, and all contributions pointing to a given mode are aggregated to produce its updated representation. 18 C Theoretical Results 
+
+C.1 A local inductive-bias induced by the polynomial Fourier structure 
+
+In this appendix, we provide further details on the notations from section 3, and on the motivation for the design of HO-FNO. 
+
+Writing a PDE as a sum of homogeneous components. A homogeneous component of degree 
+
+j is the part of the PDE right-hand side whose terms are all polynomial monomials of total degree 
+
+j in u and its spatial derivatives. More precisely, we may view u, ∂ x1 u, ∂ x2 u, ∂ x1x1 u, . . . as formal variables. A term is homogeneous of degree j if it contains exactly j factors of these variables. For instance, the term u ∂ xu is homogeneous of degree 2, because it contains two factors: u and ∂xu.Similarly, (∂xu)2 is also homogeneous of degree 2, while u2∂xu is homogeneous of degree 3. A linear diffusion term such as ν∆u is homogeneous of degree 1, because it contains one factor, namely 
+
+∆u, etc. Here we are interested in homogeneous components of degree j
+
+PIj ,j [u]( x, t ) = X
+
+> α∈I j
+
+cα
+
+> j
+
+Y
+
+> r=1
+
+Dα(r) 
+
+> x
+
+u(x, t )
+
+i.e. each monomial contains exactly j factors of the form Dα(r) 
+
+> x
+
+u, with α(r) a multi-index. Thus, in the decomposition 
+
+∂u ∂t (x, t ) = 
+
+> n
+
+X
+
+> j=0
+
+PIj ,j [u]( x, t ),
+
+the right-hand side is grouped by polynomial degree: with PI0,0 containing constant or forcing terms, 
+
+PI1,1 containing linear terms, PI2,2 contains quadratic terms, and so on. For example, in the viscous Burgers’ equation 
+
+∂tu = − 12 ∂x(u2) + ν∂ xx u
+
+the term ν∂ xx u is the degree-1 homogeneous component, while −u ∂ xu is the degree-2 homogeneous component. Therefore, the degree of nonlinearity is n = 2 .
+
+Motivating the design of HO-FNO. In Section 3, we showed that if the PDE has degree of nonlinearity n, then the Fourier transform of its n-linear part takes the form 
+
+\PIn,n [u]( k, t ) = X
+
+> α∈I n
+
+X
+
+> k1+··· +kn=kk1,...,k n∈Zd
+
+Cα(k1, . . . , k n)
+
+> n
+
+Y
+
+> r=1
+
+bu(kr , t ), (22) with 
+
+Cα(k1, . . . , k n) = cα
+
+> n
+
+Y
+
+> r=1
+
+(ik r )α(r)
+
+, (ik r )α(r)
+
+:= 
+
+> d
+
+Y
+
+> q=1
+
+(ik r,q )α(r) 
+
+> q
+
+.
+
+In a more concise manner, we will write it as 
+
+PI,n (bu)( k, t ) = X
+
+> k1+··· +kn=k
+
+C bu(k1, t ) · · · bu(kn, t ).
+
+In this appendix, we formalize the corresponding inductive-bias statement for HO-FNO in the matched case m = n. More precisely, we compare two classes of local hidden-space degree-n
+
+interaction operators : a tied class induced by repeated use of the same latent linear map inside a pointwise nonlinearity, and the order-n HO-FNO class induced by Eq. 19. We show in the following that at the level of the degree-n hidden interaction, an order-n HO-FNO layer explicitly realizes the same factorwise n-linear Fourier mixing pattern as the PDE, while a tied pointwise model can only generate degree-n interactions through repeated application of the same latent linear map. Therefore, if the target degree-n interaction belongs to the HO-FNO class but is at positive distance from the tied class, then HO-FNO matches it exactly while tied pointwise models incur a non-vanishing local approximation error of order ρn on balls of radius ρ.19 C.2 Motivation from the local expansion of the solution operator 
+
+We keep the notation of Section 3. Let 
+
+G† : L2(Ω; R) → L2(Ω; R)
+
+denote the one-step solution operator introduced in Eq. (2) . Since the analysis of Section 3 is carried out on the torus Ω = Td, assuming the same number of retained modes M in each spatial dimension, we introduce a Fourier truncation level M ∈ N and define the set of retained modes 
+
+KM := {k ∈ Zd : |k| ≤ M }.
+
+For u, we write 
+
+buM :=  bu(k)
+
+> k∈K M
+
+∈ C|K M |,
+
+and we denote by ΠM the projection onto these retained modes. We define the Fourier-truncated one-step operator 
+
+G† 
+
+> M
+
+:= Π M ◦ G † ◦ ΠM .
+
+We assume that G† 
+
+> M
+
+is analytic in a neighborhood of the origin. Hence it admits a local expansion 
+
+G† 
+
+> M
+
+(buM ) = J1(buM ) + J2(buM ) + · · · + Jn(buM ) + Rn+1 (buM ), (23) where: • each Jr is homogeneous of degree r,• ∥R n+1 (buM )∥ = O(∥buM ∥n+1 ) as buM → 0.This expansion motivates isolating the degree-n interaction. The theorem below, is stated at the hidden-space level, where the HO-FNO layer acts and where the operator classes are defined. 
+
+C.3 From the scalar PDE notation to the hidden representation 
+
+The PDE-side analysis in Section 3 is written for scalar functions 
+
+u : Td → R.
+
+The HO-FNO architecture, acts on hidden representations. Following Section 3, we denote by 
+
+Gθ = P ◦ QL ◦ · · · ◦ Q1 ◦ L
+
+the neural operator, where L and P are the lifting and projection networks, and 
+
+Qℓ(vℓ−1) = σ(Wℓvℓ−1 + Kℓ(vℓ−1) + bℓ)
+
+is the ℓ-th operator layer. Next we drop the ℓ index. We therefore formulate the local degree-n comparison at the hidden level. Let 
+
+bv(k) ∈ CC , k ∈ K M ,
+
+denote the Fourier coefficients of a hidden representation v with C channels. Motivated by Eq. (22), we define a target degree-n hidden interaction operator Tn by 
+
+(dTnv)( k) = X
+
+> k1+··· +kn=k
+
+Tk
+
+ bv(k1), . . . , bv(kn), (24) where, for each retained mode k ∈ K M ,
+
+Tk : ( CC )n → CC
+
+is an n-linear map. Equation (24) is the channel-valued analogue of Eq. (22) : the output mode k is obtained by combining all n-tuples of input modes whose indices sum to k.20 C.4 Two degree-n coefficient-family classes 
+
+We now define the two classes that will be compared. We formulate them as classes of coefficient families 
+
+T = {Tk}k∈K M ,
+
+where each Tk : ( CC )n → CC is n-linear. 
+
+Definition C.1 (Tied class induced by pointwise nonlinearities) . We define Ctied  
+
+> n
+
+as the set of coefficient families T = {Tk}k∈K M for which there exist 
+
+A ∈ CC×C , Wk ∈ CC×C (k ∈ K M ),
+
+such that, for every k ∈ K M and every (z1, . . . , z n) ∈ (CC )n,
+
+Tk(z1, . . . , z n) = Wk
+
+ (Az 1) ⊙ · · · ⊙ (Az n), (25) where ⊙ denotes the channelwise (Hadamard) product. This class corresponds to the situation where the same latent linear map is reused in each factor of the degree-n interaction. It is the hidden-space version of the tying phenomenon illustrated in Eq. 15. 
+
+Definition C.2 (Order-n HO-FNO class) . We define CHO  
+
+> n
+
+as the set of coefficient families T =
+
+{Tk}k∈K M for which there exist 
+
+A1, . . . , A n ∈ CC×C , Wk ∈ CC×C (k ∈ K M ),
+
+such that, for every k ∈ K M and every (z1, . . . , z n) ∈ (CC )n,
+
+Tk(z1, . . . , z n) = Wk
+
+ (A1z1) ⊙ · · · ⊙ (Anzn). (26) This class is exactly the class induced by Eq. 19 of the paper in the matched case m = n.
+
+Remark C.3 . By definition, 
+
+Ctied  
+
+> n
+
+⊂ CHO  
+
+> n
+
+,
+
+since the tied class is recovered from (26) by imposing 
+
+A1 = · · · = An = A. 
+
+C.5 Pointwise nonlinearities induce the tied class 
+
+We now formalize the idea behind Section 4. 
+
+Proposition C.4 (Degree-n term induced by a tied pointwise model) . Let 
+
+σ(z) = X
+
+> r≥0
+
+αr zr
+
+be analytic near the origin. Consider the simplified local hidden map 
+
+Φ( v) = σ(Av ),
+
+where A acts channelwise and pointwise in physical space, and σ is applied channelwise in the physical space. Then the coefficient family of the degree-n homogeneous part of Φ belongs to the class Ctied  
+
+> n
+
+.Proof. Expanding σ at the origin gives 
+
+σ(z) = α0 + α1z + · · · + αnzn + · · · .
+
+Hence the degree-n part of Φ is 
+
+Φ[n](v) = αn(Av )⊙n.
+
+Passing to Fourier space, the pointwise product (Av )⊙n becomes an n-fold convolution over all tuples (k1, . . . , k n) satisfying 
+
+k1 + · · · + kn = k. 
+
+Since the same linear map A is reused in every factor, the resulting coefficient family is exactly of the form (25). 21 C.6 Order-n HO-FNO realizes the HO class Proposition C.5 (Order-n HO-FNO realizes CHO  
+
+> n
+
+). An HO-FNO layer of order m = n, as defined in Eq. 19, induces a degree-n hidden interaction operator whose coefficient family belongs to CHO  
+
+> n
+
+.Proof. Setting m = n in Eq. 19 yields 
+
+( dHθ v)( k) = Wk
+
+X
+
+> k1+··· +kn=k
+
+(A1bv(k1)) ⊙ · · · ⊙ (Anbv(kn)) ,
+
+which is precisely the form (26). 
+
+C.7 Distance to the tied class 
+
+To compare the two classes, we measure the distance between the target degree-n interaction Tn and the tied class. Fix a basis of CC , and represent each n-linear map Tk in Eq. (24) by its coefficient array. We denote by 
+
+∥T∥2 
+
+> F
+
+:= X
+
+> k∈K M
+
+∥Tk∥2
+
+> F
+
+the corresponding Frobenius norm of the coefficient family T := {Tk}k∈K M .
+
+Definition C.6 (Distance to the tied class) . Let T = {Tk}k∈K M denote the coefficient family of the target operator Tn. We define 
+
+δn(T) := inf 
+
+> eT∈Ctied
+> n
+
+∥T − eT∥F .
+
+If δn(T) > 0, then the target degree-n interaction cannot be represented by any tied-factor coefficient family of the form induced by Proposition C.4. 
+
+C.8 Main theorem 
+
+We now state the local hidden-space approximation result. 
+
+Theorem C.7 (Local degree-n separation at the hidden level) . Let Tn be the target degree-n hidden interaction operator defined in Eq. 24, with coefficient family T = {Tk}k∈K M .Assume: 1. T ∈ CHO  
+
+> n
+
+;2. δn(T) > 0.Then: 1. there exists an order-n HO-FNO layer Hθ such that 
+
+H[n] 
+
+> θ
+
+= Tn;
+
+2. there exists a constant cn > 0 such that for every coefficient family eT ∈ Ctied  
+
+> n
+
+, with associated degree-n hidden operator eTn, one has 
+
+sup 
+
+> ∥v∥≤ ρ
+
+∥T n(v) − eTn(v)∥ ≥ cn δn(T) ρn, ∀ρ > 0.
+
+Proof. Since T ∈ CHO  
+
+> n
+
+, there exist matrices A1, . . . , A n and Wk such that the coefficient family of 
+
+Tn has the form (26) . By Proposition C.5, an HO-FNO layer of order n realizes exactly this degree-n
+
+interaction. This proves the first statement. For the second statement, define on the finite-dimensional coefficient space the norm 
+
+∥S∥∗ := sup 
+
+> ∥v∥≤ 1
+
+∥S n(v)∥,
+
+22 where Sn denotes the degree-n homogeneous hidden operator associated with the coefficient family 
+
+S. This is a norm because ∥S∥∗ = 0 implies that the homogeneous polynomial map Sn vanishes identically, hence all coefficients of S are zero. Since the coefficient space is finite-dimensional, there exists cn > 0 such that 
+
+∥S∥∗ ≥ cn∥S∥F for all coefficient families S.
+
+Now let eT ∈ Ctied  
+
+> n
+
+and let eTn be its associated operator. By homogeneity of degree n,
+
+sup 
+
+> ∥v∥≤ ρ
+
+∥T n(v) − eTn(v)∥ = ρn sup 
+
+> ∥v∥≤ 1
+
+∥T n(v) − eTn(v)∥.
+
+Therefore 
+
+sup 
+
+> ∥v∥≤ ρ
+
+∥T n(v) − eTn(v)∥ = ρn∥T − eT∥∗ ≥ cnρn∥T − eT∥F .
+
+Taking the infimum over all eT ∈ Ctied  
+
+> n
+
+yields 
+
+sup 
+
+> ∥v∥≤ ρ
+
+∥T n(v) − eTn(v)∥ ≥ cn δn(T) ρn.
+
+C.9 Conditional consequence for a local model 
+
+Theorem C.7 is stated at the hidden-space level. To translate it into an end-to-end statement, one needs an additional modeling assumption. 
+
+Corollary C.8 (Conditional end-to-end consequence) . Assume that, after lifting, the local degree-n
+
+interaction of the model is given by Tn, and that all lower-order terms in the local expansion are absent or already matched. Then: 
+
+• if T ∈ CHO  
+
+> n
+
+, replacing the degree-n interaction by an order-n HO-FNO layer eliminates the leading degree-n mismatch; 
+
+• if the degree-n interaction is constrained to lie in Ctied  
+
+> n
+
+, the leading mismatch is bounded below by cnδn(T)ρn on balls of radius ρ.
+
+C.10 Interpretation 
+
+Section 3 establishes that the degree-n part of the PDE gives rise, in Fourier space, to an n-linear convolution of modes. Section 4 shows that pointwise nonlinearities can only recover higher-order interactions through tied weight sharing across the different factors. In contrast, Eq. 19 shows that an HO-FNO layer with order m = n explicitly parameterizes factorwise n-linear mode mixing. Therefore, in the matched case m = n, HO-FNO is algebraically aligned with the degree-n Fourier interaction pattern of the PDE, while tied pointwise models can only represent a restricted subclass of these interactions. 
+
+Remark C.9 (Quadratic case) . For n = 2 , the theorem recovers the triadic setting emphasized in Section 4: the relevant interactions occur on tuples (p, q, k ) satisfying p + q = k. In that case, the result should be read as a precise structural-alignment statement. For n ≥ 3, the same statement applies to genuinely higher-order mode interactions. 
+
+D Extended Derivation of Fourier Mixing in Navier–Stokes 
+
+We present here a detailed discussion of the non-linear interactions on the incompressible Navier– Stokes equation. The Incompressible Navier–Stokes equation is tipically presented in the following form: 
+
+∂tw(x, t ) + u(x, t ) · ∇ w(x, t ) = ν∆w(x, t ) + f (x) x ∈ (0 , 1) 2, t ∈ (0 , T ] (27) 
+
+∇ · u(x, t ) = 0 x ∈ (0 , 1) 2, t ∈ [0 , T ] (28) 
+
+w(x, 0) = w0(x) x ∈ (0 , 1) 2 (29) 23 Where ∇w(x, t ) =  ∂x1 w(x, t ), ∂ x2 w(x, t ) is the gradient of w, ∆w(x, t ) = ∂x1x1 w(x, t ) + 
+
+∂x2x2 w(x, t ) is the Laplacian of w and ∇ · u = ∂u 1(x,t ) 
+
+> ∂x 1
+
++ ∂u 2(x,t ) 
+
+> ∂x 2
+
+is the divergence of u. u(x, t ) is the velocity at the point x at time t and w is the vorticity field w(x, t ) = ∂x1 u2(x, t ) − ∂x2 u1(x, t ).
+
+From the velocity to the vorticity formulation Firstly we will express the PDE in terms of the sole vorticity w. To do so we need to express u in function of w. By the incompressibility condition ∇ · u = 0 implies that exists a function, called streamfunction, ψ = ψ(x, t ) such that 
+
+u = ∇⊥ψ =
+
+
+
+− ∂ψ ∂x 2 , ∂ψ ∂x 1
+
+
+
+, therefore, by substitution we obtain w in function of the stream function 
+
+w = ∂x1 u2 − ∂x2 u1 = ∂x1
+
+ ∂ψ ∂x 1
+
+
+
++ ∂x2
+
+ ∂ψ ∂x 2
+
+
+
+= ∆ ψ (30) Therefore ψ is obtained from w by solving the Poisson problem ∆ψ = w in (0 , 1) 2 with appropriate boundary conditions. Once ψ is founded, the velocity u is recovered by u = ∇⊥ψ and since w = ∆ ψ
+
+we can write u in function of w as u = ∇⊥∆−1w and same for Navier–Stokes equation: 
+
+∂t(w) = ν∆w(x, t ) − (∇⊥∆−1w) · ∇ w(x, t ) + f (x) x ∈ (0 , 1) 2, t ∈ (0 , T ]
+
+∇ · ∇ ⊤∆−1w = 0 x ∈ (0 , 1) 2, t ∈ [0 , T ]
+
+w(x, 0) = w0(x) x ∈ (0 , 1) 2
+
+(31) 
+
+Fourier Transform of the Navier–Stokes equation Now we take the Fourier transform of the vorticity version of the Navier Stokes equation, by taking in consideration that d∇w(k, t ) = 2 πik ·
+
+bw(k, t ), d∆w(k, t ) = −(2 π)2|k|2 bw(k, t ) and \w ⊙ w = P 
+
+> q+p=k
+
+bw(q, t ) bw(p, t ). Therefore equation 31 becomes 
+
+∂t( bw)( k, t ) = −ν(2 π)2|k|2 bw(k, t ) − X
+
+> p+q=k
+
+(p + q) · p⊥
+
+|p|2 bw(p, t ) bw(q, t ) + bf (k, t ) (32) For k ∈ Z2, t ∈ (0 , T ].24 E Datasets 
+
+We report in this section a detailed description of the benchmarks adopted in this works. Table 4 summarizes the datasets considered in our experiments. Each dataset is characterized by the number of trajectories and timesteps, the mesh type, the physical problem dimension, and the resolution. Table 4: Benchmark PDE datasets used in our experiments.                                                                              
+
+> Dataset Name # Trajectories # Timesteps Mesh Type Resolution
+> Navier–Stokes ( 2D)
+> ν= 10 −35000 50 Regular (2D periodic box) (64 ×64 ,1)
+> Navier–Stokes ( 2D)
+> ν= 10 −410000 30 Regular (2D periodic box) (64 ×64 ,1)
+> Navier–Stokes ( 2D)
+> ν= 10 −51200 20 Regular (2D periodic box) (64 ×64 ,1)
+> Darcy flow 1200 1Regular (85 ×85 ,1)
+> Plasticity 980 21 Structured (101 ×31 ,2)
+> Airfoil 1100 1Structured (221 ×51 ,2)
+> Pipe 1200 1Structured (129 ×129 ,2)
+> Elasticity 1200 12D Point Cloud (972 ,2)
+> PlanetSWE ( 2D) 50 100 Sphere (latitude-longitude grid) 256 ×128
+> Polynomial-Source Poisson
+> p∈ { 1,2,3,5}1200 1Regular (2D periodic box) 64 ×64
+
+E.1 2D Navier Stokes equations [Li et al., 2020] 
+
+The 2D Navier–Stokes equation for a viscous, incompressible fluid in vorticity form on the unit torus: 
+
+∂tw(x, t ) + u(x, t ) · ∇ w(x, t ) = ν∆w(x, t ) + f (x) x ∈ (0 , 1) 2, t ∈ (0 , T ] (33) 
+
+∇ · u(x, t ) = 0 x ∈ (0 , 1) 2, t ∈ [0 , T ] (34) 
+
+w(x, 0) = w0(x) x ∈ (0 , 1) 2 x ∈ (0 , 1) 2 (35) The initial condition w0(x) is generated according to w0 ∼ μ where 
+
+μ = N (0 , 73/2(−∆ + 49 I)−2.5) (36) with periodic boundary conditions. The forcing is kept fixed: 
+
+f (x) = 0 .1(sin(2 π(x1 + x2)) + cos(2 π(x1 + x2))) (37) The equation is solved using the stream-function formulation with a pseudospectral method. First a Poisson equation is solved in Fourier space to find the velocity field. Then the vorticity is differentiated and the non-linear term is computed is physical space after which it is dealiased. Time is advanced with a Crank–Nicolson update where the non-linear term does not enter the implicit part. All data are generated on a 256 × 256 grid and are downsampled to 64 × 64 . The Crank–Nicolson scheme used in the data-generation process has a time step of 10 −4, with the solution recorded every 
+
+t = 1 time unit. We use three datasets on Navier–Stokes equations, with viscosity ν = 10 −3, ν = 10 −4 and ν = 10 −5,provided in [Li et al., 2020]. 
+
+E.2 Darcy Flow [Li et al., 2020] 
+
+This benchmark represents the flow through porous media. 2D Darcy flow over a unit square is given as follows: ∇ · (a(x)∇u(x)) = f (x), x ∈ (0 , 1) 2
+
+u(x) = 0 , x ∈ ∂(0 , 1) 2 (38) 25 where a(x) is the viscosity, f (x) is the forcing term, and u(x) is the solution. This dataset employs a constant value of forcing term F (x) = β. Further, Equation 38 is modified in the form of a temporal evolution as follows: 
+
+∂tu(x, t ) − ∇ · (a(x)∇u(x, t )) = f (x), x ∈ (0 , 1) 2, (39) In this dataset, the input is represented by the parameter a, and the corresponding output is the solution 
+
+u. The process is discretized into 421 × 421 regular grid and then downsampled to a resolution of 
+
+85 × 85 for main experiments. For training, 1000 samples are used, 200 samples are generated for testing, and different cases contain different medium structures. 
+
+E.3 Plasticity Li et al. [2023c] 
+
+This benchmark consider the plastic forging benchmark introduced in the Geo-FNO dataset suite. The task models the deformation of a two-dimensional block of material under the action of a rigid die. The computational domain is a rectangle 
+
+Ω = [0 , L ] × [0 , H ],
+
+where L = 50 mm and H = 15 mm . At time t = 0 , the upper boundary of the material is impacted by a frictionless rigid die moving downward at a constant velocity v = 3 m s −1. The bottom edge of the block is clamped, while the displacement boundary condition induced by the die is imposed on the top edge. The geometry of the die is parameterized by a function 
+
+Sd ∈ H1([0 , L ]; R),
+
+which describes the shape of the impacting surface. In the dataset, each die shape is sampled by drawing its values at a finite set of control points and interpolating them with cubic Hermite splines. More precisely, for each sample, the values 
+
+Sd(xk), xk = kL 
+
+7 , k = 0 , . . . , 7,
+
+are drawn uniformly at random. The resulting spline defines the die geometry used in the finite-element simulation. The material follows an elasto-plastic constitutive law. Let σ denote the stress tensor, ϵ the strain tensor, and ϵp the plastic strain tensor. The constitutive relation is given by 
+
+σ = C : ( ϵ − ϵp),
+
+˙ϵp = λ∇σ f (σ),f (σ) = 
+
+s
+
+32 σ − 13 tr( σ)I
+
+> 2
+> F
+
+− σY .
+
+Here, C is the isotropic stiffness tensor, λ is the plastic multiplier, σY is the yield stress, tr( σ) denotes the trace of the stress tensor, I is the identity tensor, and ∥ · ∥ F is the Frobenius norm. The plastic multiplier satisfies the classical complementarity conditions 
+
+λ ≥ 0, f (σ) ≤ 0, λf (σ) = 0 .
+
+The physical parameters are fixed to Young’s modulus E = 200 GPa , yield strength σY = 70 MPa ,and mass density ρs = 7850 kg m −3.This benchmark is particularly challenging because the underlying constitutive law is not polynomial in the state variables. Indeed, the yield function contains the Frobenius norm of the deviatoric stress tensor, 
+
+σ − 13 tr( σ)I,
+
+and the plastic flow rule depends on the gradient 
+
+∇σ f (σ).
+
+26 Therefore, the dynamics involve both a square-root nonlinearity and a normalization-type operation induced by the derivative of the norm. This makes the solution operator fundamentally different from the polynomial nonlinearities considered in our controlled Poisson datasets. In particular, the operator cannot be represented exactly by a finite-degree polynomial expansion of the input fields. Moreover, the elasto-plastic response introduces nonsmooth behavior through the transition between elastic and plastic regimes. The active set 
+
+{x ∈ Ω : f (σ(x)) = 0 }
+
+separates regions where the material remains elastic from regions where plastic deformation occurs. Across this interface, the evolution law changes because the plastic multiplier λ becomes active only when the yield constraint is saturated. As a consequence, the solution may contain sharp fronts and discontinuities, making this dataset a demanding test case for neural operators. The data are generated with the commercial finite-element solver ABAQUS using 3000 four-node quadrilateral bilinear elements. The dataset contains 900 training trajectories and 80 test trajectories. Each sample consists of 20 time steps on a structured spatial grid of resolution 101 × 31 . The input to the learning problem is the die geometry Sd, while the target is the time-dependent deformation of the material, including the evolution of the mesh grid and the displacement field. This benchmark therefore evaluates the ability of a neural operator to learn a time-dependent, geometry-conditioned, nonlinear solution operator arising from elasto-plastic mechanics. Compared with polynomial-source elliptic problems, the plastic forging dataset is substantially more complex: the governing law contains non-polynomial norm-based nonlinearities, gradient-dependent plastic flow, inequality constraints, and nonsmooth transitions between elastic and plastic regimes. 
+
+E.4 Airfoil Li et al. [2023c] 
+
+This benchmark pertains to transonic flow over an airfoil. Due to the negligible viscosity of air, the viscous term ν∇2U is omitted from the Navier–Stokes equation. Consequently, the governing equations for this scenario are expressed as follows: 
+
+∂ρf ∂t + ∇ · (ρf U ) = 0 (40) 
+
+∂(ρf U )
+
+∂t + ∇ · (ρf U U + pI ) = 0 (41) 
+
+∂E ∂t + ∇ · (( E + p)U ) = 0 , (42) where ρf represents fluid density, and E denotes total energy. The input shape is discretized into a structured mesh with dimensions 221 × 51 , and the output represents the Mach number at each mesh point. All shapes are derived from the NACA-0012 case provided by the National Advisory Committee for Aeronautics. In the training, 1000 samples from various airfoil designs are used for training, while the remaining 200 samples are reserved for testing. 
+
+E.5 Pipe Li et al. [2023c] 
+
+This benchmark aims to estimate the horizontal fluid velocity based on the structure of the pipe. The governing equations are as follows: 
+
+∇ · U = 0 , (43) 
+
+∂U
+
+∂t + U · ∇ U = f −1 1
+
+ρ ∇p + ν∇2U. (44) Each sample represents the pipe as a structured mesh with dimensions 129 × 129 . The input tensor, shaped as 129 × 129 × 2, encodes the position of each discretized mesh point. The output tensor, with a shape of 129 × 129 × 1, provides the velocity value at each point. For training, 1000 samples with varying pipe shapes are generated, while 200 additional samples, created by altering the pipe’s centerline, are reserved for testing. 27 E.6 Elasticity Li et al. [2023c] 
+
+The governing equation of a solid body is given by 
+
+ρs ∂2u
+
+∂t 2 + ∇ · σ = 0 ,
+
+where ρs is the mass density, u is the displacement vector, and σ is the stress tensor. Constitutive models, which relate the strain tensor ϵ to the stress tensor σ, are required to close the system. We consider the unit-cell problem 
+
+Ω = [0 , 1] × [0 , 1] ,
+
+with an arbitrarily shaped void at the center of the domain. The prior on the void radius is 
+
+r = 0 .2 + 0.21 + exp(˜ r) , ˜r ∼ N  0, 42(−∆ + 3 2)−1 ,
+
+which enforces the constraint 
+
+0.2 ≤ r ≤ 0.4.
+
+The unit cell is clamped on the bottom edge, and a tension traction 
+
+t = [0 , 100] 
+
+is applied on the top edge. The material is modeled as an incompressible Rivlin–Saunders material. Its constitutive law is given by 
+
+σ = ∂w (ϵ)
+
+∂ϵ ,w(ϵ) = C1(I1 − 3) + C2(I2 − 3) ,
+
+where I1 and I2 are scalar invariants of the right Cauchy–Green stretch tensor C, defined as 
+
+I1 = tr( C),I2 = 12
+
+ tr( C)2 − tr( C2) ,
+
+C = 2 ϵ + I.
+
+The energy-density parameters are 
+
+C1 = 1 .863 × 10 5, C2 = 9 .79 × 10 3.
+
+We use 1000 training samples and 200 test samples generated with a finite-element solver using approximately 100 quadratic quadrilateral elements. Each simulation takes approximately 5 CPU seconds. The inputs are represented as point clouds of size around 1000 , and the target output is the stress field. 
+
+E.7 PlanetSWE [Ohana et al., 2024] 
+
+The rotated, hyperviscous, forced Shallow Water Equation (SWE) on a sphere is a classical test problem for dynamical systems cores to be used in large-scale weather and climate models as they capture a number of similar phenomena but are better understood and operate at a more practical scale [Williamson et al., 1992]. We used the forced hyperviscous equations in two dimensions: 
+
+∂tu(x, t ) = −u(x, t ) · ∇ xu(x, t ) − g∇xh(x, t ) − ν∇4
+
+> x
+
+u(x, t ) − 2Ω × u(x, t ) (45) 
+
+∂th(x, t ) = −H∇x · u(x, t ) − ∇ x · (h(x, t )u(x, t )) − ν∇4
+
+> x
+
+h(x, t ) + F (x, t ) (46) where ν is the hyper-diffusion coefficient, Ω is the Coriolis parameter, u is the velocity field, H is the mean height, and h denotes deviation from the mean height. F is a daily/seasonally varying forcing with periods of 24 and 1008 simulation “hour” respectively. 28 Initial conditions are randomly sampled from ERA5[Hersbach et al., 2020]. u, v, z are taken from the hpa 500 level with z used as h is the shallow water set-up. Prefiltering was performed by executing ten iterations of 50 steps followed by solving a balance BVP. The dataset we used was generated in [McCabe et al., 2023] and is part of The Well dataset [Ohana et al., 2024]. The simulations were performed using the spin-weighted spherical harmonic spectral method in Dedalus [Burns et al., 2020] with 500 simulation hours of burn-in where the next three simulation years ( 3024 hours), were collected for the data set. Integration is performed forward in time using a semi-implicit RK2 integrator. Step-sizes are computed using the CFL-checker in Dedalus. The 
+
+3/2 rule is used for de-aliasing. Background orography is taken from earth orography and passed through mean-pooling three times (until the simulations became stable empirically). Hyperdiffusion is matched at ℓ = 96 .The original dataset from The Well [Ohana et al., 2024] contains 120 trajectories of 3024 , each consisting of 3024 timesteps at a spatial resolution of 256 × 512 . For faster training, we restricted our experiments to the first 50 trajectories, truncated to the initial 100 timesteps, and downsampled the spatial resolution to 256 × 128 by averaging. 
+
+E.8 Proposed Poisson equation with polynomial source (Polynomial-Source Poisson) 
+
+We introduce the Polynomial-Source Poisson dataset, a controlled nonlinear elliptic PDE benchmark designed to evaluate whether neural operators can efficiently represent multiplicative field interactions of increasing order. The dataset is parameterized by an integer p ≥ 1. For each sample, the model receives p independent input fields u1, . . . , u p defined on the two-dimensional periodic unit square and must predict the solution v of a Poisson equation whose source term is the pointwise product of these input fields. The dataset is motivated by a common structure in physics-based PDEs: nonlinear interactions between fields often appear as source terms, forcing terms, or closure terms[Klimenko and Pope, 2003], and these sources are then propagated through an elliptic, parabolic, or spectral operator [Canuto et al., 1996]. In particular, Poisson-type equations with nonlinear sources arise in nonlin-ear electrostatics[Gray and Stiles, 2018, Baker, 2004], phase-field models[Allen and Cahn, 1979, Miranville, 2019], and pressure recovery in incompressible fluid dynamics[Temam, 2024]. Our dataset isolates this mechanism in a simple setting: the nonlinearity is a degree-p pointwise product, while the nonlocal part of the operator is the inverse Laplacian. 
+
+Domain and boundary conditions. All fields are defined on the periodic domain 
+
+Ω = [0 , 1] 2,
+
+with periodic boundary conditions in both spatial directions. We discretize Ω using a uniform grid of resolution n × n, with n = 64 in our experiments. Grid points are given by 
+
+xi = in , yj = jn , i, j = 0 , . . . , n − 1.
+
+Each input sample is therefore represented as a tensor of shape n × n × p, and the corresponding target is represented as a tensor of shape n × n × 1.
+
+PDE definition. For a fixed degree-p multilinear source, the input consists of p scalar fields 
+
+u1, . . . , u p : Ω → R.
+
+The target field v : Ω → R is defined as the zero-mean periodic solution of 
+
+−∆v(x, y ) = 
+
+> p
+
+Y
+
+> ℓ=1
+
+uℓ(x, y ) − 1
+
+|Ω|
+
+Z
+
+> Ω
+> p
+
+Y
+
+> ℓ=1
+
+uℓ(x′, y ′) dx ′ dy ′, (x, y ) ∈ Ω.
+
+Equivalently, if we define the nonlinear source term 
+
+fp(x, y ) = 
+
+> p
+
+Y
+
+> ℓ=1
+
+uℓ(x, y ),
+
+29 then the PDE is 
+
+−∆v = fp − ⟨ fp⟩,
+
+where 
+
+⟨fp⟩ = 1
+
+|Ω|
+
+Z
+
+> Ω
+
+fp(x, y ) dx dy. 
+
+The subtraction of the spatial mean is required because the periodic Poisson equation is solvable only when the right-hand side has zero mean. To fix the additive constant, we impose the normalization 
+
+Z
+
+> Ω
+
+v(x, y ) dx dy = 0 .
+
+Thus, the dataset defines the operator 
+
+Gp : ( u1, . . . , u p) 7 → v = ( −∆) −1
+
+> p
+
+Y
+
+> ℓ=1
+
+uℓ −
+
+* pY
+
+> ℓ=1
+
+uℓ
+
++! 
+
+,
+
+where (−∆) −1 denotes the inverse periodic Laplacian on zero-mean functions. 
+
+Fourier-space solution. The target is computed spectrally. Let bfp(k) denote the discrete Fourier transform of the zero-mean source term, where k = ( k1, k 2) ∈ Z2 is a discrete Fourier mode. Since the eigenvalues of −∆ on the periodic unit square are 
+
+4π2|k|2 = 4 π2(k21 + k22 ),
+
+the Fourier coefficients of the solution are given by 
+
+bv(k) = bfp(k)4π2|k|2 , k̸ = 0 ,
+
+and 
+
+bv(0) = 0 .
+
+The zero mode is set to zero to enforce the zero-mean normalization of v. The target field is then obtained by applying the inverse Fourier transform to bv.
+
+Input distribution. The input fields are sampled as independent band-limited random Fourier fields. For each sample and each input channel ℓ ∈ { 1, . . . , p }, we draw a random periodic field of the form 
+
+uℓ(x, y ) = 
+
+> M
+
+X
+
+> m=1
+
+aℓ,m cos 
+
+
+
+2π
+
+
+
+k(1) 
+
+> ℓ,m
+
+x + k(2) 
+
+> ℓ,m
+
+y
+
+
+
++ ϕℓ,m 
+
+
+
+,
+
+where M is the number of active Fourier modes. The frequencies 
+
+kℓ,m =
+
+
+
+k(1) 
+
+> ℓ,m
+
+, k (2) 
+
+> ℓ,m
+
+
+
+∈ Z2
+
+are sampled from a prescribed Fourier annulus 
+
+kmin ≤ | kℓ,m | ≤ kmax .
+
+In our main experiments, we use 
+
+kmin = 8 , kmax = 18 , M = 64 .
+
+The phases are sampled independently as 
+
+ϕℓ,m ∼ Uniform(0 , 2π),
+
+and the amplitudes are sampled with a mild spectral decay, 
+
+aℓ,m = ξℓ,m 
+
+|kℓ,m |α , ξℓ,m ∼ N (0 , 1) ,
+
+with α = 0 .75 unless otherwise stated. After sampling, each input channel is normalized independently to have zero empirical mean and unit empirical standard deviation on the grid: 
+
+uℓ ← uℓ − mean( uℓ)std( uℓ) + ϵ ,
+
+where ϵ is a small numerical constant. This normalization ensures that the magnitude of the degree-p
+
+product remains comparable across samples and prevents high-order variants such as p = 5 from becoming numerically degenerate. 30 Data generation procedure. For each sample, the dataset is generated as follows. 1. Sample p independent band-limited random Fourier fields u1, . . . , u p on the periodic n × n
+
+grid. 2. Normalize each input channel uℓ to zero mean and unit standard deviation. 3. Form the degree-p nonlinear source 
+
+fp(x, y ) = 
+
+> p
+
+Y
+
+> ℓ=1
+
+uℓ(x, y ).
+
+4. Enforce the periodic Poisson solvability condition by removing the spatial mean: 
+
+efp(x, y ) = fp(x, y ) − mean( fp).
+
+5. Solve the periodic Poisson equation 
+
+−∆v = efp
+
+using a Fourier-domain inverse Laplacian. 6. Set the zero Fourier mode of v to zero, which fixes the additive constant. 7. Store (u1, . . . , u p) as the input and v as the target. The target fields are optionally normalized using global training-set statistics: 
+
+v ← v − μtrain 
+
+σtrain + ϵ ,
+
+where μtrain and σtrain are computed over all target values in the training set. We use global target normalization rather than samplewise normalization, since samplewise normalization would remove meaningful amplitude information from the operator. 
+
+Dataset variants. The dataset naturally defines a family of tasks indexed by the polynomial degree 
+
+p. In this work, we consider 
+
+p ∈ { 2, 3, 5}.
+
+The corresponding datasets are denoted Polynomial-Source Poisson-2 , Polynomial-Source Poisson-3, and Polynomial-Source Poisson-5 . The input and output shapes are therefore input shape = 64 × 64 × p, 
+
+output shape = 64 × 64 × 1.
+
+Unless otherwise specified, each variant contains 1000 training samples and 200 test samples. 
+
+Why this dataset is challenging. The dataset is designed so that the difficulty is concentrated in the nonlinear source term. The inverse Laplacian is a linear, translation-equivariant, nonlocal operator that is diagonal in Fourier space. By contrast, the source 
+
+fp = u1u2 · · · up
+
+requires a pointwise multiplicative interaction among p independent input fields. In Fourier space, this product corresponds to a p-fold convolution of the input spectra. Therefore, increasing p increases the combinatorial complexity of the spectral interactions that must be represented. This makes the dataset particularly suitable for evaluating models designed to capture higher-order interactions. A first-order architecture must synthesize the product indirectly through repeated linear transformations and pointwise nonlinearities. In contrast, an architecture with explicit order-p
+
+multiplicative interactions can represent the dominant nonlinearity in a single stage, followed by a spectral operator approximating the inverse Laplacian. The multi-channel construction is important. If the target source were simply up for a single scalar input field, then a pointwise multilayer perceptron could approximate the scalar map u 7 → up locally. By using independent fields u1, . . . , u p the benchmark requires genuine cross-channel multiplicative coupling. This makes the task a cleaner diagnostic of whether the model can represent higher-order interactions between different input fields. 31 Role of the Fourier annulus. The input fields are not sampled only from very low frequencies. Instead, their spectra are concentrated in a medium-frequency annulus. This choice avoids an overly smooth regime in which the nonlinear product can be learned easily from low-dimensional correlations. At the same time, the input modes themselves lie below the Nyquist frequency to avoid making the task dominated by numerical aliasing. However, for high orders, e.g. 5, the resulting source may contain unresolved modes unless de-aliasing or oversampling is used. The product u1 · · · up generates new frequencies through nonlinear mode coupling, while the inverse Laplacian smooths the resulting source according to the physically meaningful multiplier 1/|k|2.The annular input distribution therefore creates a controlled but nontrivial spectral-learning problem: the model must represent a high-order nonlinear interaction in physical space and the corresponding nonlocal smoothing in Fourier space. Input Field 1 Input Field 2 Target (Poisson Solution) 
+
+Figure 5: Sample from the Polynomial-Source Poisson dataset with p = 2 . The 2 images on the left are the input fields, whose pointwise product defines the source term of the Poisson equation; the image on the right is the target Poisson solution. Input Field 1 Input Field 2 Input Field 3 Target (Poisson Solution) 
+
+Figure 6: Sample from the Polynomial-Source Poisson dataset with p = 3 . The 3 images on the left are the input fields, whose pointwise product defines the source term of the Poisson equation; the image on the right is the target Poisson solution. Input Field 1 Input Field 2 Input Field 3 Input Field 4 Input Field 5 Target (Poisson Solution) 
+
+Figure 7: Sample from the Polynomial-Source Poisson dataset with p = 5 . The 5 images on the left are the input fields, whose pointwise product defines the source term of the Poisson equation; the image on the right is the target Poisson solution. 32 F Detailed discussion on the extension to manifolds: example of SWE on the sphere. 
+
+The classical Fourier transform is defined for functions defined on the torus Td. When a function is instead defined on a manifold M ⊂ RD , one can still apply the classical Fourier transform by first extending the function to the ambient euclidean space RD . While this procedure makes the transform computable, the resulting representation ignores the geometry of the domain M of the function and therefore provides a sub-optimal representation. To overcome this limitation, the notion of a Fourier basis has been generalized to arbitrary compact Riemannian manifolds M through the spectral decomposition of the Laplace–Beltrami operator. Concretely, one considers the eigenvalue problem of Eq. 47, where ∆g f = div g (∇g f ) denotes the Laplacian, defined as the divergence of the Riemannian gradient. 
+
+−∆g ϕj = λj ϕj on M (47) The eigenfunctions ϕj serve as generalized Fourier modes, while the corresponding eigenvalues λj
+
+play the role of frequencies. For most manifolds, the eigenfunctions of the Laplace–Beltrami operator do not admit a closed-form expression and must be precomputed numerically [Chen et al., 2023]. An important exception is the sphere, where the generalized Fourier modes correspond to the well-known spherical harmonics . This extension of the Fourier transform naturally induces a corresponding notion of convolution, defined as a linear diagonal operator in the generalized Fourier domain. In the same spirit, Higher-Order Spectral Convolutions also extend to arbitrary geometries, and the theoretical framework developed in the classical Fourier setting remains directly applicable. We illustrate this by experimenting with the rotated, hyperviscous, forced Shallow Water Equation (SWE) on the sphere, with results reported in Table 3, and experimental settings described in Section L. Table 5: Test performance on rotated, hyperviscous, forced Shallow Water Equation (SWE). Models are trained with MSE. We report variants of MSE for time intervals (0 , 10) , (11 , 25) , (26 , 50) and full rollout. Best per metric in bold .                                  
+
+> Metric SFNO HO-SFNO (ours) MSE 8.23 5.56
+> NRMSE 1.7×10 −21.3×10 −2
+> Rollout ( 0 : 10 )9.9×10 −28.0×10 −2
+> Rollout ( 11 : 25 )3.0×10 −12.6×10 −1
+> Rollout ( 26 : 50 )7.2×10 −16.2×10 −1
+> Rollout 7.7×10 −17.0×10 −1
+
+G Ablation study on resolution-equivariance 
+
+Resolution equivariance is a desirable architectural property in neural operator learning: since the underlying PDE operator is defined in the continuum, the learned model should transfer across different discretizations without retraining. To assess whether HO-FNO preserves the resolution equivariance property of FNO, we train an order-2 HO-FNO on the Darcy flow dataset at resolution 200 × 200 , and evaluate the resulting model at test resolutions ranging from 50 × 50 to 400 × 400 . Figure 8 shows the same trend for FNO and HO-FNO: models trained at 200 × 200 exhibit no noticeable performance degradation when evaluated between 100 × 100 and 400 × 400 , while performance decreases at 50 × 50 , where the discretization becomes too coarse and fine-scale information is lost. This indicates that introducing higher-order mixing preserves the ability of FNO to generalize across discretizations. 
+
+33 50 100 150 200 250 300 350 400 
+
+> Resolution
+> 0.02
+> 0.03
+> 0.04
+> 0.05
+> 0.06
+> 0.07
+> 0.08
+> nRMSE
+> FNO
+> HO-FNO
+> Training resolution
+
+Figure 8: Resolution equivariance of FNO and HO-FNO on the Darcy flow dataset. 
+
+H Ablation study on the structure of the matrices added to induce higher order interactions 
+
+We study the structure of the matrices As used to induce polynomial interaction in our proposed convolution. Notably, this is the only addition to the mixer of the Fourier Neural Operator and it’s therefore interesting to investigate different parametrizations. 
+
+Results The dense parameterization of As achieves the best performance, suggesting that more expressive matrices are beneficial for modeling higher-order interactions. However, all structured variants remain competitive, including diagonal, low-rank, and shared parameterizations. This indicates that the improvement does not only come from increasing the number of parameters, but from the higher-order mixing mechanism itself. In particular, even constrained matrix structures achieve losses comparable to strong frequency-based and Transformer baselines, supporting the role of higher-order spectral interactions as the main source of improvement. Table 6: Structure of the matrices As on the Darcy flow equation for HO-FNO of order 2 structure. Structure loss Dense 5.2 × 10 −3
+
+identity 7.4 × 10 −3
+
+diagonal 7.0 × 10 −3
+
+low-rank (128) 6.6 × 10 −3
+
+low-rank (64) 7.5 × 10 −3
+
+diagonal + low-rank (64) 7.2 × 10 −3
+
+diagonal + low-rank (128) 6.4 × 10 −3
+
+shared 6.7 × 10 −3
+
+34 I Extended results on the Poisson equation with polynomial source 
+
+We report in this section comprehensive results relative to the Poisson equation benchmark. Tables 7, 8, 9 and 10 reports MSE (i.e. L2) and relative MSE (i.e. relative L2) test performance for FNO and HO-FNO with order m = 1 , 2, 3, 5. For an easier quantitative assessment we also include line plots of MSE in Figure 9 in function of the number of layers. 
+
+Baseline details FNO employs here the architecture we refer to as the “modern backbone”, that is in fact a pre-norm residual backbone typical of most modern transformers, that is getting standard today but was not at the time the original FNO was proposed. We underline that this architectural modification was done to ensure comparability on the results and isolate the contribution of the proposed higher-order spectral convolution from the backbone design. 
+
+Results The HO-FNO variants consistently improve on the FNO baselines across all the variants of the dataset. In the Poisson datasets of order 3 and 5, a single layer of HO-FNO performs better than FNO models up to 16 layers with a gap of, respectively, 1 and 2 orders of magnitude. On the Poisson dataset of order p = 2 , a single layer of HO-FNO performs better than FNO models up to 8 layer while the 16 layers’ FNO performs slightly better than the 1 layer HO-FNO. However, HO-FNO needs just 8 layers to perform better than the two times bigger FNO. And also in this dataset, a variant of FNO (the one of order 5), outperforms the 16 layer FNO with a gap of an order of magnitude test MSE. Interestingly, the experiments show that increasing the order of HO-FNO typically provide better performance, at exception of HO-FNO of order 5 on the Poisson dataset of order 2 when it has 4
+
+or more layers. This is due to excessive capacity compared to the problem complexity. We suggest to match the order of HO-FNO with the order of non-linearity of the physical system you aim to simulate for better performance, as suggested by the experiments in this section. In particular we notice that in the most challenging benchmark, when the forcing term has polynomial order 5, only HO-FNO of order 5 is able to provide good predictions. On this dataset, p = 5 ,HO-FNO of order 2 and 3 improves slightly on FNO and have relative L2 close to 1 that is the same performance of the zero predictor (the model that predicts zero everywhere) meaning that all the models drastically failed except the HO-FNO variant of order 5 that has a relative loss less than 10 −1
+
+for any number of layers in {1, 2, 4, 8, 16 }.Table 7: Polynomial-source Poisson p = 1 results averaged over three runs.                                                                                                                                   
+
+> Layers Metric FNO (order 1) HO-FNO (order 2) HO-FNO (order 3) HO-FNO (order 5) 1 layer Test MSE 0.00457 ±0.00059 0.00664 ±0.00063 0.00273 ±0.00022 0.00580 ±0.00058
+> rel. L2 0.06932 ±0.00424 0.08426 ±0.00400 0.05359 ±0.00219 0.07833 ±0.00348
+> 2 layers Test MSE 0.00555 ±0.00022 0.00175 ±0.00009 0.00217 ±0.00029 0.00206 ±0.00006
+> rel. L2 0.07406 ±0.00154 0.04174 ±0.00101 0.04515 ±0.00288 0.04471 ±0.00071
+> 4 layers Test MSE 0.00375 ±0.00048 0.00229 ±0.00040 0.00294 ±0.00043 0.00287 ±0.00040
+> rel. L2 0.05931 ±0.00374 0.04649 ±0.00434 0.05213 ±0.00413 0.05119 ±0.00171
+> 8 layers Test MSE 0.00291 ±0.00025 0.00168 ±0.00002 0.00282 ±0.00060 0.00210 ±0.00021
+> rel. L2 0.05231 ±0.00280 0.04027 ±0.00085 0.04896 ±0.00541 0.04323 ±0.00198
+> 16 layers Test MSE 0.00362 ±0.00029 0.00269 ±0.00040 0.00347 ±0.00023 0.00300 ±0.00042
+> rel. L2 0.05887 ±0.00263 0.05039 ±0.00413 0.05764 ±0.00157 0.05358 ±0.00349
+
+35 Table 8: Polynomial-source Poisson p = 2 results. 
+
+Layers Metric FNO (order 1) HO-FNO (order 2) HO-FNO (order 3) HO-FNO (order 5) 1 layer Test MSE 0.09514 ± 0.00333 0.00073 ± 0.00020 0.00036 ± 0.00005 0.00024 ± 0.00008 
+
+rel. L2 0.32724 ± 0.00524 0.02740 ± 0.00375 0.02025 ± 0.00132 0.01607 ± 0.00277 
+
+2 layers Test MSE 0.00207 ± 0.00022 0.00040 ± 0.00011 0.00058 ± 0.00012 0.00025 ± 0.00008 
+
+rel. L2 0.04708 ± 0.00264 0.02063 ± 0.00272 0.02521 ± 0.00295 0.01597 ± 0.00268 
+
+4 layers Test MSE 0.00193 ± 0.00049 0.00033 ± 0.00009 0.00049 ± 0.00015 0.00090 ± 0.00073 
+
+rel. L2 0.04455 ± 0.00570 0.01798 ± 0.00255 0.02244 ± 0.00398 0.02538 ± 0.00807 
+
+8 layers Test MSE 0.00243 ± 0.00075 0.00021 ± 0.00002 0.00025 ± 0.00004 0.00121 ± 0.00010 
+
+rel. L2 0.04509 ± 0.00722 0.01465 ± 0.00054 0.01613 ± 0.00098 0.03660 ± 0.00173 
+
+16 layers Test MSE 0.00205 ± 0.00022 0.00029 ± 0.00006 0.00110 ± 0.00078 0.00139 ± 0.00068 
+
+rel. L2 0.04690 ± 0.00467 0.01754 ± 0.00167 0.02880 ± 0.01212 0.03254 ± 0.00843 
+
+Table 9: Polynomial-source Poisson p = 3 results. 
+
+Layers Metric FNO (order 1) HO-FNO (order 2) HO-FNO (order 3) HO-FNO (order 5) 1 layer Test MSE 0.72888 ± 0.00601 0.53714 ± 0.03983 0.00234 ± 0.00023 0.00059 ± 0.00007 
+
+rel. L2 0.87913 ± 0.00811 0.75098 ± 0.02441 0.05028 ± 0.00241 0.02555 ± 0.00156 
+
+2 layers Test MSE 0.01802 ± 0.00549 0.00394 ± 0.00089 0.00174 ± 0.00030 0.00101 ± 0.00021 
+
+rel. L2 0.12847 ± 0.02011 0.06208 ± 0.00713 0.04149 ± 0.00334 0.03258 ± 0.00330 
+
+4 layers Test MSE 0.01105 ± 0.00257 0.00333 ± 0.00129 0.00134 ± 0.00027 0.00159 ± 0.00008 
+
+rel. L2 0.10088 ± 0.01145 0.05410 ± 0.01010 0.03567 ± 0.00326 0.04121 ± 0.00136 
+
+8 layers Test MSE 0.00599 ± 0.00100 0.00345 ± 0.00062 0.00157 ± 0.00030 0.00164 ± 0.00086 
+
+rel. L2 0.07466 ± 0.00641 0.05836 ± 0.00532 0.03963 ± 0.00344 0.03724 ± 0.00987 
+
+16 layers Test MSE 0.00530 ± 0.00046 0.00354 ± 0.00116 0.00105 ± 0.00038 0.00317 ± 0.00162 
+
+rel. L2 0.07259 ± 0.00398 0.05637 ± 0.01122 0.03035 ± 0.00629 0.05141 ± 0.01687 
+
+Table 10: Polynomial-source Poisson p = 5 results. 
+
+Layers Metric FNO (order 1) HO-FNO (order 2) HO-FNO (order 3) HO-FNO (order 5) 1 layer Test MSE 1.11682 ± 0.01314 1.13766 ± 0.03109 1.02385 ± 0.02889 0.00851 ± 0.00076 
+
+rel. L2 1.06408 ± 0.00726 1.07505 ± 0.01781 1.02586 ± 0.01529 0.09699 ± 0.00414 
+
+2 layers Test MSE 1.02980 ± 0.20812 1.21244 ± 0.15537 1.39929 ± 0.02853 0.00430 ± 0.00176 
+
+rel. L2 1.01548 ± 0.11067 1.11958 ± 0.07867 1.20560 ± 0.01451 0.06429 ± 0.01470 
+
+4 layers Test MSE 0.98404 ± 0.08967 1.06894 ± 0.14487 1.19126 ± 0.01585 0.01249 ± 0.00840 
+
+rel. L2 0.99307 ± 0.04720 1.03589 ± 0.08020 1.10348 ± 0.00659 0.09656 ± 0.03562 
+
+8 layers Test MSE 1.10587 ± 0.03485 1.15183 ± 0.01744 1.10466 ± 0.00928 0.02420 ± 0.01467 
+
+rel. L2 1.06051 ± 0.01992 1.08270 ± 0.00789 1.05755 ± 0.00603 0.13644 ± 0.04524 
+
+16 layers Test MSE 1.20773 ± 0.00633 1.12194 ± 0.03506 1.00528 ± 0.08521 0.00918 ± 0.00314 
+
+rel. L2 1.11114 ± 0.00539 1.05818 ± 0.02435 0.99823 ± 0.04897 0.09390 ± 0.01953 
+
+J Extended Efficiency Analysis 
+
+J.1 Exact parameter count 
+
+For completeness, we report the number of learnable parameters introduced by each higher order spectral layer. Consider a layer with C input and output channels, and let M denote the number of retained Fourier modes. A standard FNO spectral convolution applies, for each retained mode, a complex-valued channel-mixing matrix of size C × C. Therefore, up to the constant factor associated 36 1 2 4 8 16                    
+
+> 10 −3
+> 10 −2
+> Number of Layers
+> Test MSE
+> p= 1
+> 124816
+> 10 −3
+> 10 −2
+> 10 −1
+> Number of Layers
+> p= 2
+> 124816
+> 10 −3
+> 10 −2
+> 10 −1
+> 10 0
+> Number of Layers
+> p= 3
+> 124816
+> 10 −2
+> 10 −1
+> 10 0
+> Number of Layers
+> p= 5
+> FNO (order 1) HO-FNO (order 2) HO-FNO (order 3) HO-FNO (order 5)
+
+Figure 9: Test MSE as a function of the number of layers on the Polynomial-Source Poisson datasets for 
+
+p = 1 , 2, 3, and 5. Solid lines denote the mean over runs, and shaded bands indicate one standard deviation. Lower values indicate better performance. 
+
+with the real and imaginary parts, the number of spectral parameters scales as 
+
+M C 2.
+
+Our higher-order spectral convolution of order m augments this linear spectral convolution with m
+
+additional channel-mixing matrices, each of size C × C. These matrices are shared across spatial locations and Fourier modes, and therefore contribute only 
+
+mC 2
+
+additional parameters. The resulting number of parameters per spectral layer is thus 
+
+M C 2 + mC 2 = ( M + m)C2.
+
+Hence, the parameter count grows only linearly with the interaction order m. Since the order m is small compared with the number of retained modes M , the extra parameters introduced by higher-order mixing are negligible relative to the parameters already present in a standard FNO spectral convolution. The depthwise variant used in the main experiments further reduces the number of parameters by removing channel mixing inside the Fourier-domain convolution. In this case, each retained Fourier mode has one complex-valued coefficient per channel, so the spectral convolution contains 
+
+M C 
+
+parameters instead of M C 2. The higher-order component is unchanged, since it still uses m shared 
+
+C × C matrices. Therefore, the total number of parameters per depthwise higher-order spectral layer becomes 
+
+M C + mC 2.
+
+This shows that, for both the original spectral convolution and its more modern depthwise variant, the higher-order extension introduces only a negligible number of additional learnable parameters. 
+
+J.2 Wall-Clock Times and Memory Usage 
+
+We report in this section Wall-Clock time recorded for one-epoch inference and training and peak memory usage on 3 datasets from the standard benchmarks of Table 2. The experiments were conducted on a single NVIDIA GPU A100 with 80GB of memory. All models were tested with the hyperparameters reported in Section L. We report quantitative results in Table 11 and hystograms of raw values and normalized values with respect to FNO’s performance in, respectively, Figure 10 and Figure 11. 
+
+Baselines For the efficiency analysis, we consider one representative model from each main architectural category. As a frequency-based baseline, we use FNO, since it is the model on which our proposed architecture builds. As a state-space model, we use LaMO, which is also the strongest competitor in the experiments reported in Table 2. Finally, as a Transformer-based baseline, we use Transolver, since it is among the most effective Transformer architectures for physics problems and is also designed with computational efficiency in mind. 37 Results The experiments show that HO-FNO largely preserves the computational profile of FNO. Across the three benchmarks, the training overhead of HO-FNO with respect to FNO remains limited: 
+
++1 .8% on Navier–Stokes, +6 .2% on Airfoil, and +10 .4% on Pipe. A similar trend holds at inference time, where HO-FNO is almost identical to FNO on Navier–Stokes (+0 .4%) and remains close on Airfoil and Pipe, with overheads of +4 .8% and +15 .9% , respectively. This indicates that the higher-order spectral layer adds only a modest computational cost compared with the corresponding FNO backbone. Compared with the non-Fourier baselines, HO-FNO is substantially more efficient, especially on Airfoil and Pipe. On Pipe, LaMO and Transolver require more than three times the training and inference time of FNO, with increases of +215 .9% in training time and +258 .0% in inference time, whereas HO-FNO remains within +10 .4% and +15 .9% . On Airfoil, both LaMO and Transolver more than double the inference cost relative to FNO, while HO-FNO adds only +4 .8% . The memory overhead of HO-FNO is also moderate: it is almost negligible on Navier–Stokes (+0 .2%) and remains comparable to the other efficient baselines on Airfoil and Pipe. Overall, these results show that HO-FNO retains the main efficiency advantages of FNO, namely fast training, fast inference, and moderate memory consumption.   
+
+> NS Airfoil Pipe
+
+0
+
+50 
+
+100   
+
+> Training time (s/epoch)
+> NS Airfoil Pipe
+
+0
+
+5
+
+10   
+
+> Inference time (s/epoch)
+> NS Airfoil Pipe
+
+0
+
+20 
+
+40 
+
+60    
+
+> Memory (GB)
+> LaMO FNO HO-FNO Transolver
+
+Figure 10: Efficiency comparison on NS, Airfoil, and Pipe on a single Nvidia A100 GPU: ( Left )training time, ( Middle ) inference time, and ( Right ) memory consumption per epoch. FNO is has the modern backbone   
+
+> NS Airfoil Pipe
+
+0
+
+1
+
+2
+
+3  
+
+> Normalized training time
+> NS Airfoil Pipe
+
+0
+
+1
+
+2
+
+3  
+
+> Normalized inference time
+> NS Airfoil Pipe
+
+0
+
+0.5
+
+1
+
+1.5   
+
+> Normalized memory
+> LaMO FNO HO-FNO Transolver
+
+Figure 11: Efficiency comparison on NS, Airfoil, and Pipe after normalization with respect to FNO for each dataset and metric on a single Nvidia A100 GPU. A value of 1 corresponds to the computational cost of FNO; values below 1 indicate improved efficiency relative to FNO, whereas values above 1
+
+indicate higher computational cost. 38 Training time (s) Inference time (s) Memory (GB) Dataset Model Value ∆ (%) Value ∆ (%) Value ∆ (%) NS LaMO 117.10 -5.3 10.17 +22.8 28.45 -38.0 FNO 123.63 0.0 8.28 0.0 45.85 0.0 HO-FNO 125.81 +1.8 8.31 +0.4 45.94 +0.2 Transolver 130.11 +5.2 12.72 +53.6 72.65 +58.5 Airfoil LaMO 20.33 +69.2 1.77 +113.3 16.44 +18.7 FNO 12.01 0.0 0.83 0.0 13.85 0.0 HO-FNO 12.76 +6.2 0.87 +4.8 16.36 +18.1 Transolver 22.45 +86.9 1.77 +113.3 16.06 +16.0 Pipe LaMO 64.25 +215.9 5.62 +258.0 10.73 +30.4 FNO 20.34 0.0 1.57 0.0 8.23 0.0 HO-FNO 22.45 +10.4 1.82 +15.9 9.77 +18.7 Transolver 64.25 +215.9 5.62 +258.0 10.07 +22.4 
+
+Table 11: Comparison of computational efficiency across datasets. For each metric, we report the absolute value and the relative variation (in %) with respect to FNO. The relative variation, ∆, is computed relative to FNO as ∆(%) = 100 × (Value model − Value FNO )/Value FNO . Negative values indicate an improvement over FNO (lower is better), while positive values indicate a degradation. 
+
+K Spectral Analysis 
+
+In this section, we complement the aggregate test errors with a frequency-domain analysis of the predictions. For each benchmark, we decompose the error into spectral bands and report the relative error on the full spectrum, as well as on low-, medium-, and high-frequency modes. This analysis is useful because two models with similar global relative error may behave differently across scales: low frequencies typically capture the dominant large-scale structure of the solution, whereas medium and high frequencies encode sharper spatial variations and fine-scale details. Table 12 reports the comparison between FNO and HO-FNO on Navier–Stokes, Airfoil, and Pipe. Across the three datasets, HO-FNO improves over FNO on the full-spectrum error, with relative gains of 54 .10% on Navier–Stokes, 26 .1% on Airfoil, and 22 .7% on Pipe. The improvement is also visible across most frequency regimes, indicating that the higher-order spectral convolution does not only improve the dominant low-frequency component, but also affects the representation of medium- and high-frequency structures. On Airfoil and Pipe, the gains are particularly consistent across the spectrum. HO-FNO reduces the full error and improves the low-, medium-, and high-frequency errors, suggesting that the proposed higher-order interactions help recover both the global flow structure and finer spatial variations around the geometry. On Navier–Stokes, HO-FNO provides a large improvement on the full error and a strong reduction in the low-frequency regime. The medium- and high-frequency errors are comparable to FNO, which suggests that the main gain on this benchmark comes from a more accurate reconstruction of the energetically dominant large-scale modes. Figures 12, 13, and 14 provide a more detailed visualization of this behavior. Each row compares the spectral profiles of FNO and HO-FNO on one benchmark. The plots show that HO-FNO generally follows the target spectrum more closely, especially in regimes where FNO either underestimates or overestimates the energy contained in specific frequency bands. This supports the interpretation that higher-order spectral mixing improves the model’s ability to represent nonlinear interactions between modes, rather than merely improving the average prediction error. Overall, the spectral analysis confirms that the gains of HO-FNO are not restricted to the physical-space relative error. The proposed higher-order spectral convolution leads to better frequency-wise behavior across different PDE benchmarks, with particularly clear improvements on Airfoil and Pipe and substantial low-frequency gains on Navier–Stokes. 39 Dataset Regime FNO HO-FNO Improvement over FNO Navier–Stokes Full 0.0976 0.0449 54.10% Low 0.145982 0.055541 61.95% Medium 0.282080 0.206717 26.72% High 0.458579 0.372876 18.69% Airfoil Full 0.0065 0.0051 26.1% Low 0.025199 0.017370 31.07% Medium 0.070703 0.045756 35.28% High 0.146905 0.121412 17.35% Pipe Full 0.0069 0.0054 32.7% Low 0.191112 0.141260 26.1% Medium 1.040052 1.031456 0.83% High 1.253831 1.182214 5.71% 
+
+Table 12: Comparison of FNO and HO-FNO across datasets and regimes (Full, Low, Medium, High). 0 20 40 60 80 100 
+
+Radial frequency index 
+
+10 6
+
+10 5
+
+10 4
+
+10 3
+
+10 2
+
+10 1
+
+10 0
+
+10 1
+
+> Power spectrum
+
+FNO spectrum 
+
+Ground truth 
+
+FNO 
+
+0 20 40 60 80 100 
+
+Radial frequency index 
+
+10 6
+
+10 5
+
+10 4
+
+10 3
+
+10 2
+
+10 1
+
+10 0
+
+10 1
+
+> Power spectrum
+
+HO-FNO spectrum 
+
+Ground truth 
+
+HO-FNO 
+
+0 20 40 60 80 100 
+
+Radial frequency index 
+
+10 2
+
+10 1
+
+> Relative error per frequency
+
+Error (log y) 
+
+FNO 
+
+HO-FNO 
+
+0 20 40 60 80 100 
+
+Radial frequency index 
+
+0.0 
+
+0.1 
+
+0.2 
+
+0.3 
+
+0.4 
+
+0.5 
+
+0.6 
+
+0.7 
+
+> Relative error per frequency
+
+Error (linear y) 
+
+FNO 
+
+HO-FNO 
+
+Figure 12: Spectrum of the predictions of FNO and HO-FNO (order 2) on the Airfoil benchmark. 0 20 40 60 80 
+
+Radial frequency index 
+
+10 7
+
+10 5
+
+10 3
+
+10 1
+
+10 1
+
+> Power spectrum
+
+FNO spectrum 
+
+Ground truth 
+
+FNO 
+
+0 20 40 60 80 
+
+Radial frequency index 
+
+10 7
+
+10 5
+
+10 3
+
+10 1
+
+10 1
+
+> Power spectrum
+
+HO-FNO spectrum 
+
+Ground truth 
+
+HO-FNO 
+
+0 20 40 60 80 
+
+Radial frequency index 
+
+10 3
+
+10 2
+
+10 1
+
+10 0
+
+> Relative error per frequency
+
+Error (log y) 
+
+FNO 
+
+HO-FNO 
+
+0 20 40 60 80 
+
+Radial frequency index 
+
+0
+
+1
+
+2
+
+3
+
+4
+
+5
+
+> Relative error per frequency
+
+Error (linear y) 
+
+FNO 
+
+HO-FNO 
+
+Figure 13: Spectrum of the predictions of FNO and HO-FNO (order 2) on the Pipe benchmark. 0 10 20 30 40 
+
+Radial frequency index 
+
+10 2
+
+10 1
+
+10 0
+
+10 1
+
+10 2
+
+10 3
+
+> Power spectrum
+
+FNO spectrum 
+
+Ground truth 
+
+FNO 
+
+0 10 20 30 40 
+
+Radial frequency index 
+
+10 2
+
+10 1
+
+10 0
+
+10 1
+
+10 2
+
+10 3
+
+> Power spectrum
+
+HO-FNO spectrum 
+
+Ground truth 
+
+HO-FNO 
+
+0 10 20 30 40 
+
+Radial frequency index 
+
+10 2
+
+10 1
+
+10 0
+
+> Relative error per frequency
+
+Error (log y) 
+
+FNO 
+
+HO-FNO 
+
+0 10 20 30 40 
+
+Radial frequency index 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+1.2 
+
+1.4 
+
+> Relative error per frequency
+
+Error (linear y) 
+
+FNO 
+
+HO-FNO 
+
+Figure 14: Spectrum of the predictions of FNO and HO-FNO (order 2) on the Navier–Stokes benchmark. 
+
+L Implementation Details 
+
+This section presents a comprehensive overview of the experimental setup, covering benchmark datasets, evaluation metrics, and implementation details to ensure a rigorous and reproducible analysis. 40 This section presents a comprehensive overview of the experimental setup, covering benchmark datasets, evaluation metrics, and implementation details to ensure a rigorous and reproducible analysis. Table 13: Training and model configurations of HO-FNO relative to the experiments in Table 2. Training configurations are inspired by previous works in order to compare with the baselines at similar parameter count and capacity. For the Darcy dataset, we adopt an additional spatial gradient regularization term lgdl following ONO and LaMO. CONFIGURATION BENCHMARKS 
+
+DARCY NAVIER –S TOKES ELASTICITY PLASTICITY AIRFOIL PIPE 
+
+> TRAINING
+
+LOSS FUNCTION l2 + 0 .1lgdl RELATIVE l2
+
+EPOCHS 500 INITIAL LR 5 · 10 −4 1 · 10 −3
+
+FINAL LR 5 · 10 −5
+
+OPTIMIZER ADAM WBATCH SIZE 8 6 8
+
+SCHEDULER COSINE ANNEALING LR ARCHITECTURE 
+
+LAYERS 8EMBEDDING DIM 128 256 128 
+
+RETAINED MODES ON THE x-AXIS 32 16 10 24 50 50 
+
+RETAINED MODES ON THE y-AXIS 16 16 10 12 24 24 
+
+L.1 Training Details 
+
+In Table 2, the datasets are split into training and testing sets by configurations adopted from prior works [Li et al., 2023c] and described in Table 14 Table 14: Benchmark overview for Table 2, following the settings of [Li et al., 2023c], with task description, dataset size, and input–output tensor formats.                                                                                                             
+
+> Overview Elasticity Plasticity Navier–Stokes Airfoil Pipe Darcy Polynomial-Source Poisson
+> Task Estimate Stress Model Deformation Model Viscous Flow Estimate Velocity Estimate Velocity Estimate Pressure Solve Nonlinear Poisson Input Material Structure External Force Past Velocity Structure Structure Porous Medium pInput Fields Output Inner Stress Mesh Displacement Future Velocity Mach Number Fluid Velocity Fluid Pressure Poisson Solution Train Set Size 1000 900 1000 1000 1000 1000 1000 Test Set Size 200 80 200 100 200 200 200 Input Tensor (/, 972 ,2) (/, 101 ×31 ,2) (10 ,64 ×64 ,1) (/, 221 ×51 ,2) (/, 129 ×129 ,2) (/, 85 ×85 ,1) (/, 64 ×64 , p )
+> Output Tensor (/, 972 ,1) (20 ,101 ×31 ,4) (10 ,64 ×64 ,1) (/, 221 ×51 ,1) (/, 129 ×129 ,1) (/, 85 ×85 ,1) (/, 64 ×64 ,1)
+
+Each dataset corresponds to a specific task and follows these established settings. For the results reported in Table 2, we train for 500 epochs with AdamW [Loshchilov and Hutter, 2019] and a cosine-annealing learning-rate schedule [Loshchilov and Hutter, 2017], using the mean relative ℓ2
+
+error (nRMSE) both as training objective and evaluation metric. The training configurations include the use of a relative l2 loss term across all datasets, with an additional spatial gradient regularization term lgdl incorporated for the Darcy dataset as l2 + 0 .1lgdl following ONO Xiao et al. [2024]. Further specifics on the dataset splits, tasks, and training configurations are available in the respective tables for additional clarity for each benchmark dataset. A comprehensive summary of the HO-FNO hyperparameters is provided in Table 13. The table shows that all baselines and benchmarks were trained using consistent configurations, ensuring that HO-FNO maintains a comparable number of parameters to LaMO and fewer than the transformer-based baselines. In Table 3 and Table 1, we train our model and the baselines for 500 epochs with AdamW [Loshchilov and Hutter, 2019] and a cosine-annealing learning-rate schedule [Loshchilov and Hutter, 2017], using the single-step ℓ2 error (RMSE)as training objective and single-step ℓ2 error (MSE) and relative ℓ2
+
+error (nRMSE) and rollout relative ℓ2 error as evaluation metric. For the experiments reported in Table 1 and Table 3, we adopt a single-step training loss, as multi-step supervision did not lead to consistent performance gains while substantially increasing computational 41 and memory costs. Moreover, for the Navier–Stokes datasets, unlike the experiments in Table 2 where we follow the setting of [Li et al., 2020] and perform autoregressive prediction using the past 10 
+
+timesteps, in Table 1 we instead predict future states based solely on the current timestep. This choice simplifies training and reduces temporal dependencies during inference. Although leveraging past information may seem advantageous, prior work suggests an opposite trend: while historical context can improve short-term accuracy, it often compromises the stability and reliability of long-term rollouts due to error accumulation and distribution shift Lippe et al. [2023], Majid and Tudisco [2024]. In our experiments, this simpler formulation resulted in more stable optimization and more robust long-horizon predictions. However, we evaluate predictions starting from timestep 10 to match the test set of Li et al. [2020] and and ensure comparability with prior work, even though all baselines reported in this paper are retrained under the same protocol. For the experiments on the Poisson equation with polynomial forcing discussed in Section 5.1, all FNO and HO-FNO variants are trained for 100 epochs using the AdamW optimizer, with weight decay 10 −5 and learning rate 2 × 10 −3. All models retain 16 Fourier modes along each spatial axis, i.e., modes1 = modes2 = 16 , and use an MLP expansion factor of 2 in each block. 
+
+L.2 Backbone Details 
+
+We discuss in this section the differences in the backbone of the original FNO and the more modern backbone adopted in our experiments. Figure 18 offers a visualization of the 2 versions. 
+
+The original FNO block [2020] has a simple structure: it combines a spectral convolution with a learnable residual connection, parameterized by a pointwise linear layer. Motivated by the success of modern architectures, recent works [Kossaifi et al., 2023] have adopted FNO backbones closer in structure to Transformers and modern CNNs. We follow this design philosophy and use a backbone similar to the one introduced for FNO variants in [Kossaifi et al., 2023], which is also currently adopted in the Neural Operator Library [Kossaifi et al., 2024]. More specifically, we use a standard pre-norm residual block , as commonly employed in modern Transformer architectures. RMSNorm is applied before both the mixer and the feedforward network (FFN). The mixer corresponds either to a standard spectral convolution or to one of our higher-order spectral convolution variants. The FFN is implemented as a two-layer MLP with an intermediate expansion factor. Using a more engineered backbone is important for a fair comparison with recent Transformer- and state-space-based neural operators, which already benefit from these architectural improvements. RMSNorm 
+
+> Depthwise
+> HO Spectral Conv
+> RMSNorm
+> FFN
+> HO Spectral Conv
+> Id
+> Id
+
+Figure 15: Comparison of the network blocks used in our experiments. We compare the standard FNO block Li et al. [2020] with our improved backbone based on a pre-norm residual architecture. The feed-forward network (FFN) consists of a two-layer MLP with an expansion factor of 4 and GELU nonlinearity. Each sub-block applies RMS normalization before the Mixer and the FFN, followed by a residual connection. 
+
+L.3 Baselines 
+
+We compare HO-FNO against classical convolutional architectures, transformer-based neural oper-ators, state-space models, and frequency-domain neural operators. We briefly describe below the baselines used in the main comparison. 42 UNet [2015]. UNet is an encoder–decoder convolutional architecture with skip connections between feature maps at matching resolutions. The downsampling path extracts increasingly coarse features, while the upsampling path reconstructs high-resolution outputs using both coarse and fine-scale information. 
+
+ResNet [2015]. ResNet introduces residual blocks of the form x 7 → x + F (x), which ease the optimization of deep convolutional networks. In our setting, it serves as a purely local convolutional baseline without explicit spectral or operator-learning structure. 
+
+Swin Transformer [2021]. Swin Transformer replaces global self-attention with attention in-side shifted local windows. The window-shifting mechanism allows information exchange across neighboring windows while keeping attention cost manageable on dense grids. 
+
+DeepONet [2021]. DeepONet represents operators through a branch–trunk factorization: the branch network encodes sensor values of the input function, while the trunk network encodes the query coordinates. The prediction is obtained by combining these two representations, typically through an inner product. 
+
+Galerkin Transformer [2021]. Galerkin Transformer modifies standard attention by using a linearized Galerkin-type attention mechanism. Instead of computing full quadratic self-attention, it projects features into a kernelized representation, improving scalability for operator learning. 
+
+HT-Net [2022]. HT-Net combines transformer blocks with hierarchical token representations for PDE modeling. It introduces coarse-to-fine feature processing so that attention can capture long-range interactions without operating only at the finest resolution. 
+
+OFormer [2023a]. OFormer introduces an encoder–decoder transformer for operator learning, where the encoder processes input function values and the decoder evaluates the solution at target coordinates. It is designed to handle mappings between functions sampled on possibly different discretizations. 
+
+GNOT [2023]. GNOT extends transformer-based neural operators to multiple input functions and geometries by using heterogeneous attention over discretized function values and query points. It explicitly incorporates geometric information into the attention-based operator representation. 
+
+FactFormer [2023b]. FactFormer introduces factorized attention for neural operators by decom-posing multidimensional attention into lower-dimensional attention operations. This reduces the cost of global mixing while preserving interactions across spatial dimensions. 
+
+ONO [2024]. ONO introduces an orthogonal neural operator architecture, using orthogonal basis representations and attention-style mixing to improve stability and operator approximation. It is a strong recent baseline among transformer-inspired neural operators. 
+
+Transolver [2024]. Transolver introduces physics-attention, where spatial tokens are softly assigned to a smaller set of learned physical states. Attention is then computed in this latent physical-state space, reducing cost while capturing global interactions. 
+
+Erwin [2025]. Erwin introduces ball attention, restricting attention to local neighborhoods defined by spatial proximity. This preserves geometric locality and improves scalability compared with full attention over all mesh or grid points. 
+
+Transolver++ [2025]. Transolver++ improves Transolver through a refined physics-attention design and stronger architectural components. It keeps the idea of latent physical states while enhancing the efficiency and expressivity of the attention blocks. 
+
+MSPT [2026]. MSPT introduces a multi-scale point transformer architecture for PDE modeling. It processes point or mesh features across several spatial resolutions and uses attention-based interactions to exchange information between local and coarse representations. 43 LaMO [2025]. LaMO replaces transformer attention with a Mamba-style state-space mixing mechanism adapted to neural operators. It models long-range dependencies through selective state-space updates, providing a strong alternative to attention-based operator models. 
+
+WMT [2021]. WMT uses wavelet-domain representations instead of purely Fourier-domain rep-resentations. The wavelet transform provides both spatial localization and frequency information, making it suitable for multiscale PDE features. 
+
+U-FNO [2022]. U-FNO augments Fourier layers with a UNet-like path. The Fourier blocks capture global spectral interactions, while the UNet component improves local and multiscale feature extraction. 
+
+FNO [2020, 2023c]. FNO applies global convolution in the Fourier domain by truncating to a fixed number of low-frequency modes and learning complex-valued weights on these modes. It is the main first-order spectral baseline and the closest reference model to HO-FNO. 
+
+U-NO [2022]. U-NO combines neural operator layers with a U-shaped encoder–decoder structure. It applies operator blocks at multiple resolutions, allowing the model to mix global operator learning with multiscale spatial reconstruction. 
+
+F-FNO [2023]. F-FNO factorizes the Fourier convolution across spatial dimensions. This reduces the parameter and computational cost of spectral mixing while retaining the main Fourier-domain inductive bias of FNO. 
+
+LSM [2023]. LSM introduces a latent spectral representation for operator learning. Instead of performing all computations directly on the full grid, it maps the input to a latent space where spectral mixing is applied more efficiently. 
+
+FNO with modern backbone. We include an internal baseline that uses the same modern backbone as HO-FNO but keeps the spectral convolution first-order. This separates the gain due to backbone design from the gain due to higher-order spectral mixing. 
+
+L.4 Metrics description 
+
+We evaluate the predictive performance of our models using the following metrics: 
+
+Mean Squared Error (MSE). Given ground truth y ∈ Rd and prediction ˆy ∈ Rd, the MSE, sometimes called L2-norm, is defined as MSE (y, ˆy) = 1
+
+d
+
+> d
+
+X
+
+> i=1
+
+∥yi − ˆyi∥2. (48) This metric measures the average squared deviation between predictions and targets. It is numerically stable and therefore commonly used as a training loss, as we do in our experiments. At test time, MSE is also informative since it provides a physically meaningful error measure in the original space. However, MSE scales quadratically with multiplicative factors applied to y and ˆy, and it is affected by the discretization of the domain. As a result, it is not directly comparable across different datasets or resolutions. For this reason, it is often preferred to also report the Normalized Mean Squared Error (NRMSE) at evaluation time. 
+
+Normalized Mean Squared Error (nRMSE). The nRMSE, often called relative L2-norm, is the MSE normalized by the norm of the target: NRMSE (y, ˆy) = 1
+
+d
+
+> d
+
+X
+
+> i=1
+
+∥yi − ˆyi∥2
+
+∥yi∥2 . (49) Unlike MSE, which reports squared units, RMSE is expressed in the same units as the target variable. This makes the error magnitude directly comparable to the physical scale of the data, providing a more intuitive sense of accuracy therefore providing a fair comparisons across datasets and resolutions. 44 Rollout Error. Since we deal with time-dependent systems, we evaluate multi-step predictions by iteratively feeding model outputs back as inputs. The rollout error is computed as the average of a choosen loss , L, across all timesteps: Rollout (y1: T , ˆy1: T ) = 1
+
+T
+
+> T
+
+X
+
+> t=1
+
+L(yt, ˆyt), (50) where T is the total number of time steps of the dataset. This metric captures error accumulation over long-term forecasts. Even though rollout stability is beyond the scope of this work, it remains informative to assess how new models perform in this setting, which more closely reflects real-world applications than the teacher-forcing setup. For this reason, we report rollout metrics in our experiments. 45 M Visualizations of the predictions 
+
+We report in this section the visualization of the predictions for a qualitative visual comparison between FNO and HO-FNO. Both models employ the modern backbone. Mesh Target FNO prediction HO-FNO prediction  
+
+> FNO error HO-FNO error
+
+Figure 16: Qualitative visualization of predictions of FNO and HO-FNO (order 2) on the Airfoil dataset. Mesh Target FNO prediction HO-FNO prediction  
+
+> FNO error HO-FNO error
+
+Figure 17: Qualitative visualization of predictions of FNO and HO-FNO (order 2) on the Pipe dataset. Mesh Target FNO prediction HO-FNO prediction  
+
+> FNO error HO-FNO error
+
+Figure 18: Qualitative visualization of predictions of FNO and HO-FNO (order 2) on the Navier– Stokes dataset. 46

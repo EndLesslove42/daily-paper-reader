@@ -6,32 +6,37 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-28
-- 运行时间：2026-06-28 21:14:10 UTC
+- 最新运行日期：2026-06-29
+- 运行时间：2026-06-29 21:46:39 UTC
 - 运行状态：成功
-- 本次总论文数：4
-- 精读区：1
+- 本次总论文数：5
+- 精读区：2
 - 速读区：3
 
 ### 今日简报（AI）
-今日精读1篇、速读3篇，聚焦高效天气预报与边缘AI预处理。最值得关注的是《Otter Weather》提出的高计算效率中期天气预报方法，以及《Enabling Cloud-Level Accuracy in Edge AI》实现的物联网数据预处理技巧。建议普通读者优先研读天气预报方向，并关注边缘端精度提升的实际应用案例。
-- 详情：[/202606/28/README](/202606/28/README)
+今日推荐了高分精读：高阶傅里叶神经算子与两步集成得分滤波，并速读数据驱动通量参数化等三篇。  
+最值得关注两个方向：显式模式混合的FNO提升非线性PDE求解效率，以及两步滤波法改善部分观测系统的数据同化性能。  
+建议普通读者从算子学习与数据同化的交叉应用入手，先阅读两篇精读文章，再尝试用稀疏传感器布局验证实际效果。
+- 详情：[/202606/29/README](/202606/29/README)
 
 ### 精读区论文标签
-1. [Otter Weather: Skillful and Computationally Efficient Medium-Range Weather Forecasting](/202606/28/2606.26421v1-otter-weather-skillful-and-computationally-efficient-medium-range-weather-forecasting)  
+1. [Higher-Order Fourier Neural Operator: Explicit Mode Mixer for Nonlinear PDEs](/202606/29/2606.28122v1-higher-order-fourier-neural-operator-explicit-mode-mixer-for-nonlinear-pdes)  
    标签：评分：8.0/10、query:aqac
-   evidence：高效时空天气模型，与WRF加速和GPU模拟相关
+   evidence：高阶傅里叶神经算子用于非线性偏微分方程
+2. [A Two-Step Ensemble Score Filter for Data Assimilation in Partially Observed Systems](/202606/29/2606.28264v1-a-two-step-ensemble-score-filter-for-data-assimilation-in-partially-observed-systems)  
+   标签：评分：8.0/10、query:aqac
+   evidence：用于部分观测系统的数据同化方法
 
 ### 速读区论文标签
-1. [Enabling Cloud-Level Accuracy in Edge AI through IoT Data Preprocessing](/202606/28/2606.22496v1-enabling-cloud-level-accuracy-in-edge-ai-through-iot-data-preprocessing)  
+1. [Data-Driven Flux Parameterization for the Atmospheric Boundary Layer](/202606/29/2606.24593v2-data-driven-flux-parameterization-for-the-atmospheric-boundary-layer)  
    标签：评分：7.0/10、query:aqac
-   evidence：针对空气质量传感器数据的LLM预处理框架
-2. [Spectrally Safe Neural Operator Warm-Starts for Large-Scale Newton Solvers](/202606/28/2606.21828v1-spectrally-safe-neural-operator-warm-starts-for-large-scale-newton-solvers)  
+   evidence：大气边界层数据驱动通量参数化，属于用于环境建模的物理知情机器学习
+2. [Sparse Sensor Placement for Reducing Forecast Errors in Ensemble Kalman Filtering](/202606/29/2606.27267v1-sparse-sensor-placement-for-reducing-forecast-errors-in-ensemble-kalman-filtering)  
+   标签：评分：7.0/10、query:aqac
+   evidence：基于EnKF的数据同化减少预报误差，可用于空气质量预报
+3. [OperatorSHAP: Fast and Accurate Shapley Value Estimation for Neural Operators](/202606/29/2606.28065v1-operatorshap-fast-and-accurate-shapley-value-estimation-for-neural-operators)  
    标签：评分：6.0/10、query:aqac
-   evidence：神经算子加速Newton求解器初始猜测，解决PDE求解的有效性问题
-3. [Attention mechanism for scalable mesh-based neural surrogates of free-surface fluids](/202606/28/2606.23251v1-attention-mechanism-for-scalable-mesh-based-neural-surrogates-of-free-surface-fluids)  
-   标签：评分：6.0/10、query:aqac
-   evidence：基于注意力的自由表面流体神经代理，与空气质量代理建模方法直接相关
+   evidence：神经算子的网格无关Shapley值估计方法，支持物理替代模型的可解释性
 
 
 <div class="dpr-home-promo-card">
