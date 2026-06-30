@@ -1,0 +1,719 @@
+Title: A Trainable-by-Parts Operator Learning Framework: Bridging DeepONet and Karhunen-Loeve Expansions for Large-Scale Applications
+
+URL Source: https://arxiv.org/pdf/2606.28519v1
+
+Published Time: Tue, 30 Jun 2026 00:11:32 GMT
+
+Number of Pages: 16
+
+Markdown Content:
+# A T RAINABLE -BY -P ARTS OPERATOR LEARNING FRAMEWORK :BRIDGING DEEP ON ET AND KARHUNEN –L O `EVE EXPANSIONS FOR LARGE -S CALE APPLICATIONS 
+
+Christian Munoz 
+
+Civil Engineering Department University of Illinois Urbana-Champaign Urbana, IL 61801 
+
+camunoz4@illinois.edu 
+
+Alexandre Tartakovsky 
+
+Civil Engineering Department University of Illinois Urbana-Champaign Urbana, IL 61801 Pacific Northwest National Laboratory, Richland, WA 99352 
+
+amt1998@illinois.edu 
+
+June 30, 2026 
+
+## ABSTRACT 
+
+Training operator-learning models for large-scale problems governed by partial differential equa-tions (PDEs) is challenging due to the curse of dimensionality, memory constraints, and limited training data. These challenges arise in many scientific and engineering applications, including sub-surface flow, climate modeling, and geological carbon storage (GCS). In this work, we propose a scalable operator-learning framework based on the Karhunen–Lo` eve Deep Neural Network (KL-DNN) and demonstrate its performance for modeling GCS. The model is trained on a dataset com-prising 100 samples of large-scale simulations in a three-dimensional domain with 1.7 million cells and 50 time steps. The KL-DNN method constructs latent spaces using low-rank singular value decomposition of static properties and a nested Karhunen–Lo` eve expansion for dynamic pressure fields, enabling full-resolution predictions without subsampling or spatial coarsening. The KL-DNN model achieves an average Root Mean Square Error (RMSE) of 1.1 psi for pressure ( ≈ 0.04 % rela-tive error with respect to the average pressure in the domain) and RMSE of 0.0146 for CO 2 saturation (≈ 5% relative error with respect to the average saturation inside the plume). The model requires 
+
+≈ 20 minutes of training on a single GPU, representing a 19% reduction in the pressure errors, 7% reduction in the saturation error, and a two-order-of-magnitude speedup compared to DeepONet trained on the same dataset. These results, along with inference time of less than one minute, estab-lish the proposed model as a practical and accurate solution for large-scale PDE problems, enabling rapid uncertainty quantification, history matching, and real-time decision support. 
+
+# Plain Language Summary 
+
+We propose a faster, more scalable ML model for complex physical systems, such as underground carbon storage. Traditional physics-based simulations for these systems are accurate but slow and computationally expensive, making them impractical when many repeated simulations are needed (for example, to assess uncertainty or test different scenarios). We introduce a framework called a Karhunen-Lo` eve Deep Neural Network (KL-DNN). The key idea is to compress very large, high-dimensional data (such as 3D pressure and CO 2 saturation fields evolving over time) into a much smaller set of variables that still capture the essential patterns. The model is trained in parts, allowing the most computationally demanding steps to be handled separately and efficiently. The method is tested on a realistic, 
+
+> arXiv:2606.28519v1 [cs.LG] 26 Jun 2026
+
+A PREPRINT - J UNE 30, 2026 large-scale carbon storage problem with millions of grid cells. Despite using only 100 training simulations, the model accurately predicts pressure and CO 2 distribution across space and time. It achieves lower prediction errors than an established approach (DeepONet) while reducing training time from days to about 20 minutes and producing results in under a minute. Overall, this framework enables rapid, reliable predictions for large-scale geophysical systems, supporting applications such as uncertainty quantification, model calibration, and real-time decision-making. 
+
+# 1 Introduction 
+
+Physics-based simulations of large-scale problems, while accurate, are computationally expensive. The main reason is that the computational cost of numerical solutions to partial differential equations (PDEs) increases exponentially with the number of cells in the domain discretization, a phenomenon known as the curse of dimensionality. In this work, we focus on problems that require millions of nodes and tens of time intervals to adequately represent the system’s properties and states. Geological Carbon Storage (GCS) is one example of such problems. In GCS applications, the system needs a fine discretization in critical areas, such as injection zones and geological faults, which often results in a large number of nodes in numerical models. High heterogeneity of subsurface parameters (such as porosity and permeability) and the inherent uncertainty in their distribution make subsurface modeling especially challenging [1, 2, 3]. The practical application of subsurface models requires multiple model evaluations across different parameter combinations. For example, numerous model runs are needed to estimate uncertainty in model predictions, investigate different scenarios, and perform history matching. The need to perform multiple simulations and their high computational cost motivate the development of operator-learning models that can predict system states (e.g., CO 2 pressure and saturation in GCS) as functions of system parameters (e.g., reservoir porosity and permeability). Several operator learning models have been proposed for GCS, including Fourier Neural Operator [4], convolutional encoder-decoder networks [5], and DeepONet [6]. Among these approaches, only the DeepONet model in [6] addresses problems at the scale considered in this work. Specifically, in [6], the DeepONet model was trained for the Illinois Basin Decatur Project (IBDP) CO 2 injection site using a training dataset consisting of numerical simulations performed on a three-dimensional domain discretized into 1.7 million cells, with solutions reported at 50 time steps. DeepONet performs operator learning in a reduced (latent) parameter space, determined by the branch networks, and in a reduced state-variable space, determined by the trunk network. Other related latent-space operator learning models for parametric PDEs include PCA-Net [7] and KL-DNN [8, 9]. These two methods use closely related PCA and KL expansions [10] to find latent spaces. In DeepONet, PCA-Net, and KL-DNN, operator learning is performed in a latent space using a fully connected feed-forward deep neural network (DNN), which requires only a few fully connected layers. However, learning a latent representation for large-scale problems can require prohibitively large computer memory and training time. Training DeepONet for large-scale problems is particularly challenging because the latent representations of states and parameters are jointly learned and combined with DNN training. In PCA-Net and KL-DNN, the latent representations are learned separately for states and parameters via singular value decomposition (SVD). However, performing SVD on large datasets may require substantial memory that may not be available even on large supercomputers. DeepONet has been applied to large-scale problems using several strategies. DeepONet with domain decomposi-tion (DD-DeepONet) splits large domains into subdomains, reducing memory requirements and training time [11]. Time-integration DeepONet variants (TI-DeepONet) focus on derivative operators to avoid long sequential rollouts [12]. Ensemble and mixture-of-experts architectures further localize learning for heterogeneous domains [13]. Sep-arable DeepONet (SepONet) factorizes spatial dimensions to lower complexity and memory footprint [14]. In [6], a graph-based topology embedding was introduced in DeepONet to capture local and global interactions. A dynamic resampling of training subsets was used to manage the memory required for DeepONet training and the associated computational costs when handling domains with millions of cells and multiple time steps. In PCA-Net, a localized PCA on spatial patches was used to reduce computational cost and memory requirements [15]. This patch-based approach achieved up to four times faster training than global PCA models and improved accuracy near critical regions by preserving local variability. In this study, we propose a general trainable-by-parts operator learning framework for large-scale PDE problems. As the basis of this framework, we adapt the KL-DNN/PCA-Net method. In large-scale applications, the KL-DNN and PCA-Net methods are nearly identical, as both use SVD to construct PCA or KL representations of parameter and state fields. Furthermore, we demonstrate that the resulting model is a special case of DeepONet and can be considered a generalized operator-learning model. 2A PREPRINT - J UNE 30, 2026 The main innovations of this work are the following: • We propose a two-step approach for performing SVD decomposition on large-scale problems. In the first step, the multi-dimensional KLE is decomposed into the lower-dimensional KLEs. In the second step, we estimate eigenvalues and eigenfunctions in the low-dimensional KLEs using a low-rank SVD. This approach enables the SVD decomposition of large datasets without significantly compromising accuracy, a task that is often infeasible even on supercomputers due to memory limitations. • We establish a correspondence between the PCA-Net/KL-DNN and DeepONet models. This allows for separately training the trunk and branch of DeepONet and extending it to large-scale problems. We demonstrate the effectiveness of the proposed model by comparing its accuracy and training time to those of the DeepONet model trained on the IBDP dataset, which consists of 100 samples, each sample computed on a 1.7 million-node-mesh and 50 time steps [6]. We demonstrate that our model requires 2 orders of magnitude less training time and is up to 19% more accurate than the DeepONet trained on this large dataset using dynamic resampling. This work is organized as follows: Section 2 presents the scalable operator learning model. Section 3 describes training and the predictions of the operator learning model using the IBDP dataset. Conclusions are given in Section 4. 
+
+# 2 Operator learning model 
+
+We present the operator learning method for the general Partial Differential Equations (PDE) problem, 
+
+L[u(x, t ), y 1(x), ..., y Np (x)] = 0 , (1) subject to appropriate initial and boundary conditions. Here, L is the differential operator, u(x, t ) is the state variable, and y1(x), ..., y Np (x) are the Np space-dependent parameter fields. We assume that a labeled dataset D = {y(i)1 , ..., y(i) 
+
+> Np
+
+→ u(i)}Ntrain  
+
+> i=1
+
+exists consisting of Ntrain samples of the numerical PDE solution obtained on a Nx × Ny × Nz × Nt space-time mesh. Our goal is to develop an operator learning model Gu[y1, ..., yNp ] ( x, t ) for large-scale problems where Nx, Ny , Nz ,and Nt may be on the order of millions. Below, we discuss the challenges of training operator learning models for large-scale problems and how the proposed model addresses them. To motivate the proposed approach, we first review the KL-DNN formulation of a neural operator Gu[y(x)]( x, t ) for 
+
+Np = 1 (a single parameter field). In this method, u and y are treated as realizations of random processes U and 
+
+Y , and y(i) and u(i) in the training dataset D are generated as independent samples of Y and U , respectively. The operator Gu[y]( x, t ) is given by the space-time KLE of U [16]: 
+
+Gu[y]( x, t ) = ¯ u(x, t ) + 
+
+> Nη
+
+X
+
+> i=1
+
+ηi[ξ(y); θ]ϕi(x, t )pλi, (2) where ¯u(x, t ) is the ensemble mean of U , ϕi(x, t ), λi are the Nη leading eigenfunctions and eigenvalues of the covariance of U , and ηi are the KLE coefficients. The eigenfunctions and eigenvalues are found from the eigenvalue decomposition of the sample covariance matrix of U or the SVD of u(i) samples. Therefore, the maximum number of eigenpairs that can be computed is Ntrain , i.e., Nη ≤ Ntrain . For a sufficiently large Ntrain , Nη can be determined from the Mercer theorem [17] according to the desired tolerance rtol as 
+
+rtol =
+
+> ∞
+
+X 
+
+> i=Nη+1
+
+λi/
+
+> ∞
+
+X
+
+> i=1
+
+λi. (3) However, for large-scale problems, Ntrain is relatively low due to the high computational cost of generating samples. Therefore, Ntrain is usually a limiting factor in selecting Nη . Specific constraints for selecting Nη will be discussed later in this section. The KLE coefficients η = [ η1, ..., η N ]T are mapped to the vector of coefficients ξ = ( ξ1, ..., ξ Nξ )T in the truncated KLE of the parameter field y,
+
+y(x) ≈ K y (x, ξ) = ¯ y(x) + 
+
+> Nξ
+
+X
+
+> i=1
+
+ξiχi(x)pβi, (4) 3A PREPRINT - J UNE 30, 2026 using the fully connected feed-forward DNN η = N N (ξ; θ) with the output vector η and the parameters θ. In the KLE of y, ¯y(x) is the mean of Y , and χi(x), and βi are the eigenfunctions and eigenvalues of Cy (x, x′), the (known) covariance function of Y . The KL-DNN model is shown in Figure 1. Similar to other neural operator models, including PCA-Net and DeepONet, KL-DNN can be trained using the full dataset D by solving the minimization problem 
+
+θ∗ = min 
+
+> θ
+> Ntrain
+
+X
+
+> i=1
+
+|| u(i)(x, t ) − G u[y(i)]( x, t ; θ)|| 22 + 1
+
+σ2 || θ|| 22, (5) where the ℓ2 norm of any function c(x, t ) is defined as || c(x, t )|| 2 =
+
+qR T
+
+> 0
+
+R
+
+> Ω
+
+(c(x, t )) 2dxdt and 1/σ 2 is a coefficient in the regularization term. The advantage of having pre-computed KLEs with the orthogonal eigenfunctions is that this expensive-to-compute function norm can be replaced with a much simpler ℓ2 vector norm as 
+
+|| u(i)(x, t ) − G u[y(i)]( x, t ; θ)|| 22 = [ η(i) − ˆη(ξ(i); θ)] T Λ[η(i) − ˆη(ξ(i); θ)] = || [η(i) − ˆη(ξ(i); θ)|| 2
+
+> Λ
+
+, (6) where Λ is the diagonal matrix with the diagonal elements Λii = λi and η(i) is the vector of coefficients in the KLE of u(i) [18]. It follows from Eq (6) that the parameters θ in the KL-DNN model can be found using the reduced (latent)-space dataset Dl = {ξ(i) → η(i)}Ntrain  
+
+> i=1
+
+by solving the minimization problem 
+
+L(θ) = 
+
+> Ntrain
+
+X
+
+> i=1
+
+||N N (ξ(i); θ) − η(i)|| 2 
+
+> Λ
+
++ 1
+
+σ2 || θ|| 22. (7) The reduced dataset is obtained by applying the inverse KL operator K−1 to the elements of the D dataset: ξ(i) =
+
+K−1[y(i)] and η(i) = K−1[u(i)]. For example, for the KLE of u,
+
+u(x, t ) ≈ K u (x, t, η) = ¯ u(x, t ) + 
+
+> Nη
+
+X
+
+> i=1
+
+ηiϕi(x, t )pλi, (8) the inverse operator acting on u(i) is defined as 
+
+K−1 h
+
+u(i)i
+
+:= arg min 
+
+> η
+
+
+
+|| u(x, t )(i) − K u [x, t, η] || 22 + γ|| η|| 22
+
+
+
+, (9) where γ is a regularization coefficient. Using the loss function in Eq (7) instead of that in Eq (5) significantly reduces the training time and the memory requirements. The mean and covariance of U can be computed by replacing y and u in the PDE problem (1) with their stochastic counterparts, and solving the resulting stochastic PDE for u and Cu using methods such as Polynomial Chaos [19], Moment Equations [20], or Monte Carlo [21]. Most commonly, the Monte Carlo method is employed where the dataset D is used to approximate u and Cu as the sample mean vector ¯u ∈ RNxyzt ,
+
+¯u = 1
+
+Ntrain 
+
+> Ntrain
+
+X
+
+> i=1
+
+u(i), (10) and the sample covariance matrix Cu ∈ RNxyzt ×Nxyzt ,
+
+Cu = 1
+
+Ntrain − 1 XT X, (11) where Nxyzt = Nx × Ny × Nz × Nt and the centered data matrix X ∈ RNtrain ×Nxyzt consists of elements {Xij =
+
+u(i) 
+
+> j
+
+− uj }Ntrain ,N xyzt  
+
+> i=1 ,j =1
+
+.The eigenvalues λi and eigenfunctions ϕi(x, t ) can be found from the eigenvalue problem 
+
+Z
+
+> D
+
+Z
+
+> T
+
+Cu(x, x′, t, t ′)ϕ(x′, t ′) d x′dt′ = λϕ (x, t ). (12) The numerical solution of Eq (12) can be obtained by discretizing it as 
+
+(W 1/2 × Cu × W 1/2) × (W 1/2 × ϕ) = λ(W 1/2 × ϕ), (13) 4A PREPRINT - J UNE 30, 2026 where ϕ is the eigenvector, W is a diagonal matrix with the diagonal elements Wjj = wj , and wj is the volume of jth cell in the numerical solutions u(i) [22]. Here, we assume that all solutions u(i) are obtained on the same numerical mesh. For large-scale applications, the Cu size makes solving this eigenvalue problem impractical. The common solution to reducing the computational cost of solving the eigenvalue problem is to use the SVD decom-position: 
+
+˜X = U SV T
+
+where ˜X = W 1/2X, U ∈ RNxyzt ×Nxyzt is the orthogonal matrix, S ∈ RNtrain ×Nxyzt is the diagonal matrix containing singular values si (in the descending order), and V ∈ RNtrain ×Ntrain is the orthogonal matrix containing eigenvectors. The eigenvalues are found as 
+
+λi = s2
+
+> i
+
+Ntrain − 1 . (14) The mean and eigenfunctions u(x, t ) and ϕi(x, t ) are approximated via a polynomial interpolation of their nodal values given by u and the eigenvectors, respectively. It should be noted that in the standard PCA and SVD-based ex-pansions, W is replaced with the identity matrix. The resulting eigenvalues and eigenvectors are, in general, different from those given by the solution of the eigenvalue problem (13). While being faster than eigenvalue solvers, the SVD decomposition still requires storing the Nxyzt × Nxyzt matrix U ,i.e., it does not address memory limitations. Also, to avoid overfitting in N N (ξ) training, Nη must be kept smaller (often by an order of magnitude) than Ntrain , in turn requiring only Ntrain largest eigenvalues and the corresponding eigenfunctions. This allows reducing both the computation time and the memory requirements by replacing the (full) SVD decomposition with the low-rank SVD decomposition [23] 
+
+˜X = Ur Sr V Tr ,
+
+where Ur ∈ RNxyzt ×Nη contains the first Nη columns of U , Sr ∈ RNη ×Nη is the diagonal matrix containing first Nη
+
+singular values, and Vr ∈ RNtrain ×Nη is the orthogonal matrix containing eigenvectors. The main memory saving here is achieved by replacing U ∈ RNxyzt ×Nxyzt with Ur ∈ RNxyzt ×Nη .However, for Nxyzt on the order of tens of millions, performing the low-rank SVD could require prohibitively large computer memory. To further reduce the computational cost of constructing KLEs, we decompose multi-dimensional KLEs into lower-dimensional KLEs [24]. For example, the KLE of the stochastic process UU (x, t ) = ¯ u(x, t ) + 
+
+> Nη
+
+X
+
+> i=1
+
+˜ηiϕi(x, t )pλi, (15) where { ˜ηi}Nη 
+
+> i=1
+
+are uncorrelated random variables, can be approximated as 
+
+U (x, t ) = ¯ u(x, t ) + 
+
+> Nη
+
+X
+
+> i=1
+
+˜η′
+
+> i
+
+(t)ϕ′
+
+> i
+
+(x, t )
+
+q
+
+λ′
+
+> i
+
+(t). (16) The random processes { ˜ηi}Nη 
+
+> i=1
+
+are further decomposed using one-dimensional KLEs: 
+
+˜η′
+
+> i
+
+(t) ≈ ¯ηi +
+
+> Nγ
+
+X
+
+> j=1
+
+γij ψij (t)pδij , (17) where ¯ηi(t) is the mean of ˜η′
+
+> i
+
+(t) and ψij (t) and δij are the eigenfunctions and eigenvalues of the covariance C˜ηi (t, t ′)
+
+of ˜η′
+
+> i
+
+(t). We note that the ensemble mean of ˜η′
+
+> i
+
+(t) is zero, but its sample approximation might not be. In Eq (16), ϕ′
+
+> i
+
+(x, t ) and λ′
+
+> i
+
+(t) are given by the solution of the eigenvalue problem 
+
+Z
+
+> D
+
+Cu(x, x′, t, t )ϕ′(x′, t ) d x′ = λ′(t)ϕ′(x, t ). (18) The dimensionality of this eigenvalue problem is d (the number of spatial dimensions) while the dimensionality of the eigenvalue problem in Eq (12) is d + 1 . For the KLE in Eq (16), the largest matrix in the low-rank SVD has size 
+
+Nxyz × Nη , where Nxyz = Nx × Ny × Nz . This matrix is Nt times smaller than the corresponding matrix in the full space–time KLE. There is an extra cost of computing the eigenpairs of the KLE (17); however, since this KLE is one-dimensional, this extra cost is not significant. 5A PREPRINT - J UNE 30, 2026 We first compute {ϕ′
+
+> i
+
+(x, t j ), λ ′
+
+> i
+
+(tj )}Nt 
+
+> j=1
+
+by performing low-rank SVD of the centered data matrix Xi ∈ RNtrain ×Nxyz 
+
+(i = 1 , ..., N t) consisting of elements {Xi,kl = ui,kl − ui,l }Ntrain ,N xyz  
+
+> k=1 ,l =1
+
+for each timestep ti, where ui,kl is the element of the kth solution sample at lth spatial element at time ti and ui,l is the sample mean at lth spacial element at time ti.Next, {˜η′(k) 
+
+> i
+
+(tj )}Nη ,N t,N train  
+
+> i=1 ,j =1 ,k =1
+
+are computed by the least-squares fitting of KLE (16) to u(i) as 
+
+˜η′(k)1 (tj ), ..., ˜η′(k) 
+
+> Nη
+
+(tj ) = min 
+
+> ˜η′
+> 1,..., ˜η′
+> Nη
+> Nxyz
+
+X
+
+> l=1
+
+u(k) 
+
+> j,l
+
+− ¯u(xl, t j ) −
+
+> Nη
+
+X
+
+> i=1
+
+˜η′
+
+> i
+
+ϕ′
+
+> i
+
+(xl, t j )
+
+q
+
+λ′
+
+> i
+
+(tj )
+
+
+
+> 2
+
+. (19) Finally, ψij and δij are computed using the low-rank SVD of the data matrix Xk ∈ RNtrain ×Nt (k = 1 , ..., N η )consisting of elements {Xk,ij = η(i) 
+
+> k,j
+
+− ηk,j }Ntrain ,N t 
+
+> i=1 ,j =1
+
+for each ηk component. The final form of the neural operator is 
+
+Gu[y]( x, t ) = ¯ u(x, t ) + 
+
+> Nη
+
+X
+
+> i=1
+
+ ¯ηi +
+
+> Nγ
+
+X
+
+> j=1
+
+γij [ξ(y)] pδij ψij (t)
+
+ pλi(t)ϕi(x, t ). (20) Next, we discuss the criteria for selecting the total number of terms in the KLEs of u and y, i.e., Nξ and Nη in the full-dimensional KLEs (8) and (4) or Nη × Nγ in the low-dimensional KLE (20). We stated earlier that Nξ and Nη
+
+must be less than or equal to Ntrain . On the other hand, Nξ and Nη are the dimensions of the input and output layers of the DNN, which is trained with Ntrain samples. The rule of thumb for selecting the DNN size as a function of the number of samples in the dataset is to keep the total number of trainable parameters in the DNN lower than Ntrain 
+
+by at least a factor of 10 [25], which requires Nη + Nξ << N train . In practice, this rule of thumb is too restrictive. The values of Nη and Nξ are treated as hyperparameters and are chosen to minimize the error in predicting unseen solutions, the so-called testing error. At this point, it is appropriate to discuss the relationship between the KL-DNN model and the PCA-Net and DeepONet models. The PCA-Net and KL-DNN methods are structurally similar and use related PCA and KL-DNN expansions. Moreover, both methods rely on SVD to construct the expansions. The only differences between the PCA-Net and KL-DNN models are how the data is generated (in the KL-DNN model, Monte Carlo sampling is used, whereas there are no such restrictions in the PCA-Net) and how the data matrix X is constructed. In KL-DNN, the elements of X
+
+are weighted with the size of numerical elements for the singular values and eigenvectors to approximate the solution of the eigenvalue problem, while in PCA-Net, no weights are applied to the data. The vanilla DeepONet method is shown in Figure 1. In both the KL-DNN and DeepONet methods, the operator is given as the product of the parameter and basis function vectors. In the DeepONet, the basis functions are the output of the trunk DNN, and the parameter vector η′ is the output of the branch DNN. In KL-DNN, the basis functions are obtained by SVD, and the vector η is obtained by applying the inverse KL operators to the state variables. Despite the similarity, KL-DNN has a computational advantage over DeepONet. The “training” of all components in the KL-DNN model (solving eigenvalue problems, applying inverse KL operations, and the DNN training) is done independently and without accessing the entire dataset Dtrain . In DeepONet, the trunk and branch DNNs (including all sub-branch DNNs) must be trained jointly using an expensive-to-evaluate loss function similar to (5), which requires access to the entire Dtrain dataset and, in turn, large computer memory. Therefore, the KL-DNN architecture in Figure 1 can be considered a variant of DeepONet that enables separate training of the trunk, branch encoder, and branch DNN. Finally, we discuss the KL-DNN model for Np > 1, i.e., a problem with more than one parameter field. If the parameter fields are uncorrelated, then each parameter field yi should be represented with a separate KLE with the KL coefficient vector ξi, yielding the vector containing KL coefficients of all parameters, ξT = [ ξ1, ..., ξNp ]. The KL-DNN model is then modified by using ξT as input to the DNN, i.e., η = N N (ξT ). It should be noted that the DNN size depends on the input layer size, and training a DNN with a larger input layer requires more samples. Therefore, there is a need to reduce the size of the latent space representing all parameter fields (and the input layer of the DNN model), especially for large-scale problems. The correlated parameter fields can be expressed with a single KLE [26]. The advantage of the single KLE rep-resentation is that it requires fewer KL coefficients to represent the correlated fields than the individual KLEs. To compute eigenfunctions and eigenvalues in the single KLE representation of Np parameter fields, the parameter vec-tors yi ∈ RNxyz are assembled in a single parameter vector y ∈ RNpNxyz as 
+
+y = y1, ..., yNp
+
+ . (21) 6A PREPRINT - J UNE 30, 2026 Then, the eigenvalues and eigenvectors in the y KLE are found using the SVD decomposition of the data matrix 
+
+X ∈ RNpNxyz ×Ntrain with rows formed by the vectors y(i) − y, where y(i) ∈ RNpNxyz is the parameter vector in the 
+
+ith sample of D and y ∈ RNpNxyz is the sample mean of {y(i)}Ntrain  
+
+> i=1
+
+.
+
+Figure 1: The KL-DNN operator-learning framework (left) and the vanilla DeepONet architecture (right). In KL-DNN, the KLE of the state variable replaces the DeepONet trunk. The inverse KLE of the input variable y in KL-DNN replaces the encoder part of the DeepONet branch. The DNN part of KL-DNN is analogous to the fully connected layers in the DeepONet branch. 
+
+## 2.1 Evaluation Metrics 
+
+We evaluate the accuracy of the operator learning models and KLE representations using the Mean Absolute Error (MAE): 
+
+M AE = 1
+
+Nxyz 
+
+1
+
+Nt
+
+1
+
+Nsamples Nxyz 
+
+X
+
+> i=1
+> Nt
+
+X
+
+> j=1
+> Nsamples
+
+X
+
+> k=1
+
+|G [y(k)]( xi, t j ) − u(k)(xi, t j )| (22) and root mean square error RMSE: 
+
+RM SE = 1
+
+Nsamples Nsamples 
+
+X
+
+> k=1
+
+vuut 1
+
+Nxyz 
+
+1
+
+NtNxyz 
+
+X
+
+> i=1
+> Nt
+
+X
+
+> j=1
+
+ G[y(k)]( xi, t j ) − u(k)(xi, t j )2, (23) where Nsamples is the number of samples (usually, the number of test samples) for which the accuracy of the solution is evaluated. RMSE is more sensitive to large local errors than MAE. In this work, we use RMSE to train DNNs in the operator learning model and MAE to optimize hyperparameters, including Nη , Nξ , and the size of the DNN’s hidden layers. We also use time-dependent ℓ∞ error 
+
+ℓ∞(tj ) = max 
+
+> x
+
+
+
+G[y(k)]( x, t j ) − u(k)(x, t j )
+
+
+
+(24) to study how maximum model errors change over time. 
+
+# 3 Numerical Example 
+
+We test the proposed operator learning method for modeling CO 2 sequestration at the IBDP site [27]. IBDP is a carbon capture and storage pilot project for CO 2 injection into a deep saline reservoir. Over a 3-year period starting in November 2011, approximately 1 million tonnes of CO 2 were injected into the reservoir. 7A PREPRINT - J UNE 30, 2026 
+
+Figure 2: Left column: geological facies, porosity, and horizontal permeability from the IBDP calibration study reported in [27]. Right column: statistical realizations of the geological facies, porosity, and horizontal permeability. To train and test the operator learning model, we use a dataset from [6] consisting of 100 simulations of the CO 2
+
+pressure and saturation on a (126 , 125 , 110) unstructured grid. The simulations were performed using the ECLIPSE software ([28]). Estimates of reservoir parameters, including horizontal and vertical permeability ( kh and kv ) and porosity ( n), were statistically generated using specified mean and covariance models. The statistical models were developed as part of the IBDP model parameterization study, using stratigraphic characterization and analysis of seismic data [27]. The facies, porosity, and horizontal permeability from this study, as well as one realization of these properties using the statistical model, are shown in Figure 2. For dataset generation, the statistical model was further modified to match the observed trend in CO 2 saturation at an observation well at the IBDP site. A modifier was applied to the vertical permeability to contain the CO 2 plume to the lower part of the reservoir, as was observed in the field. The resulting dataset contains 100 samples in total, including 80 with modifiers and 20 without modifiers. All solutions were obtained for the same CO 2 injection schedule, shown in Figure 3. The dataset provides CO 2 pressure p and saturation S monthly over 50 months. 
+
+Figure 3: The CO 2 injection schedule used for generating the training and testing data based on the historic injection rates at the IBDP site. In this study, we construct separate operator-learning models for permeability fields with and without modifiers. Ninety percent of the samples are used for training, while ten percent are reserved for testing. Furthermore, we train Gp[yh, y v , n ]( x, t ) and GS [yh, y v , n ]( x, t ) models for pressure and saturation, respectively, where yh = ln kh and 
+
+yv = ln kv . The three input variables are represented with a single KLE as described in Section 2. In the following, we use superscripts 80 and 20 to denote the operator learning models trained for the permeability fields with and 8A PREPRINT - J UNE 30, 2026 Table 1: KLE representation of input fields yh, yv , and n in the IBDP dataset: the training dataset size Ntrain ; the size of the data matrices for constructing a joint KLE of the input fields ( X size), the number of terms, Nξ , in the joint KLE expansion of the input fields; time for constructing the joint KLE of the input fields (KLE time); computer memory required for performing SVD (KLE memory); and RMSEs in approximating yh, yv , and n fields with KLEs (KLE RMSE). Model Ntrain X
+
+size Nξ KLE time KLE memory KLE yh
+
+RMSE KLE yv
+
+RMSE KLE n
+
+RMSE 
+
+G80  
+
+> p
+
+/ G80  
+
+> s
+
+72 (5.2M, 72) 18 33 s 3.2 GB 1.766 1.683 0.0319 
+
+G20  
+
+> p
+
+/ G20  
+
+> s
+
+18 (5.2M, 18) 9 11 s 1.3 GB 1.650 1.650 0.0322 without modifiers, respectively. For example, G80  
+
+> p
+
+[yh, y v , n ]( x, t ) is the pressure operator learning model trained on permeability fields with modifiers. The representation of inputs in the operator-learning models, including the size of the data matrices, Nξ , time and memory required for constructing the KLEs, and errors in approximating parameters due to KLE truncation, are summarized in Table 1. In the dataset, the CO 2 pressure and saturation are computed over the entire computational domain, with a sample size of N pxyzt = 126 × 125 × 110 × 50 . We train Gp[yh, y v , n ]( x, t ) to model pressure for the entire domain using the full samples of the p solution. On the other hand, when training GS [yh, y v , n ]( x, t ) model, we observe that in all simulations in the dataset, the CO 2 plume is confined to a relatively small subdomain ( 40 × 44 × 94 grid points) centered on the injection well. Therefore, we train GS [yh, y v , n ]( x, t ) for the CO 2 saturation modeling only in this subdomain, reducing the sample size of the S solution to N Sxyzt = 40 × 44 × 94 × 50 = 165440 × 50 = 8 .272 M .The resulting sizes of the data matrices X used to perform low-rank SVD for representing pressure and saturation in the Gp and GS models, as well as the number of KL terms, time to and memory required for constructing KLEs, the approximation errors, and KL-DNN model errors are listed in Table 2. In the context of Gp models, it is essential to utilize a low-dimensional Karhunen-Lo` eve expansion (KLE) for the pressure field. This approach is necessary because performing a low-rank singular value decomposition (SVD) on 
+
+X ∈ R72 ×86 .6M for the full-dimensional KLE of pressure is computationally infeasible. The full-dimensional KLE would require storing an U matrix of size 86.6M × 86.6M, which demands approximately 29,600 petabytes of memory. This amount of memory exceeds the capabilities of one of the largest existing supercomputers, El Capitan, by nearly six times [29]. The y parameter in the pressure model and both y and S in the saturation model are modeled with full-dimensional KLEs, as the sizes of the data matrices for these variables are small enough for performing low-rank SVDs. The DNN models in Gp[yh, y v , n ]( x, t ) and GS [yh, y v , n ]( x, t ) have 3750 and 1957 trainable parameters, respectively. Both DNN models are trained on an NVIDIA RTX A6000 GPU; the total training time of all four models ( G80  
+
+> p
+
+, G20  
+
+> p
+
+,
+
+G80  
+
+> S
+
+, and G20  
+
+> S
+
+) is around 20 minutes, and inference time is less than 1 minute per model. First, we study the accuracy of the low-dimensional KLE approximation relative to the full dimensional approximation. Since the full-dimensional KLE of p cannot be constructed, we compare the KLE approximation RMSEs in the full-and low-dimensional KLEs of the saturation field defined on the smaller domain centered around the injection well. An approximation RMSE is defined according to Eq (23) with η in G[y(j)] determined from the inverse KLE operator (9). We find that the low-dimensional KLE increases the approximation (RMSE) by less than 2% as compared to the full-dimensional KLE. This comparison demonstrates that a low-dimensional KLE can be used to construct an accurate low-dimensional representation of massive datasets without resorting to spatial coarsening or domain subsampling. Next, we discuss the performance and accuracy of the KL-DNN models for the pressure and saturation fields as summarized in Table 2. The reported training time, memory, approximation errors, and model errors are all averages over test cases. The number of test samples for each operator learning model is given in the “ Ntest ” column. The training times reported in the “KLE time” column include time spent computing eigenfunctions for both state variables and parameters, as well as for computing the reduced (latent space) dataset Dl. In the G80  
+
+> p
+
+and G20  
+
+> p
+
+pressure models, the training times are higher because low-dimensional SVDs are performed for each of 50 time steps. The KL-DNN model RMSEs reported in the “KL-DNN RMSE” column are a combination of the KL approximation RMSE and the DNN mapping error. The approximation and operator learning RMSEs in G80  
+
+> p
+
+and G80  
+
+> S
+
+models are larger than in the G20  
+
+> p
+
+and G20  
+
+> S
+
+models despite the fact that the training dataset for G80  
+
+> p
+
+and G80  
+
+> S
+
+models is four times larger. This is because the pressure and saturation fields in the model without modifiers are smoother and can be represented more accurately with the same or fewer latent variables than those in the model with modifiers as evident by the KLE approximation errors in the “KLE RMSE” column. 9A PREPRINT - J UNE 30, 2026 Table 2: Performance and characteristics of the KL-DNN models used in this study: the training dataset size Ntrain ;the testing dataset size Ntest ; X size is the size of the data matrices for constructing a full or nested KLE of the state variables ( p or S) input fields; the number of terms ( Nη and Nγ ) in the low-dimensional KLE expansion of pressure and saturation ( Nγ is not listed for GS models because the full-dimensional KLEs of S are used); KLE time is the total time for training the operator learning models (the DNN training in all models takes about 5 minutes); KLE memory is the computer memory required for performing SVD of the p and S data matrices; KLE RMSE is the RMSE in approximating p and S fields with KLEs; and KL-DNN RMSE is the total RMSE in the operator-learning model predictions. Model Ntrain Ntest 
+
+X
+
+size Nη Nγ KLE time KLE memory KLE RMSE KL-DNN RMSE 
+
+G80  
+
+> p
+
+72 8 (86.6M, 72) 4 3 1000 s 1 GB 1.045 psi 1.139 psi 
+
+G20  
+
+> p
+
+18 2 (86.6M, 18) 3 2 150 s 0.4 GB 0.811 psi 0.956 psi 
+
+G80  
+
+> S
+
+72 8 (8.3M, 72) 6 - 50 s 2.3 GB 0.0140 0.0148 
+
+G20  
+
+> S
+
+18 2 (8.3M, 18) 6 - 15 s 1.5 GB 0.0134 0.0138 The RMSEs reported in Table 2 are obtained by replacing W with the identity matrix as in the standard PCA expan-sions, because we find that the resulting KLEs have lower approximation errors. Figure 4 reports RMSE and MAE values in the pressure predictions for the 10 test cases, where the first eight cases are used for testing G80  
+
+> p
+
+and the last two cases are for testing G20  
+
+> p
+
+.RMSEs range between 0.9 psi and 1.4 psi across all test cases, with the average RMSE over the 10 test cases of 1.1 psi. The average pressure in the simulations is 3150 psi, yielding the relative average RMSE of 0.04%. 
+
+Figure 4: RMSE and MAE of the fluid pressure predictions for 10 test cases Figure 5 shows cross-sections of reference and predicted pressure fields as well as point errors in the predicted pressure field at the end of injection (36 months) for one of the test cases. The pressure field is relatively smooth, except for a small area near the injection well, where we observe the largest point errors. In some test cases, we also observe elevated point errors close to the boundaries of the spatial domain. Figure 6 depicts ℓ∞ errors, the maximum absolute errors, in pressure predictions as functions of time for the 10 test cases. The errors reach their maximum values during the first five months after injection begins, when the largest pressure changes occur. The fact that the errors decrease after the initial injection phase and do not increase further over time indicates that the model provides relatively accurate long-term pressure predictions. Figure 7 displays RMSEs and MAEs in the saturation predictions for the 10 test cases. We find that the errors are similar across all test cases, with an average RMSE of 0.015 and an average MAE of 0.002. Figure 8 shows the reference and predicted CO 2 saturation fields for one of the test problems. The largest point errors are observed at the 10 A PREPRINT - J UNE 30, 2026 
+
+Figure 5: Pressure reference value, prediction, and point error slices across the injection well for the test case 40 at the end of injection (36 months). The model is trained on the dataset with permeability modifiers. 
+
+Figure 6: Maximum Absolute Error as a function of time of the fluid pressure predictions for 10 test cases. 11 A PREPRINT - J UNE 30, 2026 
+
+Figure 7: RMSE and MAE of saturation predictions for 10 test cases. CO 2 plume boundaries. Figure 9 displays ℓ∞ errors in the saturation predictions as functions of time for the 10 test 
+
+Figure 8: CO 2 saturation: cross-sections showing reference values, predictions, and point errors for test case 40. The model is trained on the dataset with permeability modifiers. cases. We find that the errors increase with time. Nonetheless, the operator learning model preserves the overall plume shape and provides accurate saturation predictions within the plume. The average RMSE in the KL-DNN S predictions over all 10 test cases is 0.0146 or 5% relative to the average saturation in the plume, which is larger than the error in the pressure prediction (0.04 %). The average RMSE and relative errors in KL-DNN p and S models are summarized in Table 3. For comparison, Table 3 also lists average RMSEs in the DeepONet model predictions as reported in [6]. The DeepONet model was trained on the same training dataset and evaluated on the same testing dataset as the KL-DNN model in this study. We note that the KL-DNN 12 A PREPRINT - J UNE 30, 2026 
+
+Figure 9: Maximum absolute error in saturation predictions as functions of time for 10 test cases. 
+
+Figure 10: KLE RMSE (KLE approximation error) and KL-DNN RMSE (KL-DNN model error) as functions of Nη .RMSEs are averaged over the 10 test cases. 13 A PREPRINT - J UNE 30, 2026 Table 3: RMSE and training time of the KL-DNN and DeepONet pressure and saturation predictions averaged over 10 test cases. The DeepONet results are reported based on [6]. Model Training time (min) Testing Cases RMSE 
+
+Gp 20 1.10 psi 
+
+GS 6 0.0146 Pressure DeepONet [6] 2700 1.35 psi Saturation DeepONet [6] 2700 0.0157 RMSE errors reported in Table 3 are different from those in Table 2, which were computed separately for the input parameters with and without modifiers. We find that RMSEs in KL-DNN are lower than those in DeepONet for both pressure and saturation. The average saturation RMSE in our model is 0.015, which is slightly smaller than the RMSE of 0.017 reported in [6]. The average pressure RMSE of 1.1 psi in our model is approximately 20% smaller than that in [6]. Moreover, the training time of the DeepONet model in [6] (2700 minutes) is about 2 orders of magnitude larger than that of our model. We note that the DeepONet model in [6] employed subsampling for training on the IBDP dataset. Finally, we comment on the approximation and model RMSEs in pressure and saturation reported in Table 2. As noted earlier, the model RMSE is a combination of the KLE approximation error and the error due to mapping of ξ to 
+
+η. In Table 2, the model RMSEs are dominated by the KLE approximation errors. The approximation errors can be reduced by including more terms in the KLEs of p and S. In Figure 10, we demonstrate that the RMSE in the KLE approximation of S, averaged over the 10 test cases, decreases as a function of Nη , the number of terms in the KLE expansion of the saturation field. Figure 10 also shows the average RMSE of the KL-DNN predictions of S, which reaches a minimum for Nη = 6 . As we can see, for Nη > 6, the approximation error decreases, but the model error increases with increasing Nη . This is because for Nη > 6, there are not enough samples in the training dataset to train the DNN, whose size increases with Nη .
+
+# 4 Conclusions 
+
+We proposed a scalable operator learning model and applied it to the large-scale IBDP GCS problem. Our model offers faster training and higher accuracy than the DeepONet model trained on the same dataset. Like the DeepONet operator-learning model, the proposed model performs operator learning in the latent spaces of the system’s states and parameters. Unlike the DeepONet, our model trains the parameter encoder (equivalent to the leading part of the DeepONet branch), the DNN map (equivalent to the back end of the DeepONet branch), and the decoder (equivalent to the trunk of the DeepONet branch) separately. This trainable-by-part feature of our model, in combination with a low-dimensional KL representation of high-dimensional states and low-rank SVD, enables it to scale to large-dimensional problems. DeepONet and other operator-learning models often use subsampling for large-scale problems, which can introduce additional errors. The training time for our model, which includes both SVD and DNN training, is approximately 20 minutes. This is two orders of magnitude less than the training time required for the DeepONet model. Our model has average pressure and saturation RMSEs of 1.1 psi and 0.0146, respectively, which are lower than the DeepONet model’s errors (1.35 psi and 0.0157, respectively). Point errors in the pressure predictions are higher near the injection well and the domain boundaries. Saturation point errors are highest near the edge of the plume. Our results demonstrate the utility of the operator learning models for practical large-scale applications such as GCS. The inference time of less than 1 minute per simulation makes it well-suited for uncertainty quantification, history matching, and other tasks that require multiple model evaluations. The training time of less than 20 minutes on a regular workstation makes the model accessible to most users. The proposed trainable-by-part approach and low-dimensional KL representation can be used for scaling other operator learning models, including PCA-Net and DeepONet, to large-scale problems. 
+
+# Conflict of Interest disclosure 
+
+The authors declare there are no conflicts of interest for this manuscript. 14 A PREPRINT - J UNE 30, 2026 
+
+# Acknowledgments 
+
+This research was partially supported by the Strategic Research Initiative (SRI) Program at the Grainger College of Engineering of the University of Illinois Urbana - Champaign. 
+
+# References 
+
+[1] E. A. Sudicky, W. A. Illman, I. K. Goltz, J. J. Adams, R. G. McLaren, Heterogeneity in hydraulic con-ductivity and its role on the macroscale transport of a solute plume: From measurements to a practi-cal application of stochastic flow and transport theory, Water Resources Research 46 (1) (2010). arXiv: https://agupubs.onlinelibrary.wiley.com/doi/pdf/10.1029/2008WR007558 , doi:https://doi. org/10.1029/2008WR007558 .URL https://agupubs.onlinelibrary.wiley.com/doi/abs/10.1029/2008WR007558 
+
+[2] A. D. Woodbury, T. J. Ulrych, A full-bayesian approach to the groundwater inverse problem for steady state flow, Water Resources Research 36 (8) (2000) 2081–2093. arXiv:https://agupubs.onlinelibrary.wiley. com/doi/pdf/10.1029/2000WR900086 , doi:https://doi.org/10.1029/2000WR900086 .URL https://agupubs.onlinelibrary.wiley.com/doi/abs/10.1029/2000WR900086 
+
+[3] T. Hermans, P. Goderniaux, D. Jougnot, J. H. Fleckenstein, P. Brunner, F. Nguyen, N. Linde, J. A. Huisman, O. Bour, J. Lopez Alvis, R. Hoffmann, A. Palacios, A.-K. Cooke, A. Pardo- ´ Alvarez, L. Blazevic, B. Pouladi, P. Haruzi, A. Fernandez Visentini, G. E. H. Nogueira, J. Tirado-Conde, M. C. Looms, M. Kenshilikova, P. Davy, T. Le Borgne, Advancing measurements and representations of subsurface heterogeneity and dy-namic processes: towards 4d hydrogeology, Hydrology and Earth System Sciences 27 (1) (2023) 255–287. 
+
+doi:10.5194/hess-27-255-2023 .URL https://hess.copernicus.org/articles/27/255/2023/ 
+
+[4] H. Tang, Q. Kong, J. P. Morris, Multi-fidelity fourier neural operator for fast modeling of large-scale geological carbon storage, Journal of Hydrology 629 (2024) 130641. doi:https://doi.org/10.1016/j.jhydrol. 2024.130641 .URL https://www.sciencedirect.com/science/article/pii/S0022169424000350 
+
+[5] S. Mo, Y. Zhu, N. Zabaras, X. Shi, J. Wu, Deep convolutional encoder-decoder networks for uncertainty quantifi-cation of dynamic multiphase flow in heterogeneous media, Water Resources Research 55 (1) (2019) 703–728. 
+
+arXiv:https://agupubs.onlinelibrary.wiley.com/doi/pdf/10.1029/2018WR023528 , doi:https: //doi.org/10.1029/2018WR023528 .URL https://agupubs.onlinelibrary.wiley.com/doi/abs/10.1029/2018WR023528 
+
+[6] T. Kadeethum, S. Verzi, H. Yoon, An improved neural operator framework for large-scale co2 storage operations, Geoenergy Science and Engineering 240 (2024) 213007. doi:https://doi.org/10.1016/j.geoen.2024. 213007 .URL https://www.sciencedirect.com/science/article/pii/S2949891024003774 
+
+[7] K. Bhattacharya, B. Hosseini, N. B. Kovachki, A. M. Stuart, Model reduction and neural networks for parametric pdes, The SMAI journal of computational mathematics 7 (2021) 121–157. [8] Y. Wang, Y. Zong, J. L. McCreight, J. D. Hughes, A. M. Tartakovsky, Bayesian reduced-order deep learning surrogate model for dynamic systems described by partial differential equations, Computer Methods in Applied Mechanics and Engineering 429 (2024) 117147. doi:https://doi.org/10.1016/j.cma.2024.117147 .URL https://www.sciencedirect.com/science/article/pii/S0045782524004031 
+
+[9] Y. Wang, Y. Zong, J. L. McCreight, J. D. Hughes, M. Fienen, A. M. Tartakovsky, Karhunen–lo` eve deep learning method for surrogate modeling and approximate bayesian parameter estimation, Advances in Water Resources 203 (2025) 105024. doi:https://doi.org/10.1016/j.advwatres.2025.105024 .URL https://www.sciencedirect.com/science/article/pii/S0309170825001381 
+
+[10] J. J. Gerbrands, On the relationships between svd, klt and pca, Pattern recognition 14 (1-6) (1981) 375–381. [11] B. Yang, X. Li, J. Zhao, Y. Jiang, Dd-deeponet: Domain decomposition and deeponet for solving partial differ-ential equations in three application scenarios, arXiv preprint arXiv:2508.02717 (2025). [12] D. Nayak, S. Goswami, Ti-deeponet: Learnable time integration for stable long-term extrapolation, arXiv preprint arXiv:2505.17341 (2025). 15 A PREPRINT - J UNE 30, 2026 [13] R. Sharma, V. Shankar, Ensemble and mixture-of-experts deeponets for operator learning (2025). arXiv:2405. 11907 .URL https://arxiv.org/abs/2405.11907 
+
+[14] X. Yu, S. Hooten, Z. Liu, Y. Zhao, M. Fiorentino, T. Van Vaerenbergh, Z. Zhang, Separable operator networks, arXiv preprint arXiv:2407.11253 (2024). [15] M. Dhingra, R. Maulik, A. Rasheed, O. San, Localized pca-net neural operators for scalable solution reconstruc-tion of elliptic pdes, arXiv preprint arXiv:2509.18110 (2025). [16] A. M. Tartakovsky, Y. Zong, Physics-informed machine learning method with space-time karhunen-lo` eve expan-sions for forward and inverse partial differential equations, Journal of Computational Physics 499 (2024) 112723. 
+
+doi:https://doi.org/10.1016/j.jcp.2023.112723 .URL https://www.sciencedirect.com/science/article/pii/S0021999123008185 
+
+[17] J. Mercer, Xvi. functions of positive and negative type, and their connection the theory of integral equations, Philosophical Transactions of the Royal Society of London, Series A: Containing Papers of a Mathematical or Physical Character 209 (441-458) (1909) 415–446. arXiv:https://royalsocietypublishing.org/rsta/ article-pdf/209/441-458/415/239856/rsta.1909.0016.pdf , doi:10.1098/rsta.1909.0016 .URL https://doi.org/10.1098/rsta.1909.0016 
+
+[18] M. M. Reyna, A. M. Tartakovsky, Parameter estimation in river transport models with immobile phase exchange using dimensional analysis and reduced-order models (2025). arXiv:2510.19664 .URL https://arxiv.org/abs/2510.19664 
+
+[19] D. Xiu, G. E. Karniadakis, Modeling uncertainty in flow simulations via generalized polynomial chaos, Journal of computational physics 187 (1) (2003) 137–167. [20] D. M. Tartakovsky, Z. Lu, A. Guadagnini, A. M. Tartakovsky, Unsaturated flow in heterogeneous soils with spatially distributed uncertain hydraulic parameters, Journal of Hydrology 275 (3) (2003) 182–193, studies on Water Movement and Solute Transport in Arid Regions. doi:https://doi.org/10.1016/S0022-1694(03) 00042-8 .URL https://www.sciencedirect.com/science/article/pii/S0022169403000428 
+
+[21] A. Tartakovsky, D. Barajas-Solano, Q. He, Physics-informed machine learning with conditional Karhunen-Lo` eve expansions, Journal of Computational Physics 426 (2021) 109904. [22] C. Safta, H. N. Najm, Numerical considerations for the construction of karhunen-lo \{ e} ve expansions, arXiv preprint arXiv:2603.19108 (2026). [23] M. Brand, Fast low-rank modifications of the thin singular value decomposition, Linear algebra and its applica-tions 415 (1) (2006) 20–30. [24] Z. Zheng, H. Dai, Simulation of multi-dimensional random fields by karhunen–lo` eve expansion, Computer Meth-ods in Applied Mechanics and Engineering 324 (2017) 221–247. doi:https://doi.org/10.1016/j.cma. 2017.05.022 .URL https://www.sciencedirect.com/science/article/pii/S0045782516318692 
+
+[25] A. Alwosheel, S. Van Cranenburgh, C. G. Chorus, Is your dataset big enough? sample size requirements when using artificial neural networks for discrete choice analysis, Journal of choice modelling 28 (2018) 167–182. [26] H. Cho, D. Venturi, G. Karniadakis, Karhunen–lo` eve expansion for multi-correlated stochastic processes, Prob-abilistic Engineering Mechanics 34 (2013) 157–167. doi:https://doi.org/10.1016/j.probengmech. 2013.09.004 .URL https://www.sciencedirect.com/science/article/pii/S0266892013000702 
+
+[27] R. J. Finley, An overview of the illinois basin – decatur project, Greenhouse Gases: Science and Technology 4 (5) (2014) 571–579. arXiv:https://scijournals.onlinelibrary.wiley.com/doi/pdf/10.1002/ ghg.1433 , doi:https://doi.org/10.1002/ghg.1433 .URL https://scijournals.onlinelibrary.wiley.com/doi/abs/10.1002/ghg.1433 
+
+[28] Ø. Pettersen, Basics of reservoir simulation with the eclipse reservoir simulator, Lecture Notes. University of Bergen, Norway 114 (2006). [29] L. Ackerman, H. Auten, A. Bandari, E. Jaffe, S&tr december 2024 el capitan issue, Tech. rep., Lawrence Liver-more National Laboratory (LLNL), Livermore, CA (United States) (11 2024). doi:10.2172/2536826 .URL https://www.osti.gov/biblio/2536826 
+
+16
