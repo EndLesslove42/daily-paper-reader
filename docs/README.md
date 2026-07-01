@@ -6,37 +6,35 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-30
-- 运行时间：2026-06-30 22:13:15 UTC
+- 最新运行日期：2026-07-01
+- 运行时间：2026-07-01 22:08:04 UTC
 - 运行状态：成功
 - 本次总论文数：5
-- 精读区：1
-- 速读区：4
+- 精读区：2
+- 速读区：3
 
 ### 今日简报（AI）
-今日精读高分论文《Randomized neural operator for parametric PDEs》（9.0/10），并速读三篇地球系统AI研究，涵盖次季节预测、多模态基础模型及稀疏传感器选点。  
-最值得关注方向：随机神经算子结合不确定性量化用于偏微分方程，以及机器学习在次季节气候预测中的潜力。  
-建议普通读者优先精读不确定性量化部分，并关注地球系统基础模型NIVA如何整合多模态数据以提升预报可解释性。
-- 详情：[/202606/30/README](/202606/30/README)
+今日AI与科学计算相关研究5篇，精读聚焦Fourier神经算子与全球风暴解析大气模拟。最值得关注最小二乘重拟合的算子学习解决障碍物映射，以及全球尺度AI大气模拟的突破。建议关注这两项技术在工程仿真和气候预测中的规模化应用。
+- 详情：[/202607/01/README](/202607/01/README)
 
 ### 精读区论文标签
-1. [Randomized neural operator for parametric PDEs with fast training and conformal uncertainty quantification](/202606/30/2606.29440v1-randomized-neural-operator-for-parametric-pdes-with-fast-training-and-conformal-uncertainty-quantification)  
-   标签：评分：9.0/10、query:aqac
-   evidence：用于参数化PDE的神经算子，训练快速
+1. [Fourier Neural Operators with Least-Squares Readout Refit for Learning Random Obstacle-to-Solution Maps](/202607/01/2606.29436v1-fourier-neural-operators-with-least-squares-readout-refit-for-learning-random-obstacle-to-solution-maps)  
+   标签：评分：8.0/10、query:aqac
+   evidence：傅里叶神经算子学习障碍到解的映射
+2. [Scaling Storm-Resolving Atmospheric AI Simulation to the Entire Planet](/202607/01/2606.31248v1-scaling-storm-resolving-atmospheric-ai-simulation-to-the-entire-planet)  
+   标签：评分：8.0/10、query:aqac
+   evidence：基于AI的全球风暴分辨大气仿真器
 
 ### 速读区论文标签
-1. [Evaluation of medium range machine learning models for sub-seasonal prediction](/202606/30/2606.25417v1-evaluation-of-medium-range-machine-learning-models-for-sub-seasonal-prediction)  
-   标签：评分：7.0/10、query:aqac
-   evidence：评估ML大气模型用于次季节预测，与加速空气质量建模相关
-2. [NIVA: A Multimodal Foundation Model for Actionable Earth System Intelligence](/202606/30/2606.28546v1-niva-a-multimodal-foundation-model-for-actionable-earth-system-intelligence)  
-   标签：评分：7.0/10、query:aqac
-   evidence：用于地球系统智能的多模态基础模型，包含大气和海洋建模
-3. [Sparse Sensor Placement for Reducing Forecast Errors in Ensemble Kalman Filtering](/202606/30/2606.27267v1-sparse-sensor-placement-for-reducing-forecast-errors-in-ensemble-kalman-filtering)  
+1. [Scalable Operator Learning via Nyström Approximation With Denoising Applications](/202607/01/2606.26652v1-scalable-operator-learning-via-nystrm-approximation-with-denoising-applications)  
    标签：评分：6.0/10、query:aqac
-   evidence：用于降低集成卡尔曼滤波预报误差的稀疏传感器布局
-4. [A Trainable-by-Parts Operator Learning Framework: Bridging DeepONet and Karhunen-Loeve Expansions for Large-Scale Applications](/202606/30/2606.28519v1-a-trainable-by-parts-operator-learning-framework-bridging-deeponet-and-karhunen-loeve-expansions-for-large-scale-applications)  
+   evidence：基于Nyström近似的可扩展算子学习，与代理模型开发相关
+2. [A Bayesian latent Gaussian process framework for aerodynamic uncertainty quantification](/202607/01/2606.28871v1-a-bayesian-latent-gaussian-process-framework-for-aerodynamic-uncertainty-quantification)  
    标签：评分：6.0/10、query:aqac
-   evidence：可扩展算子学习框架KL-DNN，适用于气候建模等大规模PDE
+   evidence：高斯过程代理框架用于气动不确定性，结合Kennedy-OHagan校准
+3. [Scalable coarse-to-fine spatial downscaling](/202607/01/2606.29798v1-scalable-coarse-to-fine-spatial-downscaling)  
+   标签：评分：6.0/10、query:aqac
+   evidence：空间降尺度方法，可应用于空气质量模型输出
 
 
 <div class="dpr-home-promo-card">
