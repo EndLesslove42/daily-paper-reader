@@ -1,0 +1,1415 @@
+Title: Generative Model Proposal based Particle Filtering for Data Assimilation
+
+URL Source: https://arxiv.org/pdf/2607.01012v1
+
+Published Time: Thu, 02 Jul 2026 01:10:41 GMT
+
+Number of Pages: 31
+
+Markdown Content:
+# Generative Model Proposal based Particle Filtering for Data Assimilation 
+
+Chandni Nagda 1* Mayank Shrivastava 1 Gudrun Thorkelsdottir 1
+
+Gan Zhang 1 Morteza Mardani 2 Arindam Banerjee 11University of Illinois at Urbana-Champaign 2NVIDIA 
+
+Abstract 
+
+Data assimilation models state dynamics conditioned on sequential observations, and has wide-ranging scientific applications. In the filtering setting, the goal is to model the posterior over the current state given all observations so far. Classical solutions typically make simplifying distributional or functional assumptions, e.g., linear-Gaussian systems, which can be inaccurate in many scenarios. In principle, particle filters (PFs) remove these assumptions, yet often collapse in high dimensions. Recent generative approaches learn conditional state transitions, but without principled Bayesian updates they do not recover the correct filtering posterior and can accumulate error over long horizons. In this work, we introduce Flow Proposal Particle Filters (FPPF), which learn a conditional generative model based proposal approximating the variance-minimizing optimal proposal for particle propagation. Conditioning on observations steers particles toward high-likelihood regions before weighting, reducing weight variance and delaying degeneracy. Since our proposal admits tractable likelihood evaluation, FPPF computes accurate importance weights and retains a Bayesian update step. We further extend FPPF to high-dimensional problems through localization strategies, adressing another standard PF failure mode. Extensive experiments on a variety of dynamical systems show that FPPF outperforms statistical baselines and other generative methods in non-linear, non-Gaussian, and high-dimensional regimes. Code is available at https://github.com/cnagda/fppf/tree/main .
+
+# 1 Introduction 
+
+Data assimilation (DA) is the inverse problem of inferring the latent state trajectory x1: T of a dynamical system from imperfect observations o1: T , using knowledge of the system’s dynamics p(xt | xt−1) and an observation model p(ot | xt). DA is fundamental to many scientific and engineering applications, including weather forecasting [ 59 , 74 , 41 ], climate analysis [ 24 , 39 ], agriculture [ 23 , 26 ], and motion tracking [ 8 , 25 ]. In these domains, point estimates of latent states xt alone are inadequate. Since downstream decisions based on latent state estimates carry significant consequences, reliable uncertainty quantification requires recovering a full distribution over states. In this work, we focus on one of the most widely studied DA tasks called filtering [79 , 18 ]: at time t,given observations o1: t, we seek the filtering posterior p(xt | o1: t). Bayesian filtering proceeds via a recursive prediction–update cycle, in which the state dynamics model defines the prior over the next state, and conditioning on the observation using Bayes’ rule gives the posterior. When the dynamics and observation models are linear and the noise is Gaussian, this is solved exactly by the Kalman filter (KF) [ 50 ]. To handle 
+
+> *
+
+Correspondence to: cnagda2@illinois.edu 
+
+1
+
+> arXiv:2607.01012v1 [cs.LG] 1 Jul 2026
+
+nonlinear dynamics, models like the Ensemble KF (EnKF) [ 31 ], which are heavily used in operational settings [42 ], propagate an ensemble of samples through the true dynamics but retain Gaussian assumptions in the update step. In principle, particle filters (PFs) [ 36 , 28 ] provide an appealing alternative, performing Bayesian filtering without linearity or Gaussianity assumptions by representing the posterior through a weighted ensemble of particles. However, they suffer from degeneracy : in high-dimensional state spaces, the ensemble size required to prevent the weights from collapsing onto a few particles grows exponentially with the effective state dimension [ 84 , 9]. Intuitively, particles propagated through the dynamics model often do not land in regions supported by the new observations, so most receive negligible weight. This curse of dimensionality has largely confined particle filters to low-dimensional problems. In the general sequential importance resampling (SIR) framework [ 29 ], one samples from an arbitrary proposal q(xt | xt−1, ot) and corrects via importance weights. The variance-minimizing choice is the 
+
+optimal proposal q⋆(xt | xt−1, ot) = p(xt | xt−1, ot), which steers particles toward regions supported by the new observation before weighting [ 28 ]. However, q⋆ is hard to compute outside special cases (such as linear-Gaussian models) which reintroduce restrictive assumptions. A line of work has sought to move beyond this setting by incorporating the incoming observation into how particles are selected or propagated, including look-ahead particle selection [ 72 ], implicit sampling via per-particle optimization [ 19 , 67 ], and equal-weight constructions [ 91 , 1]. However, these schemes either recover q⋆ only under restrictive distributional structure or replace it with a hand-designed surrogate, limiting their fidelity in the nonlinear, non-Gaussian regimes that motivate PFs in the first place. What we would want instead is a flexible approximation to q⋆ that keeps the full generality of PFs. This is where recent ML-based approaches to DA become relevant. Recent methods [ 14 , 44 ] learn the conditional p(xt | xt−1, ot) directly with a generative model; note that this is precisely the object the optimal proposal requires, free of Gaussian or linearity assumptions. The prevailing strategy, however, is to apply the learned conditional autoregressively , rolling a state estimate forward by repeatedly sampling from the generator. This amounts to propagating a single unweighted particle: at no point is the filtering posterior 
+
+p(xt | o1: t) formed by combining the propagated prior p(xt | o1: t−1) with the likelihood p(ot | xt) via Bayes’ rule. Thus, each step incurs a discrepancy with respect to the filtering posterior and empirically, these purely generative rollouts rapidly accumulate error over long horizons. In this work, we show that these two threads resolve each other. SIR filters benefit from a flexible approxi-mation of q⋆; generative DA methods learn one, but deploy it naively. We propose Flow Proposal Particle Filters (FPPF), which uses a learned conditional distribution as a proposal. Particles are proposed in an observation-informed manner and then reweighted, so the filter targets the true posterior even when the proposal is imperfect, while proximity to q⋆ keeps weight variance low and delays degeneracy. While natural in hindsight, realizing this step is nontrivial. We show how to learn qϕ(xt | xt−1, ot) with conditional flow matching, which offers both efficient sampling and exact likelihood evaluation via the instantaneous change-of-variables formula, making the weight computation feasible. To extend the approach to high-dimensional settings, where even well-proposed particles suffer weight collapse, we introduce a localized variant, L-FPPF, whose velocity network yields a per-site factorization of the proposal log-density and keeps both computation and weighting local. We evaluate FPPF and L-FPPF on chaotic dynamical systems, including Lorenz-63, Lorenz-96, and the Kuramoto-Sivashinsky equation, under both Gaussian and strongly non-Gaussian observation operators, against classical filters, prior proposal learning methods, autoregressive generative DA, and localized particle filters. FPPF consistently improves state estimation accuracy and probabilistic calibration over these baselines, with the largest gains in non-Gaussian regimes where Kalman updates fail. Unlike autoregressive rollouts, it remains stable over long assimilation horizons. L-FPPF sustains these gains as the state dimension grows, 2whereas global PFs degenerate. We summarize our main contributions below: 1. We propose FPPF, a filtering method that learns an observation-informed conditional generative model based proposal distribution approximating the variance-minimizing optimal proposal, and integrates it into the standard sequential importance resampling framework. 2. We instantiate the proposal with conditional flow matching, and show that likelihood evaluation can be leveraged to compute particle weights for a principled update step. 3. To extend the approach to high-dimensional settings, we propose L-FPPF, which uses a patch-based velocity network to obtain a factorization of the proposal log-density, extending localized particle filtering to general learned proposals. 4. We empirically demonstrate on chaotic dynamical systems (Lorenz-63, Lorenz-96, Kuramoto-Sivashinsky) that FPPF improves state estimation and probabilistic calibration over classical baselines and autoregres-sive generative models, and that L-FPPF scales to high-dimensional systems. The rest of the paper is organized as follows. Section 2 reviews related work, Section 3 provides background on Bayesian filtering and particle filters, Sections 4 and 5 present FPPF and its localized variant L-FPPF, Section 6 reports experiments, and we conclude in Section 7. 
+
+# 2 Related Work 
+
+Classical data assimilation. The Kalman filter solves linear-Gaussian filtering exactly [ 50 ]. The EnKF and its transform variants propagate an ensemble through nonlinear dynamics but retain a Gaussian update [31 , 10 , 45 ], and are widely used in operational weather prediction [ 43 , 81 ]. Variational methods such as 3D-Var and 4D-Var optimize a cost over the state trajectory [ 60 , 22 ], producing point estimates rather than the posterior distributions we target. Particle filters drop these assumptions entirely [ 36 ], but the bootstrap proposal ignores the incoming observa-tion, and the ensemble size needed to prevent weight collapse grows exponentially with the effective state dimension [ 85 , 9]. The optimal proposal q⋆ minimizes incremental weight variance [ 28 ] but is hard to obtain. Classical mitigations approximate it indirectly: APF selects ancestors by observation look-ahead without changing where particles land [ 72 ], implicit sampling targets posterior modes via per-particle optimization [19 , 67 ], and equal-weight constructions hand-design moves toward the observation [ 91 , 1]. These recover 
+
+q⋆ only under restrictive structure or replace it with a surrogate. For spatially extended systems, localized PFs attack degeneracy along a different axis, computing weights and resampling per region from tapered local likelihoods [ 73 , 70 , 32 ]. This construction is specific to the bootstrap PF, whose weight is just the local observation likelihood; L-FPPF extends localization to learned proposals. 
+
+Learned proposals for SMC. Early adaptive methods optimize proposals within parametric families with closed-form densities [ 21 , 13 ]. NASMC [ 38 ] and variational SMC [ 68 , 54 , 65 ] learn neural proposals by running a particle filter inside the training loop, yielding gradient estimates that suffer high variance when the proposal is poor or due to resampling. InfNN [ 69 ] trains offline by maximum likelihood but restricts the proposal to a factorized autoregressive form to keep its density tractable. In contrast, FPPF trains offline by velocity regression on simulated tuples, imposes no distributional form, and retains exact density evaluation via the instantaneous change-of-variables formula. 3Generative models for data assimilation. Score- and flow-based generative models have been applied to DA in two ways. The first learns a conditional generator for the states themselves, incorporating observations through inference-time methods such as guidance or inpainting: SDA samples short trajectory windows given observations [ 76 ], while DiffDA and FlowDAS apply a one-step conditional generator autoregressively [44 , 14 ]. The guided iterates are not draws from the filtering posterior, and in the autoregressive case this discrepancy compounds, so errors accumulate over long rollouts (Section 6.3). A second line of work targets the analysis distribution: EnSF [ 7 ] and EnFF [ 90 ] estimate the score or velocity of the filtering density training-free and fold in observations through likelihood-gradient guidance, latent variants improve handling of sparse observations [ 82 , 93 ], and the concurrent DAISI folds forecast information into a pretrained prior by inverse sampling before guidance [ 5 ]. In both approaches observations enter through guidance, an approximate correction to the generative dynamics, with no mechanism to remove the resulting bias. Closest and concurrent to our work, Savary et al. [80] restore the Bayesian update for this class, guiding a pretrained diffusion emulator with the likelihood score inside a fully adapted auxiliary PF; FPPF learns a directly conditioned proposal whose tractable density supplies the full SIR correction, keeping the update valid even when the proposal is imperfect. 
+
+Learning the state-space model components. A complementary thread learns components of the state-space model itself. Brajard et al. [12] emulate dynamics from EnKF analyses, Bocquet et al. [11] jointly infer the dynamical model and the state, and AD-EnKF [ 17 ] differentiates through the EnKF for joint state and parameter estimation. Differentiable particle filters likewise learn transition, observation, and proposal end-to-end through differentiable resampling [ 51 , 48 , 20 , 15 , 16 ]. These methods target model learning and parameter estimation; we assume known dynamics and observation models and learn only the proposal, which also avoids optimizing through the filter over long chaotic trajectories. 
+
+# 3 Background and Preliminaries 
+
+This section reviews the Bayesian filtering approach to data assimilation, and provides background on particle filters and the proposal distribution. 
+
+3.1 Data Assimilation 
+
+We consider a dynamical system with latent state xt ∈ Rdx and observations ot ∈ Rdo , where t denotes the discrete time index. The evolution of the system is governed by a state transition model p(xt | xt−1). At each time step, observations are related to the latent state through the likelihood p(ot|xt). The goal is to estimate the filtering posterior p(xt | o1: t), the distribution over the current state given all observations up to time t. In the Bayesian filtering framework [ 47 , 3 , 29 , 79 ], this distribution is computed recursively via a prediction-update cycle: 
+
+p(xt | o1: t−1) = 
+
+Z
+
+p(xt | xt−1)p(xt−1 | o1: t−1) dxt−1 , [P REDICT ]
+
+p(xt | o1: t) ∝ p(ot | xt)p(xt | o1: t−1) . [U PDATE ]
+
+(1) For linear-Gaussian systems, i.e. when the transition dynamics are linear and the observation likelihood is Gaussian, the Kalman filter (KF) [ 50 ] provides an analytical solution to this recursion. Nonlinear extensions relax these assumptions approximately: the extended KF linearizes the dynamics and observation models [ 47 ], the unscented KF propagates deterministically chosen sigma points [ 49 ], and the ensemble KF [ 31 ] replaces 4analytical covariance propagation with an ensemble, but retains a Gaussian update. In general, for nonlinear dynamics and non-Gaussian observation models, the prediction integral remains intractable and the update step admits no closed form, necessitating other inference methods. 
+
+3.2 Particle Filters 
+
+Particle filters (PFs) approximate the filtering posterior p(xt | o1: t) using a weighted ensemble of N samples 
+
+{x(i) 
+
+> t
+
+, w (i) 
+
+> t
+
+}Ni=1 with P 
+
+> i
+
+w(i) 
+
+> t
+
+= 1 , representing the posterior through the empirical measure P 
+
+> i
+
+w(i) 
+
+> t
+
+δx(i)
+
+> t
+
+.
+
+Bootstrap particle filter. The bootstrap particle filter (BPF) [ 36 ] instantiates the recursion of Eq. (1) via Monte Carlo. Given the weighted ensemble {x(i)
+
+> t−1
+
+, w (i)
+
+> t−1
+
+} approximating p(xt−1 | o1: t−1), the P REDICT 
+
+step propagates each particle through the transition dynamics, and the U PDATE step reweights by the new observation likelihood: 
+
+x(i) 
+
+> t
+
+∼ p(xt | x(i)
+
+> t−1
+
+) , [P REDICT ]
+
+w(i) 
+
+> t
+
+∝ w(i) 
+
+> t−1
+
+p(ot | x(i) 
+
+> t
+
+) , P 
+
+> i
+
+w(i) 
+
+> t
+
+= 1 . [U PDATE ]
+
+(2) Sampling from the transition realizes the prediction integral in Eq. (1) , and multiplying by the likelihood realizes the Bayesian update; the weight recursion is exactly importance sampling against the one-step prior. The BPF is appealing because it requires only the ability to simulate the dynamics and evaluate the likelihood, with no Gaussian or linearity assumptions. 
+
+Weight degeneracy. The standard BPF suffers from degeneracy in high-dimensional spaces because particles propagated through the transition prior often fail to land in regions supported by the new observations. Consequently, most particles receive negligible weight, causing the mass to collapse onto a single particle during the U PDATE step. The severity of this collapse is captured by the variance of the log-likelihoods across the propagated ensemble, τ 2 := Var  log p(ot | x(i) 
+
+> t
+
+): Bengtsson et al. [9] and Snyder et al. [84] show that the largest normalized weight tends to 1 unless the ensemble size satisfies log N ≳ τ 2/2. Since τ 2 grows roughly linearly with the effective dimension of the system, avoiding degeneracy demands N ≳ exp( τ 2/2) 
+
+particles, a requirement that quickly becomes intractable and fundamentally limits the use of BPF in high-dimensional domains [86]. 
+
+Resampling. To mitigate weight degeneracy, which occurs even in low-dimensional problems, the BPF 
+
+resamples . This step draws N particles with replacement proportional to w(i) 
+
+> t
+
+, duplicating high-weight particles, discarding low-weight ones, and resetting all weights to 1/N [36 , 57 ]. Stochastic model dynamics can subsequently restore particle diversity. However, if the weights collapse completely before resampling, the algorithm duplicates a single surviving particle N times, an unrecoverable loss of diversity known as 
+
+sample impoverishment [6 ]. Therefore, keeping weights balanced is a fundamental problem, and designing better proposal distributions provides a path to achieving this. 
+
+Proposal distribution. The sequential importance resampling (SIR) framework [ 28 , 27 ] generalizes BPF by drawing particles from a proposal q(xt | xt−1, ot) that may depend on the current observation, with weights updated as 
+
+w(i) 
+
+> t
+
+∝ w(i)
+
+> t−1
+
+p(ot | x(i) 
+
+> t
+
+) p(x(i) 
+
+> t
+
+| x(i)
+
+> t−1
+
+)
+
+q(x(i) 
+
+> t
+
+| x(i)
+
+> t−1
+
+, ot) . (3) 5BPF corresponds to the choice q = p(xt | xt−1), which ignores ot at the P REDICT stage; the incremental weight then reduces to the likelihood p(ot | x(i) 
+
+> t
+
+) (Eq. (2) ). A natural way to do better is to fold the current observation into the proposal itself, drawing from p(xt | xt−1, ot). Expanding this density by Bayes’ rule, and using that ot depends on the state only through xt so that p(ot | xt, xt−1) = p(ot | xt), gives 
+
+q⋆(xt | xt−1, ot) = p(xt | xt−1, ot) = p(ot | xt, xt−1) p(xt | xt−1)
+
+p(ot | xt−1) = p(ot | xt) p(xt | xt−1)
+
+p(ot | xt−1) . (4) Substituting q⋆ into the weight update collapses the numerator against the proposal, leaving 
+
+w(i) 
+
+> t
+
+∝ w(i) 
+
+> t−1
+
+p(ot | x(i)
+
+> t−1
+
+) , (5) so that the weight at time t depends only on the ancestor particle x(i) 
+
+> t−1
+
+and not on the sampled x(i) 
+
+> t
+
+. In this sense, the proposal q⋆ is often termed “optimal” [ 28 ]: conditional on x(i) 
+
+> t−1
+
+and ot, the incremental weight is independent of the random draw x(i) 
+
+> t
+
+, and hence has zero variance with respect to the proposal. This optimality is therefore local; it does not imply that the resulting particle filter performs optimally overall, but only that it minimizes the variance Var  w(i) 
+
+> t
+
+/w (i) 
+
+> t−1
+
+| x(i)
+
+> t−1
+
+, ot
+
+ introduced at the current sampling step. Intuitively, this proposal shifts the effect of the likelihood from the weighting step into the sampling step, so that particles are drawn preferentially in regions of high posterior probability, which reduces the weight degeneracy problem, although it does not completely solve it. 
+
+High-dimensional particle filtering. The optimal proposal above admits a tractable closed form only in special cases, most notably linear–Gaussian state space models, where q⋆ is Gaussian and reproduces the Kalman analysis [ 28 ]. Outside these restricted settings, evaluating the normalizing integral in p(ot | xt−1) is intractable, and even if one can sample exactly from q⋆, the ensemble size required to avoid weight collapse still grows too rapidly for many high-dimensional problems [84, 86, 9]. A wide range of approaches has been proposed to mitigate this degeneracy [ 92 ]. One primary direction builds more informative proposals that fold the observation into propagation, but approximates q⋆ only indirectly. The auxiliary particle filter (APF), for instance, performs a one-step look-ahead through a first-stage weight 
+
+λ(i) 
+
+> t
+
+∝ w(i) 
+
+> t−1
+
+p ot | μ(i)
+
+> t
+
+, μ(i) 
+
+> t
+
+= Ext | x(i)
+
+> t−1
+
+, (6) that ranks ancestors by the observation likelihood at their predicted mean without changing where particles are drawn. Other approaches such as implicit sampling and equal-weight constructions (Section 2), also recover q⋆ only under restrictive distributional structure. A second primary direction exploits spatial locality. Localized particle filters partition the domain into regions 
+
+{B b} with centers cb and weight each from a tapered local likelihood, 
+
+log w(i) 
+
+> b,t
+
+∝ log w(i) 
+
+> t−1
+
++ X
+
+> o
+
+G
+
+ d(o, c b)
+
+rloc 
+
+
+
+log p ot,o | x(i)
+
+> t
+
+, (7) so that a region’s effective dimension is governed by the radius rloc rather than dx [73 , 75 ]. This localization, however, is formulated for the bootstrap proposal, whose weight is simply the observation likelihood. Our method builds on both threads, learning an approximation of q⋆ with a tractable weight correction and extending it to a localized setting for high-dimensional problems. 6Algorithm 1 Flow Proposal Particle Filter (FPPF) 
+
+Require: Trained velocity field vϕ, observations o1: T , particles N , threshold Neff  
+
+> 1:
+
+Initialize: x(i)0 ∼ p0(x), w(i)0 = 1 /N for i = 1 , . . . , N  
+
+> 2:
+
+for t = 1 , . . . , T do  
+
+> 3:
+
+for i = 1 , . . . , N do  
+
+> 4:
+
+[P REDICT ] Sample z(i)(0) ∼ N (0, I); integrate Eq. (8) to obtain x(i) 
+
+> t
+> 5:
+
+[P REDICT ] Evaluate log qϕ(x(i) 
+
+> t
+
+| x(i)
+
+> t−1
+
+, ot) 
+
+> 6:
+
+[U PDATE ] ˜w(i) 
+
+> t
+
+← w(i) 
+
+> t−1
+
+· p(ot | x(i) 
+
+> t
+
+) · p(x(i) 
+
+> t
+
+| x(i)
+
+> t−1
+
+) / q ϕ(x(i) 
+
+> t
+
+| x(i)
+
+> t−1
+
+, ot) 
+
+> 7:
+
+end for  
+
+> 8:
+
+Normalize: w(i) 
+
+> t
+
+← ˜w(i) 
+
+> t
+
+/ PNj=1 ˜w(j) 
+
+> t
+> 9:
+
+Compute ESS t ← 1/ PNi=1 (w(i) 
+
+> t
+
+)2 
+
+> 10:
+
+if ESS t < N eff then  
+
+> 11:
+
+[R ESAMPLE ] Draw {x(i) 
+
+> t
+
+} with replacement according to {w(i) 
+
+> t
+
+}; reset w(i) 
+
+> t
+
+← 1/N  
+
+> 12:
+
+end if  
+
+> 13:
+
+end for  
+
+> 14:
+
+Return weighted particles {(x(i) 
+
+> t
+
+, w (i) 
+
+> t
+
+)}Tt=1 
+
+# 4 Flow Proposal Particle Filter (FPPF) 
+
+We now present Flow Proposal Particle Filter (FPPF), our approach for learning proposal distributions that approximate the locally optimal proposal. We parameterize the proposal using conditional flow matching (FM) [ 55 , 58 ], a generative modeling framework that learns a time-dependent velocity field to transport samples from a simple base distribution to a target distribution via an ordinary differential equation (ODE). FM admits stable and efficient training via simple regression and tractable exact density evaluation for importance weight computation. The full method is summarized in Algorithm 1. 
+
+4.1 Learning the Proposal Distribution 
+
+We learn a conditional proposal distribution for the filtering problem of the form qϕ(xt | xt−1, ot), used to propagate particles from time t − 1 to time t given the current observation. It is a flexible approximation to the locally optimal proposal q⋆(xt | xt−1, ot) of Eq. (4) . The proposal is parameterized implicitly via a conditional velocity field vϕ(z(s), s ; xt−1, ot) that defines a deterministic flow transporting samples from a simple base distribution to the proposal distribution. Here t is the discrete filtering time indexing the state sequence, while s ∈ [0 , 1] is an auxiliary flow time internal to the generative model; one full integration in s produces a single proposal draw at filtering step t.We define z(s) by the ordinary differential equation, holding the conditioning variables (xt−1, ot) fixed: 
+
+dz(s)
+
+ds = vϕ(z(s), s ; xt−1, ot) , z(0) ∼ N (0, I). (8) Integrating (8) from s = 0 to s = 1 yields a proposal sample xt := z(1) .
+
+Network conditioning. We parameterize vϕ as a neural network taking as input both the previous state 
+
+xt−1 and the current observation ot to approximate the optimal proposal. We use simple concatenation, providing [xt−1; ot] as additional input alongside the noised state xs and flow time s. Alternative conditioning 7mechanisms such as FiLM [ 71 ] or cross-attention can also be employed. We choose direct conditioning, rather than guidance-based approaches [ 87 , 14 ] that incorporate observations at inference time by adding an approximate likelihood-gradient term to the generative drift. Inference-time guidance is appealing because the same generative prior serves any observation model without retraining; however, in practice the guidance scale is sensitive to the observation operator and noise level and must be retuned per setting (too small and the observation is under-enforced, too large and the approximate gradient distorts the samples) [ 40 , 78 ]. It also keeps density evaluation simple: with no auxiliary likelihood-gradient term in the dynamics, the proposal density follows from applying the change-of-variables formula to vϕ alone (Section 4.2). To prevent the model from over-relying on observations, which could degrade performance when they are noisy or uninformative, we apply observation dropout during training (similar to [40 ]): for each training tuple independently, with probability pcond we replace the entire observation vector ot with zeros, while leaving xt−1 intact. This exposes the network to both observation-conditioned and observation-free inputs, encouraging it to also leverage dynamical information from xt−1 rather than relying solely on ot. We use pcond = 0 .1. Similarly, to prevent over-reliance on the previous state xt−1, we corrupt it during training with a coordinate-masking schedule. At training step k of K total, with probability 
+
+pmask (k) = max  pmin , p 0(1 − k/K ) we zero a uniformly random subset of ⌈rmask dx⌉ coordinates of xt−1
+
+before passing it to the network, and otherwise use it intact. The masking probability is annealed linearly from p0 to a floor pmin over training, so the network is forced to recover masked coordinates from ot early on, when it would otherwise lock onto the highly predictable dynamics, and is relaxed toward the clean state as training converges. All masking is disabled at inference. 
+
+Training data. For a given dynamical system, using a transition model p(xt | xt−1) and an observation model p(ot | xt), we simulate trajectories and form supervised training tuples (xt−1, ot, xt), where ot is sampled from p(ot | xt). Specific choices for trajectory generation are in Section 6. 
+
+Conditional flow matching objective. Following Liu et al. [58] , we adopt linear interpolation paths between paired base and target samples, which induce a target velocity z(1) − z(0) that vϕ regresses onto. For each training tuple, we sample noise z(0) ∼ N (0, I), set z(1) := xt, draw s ∼ Unif[0 , 1] , and form the linear interpolant z(s) = (1 − s)z(0) + sz(1) , whose constant velocity is z(1) − z(0) . We train vϕ to regress onto this target by minimizing 
+
+LFM (ϕ) = E(xt−1,ot,xt), z(0) , s 
+
+h
+
+vϕ
+
+ z(s), s ; xt−1, ot
+
+ −  z(1) − z(0)  22
+
+i
+
+, (9) where (xt−1, ot, xt) is a training tuple from the simulated trajectories (with z(1) := xt), z(0) ∼ N (0, I),
+
+s ∼ Unif[0 , 1] , and z(s) = (1 − s)z(0) + s z(1) .
+
+4.2 Importance Weight Computation 
+
+Given particles {(x(i)
+
+> t−1
+
+, w (i)
+
+> t−1
+
+)}Ni=1 approximating p(xt−1 | o1: t−1) (weights initialized to 1/N ), we sample 
+
+x(i) 
+
+> t
+
+∼ qϕ(xt | x(i)
+
+> t−1
+
+, ot) via (8) . We then apply the SIR update of Eq. (3) with our learned proposal qϕ
+
+(Algorithm 1, line 7): 
+
+˜w(i) 
+
+> t
+
+= w(i)
+
+> t−1
+
+p(ot | x(i) 
+
+> t
+
+) p(x(i) 
+
+> t
+
+| x(i)
+
+> t−1
+
+)
+
+qϕ(x(i) 
+
+> t
+
+| x(i)
+
+> t−1
+
+, ot) . (10) Since the model dynamics and observation model are known, the numerator is straightforward to compute. A key property of FM is exact density evaluation via the instantaneous change of variables formula [ 56 ]. For a 8sample xt generated by integrating Eq. (8) from initial noise z(0) ,
+
+log qϕ(xt | xt−1, ot) = log p0(z(0)) −
+
+Z 10
+
+Tr 
+
+ ∂v ϕ
+
+∂z(s)
+
+
+
+ds, (11) where p0 = N (0, I) is the base distribution. Computing the exact trace requires dx backward passes through the network, which becomes prohibitive in high dimensions. We instead use the Hutchinson trace estimator, as in previous works [ 56 ]: Tr( J) = Eϵ
+
+ϵ⊤Jϵ , where ϵ satisfies E[ϵϵ⊤] = I. The vector-Jacobian product 
+
+ϵ⊤J is computed efficiently via a single backward pass. We use Rademacher random vectors ( ϵj ∈ {− 1, +1 }
+
+uniformly). For a fixed matrix J, the single-probe estimator variance is 2∥J∥2 
+
+> F
+
+for Gaussian probes and 
+
+2 P 
+
+> i̸=j
+
+J2 
+
+> ij
+
+for Rademacher probes [ 46 ]; the latter removes the diagonal contribution and is never larger, which is why Rademacher probes are standard and match our empirical observation of lower variance. Finally, resampling is triggered when the effective sample size ESS = 1 / P
+
+> i
+
+(w(i) 
+
+> t
+
+)2 falls below a threshold Neff 
+
+[57]. 
+
+Temporally sparse observations. When no observation is available at a given step, we default to the bootstrap transition, sampling x(i) 
+
+> t
+
+∼ p(xt | x(i)
+
+> t−1
+
+) and omitting the observation update, and apply the learned proposal and SIR correction only at steps where an observation arrives. 
+
+# 5 Localized Flow Proposal Particle Filter (L-FPPF) 
+
+Particle filters require ensembles that grow exponentially with the effective state dimension (Section 3.2), even under the optimal proposal [ 85 , 86 ]. One solution is localization , which mitigates this by exploiting sparse conditional dependence. Such structure is naturally described by a graphical model, i.e. the filtering posterior factorizes according to a graph whose nodes are the state coordinates (which we call sites ) and whose edges encode direct statistical dependence, so that each site is conditionally independent of the rest given its neighbors [ 53 ]. Sparse graphs of this kind are common in high-dimensional dynamical systems and can be learned from data when not known a priori [ 30 , 77 ]. In the spatially extended systems we study the graph is both known and local, since each site couples directly only to its spatial neighbors. 
+
+Localized Particle Filters (LPFs). A class of methods known as localized particle filters (LPFs) exploit this structure to avoid collapse [ 73 , 70 , 32 ]. Exact inference over a graphical model is tractable only when the graph has small treewidth, a condition the dense couplings of a filtering posterior generally violate, so localized PFs approximate the single global update with many overlapping local ones. Each local update is restricted by a localization radius, which bounds its effective dimension independently of dx. Because the required ensemble size scales only with this local effective dimension, localization prevents weight collapse and drastically reduces the necessary number of particles for a high-dimensional problem. This whole construction rests on the bootstrap proposal. Because the bootstrap importance weight is just the observation likelihood p(ot | x(i) 
+
+> t
+
+) (Eq. (2) ), it factorizes over sites whenever the observation noise is independent across coordinates, and the per-site terms can then be tapered by spatial distance and aggregated block by block. A learned proposal breaks this decomposition. We avoid the bootstrap proposal in the first place because it ignores the incoming observation and degenerates quickly in high dimensions, but moving to a learned 
+
+qϕ creates a different obstacle. A global velocity network couples all sites at once, so the proposal density 
+
+log qϕ that appears in the denominator of the importance weight (Eq. (3) ) no longer factorizes, and without that factorization the weights cannot be localized. We therefore localize the proposal itself, restricting the network so that log qϕ factorizes across sites by construction. 9Localized velocity field. We replace the global velocity network with a patch network uϕ shared across all state dimensions, which we call sites . For the spatially extended systems considered here, the sites lie on a periodic one-dimensional lattice, so neighborhoods wrap around at the boundary. Thus, the radius-
+
+r neighborhood of site j is W rj = {j − r, . . . , j + r}, where indices outside {1, . . . , d x} are wrapped periodically. Writing ct = ( xt−1, ot), the localized velocity is 
+
+vϕ,j (z(s), s ; ct) = uϕ
+
+
+
+zW rj (s), xt−1,W rj , ot,W rj , s 
+
+
+
+. (12) This architecture is motivated by localized generative modeling. For distributions with sparse or approximately sparse graphical dependence, Gottwald et al. [37] show that score components can be approximated from local graph neighborhoods, with localization error decaying as the neighborhood radius grows. Their analysis applies to score-based diffusion models, while our proposal is trained by conditional flow matching along rectified-flow interpolation paths; we therefore use this result as motivation for imposing locality on the proposal velocity, leaving a formal analysis of localized rectified-flow proposals to future work. In the spatial systems considered here, the transition and observation mechanisms are local or coordinate-wise, so the observation-informed proposal q⋆(xt | xt−1, ot) is expected to be dominated by local dependencies. The locality constraint also makes proposal-density evaluation tractable. Since vϕ,j depends only on zW rj ,the velocity Jacobian is sparse: ∂v ϕ,j /∂z k = 0 whenever k / ∈ W rj . Applying the instantaneous change-of-variables formula used for the global FPPF proposal, the localized proposal log-density decomposes as 
+
+log qϕ(xt | xt−1, ot) = 
+
+> dx
+
+X
+
+> j=1
+
+ℓj , ℓj = log N (zj (0); 0 , 1) −
+
+Z 10
+
+∂v ϕ,j 
+
+∂z j
+
+(z(s), s ; ct) ds. (13) This follows because the base distribution factorizes across coordinates and the change-of-variables trace is the sum of diagonal Jacobian entries. The site-wise terms ℓj provide the proposal-density contribution used by the localized SIR correction: in the block-wise update, each block Bb uses P 
+
+> j∈Bb
+
+ℓj , together with the corresponding local transition and tapered observation-likelihood terms. In implementation, local patches for all sites are formed as a single batch, and uϕ is applied once to produce all site velocities in parallel. The diagonal terms ∂v ϕ,j /∂z j are computed exactly by differentiating each scalar site output with respect to the center coordinate of its input patch. Thus, L-FPPF replaces the Hutchinson trace estimator used by global FPPF with an exact deterministic trace computation whose cost scales with the local patch size. Training and implementation details are provided in Appendix A.2. 
+
+Block-wise update step. Following the standard LPF recipe [ 73 , 32 ], we partition the state sites into B
+
+disjoint contiguous blocks {B b}Bb=1 with centers cb. The blocks determine where resampling decisions are made, and are distinct from the observation neighborhoods used to form the weights. Each block’s weight uses observations within a smooth distance-based taper around cb, so the neighborhoods of nearby blocks overlap even though the blocks themselves do not. We obtain the block weights by localizing the global SIR log-weight (Eq. (10) ). We assume that the observation likelihood and the transition density to factorize over sites: 
+
+log p(ot | xt) = 
+
+> do
+
+X
+
+> m=1
+
+log p(ot,m | xt), log p(xt | xt−1) = 
+
+> dx
+
+X
+
+> j=1
+
+log p(xt,j | xt−1). (14) This further requires that the observation and process noise are independent across coordinates (diagonal Gaussian noise in our experiments). Together with the per-site proposal terms ℓj from Eq. (13) , every 10 ingredient of the SIR correction is then site-wise, so it can be localized by tapering the observation likelihoods and restricting the transition/proposal correction to each block. Writing ρb,m = G(dm,b /r loc ) for the taper between observation m and block center cb, the U PDATE step becomes 
+
+log ˜ w(i) 
+
+> b,t
+
+= log w(i) 
+
+> t−1
+
++
+
+> do
+
+X
+
+> m=1
+
+ρb,m log p(ot,m | x(i) 
+
+> t
+
+) + X
+
+> j∈B b
+
+h
+
+log p(x(i) 
+
+> t,j
+
+| x(i)
+
+> t−1
+
+) − ℓ(i)
+
+> j
+
+i
+
+, (15) where G is the Gaspari–Cohn taper [ 34 ], rloc is the localization radius, and dm,b is the distance between observation m and block center cb on the spatial dependency graph (the wrapped lattice distance in our experiments). The first sum is the tapered observation log-likelihood used by the localized bootstrap PF; the second is the block-restricted SIR correction, made tractable by Eq. (13) and absent from prior LPFs, which all use the bootstrap transition as proposal. This is a localized approximation to the global SIR update, not an exact factorization of the filtering posterior across blocks. We also note that the localized velocity restricts how each site depends on its neighbors, but the flow ODE is integrated jointly over all coordinates. For each block b, the unnormalized weights in Eq. (15) are normalized over particles, ¯w(i) 
+
+> b,t
+
+= ˜ w(i) 
+
+> b,t
+
+/ PNn=1 ˜w(n) 
+
+> b,t
+
+.We then resample independently within each block: let a(i) 
+
+> b
+
+denote the ancestor index selected for output particle i from the normalized block weights { ¯w(n) 
+
+> b,t
+
+}Nn=1 . Following Farchi and Bocquet [32] , the selected ancestor indices are reordered to preserve particle identity where possible. A new full-state particle is then assembled site by site, 
+
+x(i), new  
+
+> t,j
+
+= x(a(i) 
+
+> b(j))
+> t,j
+
+, (16) where b(j) is the block containing site j. This replaces the ESS-triggered global R ESAMPLE of Algorithm 1 with block-wise resampling at every observation time. 
+
+# 6 Experiments 
+
+We evaluate FPPF on dynamical systems which highlight distinct challenges in nonlinear filtering: scaling to high state dimension, non-Gaussian posteriors that break Gaussian-assumption filters, and long-horizon stability under temporally sparse observations. 
+
+Setup. ML-based DA methods are typically trained on simulated trajectories from the exact dynamics [76 , 14 ], but in realistic settings this is rarely available; dynamics are known only up to model error from unresolved physics, discretization, etc. We mirror this by perturbing the training dynamics with process noise 
+
+ση, simulating xt = f (xt−1) + σηζt, ζt ∼ N (0, I), similar to Tang et al. [89] ; this also improves robustness at inference. Evaluation uses the unperturbed dynamics, which fixes a single ground-truth trajectory to score against. We obtain the ground-truth initial state x⋆ 
+
+> 0
+
+by running the deterministic dynamics through a burn-in from a random start, and center the initial ensemble at the truth, x(i)0 ∼ N (x⋆
+
+> 0
+
+, σ 2
+
+> init
+
+I), where σinit is the per-coordinate standard deviation of the state estimated from the training trajectories. For FlowDAS [ 14 ], which tracks a single trajectory rather than an ensemble, we initialize at x⋆
+
+> 0
+
+.
+
+Baselines. We compare against BPF [ 36 ] (transition-prior proposal), APF [72 ] (one-step observation look-ahead), EnKF [31 ] (dominant operational DA method), and FlowDAS [14 ] (a recent stochastic-interpolant DA method with observation-based guidance, outperforming prior generative methods [ 76 ]). We also include two learned-proposal methods: NASMC [38 ], with diagonal-Gaussian and K-component MDN variants 11 trained online via particle-weighted log-likelihood; and InfNN [69 ], an autoregressive conditional density (RNADE) trained offline by maximum likelihood. The other learned-proposal methods, NASMC and InfNN, are deployed with the same SIR particle filter settings as FPPF for fairness. For architectural parity, the same backbone with matched parameter count is used as the velocity field in FPPF, the drift network in FlowDAS, and the conditional network in NASMC and InfNN; only the output head differs for NASMC and InfNN, to match their parametric density families. Architecture choices and hyperparameters are detailed in Appendix A.2; baseline implementation details are in Appendix A.4. 
+
+Dynamical systems. We evaluate on three chaotic systems, each chosen to stress a different filtering regime. Lorenz-63 [ 61 ] is a three-dimensional model of atmospheric convection whose two-lobe attractor produces multimodal forecast distributions under sparse observations, isolating the non-Gaussian regime where Kalman-type updates fail. Lorenz-96 [ 64 ] is a spatially extended model on a periodic latitude circle whose dimension can be set freely, letting us probe scaling and localization in high dimensions. The Kuramoto-Sivashinsky equation [ 52 , 83 ] is a fourth-order nonlinear PDE exhibiting spatiotemporal chaos, which we use to test long-horizon stability under temporally sparse observations. Full dynamics, discretization, and observation operators for each system are given in the corresponding subsections below. 
+
+Evaluation metrics. We report root mean square error (RMSE) for state estimation accuracy and continuous ranked probability score (CRPS) [ 66 ] for probabilistic calibration. CRPS measures the quality of probabilistic forecasts by comparing the predicted CDF to the observed outcome; lower values indicate better calibration. For an ensemble of size N, at time step t, it is defined as: CRPS t = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+|x(i) 
+
+> t
+
+− x⋆t | − 12N 2
+
+> N
+
+X
+
+> i=1
+> N
+
+X
+
+> i′=1
+
+|x(i) 
+
+> t
+
+− x(i′) 
+
+> t
+
+|. (17) We also monitor effective sample size (ESS) over time to diagnose filter health, ESS t = 1 / PNi=1 (w(i) 
+
+> t
+
+)2,where w(i) 
+
+> t
+
+denotes the normalized importance weight of particle i at time t. When the weights are uniform (w(i) 
+
+> t
+
+= 1 /N ), ESS attains its maximum value N ; an ESS near 1 indicates weight collapse. 
+
+6.1 Scaling with state dimension 
+
+6.1.1 Global filters across dimensions 
+
+We test scaling on the Lorenz-96 system [ 63 ], which models atmospheric dynamics along a latitude circle. The state xt ∈ Rdx evolves according to 
+
+dx j
+
+dt = ( xj+1 − xj−2)xj−1 − xj + F + ξj,t ,
+
+with periodic boundary conditions and forcing F = 8 (chaotic regime). Process noise is ξj,t ∼ N (0 , σ 2proc )
+
+with σproc = 0 .2 and integration step ∆t = 0 .05 . We vary dx ∈ { 5, 10 , 15 , 20 , 25 , 50 } to create systems with increasing state dimensionality. Observations are ot = arctan( xt) + vt with vt ∼ N (0, σ 2obs I), σobs = 0 .2,applied at every integration step. 
+
+Results. Figure 1 reports results averaged over 100 trajectories of 200 steps, with N = 1000 particles for 
+
+dx ∈ { 5, 10 } and N = 5000 for dx ∈ { 15 , 20 , 25 , 50 }; refer to Appendix C for the corresponding table. FPPF achieves the best RMSE and CRPS at every state dimension, and the margin over BPF widens with 12 2                 
+
+> 3
+> d=5 d=10 d=15 d=20 d=25 d=50
+> State dimension
+> 0.0
+> 0.5
+> 1.0
+> RMSE
+> 1
+> 2
+> d=5 d=10 d=15 d=20 d=25 d=50
+> State dimension
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> CRPS
+> FPPF BPF APF EnKF FlowDAS NASMC NASMC-MD InfNN
+
+Figure 1: Scaling on Lorenz-96 with arctan(x) observation operator across state dimensions dx ∈{5, 10 , 15 , 20 , 25 , 50 }. FPPF attains the lowest RMSE and CRPS at every dx, with the gap over base-lines widening as dimension grows. Bars show means over 100 trajectories of 200 time steps and error bars denote one standard deviation. Table in Appendix C. 
+
+dx. Its learned proposal directly targets high-posterior regions by conditioning on observations, whereas the bootstrap proposal uses no observation information and increasingly suffers from the curse of dimensionality. APF, which incorporates observations through auxiliary resampling weights rather than the proposal itself, performs worse than FPPF, but shows gains over BPF that grow with dimension. NASMC also learns an observation-informed proposal but restricts it to a single Gaussian (NASMC-Gauss) or mixture density (NASMC-MD), and underperforms BPF, as does InfNN. EnKF performs slightly better than BPF: under the near-Gaussian likelihood induced by arctan, the Gaussian update used in EnKF remains adequate. Figure 2 plots RMSE over time for a subset of the baselines. Filtering methods exhibit stable tracking throughout, with FPPF maintaining the lowest error. FlowDAS [ 14 ] accumulates error rapidly due to its “single particle” autoregressive generation and lack of principled update step. EnKF has high error early due to poor initialization of sample covariance from the ensemble members. Figure 3 plots pre-resample ESS over time. FPPF maintains a higher ESS than BPF, and the gap widens with dimension. At dx = 25 the absolute ESS is nonetheless low enough to be concerning, and naively increasing the particle count is computationally infeasible. This motivates the localized variant L-FPPF (Section 5, Section 6.1.2), which exploits the local correlation structure of spatially extended systems to mitigate degeneracy and scale efficiently with state dimensionality. 13 0 50 100 150 200             
+
+> Time step
+> 0.0
+> 0.4
+> 0.8
+> 1.2
+> 1.6
+> RMSE
+> Dim 10 (N = 1000)
+> 050 100 150 200
+> Time step
+> 0.0
+> 0.4
+> 0.8
+> 1.2
+> 1.6
+> Dim 15 (N = 5000)
+> 050 100 150 200
+> Time step
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> Dim 20 (N = 5000)
+> 050 100 150 200
+> Time step
+> 0.0
+> 0.4
+> 0.8
+> 1.2
+> 1.6
+> Dim 25 (N = 5000)
+
+FPPF BPF APF EnKF FlowDAS NASMC-MD Figure 2: RMSE over time for Lorenz-96 at different state dimensions. FPPF (blue) maintains lower error than BPF. FlowDAS (purple) accumulates error rapidly due to its autoregressive generation and lack of principled update step. EnKF (green) has high error early due to poor initialization of sample covariance from the ensemble members. 0 50 100 150 200             
+
+> Time step
+> 240
+> 320
+> 400
+> 480
+> 560
+> ESS
+> Dim 10 (N = 1000)
+> 050 100 150 200
+> Time step
+> 800
+> 1200
+> 1600
+> 2000
+> Dim 15 (N = 5000)
+> 050 100 150 200
+> Time step
+> 600
+> 900
+> 1200
+> 1500
+> Dim 20 (N = 5000)
+> 050 100 150 200
+> Time step
+> 250
+> 500
+> 750
+> 1000
+> 1250
+> Dim 25 (N = 5000)
+
+FPPF BPF 
+
+Figure 3: Pre-resample ESS over time for Lorenz-96 across state dimensions. Curves show rolling means (window 10) over 100 trajectories; shading indicates one standard deviation across trajectories. FPPF maintains a higher ESS than BPF, and the gap widens with dx.
+
+6.1.2 Localized filters for high-dimensional systems. 
+
+We evaluate L-FPPF on Lorenz-96 at dx = 50 , 100 , 500 , and 1000 , a regime where global particle filters collapse. The L-FPPF proposal is trained once on the dx=25 dataset and applied zero-shot at all four target dimensions. Network inputs have the window dimension 2r+1 , where we fix localization radius r=4 across all filtering methods. This allows us to train a lightweight model just once, and the per-step sampling and likelihood integration stays tractable even at dx=1000 . Localization also allows us to reduce ensemble size for all PFs to Np=500 particles, with negligible performance decline. While the necessary Np for global PFs scale exponentially with the effective state dimension [ 85 , 32 ], block-wise localization replaces the global problem with overlapping local ones whose effective dimension is set by the localization radius rather than 
+
+dx, so the ensemble requirement stays bounded as the state dimension grows [73, 32]. For evaluation, we introduce two localized DA baselines. LETKF [45 ] performs EnKF analysis in local windows under a Gaussian-posterior assumption and is deployed in operational settings [ 43 , 81 ]. LBPF 
+
+[73 , 32 ] propagates particles under global dynamics with tapering local importance weights and per-site resampling; it shares L-FPPF’s block-wise machinery and resampling step, isolating the contribution of the learned local proposal. We also report global BPF, APF, and EnKF for reference. 
+
+Results. Figure 4 reports RMSE; the full table including CRPS is in Appendix D. L-FPPF achieves the lowest RMSE and CRPS at all dimensions, staying relatively flat as dx grows from 50 to 1000 while BPF, APF, 14 d=50 d=100 d=500 d=1000         
+
+> State dimension
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> 3.0
+> RMSE
+> observation operator:
+> arctan( x)
+> d=50 d=100 d=500 d=1000
+> State dimension
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> CRPS
+> observation operator:
+> arctan( x)
+> L-FPPF LETKF LBPF APF BPF EnKF
+
+Figure 4: RMSE and CRPS on Lorenz-96 at dx ∈ { 50 , 100 , 500 , 1000 } for localized and global filters under observation operator h(x) = arctan( x). L-FPPF is trained once on dx=25 and applied zero-shot at all target dimensions; localization radius r=4 is fixed across L-FPPF, LBPF, and LETKF. Bars show mean RMSE across independent runs and error bars denote one standard deviation. Table is reported in Appendix D. d=50 d=100 d=500 d=1000         
+
+> State dimension
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> RMSE
+> observation operator:
+> min( x4, 10)
+> d=50 d=100 d=500 d=1000
+> State dimension
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> 3.0
+> 3.5
+> CRPS
+> observation operator:
+> min( x4, 10)
+> L-FPPF LETKF LBPF APF BPF EnKF
+
+Figure 5: RMSE and CRPS on Lorenz-96 at dx ∈ { 50 , 100 , 500 , 1000 } for localized and global filters under observation operator h(x) = min( x4, 10) . L-FPPF is trained once on dx=25 and applied zero-shot at all target dimensions; localization radius r=4 is fixed across L-FPPF, LBPF, and LETKF. Bars show mean RMSE across independent runs and error bars denote one standard deviation. Table is reported in Appendix D. and EnKF degrade sharply. LBPF is likewise stable with dimension. This is expected, since its block-wise weighting and resampling reduce the effective dimension of the importance-sampling problem from dx to a local neighborhood of size set by r. L-FPPF reduces RMSE over LBPF at every dimension. Both filters avoid global particle collapse, but the learned observation-informed proposal places particles nearer the current local posterior, further reducing the residual local weight variance. 
+
+6.2 Non-linear and non-Gaussian filtering regimes 
+
+EnKF and related Gaussian-assumption filters are common in operational data assimilation, but their Gaussian posterior approximation breaks down in two key regimes: (i) when the observation operator induces a non-Gaussian observation distribution, and (ii) when the dynamics produce a multimodal prior between observations. We construct experiments that isolate each. 
+
+Non-Gaussian likelihoods. We retain the Lorenz-96 setup of Section 6.1 but replace the arctangent operator with h(x) = min( x4, 10) elementwise. This is substantially more challenging: x4 is sign-ambiguous, 15 Metric BPF APF EnKF FPPF FlowDAS RMSE ↓ 2.7473 ± 0.4553 2.7650 ± 0.4490 4.7246 ± 0.6827 2.7504 ± 0.4436 7.2579 ± 0.9512                 
+
+> CRPS ↓1.6760 ±0.2662 1.6839 ±0.2617 3.0084 ±0.4655 1.6755 ±0.2527 4.9863 ±0.7024
+
+Table 1: Lorenz-63 results with sparse observations every 50 time steps, observation noise σobs = 0.25, for 1000 length trajectories. inducing per-component multimodality, and the cap saturates for |xj | > 10 1/4, where the observation carries no magnitude information. Table 4 reports the same scaling sweep. EnKF fails catastrophically at all dimensions, since a Gaussian posterior cannot represent the induced bimodality. APF also degrades, as its one-step look-ahead is unreliable under a sign-ambiguous, saturating observation model. NASMC-MD recovers some advantage over its Gaussian counterpart by accommodating multimodality. FPPF retains the best RMSE and CRPS at every dimension, with larger margins over BPF than under arctan—likely reflecting the flow proposal’s capacity to learn the multimodal observation-conditional density directly from data. Figure 5 extends the localized comparison to dx ∈ { 50 , 100 , 500 , 1000 } (full table in Appendix D). LETKF inherits EnKF’s failure mode locally and degrades sharply; LBPF is competitive but still trails L-FPPF. 
+
+Multimodal distributions. Lorenz-63 [ 62 ] is a three-dimensional chaotic model of atmospheric convection whose attractor has two lobes between which trajectories switch at irregular intervals. The bimodal regime this experiment targets emerges under temporally sparse observations. Between updates the ensemble evolves freely under the nonlinear dynamics, and members straddling a lobe transition are carried into different lobes, so the forecast/prior at the next assimilation time is non-Gaussian and bimodal [ 4 ]. Were observations sufficiently frequent, each update would pin the ensemble to the truth within a single lobe and the prior would stay unimodal, leaving little for a non-Gaussian filter to exploit. We therefore assimilate only every 50 integration steps, allowing substantial ensemble dispersion between updates. The state xt = ( x, y, z ) ∈ R3
+
+evolves as 
+
+˙x = σ(y − x), ˙y = x(ρ − z) − y, ˙z = xy − βz, 
+
+with σ = 10 , ρ = 28 , β = 8 /3, integrated at ∆t = 0 .01 with process noise σproc = 0 .25 . Observations are 
+
+ot = arctan( xt) + vt with vt ∼ N (0, σ 2obs I) and σobs = 0 .25 .Table 1 reports results over 50 trajectories of 1000 steps with N = 1000 particles. FlowDAS is the worst by a wide margin, consistent with the autoregressive error accumulation for long trajectories in previous experiments. Among the remaining filters EnKF is the weakest, its Gaussian posterior is unable to capture the bimodal filtering density, which is precisely the failure this setup isolates. BPF, APF, and FPPF are essentially tied. The bootstrap proposal is adequate here only because the three-dimensional state keeps particle weight variance small, so weights do not collapse (Section 3.2); this is the low-dimensional regime in which particle filters have always been reliable, and the benefit of an observation-informed proposal instead grows with state dimension (Section 6.1). 
+
+6.3 Long-horizon stability under temporally sparse observations 
+
+Operational DA systems must remain stable over long trajectories with observations that are sparse in time. Between observations, the system evolves substantially, the prior at the next observation step can become highly non-Gaussian, and small errors compound across the rollout. We use the Kuramoto-Sivashinsky (KS) equation, a fourth-order nonlinear PDE exhibiting spatiotemporal chaos, to test this regime: 
+
+∂tu = −u ∂ xu − ∂2
+
+> x
+
+u − ∂4
+
+> x
+
+u, (18) 16 L = 16 π L = 32 π
+
+arctan min( z4, 10) arctan min( z4, 10) 
+
+Method RMSE ↓ CRPS ↓ RMSE ↓ CRPS ↓ RMSE ↓ CRPS ↓ RMSE ↓ CRPS ↓
+
+BPF 0.14 ± 0.017 0.08 ± 0.011 0.91 ± 0.471 0.65 ± 0.373 1.21 ± 0.091 0.84 ± 0.073 1.59 ± 0.055 1.17 ± 0.057 
+
+APF 0.11 ± 0.004 0.06 ± 0.002 0.49 ± 0.478 0.33 ± 0.364 0.76 ± 0.197 0.48 ± 0.141 1.53 ± 0.101 1.12 ± 0.094 
+
+EnKF 0.07 ± 0.002 0.05 ± 0.001 0.18 ± 0.380 0.12 ± 0.279 0.11 ± 0.002 0.06 ± 0.001 1.65 ± 0.107 1.17 ± 0.116 
+
+NASMC-Gauss 0.09 ± 0.004 0.05 ± 0.001 0.15 ± 0.056 0.08 ± 0.033 0.19 ± 0.006 0.10 ± 0.003 1.24 ± 0.220 0.82 ± 0.175 
+
+NASMC-MD 0.09 ± 0.003 0.05 ± 0.001 0.15 ± 0.081 0.09 ± 0.050 0.19 ± 0.007 0.10 ± 0.004 1.24 ± 0.220 0.82 ± 0.175 
+
+InfNN 1.48 ± 0.102 1.08 ± 0.082 1.84 ± 0.084 1.44 ± 0.076 1.52 ± 0.026 1.12 ± 0.022 1.77 ± 0.049 1.36 ± 0.042 
+
+FPPF 0.09 ± 0.003 0.05 ± 0.001 0.11 ± 0.013 0.06 ± 0.006 0.19 ± 0.009 0.10 ± 0.004 1.15 ± 0.231 0.76 ± 0.186 
+
+FlowDAS 1.18 ± 0.067 0.70 ± 0.038 1.55 ± 0.110 1.12 ± 0.090 1.23 ± 0.016 0.72 ± 0.008 1.62 ± 0.060 1.18 ± 0.055 
+
+Table 2: Kuramoto-Sivashinsky results ( J = 128 ) with sparse observations every 10 steps, observation noise 
+
+σobs = 0 .1, and two observation operators on domains L = 16 π and L = 32 π. Best results in bold , second best underlined. with periodic boundary conditions on [0 , L ], L ∈ { 16 π, 32 π}. We discretize using a pseudo-spectral method with J = 128 grid points (so dx = J), time step ∆t = 0 .25 , and process noise σproc = 0 .1. Linearizing about the trivial state u ≡ 0, each Fourier mode grows at rate λk = k2 − k4, so wavenumbers 0 < |k| < 1
+
+are linearly unstable. The admissible wavenumbers are k = 2 πn/L , so a larger domain places more of them in the unstable band; L = 16 π admits 7 unstable modes and L = 32 π admits 15 . L = 32 π is thus the more chaotic, complex regime. All grid points are observed through 
+
+ot = h(xt) + vt, vt ∼ N (0, σ 2obs I), σobs = 0 .1, (19) where h is applied elementwise and is either the smooth arctan operator or the sign-ambiguous, saturating 
+
+min( x4, 10) operator, and observations arrive every 10 steps. Table 2 reports results over 25 trajectories of 1000 steps using N = 5000 particles, for both observation operators. FlowDAS fails to track the system over the full trajectory in all settings. Under the smooth arctan 
+
+operator, EnKF achieves the lowest error on both domains, with FPPF close behind, since the Gaussian observation update is not heavily violated. Under the more difucult min( x4, 10) operator, FPPF is best on both L = 16 π and L = 32 π. On the more chaotic L = 32 π domain FPPF improves the most substantially over BPF. Another proposal learning method, NASMC, also performs well. EnKF performs the worst since its Gaussian likelihood assumption now breaks down under the multimodal observation distribution. 
+
+6.4 Additional experiments 
+
+Convergence for linear-Gaussian setting. To verify that the rectified flow proposal converges to the correct target, we test on a synthetic linear Gaussian state-space model (full settings in Appendix B), where the locally optimal one-step proposal q⋆(xt | xt−1, ot) admits a closed form. Using the same architecture as our L96 experiments, we train qϕ on a dx=8 system for 200 epochs. The left panel of Figure 6 reports the Wasserstein W2 distance between qϕ and q⋆, averaged over 500 test set conditioning pairs (xt−1, ot). It decreases over training to 0, indicating convergence to the closed-form optimal proposal. The dotted horizontal line indicates the W2 distance between the bootstrap proposal 
+
+p(xt | xt−1) and the closed-form optimal proposal q⋆(xt | xt−1, ot).The middle panel reports a one-step ESS. For each conditioning pair we draw N =250 samples x(i) 
+
+> t
+
+∼ qϕ(· | 
+
+17 xt−1, ot), form the one-step SIR importance weights 
+
+˜w(i) ∝ p(ot | x(i) 
+
+> t
+
+) p(x(i) 
+
+> t
+
+| xt−1)
+
+qϕ(x(i) 
+
+> t
+
+| xt−1, ot) ,
+
+and compute ESS = 1 / P
+
+> i
+
+( ¯ w(i))2 from the normalized weights ¯w(i), averaging over the 500 pairs. This is the ESS the filter would achieve after a single observation update with the proposal. It attains its ceiling of 
+
+N =250 when the incremental weights are uniform ( ¯w(i) = 1 /N ), which is exactly what the optimal proposal achieves, since under q⋆ the incremental weight is independent of the sampled xt (Eq. (5) ). The bootstrap baseline collapses to near 80 (dashed line), while qϕ stabilizes near 250 over training. 0 50 100 150 200                    
+
+> Training epoch
+> 10 1
+> 10 0
+> (,*)
+> 050 100 150 200
+> Training epoch
+> 0
+> 50
+> 100
+> 150
+> 200
+> 250
+> ESS
+> RF (,)
+> bootstrap ()510 15 20 25 50
+> state dimension
+> 0.0025
+> 0.0000
+> 0.0025
+> 0.0050
+> 0.0075 unbiased target
+> Hutchinson K=1
+> Hutchinson K=4
+> Hutchinson K=16
+
+Figure 6: Left: Wasserstein W2 distance from the learned proposal qϕ to the closed-form optimal proposal 
+
+q⋆ over training epochs, averaged over 500 test conditioning pairs; it decreases toward 0, while the dashed line is the bootstrap proposal’s W2 to q⋆. Middle: one-step ESS out of N =250 over training epochs; qϕ
+
+rises toward the maximum of 250 , while the bootstrap proposal’s (dashed) is near 80 . Right: bias of the Hutchinson trace estimator relative to the exact trace on the Lorenz-96 proposals across state dimension dx,for K ∈ { 1, 4, 16 } probes; points show mean bias where ideal is 0. Error bars indicate standard deviation across Npairs =10 conditioning pairs. 
+
+Hutchinson trace estimator. Computing log qϕ(xt | xt−1, ot) requires the divergence of the proposal velocity field, which we estimate with the Hutchinson trace estimator (Section 4.2, Eq. (10) ). One concern is that the single-probe estimator ( K=1 ) injects noise into log qϕ and could inflate importance weight variance. We quantify the single-probe estimator error on the trained Lorenz-96 RF proposals from Section 6.1. At 
+
+Npairs =10 test-set conditioning pairs we draw xt ∼ qϕ, evaluate the Hutchinson estimate of log qϕ at 
+
+K ∈ { 1, 4, 16 } probes ( M =200 random-probe seeds each), and measure its bias and standard deviation against the deterministic exact-trace value. The empirical bias is consistent with zero at every dx within pair-to-pair, see Figure 6 (right). Estimator standard deviation stays below 0.05 for dx ≤ 25 but grows to 0.247 at dx=50 for K=1 ; it is substantially reduced for K = 16 . While we keep K=1 by default for efficiency, at high dimensions increasing K at the expense of compute may improve performance. 
+
+# 7 Conclusion and Future Work 
+
+We introduced Flow Proposal Particle Filters (FPPF), which replace the bootstrap dynamics with a learned conditional flow proposal approximating the variance-minimizing optimal proposal p(xt | xt−1, ot). Condi-tional flow matching provides efficient sampling and tractable density evaluation, so the SIR weight update remains correct rather than absorbed into approximate guidance. The localized variant L-FPPF uses a patch-based velocity network, making the SIR correction itself decomposable. Across chaotic systems with non-Gaussian likelihoods and long horizons, FPPF and L-FPPF improve state estimation and calibration 18 over classical, learned-proposal, and autoregressive generative baselines, and L-FPPF generalizes to high dimensions zero-shot at fixed ensemble size. Several directions remain open. A consequential challenge is scaling to operational systems such as ERA5-scale reanalysis [ 24 ]. Localization is encouraging in this regard, as it caps the effective dimension at the localization radius rather than the ambient state dimension, allowing methods like L-FPPF to operate stably at large scale with fixed ensemble size. Further, in practice, atmospheric observations are spatially sparse, irregularly distributed, and collected from heterogeneous instruments, with complex, nonlinear observation operators mapping between state and measurement spaces. These features introduce additional structure absent from our benchmarks and can significantly complicate inference. Second, since FPPF assumes access to the transition density for the SIR weight, extending it to data-driven dynamics through a learned forecast emulator is a natural next step. A third concerns cost, as sampling and likelihood evaluation each require multiple integration steps per particle per step; few-step distillation [ 88 , 35 , 33 ] together with fast divergence estimation [ 2 ] could reduce this (Appendix A.4). Finally, FPPF targets the proposal rather than the analysis distribution, and combining it with latent or score-based ensemble representations is a promising direction we leave to future work. 
+
+# References 
+
+[1] M. Ades and P. J. van Leeuwen. The equivalent-weights particle filter in a high-dimensional system. 
+
+Quarterly Journal of the Royal Meteorological Society , 141(687):484–503, 2015. doi: 10.1002/qj.2370. [2] X. Ai, Y. He, A. Gu, R. Salakhutdinov, J. Z. Kolter, N. M. Boffi, and M. Simchowitz. Joint distillation for fast likelihood evaluation and sampling in flow-based models. In The Fourteenth International Con-ference on Learning Representations (ICLR) , 2026. URL https://openreview.net/forum? id=8uZ5UdIul2 . arXiv:2512.02636. [3] B. D. O. Anderson and J. B. Moore. Optimal Filtering . Prentice-Hall, Englewood Cliffs, NJ, 1979. [4] J. L. Anderson and S. L. Anderson. A Monte Carlo implementation of the nonlinear filtering problem to produce ensemble assimilations and forecasts. Monthly Weather Review , 127(12):2741–2758, 1999. doi: 10.1175/1520-0493(1999)127<2741:AMCIOT>2.0.CO;2. [5] M. Andrae, E. Larsson, S. Takao, T. Landelius, and F. Lindsten. Daisi: Data assimilation with inverse sampling using stochastic interpolants. In Proceedings of the 43rd International Conference on Machine Learning (ICML) , 2026. URL https://arxiv.org/abs/2512.00252 .[6] M. S. Arulampalam, S. Maskell, N. Gordon, and T. Clapp. A tutorial on particle filters for online nonlinear/non-Gaussian Bayesian tracking. IEEE Transactions on Signal Processing , 50(2):174–188, 2002. doi: 10.1109/78.978374. [7] F. Bao, Z. Zhang, and G. Zhang. An ensemble score filter for tracking high-dimensional nonlinear dynamical systems. Computer Methods in Applied Mechanics and Engineering , 432:117447, Dec. 2024. ISSN 0045-7825. doi: 10.1016/j.cma.2024.117447. [8] Y. Bar-Shalom, X. R. Li, and T. Kirubarajan. Estimation with Applications to Tracking and Navigation: Theory, Algorithms and Software . John Wiley & Sons, New York, 2001. ISBN 9780471416555. doi: 10.1002/0471221279. [9] T. Bengtsson, P. Bickel, and B. Li. Curse-of-dimensionality revisited: Collapse of the particle fil-ter in very large scale systems , page 316–334. Institute of Mathematical Statistics, 2008. ISBN 19 0940600749. doi: 10.1214/193940307000000518. URL http://dx.doi.org/10.1214/ 193940307000000518 .[10] C. H. Bishop, B. J. Etherton, and S. J. Majumdar. Adaptive sampling with the ensemble transform Kalman filter. Part I: Theoretical aspects. Monthly Weather Review , 129(3):420–436, 2001. doi: 10.1175/1520-0493(2001)129<0420:ASWTET>2.0.CO;2. [11] M. Bocquet, J. Brajard, A. Carrassi, and L. Bertino. Bayesian inference of chaotic dynamics by merging data assimilation, machine learning and expectation-maximization. Foundations of Data Science , 2(1): 55–80, 2020. doi: 10.3934/fods.2020004. [12] J. Brajard, A. Carrassi, M. Bocquet, and L. Bertino. Combining data assimilation and machine learning to emulate a dynamical model from sparse and noisy observations: A case study with the Lorenz 96 model. Journal of Computational Science , 44:101171, 2020. doi: 10.1016/j.jocs.2020.101171. [13] N. Branchini and V. Elvira. Optimized auxiliary particle filters: adapting mixture proposals via convex optimization. In Conference on Uncertainty in Artificial Intelligence , 2020. URL https: //api.semanticscholar.org/CorpusID:235446306 .[14] S. Chen, Y. Jia, Q. Qu, H. Sun, and J. A. Fessler. FlowDAS: A stochastic interpolant-based framework for data assimilation. In The Thirty-ninth Annual Conference on Neural Information Processing Systems ,2025. URL https://openreview.net/forum?id=1nWqhiulqD .[15] X. Chen and Y. Li. An overview of differentiable particle filters for data-adaptive sequential Bayesian inference. Foundations of Data Science , 2023. doi: 10.3934/fods.2023014. [16] X. Chen and Y. Li. Normalizing flow-based differentiable particle filters. IEEE Transactions on Signal Processing , 2024. arXiv:2403.01499. [17] Y. Chen, D. Sanz-Alonso, and R. Willett. Autodifferentiable ensemble Kalman filters. SIAM Journal on Mathematics of Data Science , 4(2):801–833, 2022. doi: 10.1137/21M1434477. [18] Z. Chen. Bayesian filtering: From kalman filters to particle filters, and beyond. Statistics , 182(1):1–69, 2003. doi: 10.1080/02331880309257. [19] A. J. Chorin and X. Tu. Implicit sampling for particle filters. Proceedings of the National Academy of Sciences , 106(41):17249–17254, 2009. doi: 10.1073/pnas.0909196106. [20] A. Corenflos, J. Thornton, G. Deligiannidis, and A. Doucet. Differentiable particle filtering via entropy-regularized optimal transport. In Proceedings of the 38th International Conference on Machine Learning (ICML) , volume 139 of Proceedings of Machine Learning Research , pages 2100–2111. PMLR, 2021. [21] J. Cornebise, É. Moulines, and J. Olsson. Adaptive methods for sequential importance sampling with application to state space models. Statistics and Computing , 18(4):461–480, 2008. doi: 10.1007/ s11222-008-9089-4. [22] P. Courtier, J.-N. Thépaut, and A. Hollingsworth. A strategy for operational implementation of 4D-Var, using an incremental approach. Quarterly Journal of the Royal Meteorological Society , 120(519): 1367–1387, 1994. doi: 10.1002/qj.49712051912. [23] A. J. W. de Wit and C. A. van Diepen. Crop model data assimilation with the Ensemble Kalman Filter for improving regional crop yield forecasts. Agricultural and Forest Meteorology , 146(1–2):38–56, 2007. doi: 10.1016/j.agrformet.2007.05.004. 20 [24] D. P. Dee, S. M. Uppala, A. J. Simmons, P. Berrisford, P. Poli, S. Kobayashi, U. Andrae, M. A. Balmaseda, G. Balsamo, P. Bauer, P. Bechtold, A. C. M. Beljaars, L. van de Berg, J. Bidlot, N. Bormann, C. Delsol, R. Dragani, M. Fuentes, A. J. Geer, L. Haimberger, S. B. Healy, H. Hersbach, E. V. Hólm, L. Isaksen, P. Kållberg, M. Köhler, M. Matricardi, A. P. McNally, B. M. Monge-Sanz, J.-J. Morcrette, B.-K. Park, C. Peubey, P. de Rosnay, C. Tavolato, J.-N. Thépaut, and F. Vitart. The ERA-Interim reanalysis: configuration and performance of the data assimilation system. Quarterly Journal of the Royal Meteorological Society , 137(656):553–597, 2011. doi: 10.1002/qj.828. [25] F. Dellaert, D. Fox, W. Burgard, and S. Thrun. Monte carlo localization for mobile robots. In 
+
+Proceedings 1999 IEEE International Conference on Robotics and Automation (Cat. No.99CH36288C) ,volume 2, pages 1322–1328 vol.2, 1999. doi: 10.1109/ROBOT.1999.772544. [26] L. Dlamini, O. Crespo, J. van Dam, and L. Kooistra. A global systematic review of improving crop model estimations by assimilating remote sensing data: Implications for small-scale agricultural systems. Remote Sensing , 15(16), 2023. ISSN 2072-4292. doi: 10.3390/rs15164066. URL https: //www.mdpi.com/2072-4292/15/16/4066 .[27] A. Doucet and A. M. Johansen. A tutorial on particle filtering and smoothing: Fifteen years later. In D. Crisan and B. Rozovskii, editors, The Oxford Handbook of Nonlinear Filtering , pages 656–704. Oxford University Press, Oxford, 2011. [28] A. Doucet, S. Godsill, and C. Andrieu. On sequential Monte Carlo sampling methods for Bayesian filtering. Statistics and Computing , 10(3):197–208, 2000. [29] A. Doucet, N. de Freitas, and N. Gordon. Sequential Monte Carlo Methods in Practice . Springer, New York, 2001. doi: 10.1007/978-1-4757-3437-9. [30] M. Drton and M. H. Maathuis. Structure learning in graphical modeling. Annual Review of Statistics and Its Application , 4(1):365–393, 2017. doi: 10.1146/annurev-statistics-060116-053803. [31] G. Evensen. Sequential data assimilation with a nonlinear quasi-geostrophic model using monte carlo methods. Journal of Geophysical Research: Oceans , 99(C5):10143–10162, 1994. doi: 10.1029/ 94JC00572. URL https://doi.org/10.1029/94JC00572 .[32] A. Farchi and M. Bocquet. Review article: Comparison of local particle filters and new implementations. 
+
+Nonlinear Processes in Geophysics , 25(4):765–807, 2018. doi: 10.5194/npg-25-765-2018. [33] K. Frans, D. Hafner, S. Levine, and P. Abbeel. One step diffusion via shortcut models. In International Conference on Learning Representations (ICLR) , 2025. arXiv:2410.12557. [34] G. Gaspari and S. E. Cohn. Construction of correlation functions in two and three dimensions. Quarterly Journal of the Royal Meteorological Society , 125(554):723–757, 1999. doi: 10.1002/qj.49712555417. [35] Z. Geng, M. Deng, X. Bai, J. Z. Kolter, and K. He. Mean flows for one-step generative modeling. In 
+
+Advances in Neural Information Processing Systems , volume 38, 2025. arXiv:2505.13447. [36] N. Gordon, D. Salmond, and A. Smith. Novel approach to nonlinear/non-gaussian bayesian state estimation. IEE Proceedings F (Radar and Signal Processing) , 140:107–113, 1993. doi: 10.1049/ ip-f-2.1993.0015. URL https://digital-library.theiet.org/doi/abs/10.1049/ ip-f-2.1993.0015 .[37] G. A. Gottwald, S. Liu, Y. Marzouk, S. Reich, and X. T. Tong. Localized diffusion models. arXiv preprint arXiv:2505.04417 , 2025. doi: 10.48550/arXiv.2505.04417. 21 [38] S. S. Gu, Z. Ghahramani, and R. E. Turner. Neural adaptive sequential Monte Carlo. In Advances in Neural Information Processing Systems , volume 28, 2015. [39] H. Hersbach, B. Bell, P. Berrisford, S. Hirahara, A. Horányi, J. Muñoz-Sabater, J. Nicolas, C. Peubey, R. Radu, D. Schepers, A. Simmons, C. Soci, S. Abdalla, X. Abellan, G. Balsamo, P. Bechtold, G. Biavati, J. Bidlot, M. Bonavita, G. De Chiara, P. Dahlgren, D. Dee, M. Diamantakis, R. Dragani, J. Flemming, R. Forbes, M. Fuentes, A. Geer, L. Haimberger, S. Healy, R. J. Hogan, E. Hólm, M. Janisková, S. Keeley, P. Laloyaux, P. Lopez, C. Lupu, G. Radnoti, P. de Rosnay, I. Rozum, F. Vamborg, S. Villaume, and J.-N. Thépaut. The ERA5 global reanalysis. Quarterly Journal of the Royal Meteorological Society , 146 (730):1999–2049, 2020. doi: 10.1002/qj.3803. [40] J. Ho and T. Salimans. Classifier-free diffusion guidance. In NeurIPS 2021 Workshop on Deep Generative Models and Downstream Applications , 2021. URL https://openreview.net/ forum?id=qw8AKxfYbI .[41] P. L. Houtekamer and H. L. Mitchell. A sequential ensemble kalman filter for atmospheric data assimilation. Monthly Weather Review , 129(1):123 – 137, 2001. doi: 10.1175/1520-0493(2001) 129<0123:ASEKFF>2.0.CO;2. URL https://journals.ametsoc.org/view/journals/ mwre/129/1/1520-0493_2001_129_0123_asekff_2.0.co_2.xml .[42] P. L. Houtekamer, X. Deng, H. L. Mitchell, S.-J. Baek, and N. Gagnon. Higher resolution in an operational ensemble kalman filter. Monthly Weather Review , 142(3):1143 – 1162, 2014. doi: 10.1175/ MWR-D-13-00138.1. URL https://journals.ametsoc.org/view/journals/mwre/ 142/3/mwr-d-13-00138.1.xml .[43] P. L. Houtekamer, X. Deng, H. L. Mitchell, S.-J. Baek, and N. Gagnon. Higher resolution in an operational ensemble Kalman filter. Monthly Weather Review , 142:1143–1162, 2014. [44] L. Huang, L. Gianinazzi, Y. Yu, P. D. Dueben, and T. Hoefler. DiffDA: a diffusion model for weather-scale data assimilation. In Forty-first International Conference on Machine Learning , 2024. URL 
+
+https://openreview.net/forum?id=vhMq3eAB34 .[45] B. R. Hunt, E. J. Kostelich, and I. Szunyogh. Efficient data assimilation for spatiotemporal chaos: A local ensemble transform Kalman filter. Physica D: Nonlinear Phenomena , 230(1–2):112–126, 2007. doi: 10.1016/j.physd.2006.11.008. [46] M. F. Hutchinson. A stochastic estimator of the trace of the influence matrix for Laplacian smoothing splines. Communications in Statistics - Simulation and Computation , 19(2):433–450, 1990. doi: 10.1080/03610919008812866. [47] A. H. Jazwinski. Stochastic Processes and Filtering Theory , volume 64 of Mathematics in Science and Engineering . Academic Press, New York, 1970. [48] R. Jonschkowski, D. Rastogi, and O. Brock. Differentiable particle filters: End-to-end learning with algorithmic priors. In Proceedings of Robotics: Science and Systems (RSS) , Pittsburgh, Pennsylvania, 2018. doi: 10.15607/RSS.2018.XIV.001. [49] S. J. Julier and J. K. Uhlmann. New extension of the Kalman filter to nonlinear systems. In Signal Processing, Sensor Fusion, and Target Recognition VI , volume 3068 of Proc. SPIE , pages 182–193, 1997. doi: 10.1117/12.280797. [50] R. E. Kalman. A new approach to linear filtering and prediction problems. Journal of Basic Engineering ,82(1):35–45, 1960. doi: 10.1115/1.3662552. 22 [51] P. Karkus, D. Hsu, and W. S. Lee. Particle filter networks with application to visual localization. In 
+
+Proceedings of the 2nd Conference on Robot Learning (CoRL) , volume 87 of Proceedings of Machine Learning Research , pages 169–178. PMLR, 2018. [52] Y. Kuramoto. Diffusion-induced chaos in reaction systems. Progress of Theoretical Physics Supplement ,64:346–367, 1978. doi: 10.1143/PTPS.64.346. [53] S. L. Lauritzen. Graphical Models . Number 17 in Oxford Statistical Science Series. Clarendon Press, Oxford, 1996. [54] T. A. Le, M. Igl, T. Rainforth, T. Jin, and F. Wood. Auto-encoding sequential Monte Carlo. In 
+
+International Conference on Learning Representations , 2018. URL https://openreview.net/ forum?id=BJ8c3f-0b .[55] Y. Lipman, R. T. Q. Chen, H. Ben-Hamu, M. Nickel, and M. Le. Flow matching for generative modeling. In The Eleventh International Conference on Learning Representations , 2023. URL 
+
+https://openreview.net/forum?id=PqvMRDCJT9t .[56] Y. Lipman, M. Havasi, P. Holderrieth, N. Shaul, M. Le, B. Karrer, R. T. Q. Chen, D. Lopez-Paz, H. Ben-Hamu, and I. Gat. Flow matching guide and code, 2024. URL https://arxiv.org/abs/ 2412.06264 .[57] J. S. Liu and R. Chen. Sequential Monte Carlo methods for dynamic systems. Journal of the American Statistical Association , 93(443):1032–1044, 1998. doi: 10.1080/01621459.1998.10473765. [58] X. Liu, C. Gong, and qiang liu. Flow straight and fast: Learning to generate and transfer data with rectified flow. In The Eleventh International Conference on Learning Representations , 2023. URL 
+
+https://openreview.net/forum?id=XVjTT1nw5z .[59] A. C. Lorenc. Analysis methods for numerical weather prediction. Quarterly Journal of the Royal Meteorological Society , 112(474):1177–1194, 1986. doi: 10.1002/qj.49711247414. [60] A. C. Lorenc. Analysis methods for numerical weather prediction. Quarterly Journal of the Royal Meteorological Society , 112(474):1177–1194, 1986. [61] E. N. Lorenz. Deterministic nonperiodic flow. Journal of the Atmospheric Sciences , 20(2):130–141, 1963. doi: 10.1175/1520-0469(1963)020<0130:DNF>2.0.CO;2. [62] E. N. Lorenz. Deterministic nonperiodic flow. Journal of the Atmospheric Sciences , 20(2):130–141, 1963. doi: 10.1175/1520-0469(1963)020<0130:DNF>2.0.CO;2. [63] E. N. Lorenz. Predictability: A problem partly solved. In Proceedings of Seminar on Predictability ,pages 1–18, Reading, UK, 1995. ECMWF. [64] E. N. Lorenz. Predictability: A problem partly solved. In Proc. Seminar on Predictability , volume 1, pages 1–18, Reading, UK, 1996. ECMWF. [65] C. J. Maddison, D. Lawson, G. Tucker, N. Heess, M. Norouzi, A. Mnih, A. Doucet, and Y. W. Teh. Filtering variational objectives. In Advances in Neural Information Processing Systems , volume 30, 2017. [66] J. E. Matheson and R. L. Winkler. Scoring rules for continuous probability distributions. Management Science , 22(10):1087–1096, 1976. doi: 10.1287/mnsc.22.10.1087. 23 [67] M. Morzfeld, X. Tu, E. Atkins, and A. J. Chorin. A random map implementation of implicit filters. 
+
+Journal of Computational Physics , 231(4):2049–2066, 2012. doi: 10.1016/j.jcp.2011.11.022. [68] C. A. Naesseth, S. W. Linderman, R. Ranganath, and D. M. Blei. Variational sequential Monte Carlo. In Proceedings of the 21st International Conference on Artificial Intelligence and Statistics (AISTATS) ,volume 84 of Proceedings of Machine Learning Research , pages 968–977. PMLR, 2018. [69] B. Paige and F. Wood. Inference networks for sequential Monte Carlo in graphical models. In 
+
+Proceedings of the 33rd International Conference on Machine Learning , volume 48 of Proceedings of Machine Learning Research , pages 3040–3049. PMLR, 2016. [70] S. G. Penny and T. Miyoshi. A local particle filter for high-dimensional geophysical systems. Nonlinear Processes in Geophysics , 23(6):391–405, 2016. doi: 10.5194/npg-23-391-2016. [71] E. Perez, F. Strub, H. de Vries, V. Dumoulin, and A. Courville. Film: Visual reasoning with a general conditioning layer. Proceedings of the AAAI Conference on Artificial Intelligence , 32(1), Apr. 2018. doi: 10.1609/aaai.v32i1.11671. URL https://ojs.aaai.org/index.php/AAAI/ article/view/11671 .[72] M. K. Pitt and N. Shephard. Filtering via simulation: Auxiliary particle filters. Journal of the American Statistical Association , 94(446):590–599, 1999. doi: 10.1080/01621459.1999.10474153. [73] J. Poterjoy. A localized particle filter for high-dimensional nonlinear systems. Monthly Weather Review ,144(1):59–76, 2016. doi: 10.1175/MWR-D-15-0163.1. [74] F. Rabier, H. Järvinen, E. Klinker, J.-F. Mahfouf, and A. Simmons. The ECMWF operational im-plementation of four-dimensional variational assimilation. I: Experimental results with simplified physics. Quarterly Journal of the Royal Meteorological Society , 126(564):1143–1170, 2000. doi: 10.1256/smsqj.56414. [75] P. Rebeschini and R. van Handel. Can local particle filters beat the curse of dimensionality? The Annals of Applied Probability , 25(5):2809–2866, 2015. doi: 10.1214/14-AAP1061. [76] F. Rozet and G. Louppe. Score-based data assimilation. In Thirty-seventh Conference on Neural Informa-tion Processing Systems , 2023. URL https://openreview.net/forum?id=VUvLSnMZdX .[77] J. Runge, S. Bathiany, E. Bollt, G. Camps-Valls, D. Coumou, E. Deyle, C. Glymour, M. Kretschmer, M. D. Mahecha, J. Muñoz-Marí, E. H. van Nes, J. Peters, R. Quax, M. Reichstein, M. Scheffer, B. Schölkopf, P. Spirtes, G. Sugihara, J. Sun, K. Zhang, and J. Zscheischler. Inferring causation from time series in Earth system sciences. Nature Communications , 10(1):2553, 2019. doi: 10.1038/ s41467-019-10105-3. [78] C. Saharia, W. Chan, S. Saxena, L. Li, J. Whang, E. L. Denton, S. K. S. Ghasemipour, R. Gontijo Lopes, B. Karagol Ayan, T. Salimans, J. Ho, D. J. Fleet, and M. Norouzi. Photorealistic text-to-image diffusion models with deep language understanding. In Advances in Neural Information Processing Systems ,volume 35, pages 36479–36494, 2022. [79] S. Särkkä. Bayesian Filtering and Smoothing . Institute of Mathematical Statistics Textbooks. Cambridge University Press, 2013. doi: 10.1017/CBO9781139344203. [80] T. Savary, F. Rozet, and G. Louppe. Training-free bayesian filtering with generative emulators. In 
+
+Proceedings of the 43rd International Conference on Machine Learning (ICML) , 2026. URL https: //arxiv.org/abs/2605.20028 .24 [81] C. Schraff, H. Reich, A. Rhodin, A. Schomburg, K. Stephan, A. Periáñez, and R. Potthast. Kilometre-scale ensemble data assimilation for the COSMO model (KENDA). Quarterly Journal of the Royal Meteorological Society , 142:1453–1472, 2016. [82] P. Si and P. Chen. Latent-enSF: A latent ensemble score filter for high-dimensional data assimilation with sparse observation data. In The Thirteenth International Conference on Learning Representations ,2025. URL https://openreview.net/forum?id=urcEYsZOBz .[83] G. I. Sivashinsky. Nonlinear analysis of hydrodynamic instability in laminar flames—I. Derivation of basic equations. Acta Astronautica , 4(11–12):1177–1206, 1977. doi: 10.1016/0094-5765(77)90096-0. [84] C. Snyder, T. Bengtsson, P. Bickel, and J. Anderson. Obstacles to high-dimensional particle filtering. 
+
+Monthly Weather Review , 136(12):4629 – 4640, 2008. doi: 10.1175/2008MWR2529.1. URL https: //journals.ametsoc.org/view/journals/mwre/136/12/2008mwr2529.1.xml .[85] C. Snyder, T. Bengtsson, P. Bickel, and J. Anderson. Obstacles to high-dimensional particle filtering. 
+
+Monthly Weather Review , 136(12):4629–4640, 2008. doi: 10.1175/2008MWR2529.1. [86] C. Snyder, T. Bengtsson, and M. Morzfeld. Performance bounds for particle filters using the optimal proposal. Monthly Weather Review , 143(11):4750–4761, 2015. doi: 10.1175/MWR-D-15-0144.1. [87] Y. Song, J. Sohl-Dickstein, D. P. Kingma, A. Kumar, S. Ermon, and B. Poole. Score-based gener-ative modeling through stochastic differential equations. In International Conference on Learning Representations , 2021. URL https://openreview.net/forum?id=PxTIG12RRHS .[88] Y. Song, P. Dhariwal, M. Chen, and I. Sutskever. Consistency models. In Proceedings of the 40th International Conference on Machine Learning (ICML) , volume 202 of Proceedings of Machine Learning Research , pages 32211–32252. PMLR, 2023. [89] J. Tang, R. Bausback, F. Bao, G. Zhang, and P.-T. Huynh. A score filter enhanced data assimilation framework for data-driven dynamical systems. arXiv preprint arXiv:2603.14863 , Mar. 2026. URL 
+
+https://arxiv.org/abs/2603.14863 .[90] T. Transue, B. Chen, S. Takao, and B. Wang. Flow matching for efficient and scalable data assimilation. 
+
+arXiv preprint arXiv:2508.13313 , 2025. doi: 10.48550/arXiv.2508.13313. URL https://arxiv. org/abs/2508.13313 .[91] P. J. van Leeuwen. Nonlinear data assimilation in geosciences: an extremely efficient particle filter. 
+
+Quarterly Journal of the Royal Meteorological Society , 136(653):1991–1999, 2010. doi: 10.1002/qj.699. [92] P. J. van Leeuwen, H. R. Künsch, L. Nerger, R. Potthast, and S. Reich. Particle filters for high-dimensional geoscience applications: A review. Quarterly Journal of the Royal Meteorological Society ,145(723):2335–2365, 2019. doi: 10.1002/qj.3551. [93] P. Xiao, P. Si, and P. Chen. LD-EnSF: Synergizing latent dynamics with ensemble score filters for fast data assimilation with sparse observations. arXiv preprint arXiv:2411.19305 , 2024. doi: 10.48550/arXiv.2411.19305. 25 A Experimental Setup 
+
+A.1 Data split 
+
+For each system we generate 2048 simulated trajectories and split 80/10/10 into train/validation/test. A subset of the test split is used to report results due to compute constraints; exact subset sizes are listed per experiment. 
+
+A.2 FPPF architecture and hyperparameters 
+
+Backbone. For architectural parity, the same backbone with matched parameter count is used as the velocity field in FPPF, the drift network in FlowDAS, and the conditional network in NASMC and InfNN, with only the output head differing across methods. Across all methods we use one of two velocity / feature backbones, picked by spatial structure of the system. (i) For the periodic systems (L96 and KS) the backbone is a 1D ResNet with circular padding and adaptive layer normalization (AdaLN) for flow-time conditioning. Each residual block applies AdaLN( ·, s ) → SiLU → Conv1d circ → AdaLN( ·, s ) → SiLU → Conv1d circ 
+
+with kernel size 5 and a residual skip; AdaLN regresses per-channel (γ, β ) from the flow-time embedding (zero-initialized so the block is initially the identity). The output projection ( 1×1 conv to one channel) is also zero-initialized. (ii) For the low-dimensional system (L63) the backbone is a flat MLP with SiLU activations and concatenation conditioning. The same body is used as the velocity field in FPPF, the drift in FlowDAS, and the conditional density backbone in NASMC and InfNN; the methods differ only in the output head (vector velocity vs. mixture-of-Gaussians vs. RNADE). 
+
+Conditioning. We apply two training-only conditioning regularizers. (1) Similar to classifier-free condition-ing dropout with probability pcond = 0 .1 the conditioning ot is zeroed before being fed to the backbone, so the network sees both conditional and unconditional batches with respect to the observation. (2) Previous-state corruption schedule: during training only, with annealed probability p(t) = max( pmin , p 0 (1 − t/T )) we corrupt xt−1 by zeroing a random subset of its coordinates of size ⌈rmask dx⌉ (no additive Gaussian noise). We use p0 = 0 .3, pmin = 0 .05 , rmask = 0 .4, with T set to the total number of training steps. This forces the conditional network to use ot rather than over-relying on the clean xt−1 on systems whose forward dynamics is highly predictable. The corruption is disabled at inference. 
+
+Training All models are trained for a minimum of 80 epochs, with an early-stopping patience set to 50 epochs. 
+
+L-FPPF patch network. The localized velocity field uϕ is a small 1D ResNet operating on spatial patches of size W = 2 r + 1 . We use radius r = 4 (so W = 9 ), C = 64 channels, 2 residual blocks of kernel size 3, and a 64-dim flow-time embedding fed via AdaLN. Inputs are stacked as a 4-channel window 
+
+[z[j−r:j+r], xt−1,[j−r:j+r], ofull 
+
+> t, [j−r:j+r]
+
+, m t, [j−r:j+r]].
+
+A.3 Baseline Implementation Details 
+
+Auxiliary particle filter (APF). We use the classical Pitt–Shephard [ 72 ] auxiliary-particle filter with the prior proposal q = p(xt | xt−1) and a point look-ahead. Concretely, the auxiliary adjustment multiplier is m(i) 
+
+> t
+
+= g
+
+
+
+ot μ(i)
+
+> t
+
+
+
+, where μ(i) 
+
+> t
+
+= E
+
+h
+
+xt | x(i)
+
+> t−1
+
+i
+
+is the deterministic transition mean (one ∆t Euler 26 step of the true dynamics, no process noise). With q = p, the APF incremental weight collapses to 
+
+log w(i) 
+
+> t
+
+= log g(ot | x(i) 
+
+> t
+
+) − log m(ki) 
+
+> t
+
+, where ki is the ancestor selected in the first-stage resample drawn from λ(i) ∝ w(i)
+
+> t−1
+
+m(i) 
+
+> t
+
+. Weights are reset to the second-stage incremental weight after each step, and a final  
+
+> ESS
+
+< 0.33 N -triggered systematic resample is applied to keep the cloud healthy. 
+
+Ensemble Kalman filter (EnKF). We use EnKF with multiplicative covariance inflation. The inflation factor is tuned over λ ∈ { 0.8, 0.9, 1.0, 1.1} on the validation set and reported at the best-performing λ (lowest RMSE), ensemble size N = 50 .
+
+LETKF. Our LETKF [ 45 ] uses a per-coordinate local analysis on a 1-D periodic spatial domain. For each state index j, observations are tapered by a Gaspari–Cohn polynomial ρ(d/r ) with periodic distance d
+
+(modulo dx) and localization radius r, the local symmetric square-root analysis is solved in ensemble space, and the resulting analysis ensemble member x(i) 
+
+> j
+
+is assembled by stacking centre-coordinate analyses We tune inflation factor on a held-out validation subset over λ ∈ { 0.8, 0.9, . . . , 1.8} and set r to match other localized baselines. For the L96-25 in-distribution and high-dim ( dx ∈ { 50 , 100 , 500 , 1000 }) cells we use 
+
+r = 4 (matched to the L-FPPF localization radius of r = 4 patches), λ = 1 .0, ensemble size N = 50 .
+
+LBPF. The localized BPF is the block-localized particle filter of Farchi and Bocquet [32] : the spatial domain is partitioned into contiguous blocks and the analysis weights, ancestor resampling, and patchwork particle reassembly are computed independently within each block on tapered local likelihoods. We use block size 1 (per-coordinate analysis), with localization radius r = 4 (matched to L-FPPF), and systematic local resampling with the identity-preserving (adjustment-minimizing) ancestor-permutation tie-break of Farchi and Bocquet [32]. No post-regularization jitter is applied. 
+
+FlowDAS. For all FlowDAS experiments [ 14 ] we use the official implementation. The guidance scale is set to 0.01 (selected via ablation), J = 21 Monte Carlo sampling times, learning rate 3 × 10 −4 with early stopping. Inference uses 50 first-order Euler steps. FlowDAS does not produce an ensemble by default; for CRPS we draw 20 independent rollouts per evaluation trajectory and compute CRPS from this empirical predictive distribution. 
+
+NASMC. We follow Gu et al. [38] and report two variants: NASMC K=1 , the single-Gaussian baseline of Gu et al., and NASMC K=3 , the “-MD-” mixture-density variant with K = 3 components (paper default). We do not use the paper’s LSTM history conditioning; conditioning is Markovian on (xt−1, ot), matching the FPPF / InfNN comparison. At evaluation, the trained qϕ is plugged into our standard BPF and inherits all per-cell PF settings ( N , ESS threshold, σx, σy, batch size) from the corresponding FPPF cell. 
+
+InfNN. We use InfNN-RNADE variant from the paper: coordinates are factorized in their natural index order Qdx 
+
+> j=1
+
+qϕ(x(j) 
+
+> t
+
+| x(<j ) 
+
+> t
+
+, xt−1, ot), with each factor a K = 3 -component diagonal Gaussian mixture produced by a 2-layer MLP of hidden size 128 (RNADE head, mirroring the original paper). At evaluation, the trained qϕ is plugged into our standard BPF and inherits all per-cell PF settings ( N , ESS threshold, σx,
+
+σy, batch size) from the corresponding FPPF cell. 27 A.4 Inference time proposal cost 
+
+For all experiments we use Ns = Nℓ = 32 Euler integration steps for both forward sampling and reverse likelihood evaluation, on a uniform time grid for sampling and a γ=2 non-uniform power-back grid for likelihood, where sk = 1 − (1 − uk)γ , γ > 1. This results in smaller step sizes closer to the target distribution. Empirically, we find that the non-uniform grid allowed us to decrease the number of integration steps from 100 to 32 with minimal performance degradation, compared to a uniform grid. A natural direction to reduce the inference-time cost of FPPF, which currently runs ∼32-step Euler integration twice per particle per step (once for sampling, once for likelihood evaluation), is to replace the rectified-flow teacher with a few-step student. Recent work on consistency models [ 88 ], MeanFlow [ 35 ], and Shortcut models [ 33 ] produces high-quality samples in one or a handful of NFEs, and the F2D2 framework [ 2] extends this idea to fast 
+
+divergence estimation, opening a path to also accelerate the likelihood evaluation step rather than only sampling. In our preliminary experiments, however, we found that the resulting few-step proposals were of substantially lower quality than the teacher: students tended to collapse toward the conditional mean, eroding the observation-informed structure that makes the proposal useful in the first place, and the residual bias in the distilled divergence degraded ESS over long horizons. We therefore report the 32-step teacher throughout the main paper. Bridging the gap between distillation quality and proposal informativeness is an interesting direction for reducing the compute cost of FPPF. 
+
+# B Linear-Gaussian System Details 
+
+System. We use dx=8 with xt = Ax t−1 + wt, ot = Hx t + vt, where wt ∼ N (0, Q), vt ∼ N (0, R),and x0 ∼ N (0, I). Writing S for the cyclic shift and C(α)ij = α|i−j| for a Toeplitz correlation, we set A = 0 .92 I + 0 .05 S + 0 .02 S⊤, H = I + 0 .25 S − 0.15 S⊤, Q = 0 .35 2(0 .7 I + 0 .3 C(0 .5)) , R =0.25 2(0 .6 I + 0 .4 C(0 .7)) . A is stable ( ρ(A)<1), H mixes neighbours asymmetrically, and both noises are spatially correlated. All states are observed. 
+
+Dataset. Ntraj =1024 trajectories of length T =200 after a 100 -step burn-in, split 80 /10 /10 by trajectory into train / val / test. 
+
+Optimal proposal. For this system q⋆(xt | xt−1, ot) is Gaussian with 
+
+K = QH ⊤(HQH ⊤ + R)−1, μ⋆ = Ax t−1 + K(ot − HAx t−1), Σ⋆ = ( I − KH )Q.
+
+Σ⋆ is independent of (xt−1, ot), so all conditioning enters through μ⋆. This is the target the learned proposal 
+
+qϕ must match. 
+
+Bootstrap reference. The dynamics prior qb(xt | xt−1) = N (Ax t−1, Q) ignores ot and serves as the floor a useful learned proposal must beat. 
+
+# C Full Lorenz-96 Results 
+
+Complete results are in Table 3 and Table 4. 28 State Dimension dx
+
+Method 5 10 15 20 25 50 
+
+RMSE ↓
+
+BPF 0.303 ± 0.030 0.357 ± 0.036 0.364 ± 0.029 0.419 ± 0.038 0.480 ± 0.046 0.743 ± 0.122 
+
+APF 0.304 ± 0.036 0.353 ± 0.033 0.356 ± 0.029 0.401 ± 0.037 0.450 ± 0.039 0.673 ± 0.099 
+
+EnKF 0.287 ± 0.050 0.326 ± 0.056 0.365 ± 0.056 0.416 ± 0.069 0.448 ± 0.074 0.724 ± 0.151 
+
+NASMC-Gauss 0.430 ± 0.068 0.529 ± 0.084 0.573 ± 0.101 0.617 ± 0.146 0.653 ± 0.145 0.762 ± 0.167 
+
+NASMC-MD 0.471 ± 0.071 0.533 ± 0.100 0.577 ± 0.108 0.614 ± 0.102 0.659 ± 0.128 0.751 ± 0.143 
+
+InfNN 0.524 ± 0.192 1.000 ± 0.411 1.363 ± 0.316 2.117 ± 0.415 2.467 ± 0.392 3.396 ± 0.231 
+
+FPPF 0.189 ± 0.027 0.287 ± 0.070 0.217 ± 0.043 0.238 ± 0.037 0.235 ± 0.032 0.323 ± 0.114 
+
+FlowDAS 0.438 ± 0.191 0.562 ± 0.366 0.505 ± 0.293 0.735 ± 0.282 0.603 ± 0.295 0.970 ± 0.313 
+
+CRPS ↓
+
+BPF 0.195 ± 0.013 0.212 ± 0.018 0.212 ± 0.012 0.233 ± 0.018 0.262 ± 0.023 0.439 ± 0.078 
+
+APF 0.195 ± 0.015 0.210 ± 0.016 0.209 ± 0.012 0.225 ± 0.016 0.246 ± 0.018 0.381 ± 0.063 
+
+EnKF 0.174 ± 0.024 0.186 ± 0.026 0.203 ± 0.029 0.229 ± 0.037 0.246 ± 0.041 0.422 ± 0.094 
+
+NASMC-Gauss 0.263 ± 0.041 0.332 ± 0.058 0.358 ± 0.067 0.393 ± 0.092 0.423 ± 0.095 0.501 ± 0.097 
+
+NASMC-MD 0.292 ± 0.044 0.336 ± 0.067 0.360 ± 0.069 0.391 ± 0.067 0.423 ± 0.081 0.493 ± 0.083 
+
+InfNN 0.325 ± 0.142 0.662 ± 0.301 0.908 ± 0.224 1.448 ± 0.283 1.711 ± 0.264 2.450 ± 0.176 
+
+FPPF 0.115 ± 0.013 0.165 ± 0.044 0.122 ± 0.022 0.132 ± 0.018 0.132 ± 0.017 0.183 ± 0.056 
+
+FlowDAS 0.281 ± 0.109 0.330 ± 0.213 0.277 ± 0.162 0.411 ± 0.163 0.316 ± 0.152 0.530 ± 0.177 
+
+Table 3: Lorenz-96 results on the arctan observation operator at observation noise σy = 0 .2 across state dimensions. Best results in bold ; second best underlined. 
+
+# D Full High-dimensional Lorenz-96 Results 
+
+Complete results are in Table 5 and Table 6. 29 State Dimension dx
+
+Method 5 10 15 20 25 50 
+
+RMSE ↓
+
+BPF 0.279 ± 0.034 0.411 ± 0.070 0.404 ± 0.051 0.591 ± 0.318 0.803 ± 0.474 1.942 ± 0.552 
+
+APF 0.288 ± 0.032 0.416 ± 0.061 0.429 ± 0.071 0.606 ± 0.367 0.772 ± 0.471 1.878 ± 0.560 
+
+EnKF 0.757 ± 0.976 1.661 ± 1.580 2.621 ± 1.543 3.157 ± 1.319 3.474 ± 1.149 4.353 ± 0.531 
+
+NASMC-Gauss 0.556 ± 0.332 0.957 ± 0.690 1.060 ± 0.650 1.248 ± 0.699 1.502 ± 0.707 1.425 ± 0.486 
+
+NASMC-MD 0.639 ± 0.419 0.857 ± 0.616 1.050 ± 0.574 1.416 ± 0.796 1.184 ± 0.628 1.605 ± 0.514 
+
+InfNN 0.962 ± 1.086 3.282 ± 0.914 3.599 ± 0.624 4.213 ± 0.425 4.314 ± 0.424 4.726 ± 0.262 
+
+FPPF 0.201 ± 0.032 0.321 ± 0.125 0.237 ± 0.059 0.382 ± 0.310 0.254 ± 0.068 0.519 ± 0.298 
+
+FlowDAS 0.354 ± 0.132 0.560 ± 0.387 0.510 ± 0.283 0.740 ± 0.288 0.629 ± 0.320 0.945 ± 0.321 
+
+CRPS ↓
+
+BPF 0.205 ± 0.013 0.250 ± 0.036 0.242 ± 0.023 0.332 ± 0.176 0.456 ± 0.307 1.213 ± 0.396 
+
+APF 0.207 ± 0.013 0.250 ± 0.030 0.253 ± 0.033 0.342 ± 0.226 0.431 ± 0.302 1.143 ± 0.385 
+
+EnKF 0.520 ± 0.772 1.145 ± 1.203 1.761 ± 1.157 2.102 ± 1.022 2.368 ± 0.941 3.102 ± 0.491 
+
+NASMC-Gauss 0.358 ± 0.263 0.657 ± 0.539 0.703 ± 0.456 0.823 ± 0.482 0.961 ± 0.487 0.901 ± 0.311 
+
+NASMC-MD 0.423 ± 0.335 0.581 ± 0.472 0.697 ± 0.410 0.920 ± 0.542 0.773 ± 0.421 0.995 ± 0.333 
+
+InfNN 0.684 ± 0.915 2.441 ± 0.747 2.606 ± 0.538 3.149 ± 0.381 3.227 ± 0.401 3.651 ± 0.244 
+
+FPPF 0.125 ± 0.017 0.191 ± 0.083 0.134 ± 0.032 0.223 ± 0.205 0.142 ± 0.037 0.289 ± 0.143 
+
+FlowDAS 0.233 ± 0.075 0.331 ± 0.229 0.283 ± 0.154 0.411 ± 0.163 0.330 ± 0.165 0.511 ± 0.181 
+
+Table 4: Lorenz-96 results on the quadratic capped observation operator at observation noise σy = 0 .2 across state dimensions. Best results in bold ; second best underlined. 
+
+State Dimension dx
+
+Method 50 100 500 1000 
+
+RMSE ↓
+
+L-FPPF 0.287 ± 0.012 0.300 ± 0.014 0.293 ± 0.007 0.299 ± 0.004 
+
+LETKF 0.316 ± 0.022 0.319 ± 0.015 0.319 ± 0.007 0.318 ± 0.004 LBPF 0.366 ± 0.016 0.370 ± 0.011 0.372 ± 0.005 0.372 ± 0.004 APF 0.669 ± 0.087 1.082 ± 0.183 2.386 ± 0.135 2.732 ± 0.089 BPF 0.743 ± 0.122 1.232 ± 0.224 2.421 ± 0.146 2.776 ± 0.090 EnKF 0.706 ± 0.133 1.187 ± 0.220 2.278 ± 0.162 2.522 ± 0.109 
+
+CRPS ↓
+
+L-FPPF 0.156 ± 0.006 0.162 ± 0.006 0.158 ± 0.003 0.161 ± 0.002 
+
+LETKF 0.177 ± 0.009 0.178 ± 0.006 0.177 ± 0.003 0.177 ± 0.002 LBPF 0.212 ± 0.007 0.213 ± 0.004 0.213 ± 0.002 0.213 ± 0.002 APF 0.377 ± 0.053 0.707 ± 0.120 1.727 ± 0.103 2.021 ± 0.072 BPF 0.439 ± 0.078 0.827 ± 0.150 1.757 ± 0.110 2.058 ± 0.070 EnKF 0.411 ± 0.082 0.755 ± 0.144 1.599 ± 0.116 1.803 ± 0.084 
+
+Table 5: High-dimensional Lorenz-96 results with local filtering methods on the arctangent observation operator ot,j = arctan( xt,j ) + ϵ at observation noise σy = 0 .2. Best results in bold ; second best underlined. 30 State Dimension dx
+
+Method 50 100 500 1000 
+
+RMSE ↓
+
+L-FPPF 0.670 ± 0.339 0.669 ± 0.245 0.698 ± 0.125 0.752 ± 0.075 
+
+LETKF 1.935 ± 0.785 2.017 ± 0.640 2.152 ± 0.249 2.144 ± 0.175 LBPF 0.684 ± 0.226 0.698 ± 0.254 0.785 ± 0.132 0.812 ± 0.085 APF 1.908 ± 0.540 2.457 ± 0.356 3.087 ± 0.124 3.236 ± 0.087 BPF 1.942 ± 0.552 2.534 ± 0.359 3.081 ± 0.124 3.245 ± 0.090 EnKF 4.317 ± 0.538 4.623 ± 0.360 3.628 ± 0.222 3.318 ± 0.139 
+
+CRPS ↓
+
+L-FPPF 0.358 ± 0.158 0.338 ± 0.090 0.337 ± 0.043 0.349 ± 0.024 
+
+LETKF 0.954 ± 0.439 0.951 ± 0.346 0.979 ± 0.159 0.970 ± 0.115 LBPF 0.366 ± 0.091 0.366 ± 0.106 0.375 ± 0.041 0.383 ± 0.027 APF 1.168 ± 0.369 1.633 ± 0.277 2.267 ± 0.106 2.421 ± 0.075 BPF 1.213 ± 0.396 1.708 ± 0.278 2.268 ± 0.100 2.429 ± 0.072 EnKF 3.065 ± 0.500 3.392 ± 0.337 2.629 ± 0.190 2.410 ± 0.117 
+
+Table 6: High-dimensional Lorenz-96 results with local filtering methods on the observation operator 
+
+min( x4 
+
+> t
+
+, 10) at observation noise σy = 0 .2. Best results in bold ; second best underlined. 31

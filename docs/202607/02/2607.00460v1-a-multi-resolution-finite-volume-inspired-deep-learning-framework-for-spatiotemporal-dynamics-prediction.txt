@@ -1,0 +1,879 @@
+Title: A Multi-Resolution Finite-Volume Inspired Deep Learning Framework for Spatiotemporal Dynamics Prediction
+
+URL Source: https://arxiv.org/pdf/2607.00460v1
+
+Published Time: Thu, 02 Jul 2026 00:31:30 GMT
+
+Number of Pages: 19
+
+Markdown Content:
+# A M ULTI -R ESOLUTION FINITE -V OLUME INSPIRED DEEP 
+
+# LEARNING FRAMEWORK FOR SPATIOTEMPORAL DYNAMICS 
+
+# PREDICTION 
+
+A P REPRINT 
+
+## Xin-Yang Liu 1, Xiantao Fan 1, 2 , and Jian-Xun Wang 1,2,* 
+
+> 1
+
+Department of Aerospace and Mechanical Engineering, University of Notre Dame, Notre Dame, IN, USA 
+
+> 2
+
+Sibley School of Mechanical and Aerospace Engineering, Cornell University, Ithaca, NY, USA 
+
+> *
+
+Corresponding author: jw2837@cornell.edu 
+
+July 2, 2026 
+
+## ABSTRACT 
+
+Predicting complex spatiotemporal dynamics in physical processes often demands computationally expensive numerical methods or data-driven neural networks that suffer from high training costs, error accumulation, and limited generalizability to unseen parameters. An effective approach to address these challenges is leveraging physics priors in training neural networks, known as physics-informed deep learning (PiDL). In this work, we introduce the Multi-Resolution Finite-Volume-inspired network, MuRFiV, designed to capitalize on the conservative property of finite volume on the global scale and the expressive power of deep learning on the local scale. We demonstrate the effectiveness of MuRFiV on several spatio-temporal systems governed by partial differential equations (PDEs), including Burgers’ equation, shallow water equations, and incompressible Navier-Stokes equations. By embedding PDE information into the deep learning architecture, MuRFiV achieves strong long-term prediction accuracy and remains stable over very long autoregressive rollouts, significantly outperforming data-driven neural network baselines. This result highlights the promise of combining multiresolution learning with finite-volume-inspired inductive bias for accurate and robust long-term prediction of complex dynamics. 
+
+Keywords Deep Learning · Scientific Machine Learning · Multi-Resolution · Computational Mechanics 
+
+## 1 Introduction 
+
+Spatiotemporal dynamics are central to many problems in science and engineering, including shock formation, transport and mixing, turbulence, and large-scale environmental prediction. Many of these systems are naturally posed as initial-boundary value problems for partial differential equations (PDEs). Obtaining numerically reliable solutions at useful spatial and temporal resolutions, however, remains computationally demanding. Stability restrictions such as the Courant–Friedrichs–Lewy condition, the need to resolve disparate scales, and repeated simulations for design, control, or uncertainty quantification can together lead to large wall-clock costs even on modern hardware. Classical finite-difference, finite-volume, finite-element, and spectral methods offer well-established accuracy and stability properties, but they often require dense meshes and small time steps to control truncation error over long horizons. Deep-learning-based surrogate models seek to amortize this cost by replacing repeated numerical solves with a training stage followed by fast inference. Data-driven models have achieved strong predictive accuracy on canonical PDE benchmarks, including convolutional neural network (CNN) models for Cartesian grids [ 1], graph neural network (GNN) simulators for irregular meshes [ 2 , 3], and neural operators for learning mappings between function spaces across discretizations [ 4, 5]. Despite these successes, purely data-driven surrogates are often black-box models that rely on large amounts of labeled trajectory data and can generalize poorly outside the training distribution. This limitation 
+
+> arXiv:2607.00460v1 [cs.CE] 1 Jul 2026
+
+A Multi-Resolution Finite-Volume Inspired Deep Learning Framework for Spatiotemporal Dynamics Prediction is especially consequential for autoregressive rollout, where small one-step errors can compound into unstable or physically inconsistent long-term predictions. Physics-informed deep learning (PiDL) addresses these limitations by incorporating knowledge of governing laws into the learning problem. Physics-informed neural networks (PINNs) [ 6] and physics-constrained surrogate models [ 7]reduce the dependence on labeled data by penalizing violations of governing equations, conservation laws, initial conditions, and boundary conditions. These approaches improve data efficiency and physical consistency, but several practical challenges remain. Multi-objective loss balancing can be sensitive to normalization and weighting, residuals from stiff or strongly nonlinear operators can be difficult to optimize, and satisfying residual constraints during training does not by itself guarantee stable long-term autoregressive prediction. Recent advances in differentiable solvers have enabled another class of hybrid PiDL methods that couple neural networks with numerical operators and train the combined system end to end. For example, Bar-Sinai et al. [ 8] learned data-driven discretizations for PDEs, Kochkov et al. [ 9] accelerated fluid simulation by replacing parts of the Navier–Stokes solver with neural networks, and Fan et al. [ 10 ] used differentiable hybrid neural modeling for fluid–structure interaction. Other studies have shown that solver-in-the-loop training and embedded numerical operators can improve long-horizon prediction by introducing useful inductive bias [ 11 , 12 , 13 ]. Beyond finite-difference-style operators, finite-volume and finite-element ideas have also been incorporated into learnable simulation frameworks to improve conservation, geometric flexibility, and operator reuse [14, 15, 16]. Although these hybrid methods have substantially improved the accuracy and robustness of neural surrogates, important gaps remain. In many approaches, the trainable component is still a generic neural architecture whose internal representation is only weakly aligned with the conservative structure of the underlying dynamics. Moreover, applying embedded numerical operators on coarse meshes can reduce cost but may lose fine-scale information, whereas applying them densely at high resolution can inherit the computational burden and stability limitations of the original solver. These issues motivate architectures that encode conservation and multiscale structure directly into the prediction mechanism while retaining the flexibility of learnable models. In this work, we propose the Multi-Resolution Finite-Volume-inspired network (MuRFiV), a deep architecture for long-term prediction of spatiotemporal dynamics. The central idea is to separate the evolution of subdomain averages from the reconstruction of high-resolution local structure. At the global scale, MuRFiV uses a finite-volume-inspired global model to predict changes in subdomain averages through fluxes across subdomain interfaces. At the local scale, a shared local model reconstructs intra-subdomain local fluctuations and enforces a zero-mean constraint so that the reconstructed fine-scale field remains consistent with the global average. The framework can be used as MuRFiV-Eq, where an embedded numerical operator provides physics-based flux information corrected by the global network, or as MuRFiV-NoEq, where the global network learns the interface fluxes directly. 
+
+Contributions. 
+
+• Finite-volume-inspired architecture for stable roll We design MuRFiV around domain decomposition, flux-based global updates, and local residual reconstruction, embedding conservative structure directly into the prediction architecture. A lightweight local network is shared across subdomains to reconstruct fine-scale local fluctuations, making high-resolution feature prediction parameter efficient. out. • High-quality embedded operators through interface-only flux prediction. In MuRFiV-Eq, the embedded numerical operator is evaluated on the original fine mesh only along subdomain interfaces, where the global network corrects the fluxes used to update subdomain averages. This design preserves high-quality physics-based flux information at the locations that control global evolution, while keeping the cost low by avoiding dense operator evaluation over the full domain. • Robust prediction across canonical PDE systems. Across one- and two-dimensional Burgers’ equations, shallow water equations, and incompressible Navier–Stokes equations, MuRFiV achieves accurate long-term autoregressive prediction, improves stability relative to data-driven baselines, and generalizes to unseen physical parameters. Together, these contributions show that combining finite-volume-inspired conservation with multi-resolution learning provides a practical route to accurate, stable, and efficient neural surrogates for spatiotemporal dynamics. 
+
+## 2 Methodology 
+
+2.1 Problem Formulation 
+
+We consider modeling spatiotemporal dynamics governed by general conservative PDEs of the following form: 2A Multi-Resolution Finite-Volume Inspired Deep Learning Framework for Spatiotemporal Dynamics Prediction 
+
+∂u
+
+∂t = ∇ · F(u, ∇u, ∇2u, · · · , λ) + Q(u), x, t ∈ Ω × [0 , T ], λ ∈ Rm (1) 
+
+I x, u, ∇2
+
+> x
+
+u, ∇xu · u, λ = 0, x ∈ Ω, t = 0 , λ ∈ Rm (2) 
+
+B t, x, u, ∇2
+
+> x
+
+u, ∇xu · u, λ = 0, x, t ∈ ∂Ω × [0 , T ], λ ∈ Rm (3) where u(x, t ) is the state variable while x and t are the space and time coordinates, respectively. F is a non-linear operator parameterized by λ, while the Q represents any other terms that cannot be formulated as divergence (e.g. body force, volumetric source/sink term). Traditionally, numerical methods are leveraged to resolve these spatiotemporal dynamics, where the numerical operator 
+
+S can be formulated as: 
+
+uti = S(uti−1 , λ), i ∈ { 1, 2, · · · , N } (4) where uti denotes the state variable at the ith time step ( ti). Please note that the time interval ( [ti−1, t i], ∆T = ti −ti−1)is generally determined by the dynamics, which can be much longer than the actual numerical step size ( ∆t, ∆t ≪ ∆T )used by the solver due to numerical stability consideration, and the notation S may represent the composite operator of many numerical time iterations. In this work, we are interested in training a neural surrogate model N given the training dataset S and a validation set V such that: 
+
+min  
+
+> θ
+
+L({˜uti }, V)
+
+where, 
+
+
+
+˜uti = N (˜ uti−1 , λ; θ)
+
+· · · 
+
+˜ut1 = N (ut0 , λ; θ), ut0 ∈ V
+
+(5) where θ represents the trainable parameters of the neural surrogate model, and L is the loss function. In this work, Mean Squared Error (MSE) was used as the loss function. Once the model is properly trained, the spatiotemporal trajectory can be predicted by rolling out the surrogate model auto-regressively. 
+
+2.2 Design Overview of MuRFiV 
+
+MuRFiV consists of two major trainable components: the global network N G and the local network N L, together with an optional component containing numerical operators. The detailed structure schematic of MuRFiV is shown in Fig. 1. In particular, the global network is designed to capture large-scale dynamics while the local network focuses on learning small-scale features. Domain decomposition is leveraged to achieve multi-scale learning effectively and the entire computational domain is decomposed into connected and disjoint subdomains. In contrast to many previous hybrid neural solvers, where numerical operators work on down-sampled resolution for lower computational cost at the expense of degraded accuracy or missing details, the numerical operators in MuRFiV calculate the average change over each subdomain by evaluating the fluxes over subdomain interfaces based on the results at the original high resolution. In such a way, not only high accuracy is preserved but also it is achieved at a relatively low computational cost thanks to the spatial sparsity of the subdomain interfaces. 
+
+2.3 Domain Decomposition 
+
+For a D-dimensional computational domain defined in a Euclidean space Ω = [ ld, h d]D , where ld and hd represent the lower and higher boundary coordinates of the dth dimension, respectively. We decompose the computational domain into 
+
+Ns = QDd=1 nd connected and disjoint subdomains Ωj , where j = [ j1, · · · , j d, · · · , j D ], j ∈ J, jd ∈ { 1, 2, · · · , n d}
+
+represents the index of the subdomain Ωj . In this work, we use uniform decomposition for ease of implementation, where every subdomain is an orthotope (e.g., line segment in 1D, rectangle in 2D, cuboid in 3D, ...) and is identical to the others. 
+
+2.4 Global Model 
+
+For conservative systems, the Finite Volume Method calculates the integral average of the state variable by applying Gauss’s Law to the governing equation (Eq. 3): 
+
+∂ ¯uj
+
+∂t Vj =
+
+˚
+
+> Ωj
+
+∂u
+
+∂t dV =
+
+‹
+
+> ∂Ωj
+
+F(u, ∇u, ∇2u, · · · , λ) · n dS +
+
+˚
+
+> Ωj
+
+Qi(u) dV (6) 3A Multi-Resolution Finite-Volume Inspired Deep Learning Framework for Spatiotemporal Dynamics Prediction Flux        
+
+> 𝒩 !
+> 𝒖 "!
+> 𝒖 "!"#
+> #
+> 𝒖 "!"#
+> Numerical
+> Operators
+> ℱ(𝒖 ,∇𝒖 ,∇!𝒖 ,∇⋅𝒖 ,⋯)
+> 𝒩 $
+> 𝒖 #"!"#
+
++ ⨀+
+
+> Flux on Fine Mesh
+> Mesh
+> Subdomain boundaries
+> Flux Over Subdomain
+> Region for Demo
+> ∭ ∇ ⋅ 𝒖  d𝑉  = ∯ 𝒖  ⋅ 𝒏  d𝑆
+> Zero Mean
+> +
+> Interpolation
+> 𝝀
+> Re, Source term, …
+> Full Field
+> For Each
+> Subdomain
+
+Figure 1: Schematic of MuRFiV. MuRFiV consists of three components: local neural network ( N L, shown in the blue box), global neural network ( N G, shown in the orange box), and an optional numerical operators component approximating flux ( F, shown in dashed black box). The local network handles local feature mapping and the same local network is shared over the entire computational domain. The global network learns to predict the flux (when no numerical operators are used) at subdomain interfaces or to correct the error of such flux (when numerical operators are presented). The lower dashed black box illustrates how the embedded numerical operator works. The fluxes are only calculated along the subdomain boundaries based on the original fine mesh (shown by the white arrows), and the flux across the subdomain equals the summation of these (represented by the dark orange arrows). where ¯uj is the integration average over the subdomain Ωj (¯uj = 1
+
+> Vj
+
+˝ 
+
+> Ωj
+
+u dV ). F is the numerical operator calculating flux at each subdomain interface and n is the unit normal vector of a subdomain interface with an area of 
+
+S. For a given training set S, all state variables are stored at discretized time steps with a fixed time interval ∆T (i.e. learning step size), where: 
+
+∆¯ uti,j = ¯ uti,j − ¯uti−1,j =
+
+ˆ ti
+
+> ti−1
+
+∂ ¯uj
+
+∂t dt + ϵ (7) where ϵ is the discretization and truncation error of the numerical solver S. Since this work aims to train a surrogate model, we assume the solution obtained from numerical solvers is the ground truth ( ϵ → 0). MuRFiV uses a global model MG to predict the average change: g∆¯ uti = MG(uti−1 , λ; θG), where θG are the trainable parameters. In MuRFiV, a global neural network N G together with optional embedded numerical operators Se consists of the global model MG.
+
+2.4.1 Modeling Flux between Subdomain 
+
+In MuRFiV, the optional embedded numerical operator ( Se) approximates the change of the integral average g∆¯ usti,j
+
+using forward Euler scheme based on the previous learning step: 
+
+g∆¯ usti,j ≈ ∆TVj
+
+· ∂ ¯uj
+
+∂t ti−1
+
+(8a) 
+
+= ∆TVj
+
+·
+
+
+
+‹
+
+> ∂Ωj
+
+F(u, ∇u, ∇2u, · · · , λ) · ˜n dS
+
+> ti−1
+
++
+
+˚
+
+> Ωj
+
+Qi(u) dV
+
+> ti−1
+
+ (8b) 
+
+= ∆TVj
+
+· Se (u (x, t i−1) , λ) , x ∈ ∂Ωj ∪ ∂ΩA 
+
+> j
+
+(8c) 4A Multi-Resolution Finite-Volume Inspired Deep Learning Framework for Spatiotemporal Dynamics Prediction where ΩA 
+
+> j
+
+denotes the adjacent subdomains of Ωj . The only error introduced in Eq. 8 is due to the large time step (∆T ) used in the Euler discretization (Eq. 8a) compared to the ground truth solver S. While the spatial discretization used in Eq. 8b is mathematically equivalent to S attributed to applying Gauss’s Law on the fine mesh. Meanwhile, such operators Se are only applied to the boundaries of each subdomain. By leveraging Gauss’s Law, MuRFiV’s numerical operator Se can achieve high accuracy at a significantly lower computational cost. 
+
+2.4.2 Global Neural Network 
+
+When MuRFiV is equipped with the numerical operators Se (MuRFiV-Eq), a global neural network N G is designed to correct the error introduced by Eq. 8a due to large time step size ∆T :
+
+F N 
+
+> c
+
+(x, t i) = N G(uti−1 , λ; θG) , x ∈ ∂Ωb, (9) where F N 
+
+> c
+
+(x, t i) represents the correction of the integration of flux over time [ti−1, t i] predicted by the global neural network, while ∂Ωb denotes the interfaces of all subdomains. Then the change of the integral average ∆¯ uti,j for each subdomain j is approximated by g∆¯ uti,j where: 
+
+g∆¯ uti,j = MG(uti−1 , λ; θG) = ∆TVj
+
+Se (u (x, t i−1) , λ) + X
+
+> x∈∂Ωj
+
+F N 
+
+> c
+
+(x, t i) · n (10) When no equations are leveraged (MuRFiV-NoEq), the Global Network N G will directly predict the fluxes ( F N )instead of a correction of the fluxes. Thus the integral average change for each subdomain j is calculated by: 
+
+g∆¯ uti,j = MG(uti−1 , λ; θG) = X
+
+> x∈∂Ωj
+
+F N (x, t i) · n (11) 
+
+2.5 Local Model 
+
+The local model ML is designed to predict the variance of the state variable within each subdomain u′ 
+
+> ti,j
+
+and the local model is shared among all the subdomains for efficient use of training data as well as trainable parameters. u′ 
+
+> ti,j
+
+is defined as: 
+
+u′(x, t i) = u(x, t i) − ¯uti,j = u(x, t i−1) + ∆¯ uti,j , x ∈ Ωj (12) Based on the definition above, the variable u′ 
+
+> ti,j
+
+has a “zero-mean” property for each subdomain: 
+
+˚
+
+> Ωj
+
+u′ 
+
+> ti,j
+
+dV =
+
+˚
+
+> Ωj
+
+u(x, t i) dV − ¯uti,j · Vj = 0 (13) The local model takes advantage of the “zero-mean” property as an extra normalization during the model forward pass when predicting the local variance ˜u′ 
+
+> ti,j
+
+, which significantly improves the robustness of MuRFiV in the long-term rollout. 
+
+˜u′(xout , t i) = ML (u(xin , t i−1), λ; θL) (14a) 
+
+= ˜ u′N (xout , t i) − 1
+
+Vj
+
+˚
+
+> Ωj
+
+˜u′N (xout , t i) dV (14b) where ˜u′N (xout , t i) = N L (u(xin , t i−1), λ; θL) + In(g∆¯ uti,j ) , xin ∈ Ωj ∪ ΩA 
+
+> j
+
+, xout ∈ Ωj (14c) The N L denotes the local neural network, with trainable parameters θL, and In is a deterministic interpolation function (e.g. nearest, linear, cubic), which up-samples the predicted average change over subdomain Ωj to the mesh resolution. When the local neural network is predicting ˜u′ at a discretized mesh grid, the integral mean in Eq. 14b will degrade to algebraic average. For each subdomain, both the historical information ( ˜u′ 
+
+> ti−1,j
+
+) and its adjacent subdomain information ( ˜u′(x, t i−1), x ∈ ΩA 
+
+> j
+
+) will pose influence on the local variance, thus the local model takes the input of both the query subdomain but also its adjacent subdomains ΩA 
+
+> j
+
+. In one-dimensional cases, ΩA 
+
+> j
+
+is defined as {Ωj1−1, Ωj1+1 },while for two-dimensional cases, ΩA 
+
+> j
+
+is given by: 
+
+(Ωj1−1,j 2−1, Ωj1−1,j 2 Ωj1−1,j 2+1 
+
+Ωj1,j 2−1, Ωj1,j 2 Ωj1,j 2+1 
+
+Ωj1+1 ,j 2−1, Ωj1+1 ,j 2 Ωj1+1 ,j 2+1 
+
+)
+
+.
+
+2.6 Long-term Prediction of Spatiotemporal Dynamics at High Resolution 
+
+Once we have the Global Model and Local Model ready, MuRFiV predicts the spatiotemporal dynamics at the original high resolution in an autoregressive manner: 
+
+˜u(x, t 1) = MG(ut0,j , λ; θG) + ML(ut0,j , λ; θL)˜u(x, t i) = MG(˜ uti−1,j , λ; θG) + ML(˜ uti−1,j , λ; θL) , i ≥ 2 (15) 5A Multi-Resolution Finite-Volume Inspired Deep Learning Framework for Spatiotemporal Dynamics Prediction 0 2                                 
+
+> U-Net
+> 0100 200 300 400 500
+> Rollout Step  i
+> 02
+> MuRFiV-NoEq
+> 02
+> MuRFiV-Eq
+> 02
+> Reference
+> -3.0 -2.5 -2.0 -1.5
+> (a) Re = 50
+> 02
+> U-Net
+> 0100 200 300 400 500
+> Rollout Step  i
+> 02
+> MuRFiV-NoEq
+> 02
+> MuRFiV-Eq
+> 02
+> Reference
+> -2.0 -1.0 0.0 1.0
+> (b) Re = 170
+> 0.00
+> 0.25
+> Error  (c)
+> 10 2
+> 10 1
+> 10 0
+> 10 1
+> Error
+> (d) Re = 50
+> 10 2
+> 10 0
+> Error
+> (e) Re = 110
+> 0100 200 300 400 500
+> Rollout Step i
+> 10 2
+> 10 0
+> Error
+> (f) Re = 170
+
+Figure 2: Forecasting performance comparison between U-Net, MuRFiV-NoEq, MuRFiV-Eq, and the reference data on 1D Burgers’ equation. (a) and (b) Predicted velocity ( u) fields from two representative test cases at different time steps, with Reynolds number Re = 50 , and Re = 170 , respectively. (c) Change of mean prediction error over time ϵ
+
+averaged over all Reynolds numbers and initial conditions (error in linear scale) and (d-f) averaged error over initial conditions for different test Reynolds numbers (error in log scale). Blue: U-Net ( ); Yellow: MuRFiV-NoEq ( ); Red: MuRFiV-Eq ( ). Shaded area represents the envelop of error across cases. 
+
+## 3 Results 
+
+In this section, we demonstrate the performance advantages of two MuRFiV variants in predicting long-term spatiotem-poral dynamics, comparing them against U-Net baselines with slightly larger model size. To ensure a fair comparison, all models undergo the same training procedure, consisting of one-step teacher-forcing followed by autoregressive rollout training. Models are evaluated using the checkpoint with the lowest validation loss. Rollout results on training initial conditions and training physical parameters are provided in Appendix C. 
+
+3.1 One-dimensional Burgers’ Equation 
+
+We begin by evaluating MuRFiV on the one-dimensional viscous Burgers’ equation with periodic boundary conditions: 
+
+∂u ∂t = −u ∂u ∂x + ν ∂2u∂x 2 , x ∈ [0 , 2π], t ∈ [0 , ∞) (16) where ν denotes viscosity. The Reynolds number is defined as Re = 1 /ν . The training dataset comprises 48 trajectories across four Reynolds numbers {20 , 80 , 140 , 200 }, stored on a uniform mesh with 1024 cells. Each trajectory starts from an initial condition randomly sampled from a 16-dimensional function space and contains 129 temporal snapshots with a time interval ∆T = 0 .01 seconds. Further details on dataset generation are provided in Appendix A.1. We train the three models on the same dataset with 100 epochs of one-step teacher-forcing training followed by 50 epochs of eight-setp rollout training. In MuRFiV, we divide the domain into 32 subdomains of the same size, each with 32 cells. We then investigate the prediction capability of MuRFiV by evaluating its performance on 36 testing trajectories with unseen Reynolds numbers ( Re ∈ { 30 , 50 , 70 }) and unseen initial conditions drawn from the same distribution. The test dataset therefore probes both long-term rollout accuracy and parameter generalization beyond the training set. Figure 2 presents the forecasting results on this extrapolation task. Visualizations of the predicted velocity field for representative low and high Reynolds numbers are shown in Figure 2(a) and (b). Both MuRFiV variants demonstrate robust generalization, accurately capturing shock formation and propagation despite the shift in physical parameters. In contrast, the U-Net baseline exhibits significant performance degradation, failing to produce physically consistent predictions in the extrapolation regime. The quantitative superiority of MuRFiV is reinforced by the error analysis in Figure 2(c-f). Panel (c) reports the average error across all testing cases on a linear scale, while panels (d-f) show the error evolution for specific Reynolds 6A Multi-Resolution Finite-Volume Inspired Deep Learning Framework for Spatiotemporal Dynamics Prediction numbers on a log scale. Although U-Net exhibits a lower error ϵ than MuRFiV during the initial rollout steps, it quickly accumulates error as autoregressive prediction proceeds. In contrast, both MuRFiV variants maintain stable and accurate predictions over long-term integration, indicating superior robustness against error accumulation. Furthermore, MuRFiV-Eq demonstrates lower prediction error than MuRFiV-NoEq across the unseen Reynolds numbers, underscoring the efficacy of embedding physical operators within the model structure. This enhanced generalizability suggests that the finite-volume backbone and multi-resolution hierarchy enable MuRFiV to learn the underlying physical dynamics rather than merely overfitting to the training data distribution. 
+
+3.2 Two-dimensional Burgers’ Equation 
+
+We extend our evaluation to the two-dimensional scalar Burgers’ equation with periodic boundary conditions: 
+
+∂u ∂t = −
+
+
+
+u ∂u ∂x + u ∂u ∂y 
+
+
+
++ ν
+
+ ∂2u∂x 2 + ∂2u∂y 2
+
+
+
+, (x, y ) ∈ [0 , 2π]2, t ∈ [0 , ∞) (17) where ν represents the viscosity. Similar to the 1D case, the dataset includes trajectories with varying Reynolds numbers ( Re = 1 /ν ∈ { 20 , 40 , 60 , 80 }), stored on uniform mesh of size 1024 × 1024 . For each Reynolds number, the training trajectories starts from 36 different ICs randomly sampled from a 72-dimensional distributions and contains 129 temporal snapshots with a time interval ∆T = 0 .01 seconds. Further details on dataset generation are provided in Appendix A.2. The surrogate models are trained on the same dataset with 100 epochs of one-step teacher-forcing training followed by 50 epochs of 8-step rollout training. In MuRFiV, we divide the domain into 32 × 32 sub-domains, each consists with 32 × 32 cells. U-Net                                  
+
+> i = 16
+> MuRFiV-NoEq MuRFiV-Eq Reference
+> i = 64 i = 128 i = 192 i = 256
+> -4 -3 -2 -1 0
+> (a) Re = 30
+> U-Net
+> i = 16
+> MuRFiV-NoEq MuRFiV-Eq Reference
+> i = 64 i = 128 i = 192 i = 256
+> -1 012345
+> (b) Re = 70
+> 0.0 0.1 0.2 Error
+> (c)
+> 10 1
+> 10 1
+> Error
+> (d) Re = 30
+> 10 1
+> 10 1
+> 10 3
+> Error
+> (e) Re = 50
+> 050 100 150 200 250 Rollout Length l
+> 10 1
+> 10 1
+> 10 3
+> Error
+> (f) Re = 70
+
+Figure 3: Forecasting performance comparison between U-Net, MuRFiV-NoEq, MuRFiV-Eq, and the reference data on 2D Burgers’ equation. (a) and (b) Predicted velocity ( u) fields from two representative test cases at different time steps, with Reynolds number Re = 30 , and Re = 70 , respectively. (c) Change of mean prediction error over time ϵ
+
+averaged over all Reynolds numbers and initial conditions (error in linear scale) and (d-f) averaged error over initial conditions for different test Reynolds numbers (error in log scale). Blue: U-Net ( ); Yellow: MuRFiV-NoEq ( ); Red: MuRFiV-Eq ( ). Shaded area represents the envelop of error across cases. We next evaluate the prediction capability of MuRFiV on unseen Reynolds numbers ( Re ∈ { 30 , 50 , 70 }) and randomly sampled, unseen initial conditions. The test dataset therefore examines whether the learned dynamics remain accurate when both the physical parameter and the trajectory realization lie outside the training set. Figure 3 presents the results for this extrapolation task. Visualizations of the predicted scalar field u for representative low ( Re = 30 ) and high ( Re = 70 ) Reynolds numbers are shown in Figure 3(a) and (b). These contours show that MuRFiV robustly handles the shift in physical parameters. Even with unseen Reynolds numbers, MuRFiV correctly predicts the shock speed and sharpness, while preserving the complex interference patterns formed by interacting fronts. The U-Net baseline, lacking explicit physical constraints, struggles to generalize and exhibits noticeable phase errors together with overly diffused shock structures. 7A Multi-Resolution Finite-Volume Inspired Deep Learning Framework for Spatiotemporal Dynamics Prediction U-Net                      
+
+> i = 16
+> MuRFiV-NoEq MuRFiV-Eq Reference
+> i = 128 i = 256 i = 384 i = 512
+> 9.0 10.0 11.0 12.0
+> (a) 1/ = 1.5
+> U-Net
+> i = 16
+> MuRFiV-NoEq MuRFiV-Eq Reference
+> i = 128 i = 256 i = 384 i = 512
+> 6.0 7.0 8.0 9.0
+> (a) 1/ = 12
+> 10 0
+> 10 2
+> Error
+> (c) Averaged
+> 10 0
+> 10 2
+> Error
+> (d) u
+> 10 0
+> 10 2
+> Error
+> (e) v
+> 0128 256 384 512 Rollout Step i
+> 10 0
+> 10 2
+> Error
+> (f)
+
+Figure 4: Forecasting performance comparison between U-Net, MuRFiV-NoEq, MuRFiV-Eq, and the reference data on shallow water equation. (a) and (b) Predicted fluid height ( η) fields from two representative test cases at different time steps, with viscosity 1/ν = 1 .5, and 1/ν = 12 , respectively. averaged over all Reynolds numbers and initial conditions (error in linear scale) and (d-f) averaged error over initial conditions for different test Reynolds numbers (error in log scale). Blue: U-Net ( ); Yellow: MuRFiV-NoEq ( ); Red: MuRFiV-Eq ( ). Shaded area represents the envelop of error across cases. The error analysis in Figure 3(c-f) confirms the superior generalization of MuRFiV. Panel (c) plots the average error across all test cases on a linear scale, while panels (d-f) show the error evolution for specific Reynolds numbers on a log scale. These error curves show that both MuRFiV variants deliver much more consistent performance across Reynolds numbers, whereas the baseline degrades substantially outside the training regime. Furthermore, MuRFiV-Eq achieves the lowest error throughout most of the rollout, further highlighting the efficacy of embedding physical operators into the model structure. This enhanced generalizability suggests that the embedded finite-volume structure and multi-resolution hierarchy enable MuRFiV to learn the underlying physical operators rather than simply overfitting to the training data distribution. 
+
+3.3 Shallow Water Equation 
+
+We further assess the efficacy of MuRFiV on the two-dimensional shallow water equations, which govern the flow of a thin layer of fluid under the influence of gravity and viscosity. The system is described by: 
+
+∂η ∂t + ∂ηu ∂x + ∂ηv ∂y = 0 
+
+∂ηu ∂t + ∂∂x 
+
+
+
+ηu 2 + 12 gη 2
+
+
+
++ ∂(ηuv )
+
+∂y = ν
+
+ ∂2u∂x 2 + ∂2v∂y 2
+
+
+
+∂ηv ∂t + ∂∂y 
+
+
+
+ηv 2 + 12 gη 2
+
+
+
++ ∂(ηuv )
+
+∂x = ν
+
+ ∂2u∂x 2 + ∂2v∂y 2
+
+
+
+, (x, y ) ∈ [0 , 2π]2, t ∈ [0 , ∞) (18) where η denotes the fluid column height, and (u, v ) are the velocity components. g is the gravitational acceleration (set to 10 ), and ν represents the viscosity. The training set comprises 80 different trajectories initialized from random states, with 5 different viscosities ( 1/ν ∈ { 1, 2, 4, 8, 16 }). Further details on dataset generation are provided in Appendix A.3. The training data is saved on uniform mesh with 256 × 256 cells, and we divide the mesh equally into 16 × 16 
+
+subdomins in MuRFiV. We next evaluate the generalization capability of MuRFiV on 4 unseen viscosities ( 1/ν ∈ { 1.5, 3, 6, 12 }) adn 64 
+
+randomly sampled initial conditions. The test dataset therefore examines whether the learned dynamics remain reliable when the viscous regime changes beyond the training set. 8A Multi-Resolution Finite-Volume Inspired Deep Learning Framework for Spatiotemporal Dynamics Prediction Figure 4 summarizes the forecasting performance in this extrapolation setting. Panels (a) and (b) visualize representative test cases with the lowest and highest viscosities, respectively. The results indicate that MuRFiV generalizes well to new physical parameters, maintaining physical consistency in wave propagation speeds, amplitudes, and interaction patterns. In contrast, U-Net exhibits significant error growth and unphysical wave damping when applied to out-of-distribution cases. The error analysis in Figure 4(c-f) confirms the robustness of MuRFiV. Panel (c) presents the aggregate error on a linear scale, while panels (d-f) depict the error evolution for specific viscosities on a log scale. These plots show that MuRFiV outperforms the baseline by a large margin in this challenging extrapolation setting. Notably, MuRFiV-Eq maintains the lowest error profile throughout most of the rollout, further validating that the embedded conservation structure improves long-term stability under unseen viscosities. Similar to the Burgers’ cases, the results suggest that the physics-informed structural bias enhances the model’s ability to extrapolate to unseen regimes rather than simply memorizing the training distribution. 
+
+3.4 Incompressible Navier-Stokes Equation - Kolmogorov Flow 
+
+Finally, we evaluate MuRFiV on the 2D incompressible Navier-Stokes equations configured for Kolmogorov flow, a classical benchmark for turbulence modeling. The governing equations are: 
+
+∂u
+
+∂t = − (u · ∇ ) u + ν∇2u − ∇ p + F s
+
+∇ · u = 0 
+
+x ∈ [0 , 2π]2, t ∈ [0 , ∞) (19) where u represents the velocity vector, p is the pressure field, and ν denotes the kinematic viscosity. The flow is driven by a sinusoidal external force F s = sin( kf y)ˆ x with forcing wavenumber kf = 4 . This setup generates a chaotic flow field characterized by a cascade of energy from large to small scales. The Reynolds number is defined as Re = 1 /ν . The training dataset consists of 80 trajectories of fully developed flow across 5 Reynolds numbers (Re ∈ { 128 , 256 , 512 , 1024 , 2048 }), each with 129 time steps and saved on a 256 × 256 mesh. More details on the dataset generation can be found in Appendix A.4. In MuRFiV, we equally split the 256 × 256 mesh into 16 × 16 
+
+subdomains, each with a 16 × 16 mesh. We next evaluate the generalization capability of MuRFiV on 4 unseen Reynolds numbers ( Re ∈ { 192 , 384 , 768 , 1536 }), starting from 64 random initial conditions. The test dataset therefore examines whether the learned dynamics can preserve both instantaneous flow structures and spectral statistics under a viscosity shift. Figure 5 presents the prediciton results on this extrapolation task. Panels (a) and (b) show instantaneous vorticity fields 
+
+ω (ω = ∂xv − ∂y u) for representative test cases. These visualizations show that MuRFiV robustly adapts to the change in viscosity, producing physically consistent flow patterns and preserving coherent vortical structures better than the U-Net baseline. Given the Kolmogorov flow is a chaotic system, we examine the statistics turbulence kinetic energy spectrum instead of absolute error in this section. The spectrum analysis in Figure 5(c) and (d) further highlights the superiority of MuRFiV. These panels compare the TKE spectra of the predictions against the DNS reference. Even in this extrapolation regime, MuRFiV maintains a TKE spectrum that closely follows the DNS reference, whereas the baseline fails to capture the correct energy distribution, especially at higher wavenumbers, leading to inaccurate representation of the turbulent statistics. Among the two variants, MuRFiV-Eq provides the closest match to the target flow statistics, further demonstrating the benefit of embedding physical structure into the model. This result shows that the finite-volume-inspired multiresolution design improves not only instantaneous prediction quality but also the preservation of turbulent flow statistics under unseen Reynolds numbers. 
+
+3.5 Design Insight and Ablation Study 
+
+In this section, we justify the design decision of each MuRFiV component by gradually adding components to the baseline model until reach the full MuRFiV design. All the ablation experiments are tested on the shallow water equation with out-of-distribution initial conditions and viscosity and all the variants has comparable model size (in terms of trainable parameters) as the baseline model (Please refer to Table S3) Figure 6 shows the box plot of rollout error at different timesteps, compared across all the structures covered by the ablation study, while the detailed error at the last prediction step is reported in Table 1. In this test, we use the same test set used in the Section 3.3. 
+
+Simple Multi-Resolution Structure Improves long-term prediction We start improving the baseline method by introducing a multi-resolution structure, noted as SR. SR also consists of two neural networks, one is N G which 9A Multi-Resolution Finite-Volume Inspired Deep Learning Framework for Spatiotemporal Dynamics Prediction 
+
+Figure 5: Forecasting performance comparison between U-Net, MuRFiV-NoEq, MuRFiV-Eq, and the reference data on Kolmogorov flow. (a - b) Instantaneous vorticity ( ω) fields at different time steps, of two testing Reynolds numbers 
+
+Re = 192 and Re = 1536 , respectively, starting from random unseen initial conditions. (c - d) turbulence kinetic energy (TKE) spectrum comparison at four testing Reynolds numbers. (c) TKE over frequency. (d) TKE over wavenumber. Blue: U-Net ( ); Yellow: MuRFiV-NoEq ( ); Red: MuRFiV-Eq ( ). 10 A Multi-Resolution Finite-Volume Inspired Deep Learning Framework for Spatiotemporal Dynamics Prediction Baseline SR LN LNSM MuRFiV                          
+
+> 10 0
+> 10 2
+> 10 4
+> 10 6
+> Error  (Log Scale)
+> (a) Rollout Step i= 128
+> Baseline SR LN LNSM MuRFiV
+> (b) Rollout Step i= 256
+> Baseline SR LN LNSM MuRFiV
+> (c) Rollout Step i= 512
+> SR LN LNSM MuRFiV
+> 10 1
+> 10 0
+> Zoomed-in
+> SR LN LNSM MuRFiV SR LN LNSM MuRFiV
+
+Figure 6: Box plot of prediction error at three different rollout steps (panel a-c, respectively) on 64 testing trajectories of shallow water equation (same as results shown in Sec 3.3). First row shows the overall view of all variants, while the zoom-in views are shown in the second row. Blue boxes represent the error box of the U-Net baseline, while red and yellow boxes represent the ablation variants with (-Eq) and without (-NoEq) equations embedded, respectively. SR: Global network coupled with a super-resolution network. LN: replace SR network with local neural network. LNSM: local neural network with mean value subtraction. MuRFiV: The complete MuRFiV design, use flux prediction in global network compared to LNSM. Each single red cross ( ) marks the a not-a-number (NaN) value error in the predicted trajectories ((a)1 NaN value in LN-Eq, (b) 1 NaN in SR-Eq and 1 NaN in LN-Eq. (c) 47 NaN in SR-Eq and 1 NaN in LN-Eq) Table 1: Absolute prediction error at the last timestep ( i = 512 ) of 64 testing trajectories in ablation study Error ( ϵ) Baseline SR LN LNSM MuRFiV (Exclude NaN) (U-Net) Eq NoEq Eq NoEq Eq NoEq Eq NoEq Mean 2.33 × 10 5 2.30 × 10 12 4.90 0.434 0.681 0.0747 0.106 0.0605 0.110 Median 1.52 × 10 5 18 .0 0.641 0.409 0.491 0.0718 0.102 0.0575 0.0968 # of NaN 0 47 0 1 0 0 0 0 0predicts the solution field at next step on a coarse mesh ( 16 × 16 , in this case). The predicted field on the coarse mesh is then up-sampled via bi-cubic to the original resolution and then corrected by a super-resolution network N SR . In Figure 6, the multi-resolution structure (SR) already brings noticeable improvement over the U-Net baseline, especially for long-term rollout predictions. Especially when no numerical operator is embedded (SR-NoEq), we lowered the mean prediction error more than four orders of magnitude evaluated at the 512 th rollout steps (See Table 1). However, we do observe many “blow-up” cases with equation operators embedded, indicating the instability of this structure when couple with numerical operators. 
+
+Shared Local Network is Better Than a Global Super-Resolution Network Next, we leverage the domain decomposition idea used in MuRFiV by replacing the super-resolution network N SR with local variance predictor 
+
+N L. This variant is noted as LN in Figure 6. Instead of naively send the whole field predicted by N G to N SR for super-resolution, we decompose the prediction into subdomains which are handled by N L individually. As reported in Table 1, the domain-decomposition structure alone brings over 7 times lower mean prediction error when no numerical operators is embedded (NoEq) and significantly booted the stability (i.e. fewer NaN values) when numerical operators are embedded (Eq). 
+
+Guaranteed Zero-Mean for Local Network Prediction Improves Accuracy We further enhance the LN structure by enforcing a zero-mean output for each subdomain (noted as LNSM in Figure 6 and Table 1). Such design choice is inspired by FVM, where the solution in each mesh cell represents the averaged value within the cell. In practice, we guarantee the zero-mean output via subtracting the mean value from the N L, so that N L only predicts the variance within each subdomain while N G predicts the mean value of the subdomain. From a neural network perspective, 11 A Multi-Resolution Finite-Volume Inspired Deep Learning Framework for Spatiotemporal Dynamics Prediction such zero-mean enforcement also serve as a de-bias normalization layer, which also significantly contributes to the long-term rollout stability. The zero-mean/normalization layer design significantly boosted the accuracy over 5 times and eliminated the ‘blow-up’ case when numerical operators are embedded. 
+
+Predicting Flux Instead of Solutions Lastly, we make the N G to predict the flux to form the complete structure of MuRFiV. Instead of directly predicting the mean value of each subdomain, N G predicts the flux at each subdomain interfaces, which ensures adjacent subdomains satisfy conservation: the flux leave one domain must go into its adjacent domains 1, while the mean value within the subdomain is then obtained via calculating the net fluxes of the given subdomain. From neural network perspective, such design also serves as a normalization, resembling differential output. The flux prediction structure contribute to another 23% accuracy improvement over the LNSM when numerical operators are embedded, though the improvement for NoEq variants is relatively minor. From all the ablation tests, we can verify that all the major design components of MuRFiV improves the long term prediction accuracy, under the same model size. 
+
+3.6 Compare with More Baselines 
+
+In this section, we compare MuRFiV with other baseline methods, including ViT[ 17 ] and FNO[ 4]. We also studied MuRFiV with ViT as the major learning structure. 
+
+Prediction accuracy Figure 7 (a) shows the prediction error averaged on 64 testing trajectories governed by shallow water equation (the same test set as in Section 3.3). The solid lines indicate the convolution neural network based models, while dashed lines represent the ViT based models. Blue lines are classic models like U-Net and ViT, while the grey line represents FNO. The yellow and red lines represent the MuRFiV-NoEq and MuRFiV-Eq, respectively. The doted blue line represents the error of a larger U-Net, noted as U-Net-L. On the test set, all the baseline models, including ViT, FNO, and U-Net of two model sizes, show a significantly error accumulation during long term rollout at different pace. While all the MuRFiV variants managed to maintain the prediction error at a low level, even a slight decrease of the mean absolute error can be observed around step 64-256 due to the intrinsic dissipation property of the dynamics itself. Meanwhile, FNO does achieve an impressive lower prediction error for the first few rollout steps on the testing set, and error accumulation rate is relatively slow than other baselines, it still outperformed by all MuRFiV variants by about one order of magnitude lower error at the 512 rollout step. 
+
+Advantage of MuRFiV is independent of neural network types Interestingly, the increase of the model size does not help improve the rollout accuracy on the testing set. The U-Net-L even shows a steeper error accumulation curve than the smaller U-Net. Although ViT shows a slower error accumulation rate around step 128-300, it still fall far behind the ViT based MuRFiV models. Despite the ViT and U-Net baseline show noticeable error accumulation pattern due to their significant difference in both the model size and model architecture, the corresponding ViT and CNN based MuRFiV variants show a very similar error curve. This indicate the merit of MuRFiV is highly related to the overall architecture design and is independent of specific neural network formulations. 
+
+Cost comparison Figure 7(b) compares the computational cost of all the models studied in this section. Among the baseline methods, FNO has a model size comparable to ViT and is only moderately larger than MuRFiV-Eq and MuRFiV-NoEq, while its one-step inference cost is substantially higher than the CNN-based MuRFiV variants and the U-Net baselines. Compared with the standard U-Net, the larger U-Net-L also requires noticeably higher computational cost, yet this increase does not translate into better rollout accuracy. The ViT-based models are the most expensive in terms of FLOPs, yet the corresponding ViT-based MuRFiV variants still deliver much better rollout accuracy than the plain ViT baseline. The detailed model sizes (numbers of trainable parameters) are listed in Table S3. 
+
+## 4 Conclusion 
+
+In this work, we introduced MuRFiV, a multi-resolution finite-volume-inspired framework for long-term prediction of spatiotemporal dynamics at the high resolution. The method separates the evolution of subdomain averages from the reconstruction of intra-subdomain structure: a global model updates subdomain averages through interface fluxes, while 
+
+> 1Please note that, this does not simply translate to strictly conservation at subdomain level, because the in and out fluxes for a given subdomain are not necessarily balanced. For equations like incompressible Naiver-Stocks, this structure alone cannot guarantee divergence-free
+
+12 A Multi-Resolution Finite-Volume Inspired Deep Learning Framework for Spatiotemporal Dynamics Prediction 0 64 128 192 256 320 384 448 512     
+
+> Rollout steps i
+> 10 2
+> 10 1
+> 10 0
+> 10 1
+> Error
+> (a)
+> 10 210 3
+> FLOPs (×10 6)
+> U-Net
+> MuRFiV-NoEq
+> MuRFiV-Eq
+> U-Net-L
+> ViT
+> MuRFiV-NoEq-ViT
+> MuRFiV-Eq-ViT
+> FNO
+> (b)
+
+Figure 7: Error and cost comparison. (a) Mean prediction error comparison between multiple baselines at different model rollout steps in the shallow water equation testing trajectories. Grey line marks FNO, blue lines represent classic baselines, yellow lines indicate MuRFiV-NoEq, and red lines represent MuRFiV-Eq. Solid lines represent U-Net/convolutional networks, while dashed lines represent ViT and MuRFiV ViT variants. Doted line represents the U-Net-L baseline - a U-Net with larger model size. (b) Cost comparison of multiple baselines in terms of Floating-Point Operations (FLOPs) for one step inference with batch size 1. a lightweight local model shared across subdomains reconstructs zero-mean local fluctuations in a parameter-efficient manner. This decomposition embeds the finite-volume view of conservative dynamics into the prediction architecture and provides a direct mechanism for coupling coarse-scale evolution with fine-scale spatial features. The framework also supports two complementary variants. In MuRFiV-NoEq, the global network learns interface fluxes directly, showing that the finite-volume-inspired architecture itself provides a strong inductive bias for stable rollout. In MuRFiV-Eq, an embedded numerical operator evaluates flux information on the original fine mesh only along subdomain interfaces, and the global network corrects these fluxes before updating subdomain averages. This interface-only use of the embedded operator preserves high-quality physics-based information at the locations that govern subdomain exchange while avoiding dense high-resolution numerical evaluation over the full domain. Across one- and two-dimensional Burgers’ equations, shallow water equations, and incompressible Navier-Stokes equations in the Kolmogorov-flow setting, MuRFiV consistently improves long-term autoregressive prediction relative to blackbox data-driven baselines. The results show robust generalization to unseen Reynolds numbers, viscosities, and initial conditions, with MuRFiV maintaining shock propagation, wave interactions, coherent vortical structures, and turbulent kinetic-energy spectra more reliably than the baselines. The ablation study further confirms that the main design choices: multi-resolution coupling, shared local reconstruction, zero-mean local outputs, and flux-based global updates, all contribute to reducing rollout error and improving stability. Additional comparisons with FNO, ViT, and larger U-Net baselines indicate that the advantage of MuRFiV comes primarily from the proposed architecture rather than from a specific neural-network backbone or model size. The present formulation is especially well aligned with conservation-dominated dynamics in which subdomain-average changes can be represented through flux exchange across interfaces. Future work will extend this idea to more general domain decompositions, complex geometries, non-periodic boundary conditions, and systems requiring additional structure such as strict divergence-free constraints. It will also be valuable to study adaptive subdomain layouts and more expressive embedded operators for problems where elliptic effects, boundary interactions, or multiscale source terms play a dominant role. Overall, the results demonstrate that combining finite-volume-inspired global updates with lightweight local reconstruction provides a practical path toward accurate, stable, and efficient neural surrogates for complex spatiotemporal systems. 
+
+## Code Availability 
+
+All the source codes to reproduce the results in this study will be openly available on GitHub at https://github.com/jx-wang-s-group/MuRFiV upon publication. 13 A Multi-Resolution Finite-Volume Inspired Deep Learning Framework for Spatiotemporal Dynamics Prediction 
+
+## References 
+
+[1] Kai Fukami, Koji Fukagata, and Kunihiko Taira. Super-resolution reconstruction of turbulent flows with machine learning. Journal of Fluid Mechanics , 870:106–120, 2019. [2] Tobias Pfaff, Meire Fortunato, Alvaro Sanchez-Gonzalez, and Peter Battaglia. Learning mesh-based simulation with graph networks. In International conference on learning representations , 2020. [3] Xu Han, Han Gao, Tobias Pfaff, Jian-Xun Wang, and Li-Ping Liu. Predicting physics in mesh-reduced space with temporal attention. arXiv preprint arXiv:2201.09113 , 2022. [4] Zongyi Li, Nikola Kovachki, Kamyar Azizzadenesheli, Burigede Liu, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. Fourier neural operator for parametric partial differential equations. arXiv preprint arXiv:2010.08895 , 2020. [5] Lu Lu, Pengzhan Jin, Guofei Pang, Zhongqiang Zhang, and George Em Karniadakis. Learning nonlinear operators via deeponet based on the universal approximation theorem of operators. Nature machine intelligence ,3(3):218–229, 2021. [6] Maziar Raissi, Paris Perdikaris, and George E Karniadakis. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational physics , 378:686–707, 2019. [7] Luning Sun, Han Gao, Shaowu Pan, and Jian-Xun Wang. Surrogate modeling for fluid flows based on physics-constrained deep learning without simulation data. Computer Methods in Applied Mechanics and Engineering ,361:112732, 2020. [8] Yohai Bar-Sinai, Stephan Hoyer, Jason Hickey, and Michael P Brenner. Learning data-driven discretizations for partial differential equations. Proceedings of the National Academy of Sciences , 116(31):15344–15349, 2019. [9] Dmitrii Kochkov, Jamie A Smith, Ayya Alieva, Qing Wang, Michael P Brenner, and Stephan Hoyer. Ma-chine learning–accelerated computational fluid dynamics. Proceedings of the National Academy of Sciences ,118(21):e2101784118, 2021. [10] Xiantao Fan and Jian-Xun Wang. Differentiable hybrid neural modeling for fluid-structure interaction. Journal of Computational Physics , 496:112584, 2024. [11] Kiwon Um, Robert Brand, Yun Raymond Fei, Philipp Holl, and Nils Thuerey. Solver-in-the-loop: Learning from differentiable physics to interact with iterative pde-solvers. Advances in neural information processing systems ,33:6111–6122, 2020. [12] Xin-Yang Liu, Min Zhu, Lu Lu, Hao Sun, and Jian-Xun Wang. Multi-resolution partial differential equations preserved learning framework for spatiotemporal dynamics. Communications Physics , 7(1):31, 2024. [13] Qi Wang, Pu Ren, Hao Zhou, Xin-Yang Liu, Zhiwen Deng, Yi Zhang, Ruizhi Chengze, Hongsheng Liu, Zidong Wang, Jian-Xun Wang, et al. P 2C2Net: PDE-preserved coarse correction network for efficient prediction of spatiotemporal dynamics. Advances in Neural Information Processing Systems , 37:68897–68925, 2024. [14] Mengtao Yan, Qi Wang, Haining Wang, Ruizhi Chengze, Yi Zhang, Hongsheng Liu, Zidong Wang, Fan Yu, Qi Qi, and Hao Sun. Learnable-differentiable finite volume solver for accelerated simulation of flows. In Proceedings of the 31st ACM SIGKDD Conference on Knowledge Discovery and Data Mining V. 2 , pages 3471–3482, 2025. [15] Jonas A Actor, Xiaozhe Hu, Andy Huang, Scott A Roberts, and Nathaniel Trask. Data-driven whitney forms for structure-preserving control volume analysis. Journal of Computational Physics , 496:112520, 2024. [16] Weihang Ouyang, Yeonjong Shin, Si-Wei Liu, and Lu Lu. Noem: efficient and scalable finite element method enabled by reusable neural operators. Nature Computational Science , 6(4):417–429, 2026. [17] Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner, Mostafa Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly, et al. An image is worth 16x16 words: Transformers for image recognition at scale. arXiv preprint arXiv:2010.11929 , 2020. [18] James Bradbury, Roy Frostig, Peter Hawkins, Matthew James Johnson, Chris Leary, Dougal Maclaurin, George Necula, Adam Paszke, Jake VanderPlas, Skye Wanderman-Milne, and Qiao Zhang. JAX: composable transforma-tions of Python+NumPy programs, 2018. 14 A Multi-Resolution Finite-Volume Inspired Deep Learning Framework for Spatiotemporal Dynamics Prediction 
+
+## Appendix A Training and Testing Dataset 
+
+All the training and testing datasets are generated by our finite volume solvers based on Jax[ 18 ]. In this section, we provide more details about how we set up the numerical solver for generating datasets. For ease of implementation, all the cases apply periodic boundary conditions at all the boundaries. 
+
+A.1 One-dimensional Burgers’ Equation Initial Conditions To make the dataset challenging and more representative of the dynamics in Burgers’ equation, the training set contains three groups (Group D, D−, and D+) of trajectories and each group contains 12 different trajectories with 4 different values of Reynolds number Re ∈ { 20 , 80 , 140 , 200 }. Each trajectory within group D starts from different initial conditions ut0 , which are randomly sampled from a 16-dimensional random space: 
+
+ut0 = X
+
+> k∈K
+
+Ak sin ( kx + φk) , K = {− 4, −3, −2, −1, 1, 2, 3, 4} (20) where Ak and φk are random variables sampled from two uniform distribution U (0 , 1) and U (0 , 2π), respectively. Since the initial conditions in group D are linear combinations of sinusoidal functions, the average values are all strictly zeros, which will eventually develop into a standing wave regardless of the initial condition. To cover a more comprehensive dynamics pattern of Burgers’ equation, we also add groups D− and D+, where the initial conditions are a simple shift of the ICs in group D. Specifically, we generate the ICs in the group D− by subtracting 2 from ICs in group D and adding 2 to form group D+’s ICs. In such a way, the training dataset covers both standing waves and moving waves in both directions in one-dimensional space. Meanwhile, it is still a challenging dataset for neural network training, because merely 12 different patterns from a 16 -dimensional random space are included in the training set. The solution is solved with WENO5 scheme and central difference, with first order forward Euler scheme for time marching. The solver used a time step size ∆t = 1 × 10 −4s, and we collect the solution every 100 numerical steps. The training and testing set are sampled from the same initial condition distribution but with different random seed and viscosity. 
+
+A.2 Two-dimensional Burgers’ Equation 
+
+Two dimensional Burgers’ equation case shares almost the same procedure of generating the initial condition as the one-dimensional Burgers’. The only slight difference exists in how we formulate ut0 :
+
+ut0 = X 
+
+> kj∈K
+
+X
+
+> ki∈K
+
+Aki,k j sin  kix + kj y + φki,k j
+
+ , K = {− 3, −2, −1, 1, 2, 3} (21) where Aki,k j and φki,k j are random variables sampled from two uniform distribution U (0 , 1) and U (0 , 2π), respectively. In this case, the initial condition is sampled from a 72-dimensional space. All the other parameters like discretization schemes, time step size are identical as the one-dimensional Burgers’ equation case. 
+
+A.3 Shallow Water Equation 
+
+In this case, the initial condition for the fluid column height ( η) is also randomly sampled using the same formula as in the two-dimensional Burgers’ equation (Eq.21). The only difference is K = {− 2, −1, 0, 1, 2}. To ensure we do have a negative fluid column height, the randomly sampled η is then linearly shift so that the minium value of the sampled η is 1. While the velocity is initialized as zero field. We then use first order schemes for both the spatial and temporal derivatives, with a numerical time step size 1 × 10 −6s. The data is collected every 5 × 10 3 numerical steps. We discard the first 16 collection steps, to allow the solution field to develop moving waves. To resolve the near-discontinuous wave in low viscosity cases while maintain numerical stability in high viscosity cases, the SWE is solved on difference mesh size for different viscosity. The specific mesh size used in preparing the dataset can be found in TableS1. The training and testing set are then down-sampled from these fine mesh results to a 256 mesh. 15 A Multi-Resolution Finite-Volume Inspired Deep Learning Framework for Spatiotemporal Dynamics Prediction Table S1: Mesh size used in solvers in shallow water equation (top) and Kolmogorov flow (bottom) 1/ ν 1 1.5 2 3 4 6 8 12 16 Mesh size (Along one axis) 256 256 512 512 1024 1024 2048 2048 4096 Re 128 192 256 384 512 768 1024 1536 2048 Mesh size (Along one axis) 256 384 512 768 1024 1536 2048 3072 4096 
+
+A.4 Navier-Stocks Equation 
+
+Similarly, we sample the initial condition for velocity components from a distribution resembles Eq.21. Here 
+
+K = {− 1, −1, 0, 1, 1} and Aki,k j ∼ U (0 , 0.01) , both x- and y-directional components are sampled from the same distribution, while the pressure field are initialized as zero. We also add a randomly translation in the external force to enrich the dataset. We then solve the equation with first order scheme with pressure projection. The numerical solver uses a time step size 
+
+∆t = 5 × 10 −6 and we only collect data after the turbulence is fully developed, at a frequency of every 10 4 numerical steps. Similar to the shallow water equation, we also use different mesh size under different Reynolds numbers (refer to Table.S1 for the exact mesh size used in solvers). Then the results are all down sampled to the 256 × 256 mesh. 
+
+## B Model Size 
+
+Table S2: Number of trainable parameters Model U-Net MuRFiV-NoEq MuRFiV-Eq 
+
+N G N L N G N L
+
+1D Burgers’ 573,019 460,654 538,446 385,811 74,843 463,603 74,843 2D Burgers’ 3,994,969 3,214,873 3,755,673 2,690,336 524,537 3,231,136 524,537 Shallow Water 3,642,421 2,574,557 2,729,709 2,031,584 542,973 2,186,736 542,973 Kolmogrov Flow 8,234,053 6,927,485 7,494,157 5,706,800 1,220,685 6,273,472 1,220,685 Table S3: Number of trainable parameters of more baselines and ViT variants FNO U-Net-L ViT MuRFiV-NoEq (ViT) MuRFiV-Eq (ViT) # Trainable Parameters 3,628,443 71,028,253 19,206,144 15,645,714 15,843,218 
+
+## C More Rollout Test Results 
+
+This section summarizes the rollout performance on training initial conditions and training physical parameters. The figures are moved here to keep the main results section focused on generalization to unseen conditions. 16 A Multi-Resolution Finite-Volume Inspired Deep Learning Framework for Spatiotemporal Dynamics Prediction 0 2                                    
+
+> U-Net
+> 0100 200 300 400 500
+> Rollout Step  i
+> 02
+> MuRFiV-NoEq
+> 02
+> MuRFiV-Eq
+> 02
+> Reference
+> -1.0 -0.5 0.0 0.5 1.0
+> (a) Re = 20
+> 02
+> U-Net
+> 0100 200 300 400 500
+> Rollout Step  i
+> 02
+> MuRFiV-NoEq
+> 02
+> MuRFiV-Eq
+> 02
+> Reference
+> 0.0 1.0 2.0 3.0
+> (b) Re = 200
+> 0.00
+> 0.25
+> Error  (c)
+> 10 2
+> 10 0
+> Error
+> (d) Re = 20
+> 10 2
+> 10 0
+> Error
+> (e) Re = 80
+> 10 2
+> 10 0
+> Error
+> (f) Re = 140
+> 0100 200 300 400 500
+> Rollout Step i
+> 10 2
+> 10 0
+> Error
+> (g) Re = 200
+
+Figure S1: Future forecasting with training Reynolds number and starting from training initial conditions in the one-dimensional Burgers’ Equation case. The first 128 time steps are used for training, while the following 384 time steps are considered “extrapolation” in time. (a) and (b), contours of the prediction results made by different models at the lowest and highest Reynolds numbers in the training set, respectively. (c-g) The mean prediction error εi averaged over all the cases (c) and the error averaged over specific Reynolds numbers (d-g) are represented by the solid lines. The blue curve indicates U-Net ( ), while MuRFiV without equation ( ) and MuRFiV with equation ( ) are represented by yellow and red curves, respectively. The gray dashed lines ( ) indicate the end of training time steps. The shaded areas in (d-g) represent the envelope of errors of all the test cases with the same Reynolds number. U-Net                                   
+
+> i = 16
+> MuRFiV-NoEq MuRFiV-Eq Reference
+> i = 64 i = 128 i = 192 i = 256
+> -4 -3 -2 -1 0
+> (a) Re = 20
+> U-Net
+> i = 16
+> MuRFiV-NoEq MuRFiV-Eq Reference
+> i = 64 i = 128 i = 192 i = 256
+> -4 -2 024
+> (b) Re = 80
+> 0.0 0.1 0.2 Error
+> (c)
+> 10 2
+> 10 1
+> 10 0
+> Error
+> (d) Re = 20
+> 10 1
+> 10 1
+> 10 3
+> Error
+> (e) Re = 40
+> 10 1
+> 10 1
+> 10 3
+> Error
+> (f) Re = 60
+> 050 100 150 200 250 Rollout Length l
+> 10 0
+> 10 3
+> Error
+> (g) Re = 80
+
+Figure S2: Forecasting results for the 2D Burgers’ equation using training parameters. (a) and (b) Comparison of predicted scalar fields at the final time step for representative cases. (c-g) Time evolution of the mean prediction error averaged over the dataset (c) and for specific Reynolds numbers (d-g). Blue: U-Net ( ); Yellow: MuRFiV-NoEq ( ); Red: MuRFiV-Eq ( ). 17 A Multi-Resolution Finite-Volume Inspired Deep Learning Framework for Spatiotemporal Dynamics Prediction U-Net        
+
+> i = 16
+> MuRFiV-NoEq MuRFiV-Eq Reference
+> i = 128 i = 256 i = 384 i = 512
+> 7.0 7.5 8.0 8.5 9.0 9.5
+
+(a) 1/ = 1       
+
+> U-Net
+> i = 16
+> MuRFiV-NoEq MuRFiV-Eq Reference
+> i = 128 i = 256 i = 384 i = 512
+> 6.0 6.5 7.0 7.5 8.0
+
+(a) 1/ = 16 
+
+> 10 0
+> 10 2
+> Error
+
+(c) Averaged 
+
+> 10 0
+> 10 2
+> Error
+
+(d) u
+
+> 10 0
+> 10 2
+> Error
+
+(e) v     
+
+> 0128 256 384 512 Rollout Step i
+> 10 0
+> 10 2
+> Error
+
+(f) 
+
+Figure S3: Forecasting results for the Shallow Water equations using training parameters. (a) and (b) Comparison of predicted fields at the final time step for representative cases. (c-g) Time evolution of the mean prediction error averaged over the dataset (c) and for specific viscosities (d-g). Blue: U-Net ( ); Yellow: MuRFiV-NoEq ( ); Red: MuRFiV-Eq ( ). 18 A Multi-Resolution Finite-Volume Inspired Deep Learning Framework for Spatiotemporal Dynamics Prediction i = 16 U-Net 
+
+i = 64 i = 128 i = 192 i = 256 i = 320 i = 384 i = 512 i = 768 i = 1024 
+
+> MuRFiV-NoEq MuRFiV-Eq Reference
+
+-10.0 -7.5 -5.0 -2.5 0.0 2.5 5.0 7.5 (a) Re = 128 
+
+i = 16 U-Net 
+
+i = 64 i = 128 i = 192 i = 256 i = 320 i = 384 i = 512 i = 768 i = 1024 
+
+> MuRFiV-NoEq MuRFiV-Eq Reference
+
+-15.0 -10.0 -5.0 0.0 5.0 10.0 15.0 (b) Re = 2048 10 8
+
+10 15 
+
+10 1 10 0 10 1
+
+10 8
+
+10 4
+
+10 0
+
+Re = 128 10 1 10 0 10 1
+
+Re = 256 10 1 10 0 10 1
+
+Re = 512 10 1 10 0 10 1
+
+Re = 1024 10 1 10 0 10 1
+
+Re = 2048 TKE Spectrum  E( )
+
+Frequency 
+
+(c) 10 11 
+
+10 15 
+
+10 0 10 1
+
+10 8
+
+10 3
+
+Re = 128 10 0 10 1
+
+Re = 256 10 0 10 1
+
+Re = 512 10 0 10 1
+
+Re = 1024 10 0 10 1
+
+Re = 2048 TKE Spectrum  E(k)Wave number k
+
+(d) 
+
+Figure S4: Forecasting results for Kolmogorov flow using training parameters. (a) and (b) Comparison of instantaneous vorticity fields at the final time step. (c) and (d) Turbulent Kinetic Energy (TKE) spectrum averaged over the evaluation window. Blue: U-Net ( ); Yellow: MuRFiV-NoEq ( ); Red: MuRFiV-Eq ( ). 19

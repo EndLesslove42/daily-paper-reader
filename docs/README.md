@@ -6,35 +6,46 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-01
-- 运行时间：2026-07-01 22:08:04 UTC
+- 最新运行日期：2026-07-02
+- 运行时间：2026-07-02 20:44:47 UTC
 - 运行状态：成功
-- 本次总论文数：5
+- 本次总论文数：8
 - 精读区：2
-- 速读区：3
+- 速读区：6
 
 ### 今日简报（AI）
-今日AI与科学计算相关研究5篇，精读聚焦Fourier神经算子与全球风暴解析大气模拟。最值得关注最小二乘重拟合的算子学习解决障碍物映射，以及全球尺度AI大气模拟的突破。建议关注这两项技术在工程仿真和气候预测中的规模化应用。
-- 详情：[/202607/01/README](/202607/01/README)
+1) 今日整理8篇AI与气象交叉领域论文，其中2篇精读聚焦全球风暴解析模拟与交通排放建模。  
+2) 核心看点：《Scaling Storm-Resolving Atmospheric AI Simulation》实现全球尺度风暴级AI模拟；《Influence of Routing and Speed Limits》揭示路径与限速对交通排放优化结果的关键影响。  
+3) 建议优先精读上述两篇，深入理解地球系统AI模拟的扩展方法及交通排放建模的约束参数。
+- 详情：[/202607/02/README](/202607/02/README)
 
 ### 精读区论文标签
-1. [Fourier Neural Operators with Least-Squares Readout Refit for Learning Random Obstacle-to-Solution Maps](/202607/01/2606.29436v1-fourier-neural-operators-with-least-squares-readout-refit-for-learning-random-obstacle-to-solution-maps)  
+1. [Scaling Storm-Resolving Atmospheric AI Simulation to the Entire Planet](/202607/02/2606.31248v1-scaling-storm-resolving-atmospheric-ai-simulation-to-the-entire-planet)  
+   标签：评分：9.0/10、query:aqac
+   evidence：全球风暴解析大气动力学AI仿真器
+2. [Influence of Routing and Speed Limits on Optimal Solutions in Traffic Emission Modeling](/202607/02/2607.00944v1-influence-of-routing-and-speed-limits-on-optimal-solutions-in-traffic-emission-modeling)  
    标签：评分：8.0/10、query:aqac
-   evidence：傅里叶神经算子学习障碍到解的映射
-2. [Scaling Storm-Resolving Atmospheric AI Simulation to the Entire Planet](/202607/01/2606.31248v1-scaling-storm-resolving-atmospheric-ai-simulation-to-the-entire-planet)  
-   标签：评分：8.0/10、query:aqac
-   evidence：基于AI的全球风暴分辨大气仿真器
+   evidence：基于平流-扩散模型的交通排放优化研究
 
 ### 速读区论文标签
-1. [Scalable Operator Learning via Nyström Approximation With Denoising Applications](/202607/01/2606.26652v1-scalable-operator-learning-via-nystrm-approximation-with-denoising-applications)  
+1. [Does Aurora Encode Atmospheric Structure? Latent Regime Analysis and Attribution](/202607/02/2606.26361v1-does-aurora-encode-atmospheric-structure-latent-regime-analysis-and-attribution)  
+   标签：评分：7.0/10、query:aqac
+   evidence：对Aurora大气基础模型内部结构的分析
+2. [Mind the Residual Gap: Probabilistic Downscaling under Real-World Bias](/202607/02/2606.30821v1-mind-the-residual-gap-probabilistic-downscaling-under-real-world-bias)  
+   标签：评分：7.0/10、query:aqac
+   evidence：概率降尺度偏差校正及残差差距分析
+3. [TRIE: An Evaluation Framework for Stochastic PDE Surrogates](/202607/02/2607.00196v1-trie-an-evaluation-framework-for-stochastic-pde-surrogates)  
+   标签：评分：7.0/10、query:aqac
+   evidence：随机PDE代理模型评估框架，可直接应用于化学传输代理模型
+4. [A Multi-Resolution Finite-Volume Inspired Deep Learning Framework for Spatiotemporal Dynamics Prediction](/202607/02/2607.00460v1-a-multi-resolution-finite-volume-inspired-deep-learning-framework-for-spatiotemporal-dynamics-prediction)  
+   标签：评分：7.0/10、query:aqac
+   evidence：物理信息深度学习结合有限体积守恒用于时空动力学预测
+5. [Generative Model Proposal based Particle Filtering for Data Assimilation](/202607/02/2607.01012v1-generative-model-proposal-based-particle-filtering-for-data-assimilation)  
+   标签：评分：7.0/10、query:aqac
+   evidence：生成模型增强的粒子滤波数据同化方法
+6. [The PICNN-Assisted Physics-Preserving Scheme for Thermodynamically Consistent Two-Phase Flow in Porous Media](/202607/02/2607.01020v1-the-picnn-assisted-physics-preserving-scheme-for-thermodynamically-consistent-two-phase-flow-in-porous-media)  
    标签：评分：6.0/10、query:aqac
-   evidence：基于Nyström近似的可扩展算子学习，与代理模型开发相关
-2. [A Bayesian latent Gaussian process framework for aerodynamic uncertainty quantification](/202607/01/2606.28871v1-a-bayesian-latent-gaussian-process-framework-for-aerodynamic-uncertainty-quantification)  
-   标签：评分：6.0/10、query:aqac
-   evidence：高斯过程代理框架用于气动不确定性，结合Kennedy-OHagan校准
-3. [Scalable coarse-to-fine spatial downscaling](/202607/01/2606.29798v1-scalable-coarse-to-fine-spatial-downscaling)  
-   标签：评分：6.0/10、query:aqac
-   evidence：空间降尺度方法，可应用于空气质量模型输出
+   evidence：用于多相流物理守恒的物理信息CNN
 
 
 <div class="dpr-home-promo-card">
