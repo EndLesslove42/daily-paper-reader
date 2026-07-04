@@ -6,43 +6,26 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-03
-- 运行时间：2026-07-03 21:01:05 UTC
+- 最新运行日期：2026-07-04
+- 运行时间：2026-07-04 21:16:13 UTC
 - 运行状态：成功
-- 本次总论文数：7
-- 精读区：3
-- 速读区：4
+- 本次总论文数：2
+- 精读区：1
+- 速读区：1
 
 ### 今日简报（AI）
-今日推荐7篇论文，精读聚焦全球风暴解析模拟与瑞利-贝纳德对流傅里叶神经算子。  
-最值得关注的是两篇9分精读，分别实现全球尺度AI大气模拟与高精度对流模拟。  
-建议优先阅读这两篇精读论文，了解AI在大气科学中的前沿应用。
-- 详情：[/202607/03/README](/202607/03/README)
+今日精读1篇高分论文、速读1篇中等评分论文，覆盖几何自适应算子学习与含噪动力学系统识别。最值得关注的是《GAIA: Geometry-Adaptive Operator Learning》提出的几何自适应算子学习方法，以及《Learning dynamical systems from noisy data》中弱形式核岭回归的降噪策略。建议优先阅读精读论文，其算子学习框架对正反问题求解有显著提升。
+- 详情：[/202607/04/README](/202607/04/README)
 
 ### 精读区论文标签
-1. [Scaling Storm-Resolving Atmospheric AI Simulation to the Entire Planet](/202607/03/2606.31248v1-scaling-storm-resolving-atmospheric-ai-simulation-to-the-entire-planet)  
-   标签：评分：9.0/10、query:aqac
-   evidence：全球风暴解析AI仿真器，可加速空气质量模拟
-2. [Fourier Neural Operators for Rayleigh-Bénard Convection](/202607/03/2607.02088v1-fourier-neural-operators-for-rayleigh-bnard-convection)  
-   标签：评分：9.0/10、query:aqac
-   evidence：傅里叶神经算子用于对流建模，属于神经算子代理模型
-3. [From Spectral Methods to Sample Complexity Bounds for Fourier Neural Operators](/202607/03/2607.00320v1-from-spectral-methods-to-sample-complexity-bounds-for-fourier-neural-operators)  
+1. [GAIA: Geometry-Adaptive Operator Learning for Forward and Inverse Problems](/202607/04/2607.01128v1-gaia-geometry-adaptive-operator-learning-for-forward-and-inverse-problems)  
    标签：评分：8.0/10、query:aqac
-   evidence：傅里叶神经算子用于演化方程
+   evidence：几何自适应积分自编码器用于算子学习，可构建PDE的快速神经代理模型，适用于空气质量模型代理
 
 ### 速读区论文标签
-1. [RainODE: Continuous-Time Precipitation Forecasting with Latent Neural ODEs](/202607/03/2606.29855v1-rainode-continuous-time-precipitation-forecasting-with-latent-neural-odes)  
+1. [Learning dynamical systems from noisy data with Weak-form Kernel Ridge Regression](/202607/04/2607.00257v1-learning-dynamical-systems-from-noisy-data-with-weak-form-kernel-ridge-regression)  
    标签：评分：6.0/10、query:aqac
-   evidence：使用神经ODE进行降水预报；物理信息机器学习
-2. [Convolutional Symmetric AutoEncoders: enhancing latent stability via differential geometry](/202607/03/2607.00669v1-convolutional-symmetric-autoencoders-enhancing-latent-stability-via-differential-geometry)  
-   标签：评分：6.0/10、query:aqac
-   evidence：自编码器用于PDE降阶建模；可应用于空气质量代理模型
-3. [A spectral-subspace-augmented POD-Galerkin method for parametrized PDEs with limited snapshot data](/202607/03/2607.01534v1-a-spectral-subspace-augmented-pod-galerkin-method-for-parametrized-pdes-with-limited-snapshot-data)  
-   标签：评分：6.0/10、query:aqac
-   evidence：用于参数化PDE的POD-Galerkin降阶模型
-4. [Post-Processing Reduced-Order Models for Transport-Dominated Problems by Gegenbauer Reconstruction](/202607/03/2607.01619v1-post-processing-reduced-order-models-for-transport-dominated-problems-by-gegenbauer-reconstruction)  
-   标签：评分：6.0/10、query:aqac
-   evidence：面向传输主导问题的ROM后处理技术，可应用于化学传输模型
+   evidence：弱形式核岭回归学习含噪动力系统，适用于环境建模
 
 
 <div class="dpr-home-promo-card">
