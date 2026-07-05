@@ -1,0 +1,2302 @@
+Title: Hierarchical Variational Kalman Filtering
+
+URL Source: https://arxiv.org/pdf/2607.00877v1
+
+Published Time: Thu, 02 Jul 2026 01:00:48 GMT
+
+Number of Pages: 17
+
+Markdown Content:
+# Hierarchical Variational Kalman Filtering 
+
+# Shilei Li a, Dawei Shi a, Wei Zheng b, Ling Shi c
+
+> a
+
+School of Automation, Beijing Institute of Technology, Beijing 100081, China 
+
+> b
+
+Shenzhen Youjia Innovation Technology Co., Ltd., Shenzhen, China 
+
+> c
+
+Department of Electronic and Computer Engineering, The Hong Kong University of Science and Technology, Clear Water Bay, Kowloon, Hong Kong, China 
+
+Abstract 
+
+Traditional variational Kalman filtering with unknown noise statistics suffers from inconsistent process covariance estimation and slow convergence speed, limiting its practical utility. To address these issues, we introduce a surrogate variable representing the process-noise-free state, which enables explicit modeling and inference of process noise statistics. In addition, we reformulate the conventional coordinate ascent variation inference (CAVI) as a marginalized maximum a posteriori problem, followed by a single-step hyperparameter fitting. This reformulation obviates the need for multiple inner iterations inherent to CAVI and decouples the design of the covariance tracking filters. Consequently, this architecture permits the deployment of higher-order filters for covariance tracking and enables sliding-window hyperparameter estimation. Notably, when this window encompasses all historical data, the covariance tracking estimator intrinsically operates as a zero-phase filter. Numerical simulations validate the theoretical framework, demonstrating the enhanced convergence speed and superior estimation accuracy compared with existing methods. 
+
+Key words: Variational inference, Marginalized maximum a posteriori, Rank-deficient covariance tracking, Kalman filtering 
+
+1 Introduction 
+
+Inferring the hidden state of dynamical systems in real time from the noisy measurements forms the backbone of modern state estimation and control, with many ap-plications including the simultaneous localization and mapping in robotics [1], the camera motion estimation in signal processing [2], the weather prediction in mete-orology [3], the target tracking in control [4], to name only a few. The pioneering works of this field trace back to a paper co-authored by Rudolf Kalman and Richard S. Bucy [5], which gives an unbiased minimum estima-tor under a linear model with Gaussian noise. It is fur-
+
+⋆ Shilei Li and Dawei Shi are with School of Automation, Beijing Institute of Technology, Beijing 100081, China (e-mail: shileili@bit.edu.cn, daweishi@bit.edu.cn). Wei Zheng is with Shenzhen Youjia Innovation Technology Co., Ltd., Shenzhen, China (e-mail: zhengwei@minieye.cc). Ling Shi is with the Department of Electronic and Computer Engineer-ing, The Hong Kong University of Science and Technology, Kowloon, Hong Kong (e-mail: eesling@ust.hk). (Correspond-ing author: Dawei Shi.) 
+
+Email addresses: shileili@bit.edu.cn (Shilei Li), 
+
+daweishi@bit.edu.cn (Dawei Shi), zhengwei@minieye.cc 
+
+(Wei Zheng), eesling@ust.hk (Ling Shi). 
+
+ther extended by Schmidt’s group for nonlinear systems with application to solving the Apollo guidance and nav-igation [6]. After that, many variants of the Kalman filter (KF), e.g., UKF [7], CKF [8], correntropy-based KF [9], consensus-based filter [10], have been developed with special emphasis on the nonlinear systems, non-Gaussian noise, and distributed systems. Many estimators assume exact knowledge of the noise statistics. However, this assumption is rarely satisfied in practical applications. One important reason is that an exact system model is usually unattainable, and ap-proximations are inevitable. In such cases, unmodeled dynamics can be interpreted as time-varying process or measurement noises. Modeling errors may also arise from the linearization of nonlinear systems. For example, in the extended Kalman filter (EKF), the system is lin-earized at the a priori estimate of the state using a first-order approximation, implying that the resulting mod-eling errors depend on the degree of system nonlinearity. If not properly handled, such errors may induce a posi-tive feedback loop and lead to filter divergence [11]. Operational conditions and external environments also contribute to time-varying noise statistics. For instance, 
+
+Preprint submitted to Automatica 2 July 2026 
+
+> arXiv:2607.00877v1 [stat.ML] 1 Jul 2026
+
+in quadruped robot localization, contact-related noise varies as the robot traverses different terrains [12]. In Global Positioning System (GPS) navigation, measure-ment noise statistics change with satellite visibility and are further affected by multipath and non-line-of-sight (NLOS) propagation [13]. Moreover, false data injec-tion (FDI) and denial-of-service (DoS) attacks can also be modeled as switched, or time-varying noise statis-tics [14, 15], which has attracted increasing attention in cyber-physical system security. There exist several lines of research on state estima-tion with time-varying noise statistics, which can be broadly classified into model-based and learning-based approaches. The former category includes moment matching [16], innovation-based methods [17], robust loss–based estimators [9, 18], interacting multiple-model (IMM) approaches [19], and variational Bayesian (VB) inference [4, 20]. Covariance matching and innovation-based methods typically rely on second-order statistics of the residuals, which require a sufficiently large sliding window to obtain reliable covariance estimates and may suffer from a risk of divergence [21]. Robust loss–induced estimators offer guaranteed convergence; however, by discarding historical noise covariance information, they exhibit limited adaptivity. The IMM-based approach employs a bank of Kalman filters to approximate the unknown noise covariance, but suffers a significant com-putational burden and becomes impractical for high-dimensional systems, as the number of required filters grows exponentially with the system dimension [19]. The VB-based approach, originally proposed by S¨ arkk¨ aand Nummenmaa [4], jointly estimates the state and noise variance by minimizing the Kullback–Leibler di-vergence between the true posterior and a designated distribution. It achieves performance comparable to that of IMM-based methods while significantly reducing the computational cost, and is favored by many researches. Unlike purely model-based methods, KalmanNet [22] in-tegrates the KF framework with Gated Recurrent Units (GRUs) to alleviate model mismatch by learning a spe-cialized Kalman gain. This architecture has been further extended in [23] and [24], where Transformers and deep neural networks (DNNs) replace the GRUs to offer alter-native performance trade-offs. More recently, Buchnik et al. [25] introduced latent-KalmanNet, which operates in a latent space to jointly learn feature representations and filtering operations, achieving notable performance gains in visual target tracking. Dahan et al. [26] further augmented it by incorporating uncertainty quantifica-tion through a Bayesian Kalman architecture. Another emerging line of research integrates generative model-ing with state estimation, leveraging normalizing flows or diffusion models [27, 28] to enable high-dimensional, multimodal estimation and extend standard Gaussian posteriors to much more complex distributions. It is worth noting that while learning-based methods raise the performance upper bound compared to con-ventional techniques, they rely heavily on extensive ground-truth state trajectories for training, which are frequently unavailable in practice [22–25]. Furthermore, their generalization capabilities are often compromised when they encounter unseen operational conditions. Finally, learning-based approaches, particularly gener-ative models, inherently operate as black boxes, intro-ducing potential safety risks and making deployment on embedded devices difficult. Alternatively, the VB-based method solves a similar problem by explicitly parame-terizing the noise statistics and inferring their posterior distributions via variational Bayesian approximation, which is tractable and explainable. However, existing VB-based methods have some limitations: (1) They are sensitive to outliers and the estimator’s performance degenerates significantly with heavy-tailed noises [29]; (2) The coordinate ascent variational inference, as a standard tool for variational optimization, converges in a zig-zag way, which is computationally inefficient. (3) Heuristic noise variance dynamics is widely used but without in-depth analysis on its tracking speed [4, 30– 35]; (4) The existing solutions cannot well accommo-date the time-varying rank-deficient process. (5) The VB-based methods can only track slow-varying noise variance and possess a delay in fast-varying noise statis-tics [32, 36]. These limitations restrict the application of VB-based estimators. To address the above-mentioned challenges, in this work, we decouple the conventional VB into a sequen-tial marginalized MAP (MMAP) and hyper-parameter update. Firstly, we reformulate the conventional state-space model as a lifted regression framework, which allows us to separate the process noise and perform inference channel by channel, giving flexibility in han-dling rank-deficient process covariance. Secondly, we decompose the VB inference as a two-stage problem: MMAP estimation and one single step hyper-parameter update. This operation can not only save the computa-tion resources, but also decouple the state update and variational hyper-parameter update, given a room in handling variational-robust problems [37]. Thirdly, we compensate for the variational delay by exploiting the historical errors by adding regulations or considering higher order filters. In the case of covering all historical data, the covariance tracking effectively functions as a zero-phase filter. The contributions of this work are summarized as follows: 
+
+• We formulate the state estimation problem as a lifted whitened regression problem and provide the identifi-ability condition ( Lemma 2 ), which allows us to treat the process and measurement indiscriminately. In ad-dition, we separate the conventional VB estimation as a two-stage problem: MMAP state estimation and hyper-parameter update, which is computationally ef-ficient and enables robustness and adaptiveness to be achieved sequentially. 2• We solve the MMAP using an iterative reweighted least squares (IRLS) method. Meanwhile, we provide the convergence proof of the lifted equation under a class of robust losses in Theorem 1 .
+
+• We provide a detailed analysis of covariance-tracking speed in Theorem 2 and compensate for the delay by exploiting historical information in Algorithms 4 and 5. Simulations verify the effectiveness of the proposed method. The rest of this paper is organized as follows. Section II provides preliminaries and problem formulation. Section III gives the detailed methodologies. Section IV provides some simulations. Section V concludes the paper. Notations: AT and A−1 denote the transpose and in-verse of matrix A. X ≻ 0 ( X ≽ 0) denotes a positive (or semi-positive) definite matrix, and In is a n × n iden-tity matrix. N (μ, Σ), St(0 , τ 2, ν ), and IG( α, β ) repre-sent the Gaussian, zero-mean Student’s t, and inverse-gamma distributions, respectively. E[·] and Eq [·] denote expectations (standard, and with respect to distribution 
+
+q). Finally, [ v]i and [ M ]ii represent the i-th element of vector v and i-th diagonal element of matrix M .
+
+2 Preliminaries and Problem Formulation 
+
+We first provide some preliminaries and then give the problem formulation. 
+
+2.1 Hierarchical Formulation of the Student’s t-Distribution 
+
+A random variable x ∼ St( μ, τ 2, ν ) with degrees of free-dom (DOF) ν has the probability density function: 
+
+p(x) = Γ(( ν + 1) /2) Γ( ν/ 2) √πντ 2
+
+
+
+1 + (x − μ)2
+
+ντ 2
+
+−(ν+1) /2
+
+. (1) This heavy-tailed distribution can be equivalently for-mulated as a Gaussian-scale mixture: 
+
+x ∼ N (μ, λ ), λ ∼ IG 
+
+ ν
+
+2 , ντ 2
+
+2
+
+
+
+(2) where IG 
+
+
+
+λ | ν
+
+2 , ντ 2
+
+2
+
+
+
+=
+
+ ντ 2
+
+> 2
+
+ ν
+
+> 2
+
+Γ   ν
+
+> 2
+
+ λ−( ν 
+
+> 2+1
+
+) exp 
+
+
+
+− ντ 2
+
+2λ
+
+
+
+is the inverse-gamma distribution. 
+
+Remark 1 The symbol ν and τ 2 have a clear interpre-tation. Specifically, ν controls the tail heaviness of the induced Student’s t-distribution and dictates the estima-tor’s robustness against outliers. Meanwhile, τ 2 serves as the nominal scale parameter, representing the latent covariance of the Gaussian distribution. 
+
+By taking the negative logarithm on the right side of (1) and defining e = x − μ, we obtain (ignoring the constant terms): 
+
+L∗
+
+> st
+
+(e) = ν + 1 2 log 
+
+
+
+1 + e2
+
+ντ 2
+
+
+
+. (3) 
+
+Property 1 As ν → ∞ , one has Lst = 12  
+
+> e2
+> τ2
+
+.
+
+This can be proved by taking limit on (3). 
+
+Property 2 ([37]) As ν → ∞ , one has St( μ, τ 2, ν ) →N (μ, τ 2) where the latent λ distribution degenerates to a shifted Dirac delta function δ(λ − τ 2).
+
+Property 3 ([37]) Lst is convex within [−√ντ, √ντ ],and is concave in other regions. 
+
+Property 4 By denoting u ≜ e2, the function Lst (u) =  
+
+> ν+1 2
+
+log  1 + uντ 2
+
+ is concave. 
+
+This can be proved by verifying d2 
+
+> du 2
+
+Lst (u) < 0. 
+
+Proposition 1 (Half-Quadratic Duality [38]) Let 
+
+ρ(e) be a robust loss function such that ϕ(u) = ρ(√u) is concave, continuously differentiable, and monotonically increasing on u ∈ [0 , ∞). There exists a dual poten-tial function ψ(λ) such that the non-convex loss can be expressed as the infimum of an augmented function: 
+
+ρ(e) = inf 
+
+> λ> 0
+
+ e2
+
+2λ + ψ(λ)
+
+
+
+(4) 
+
+where λ acts as an auxiliary weight variable. The min-imum is achieved when λ = eρ′(e) , mapping the robust optimization problem to an iteratively reweighted least squares (IRLS) sequence. 
+
+Lemma 1 (Mean Equivalence) Let p(x) be a contin-uously symmetric and unimodal probability density func-tion with its unique mode at x∗. If we approximate p(x)
+
+using a Gaussian distribution q(x) = N (x; μ, Σ) , then maximizing the ELBO, or equivalently minimizing the KL divergence KL( q(x)|| p(x)) , with respect to the varia-tional mean μ yields: 
+
+μ∗ = arg min  
+
+> μ
+
+KL( q(x)|| p(x)) = x∗
+
+where x∗ = arg max x p(x) is the MAP estimate. 
+
+PROOF. The ELBO to be maximized with respect to 
+
+μ and Σ is: 
+
+L(μ, Σ) = Eq(x)[log p(x)] + 12 log |Σ| + c, 
+
+where c is a constant. Taking the gradient of the ELBO with respect to μ, and utilizing the identity 
+
+∇μEq [log p(x)] = Eq [∇x log p(x)] (via Bonnet’s theorem or the reparameterization trick), we set it to zero, which gives 
+
+∇μL = EN (x;μ, Σ) [∇x log p(x)] = 0 3Since p(x) is symmetric and unimodal around x∗, the score function ∇x log p(x) is an odd function centered at x∗. For the expectation of an odd function under a symmetric Gaussian distribution to be strictly zero, the Gaussian distribution must be perfectly centered at the symmetry point of that odd function. Therefore, μ∗ =
+
+x∗.
+
+2.2 Problem Formulation 
+
+The system dynamics is as follows: 
+
+xk = Ax k−1 + Bw k
+
+yk = Cx k + Dv k
+
+(5) where A ∈ Rn×n and C ∈ Rm×n are the state-transition and observation matrices, respectively; B ∈ Rn×p and 
+
+D ∈ Rm×m map the process and measurement noises to the state and observation. The noise vectors wk ∈ Rp and 
+
+vk ∈ Rm are element-wise uncorrelated zero-mean ran-dom variables (i.e., E(wi,k wj,k ) = 0 and E(vi,k vj,k ) = 0 for i̸ = j, where wi,k and vi,k denote the i-th components of wk and vk). Without loss of generality, we assume the nominal covariances E(wkwTk ) = Ip and E(vkvTk ) = Im,and define Qk = BI pBT ⪰ 0 and Rk = DI mDT ≻ 0(implying D is non-singular). The pair ( A, √Qk) is con-trollable and ( A, C ) is observable. The matrix B has full column rank, i.e., rank( B) = p.In practical applications, the noise covariance may be time-varying, i.e., E(wkwTk ) = Qw,k and E(vkvTk ) = 
+
+Rv,k are time-varying. The associated process and mea-surement covariances become Qk = BQ w,k BT and Rk =
+
+DR v,k DT . The initial state x0 is zero-mean Gaussian with known covariance matrix P0, and is independent of 
+
+wk and vk for all k > 0. 
+
+Remark 2 Unlike the simplified noise modeling in [3, 9], where disturbances are directly added to the state and measurement, we employ a structural noise model. By explicitly introducing matrices B and D, this formula-tion characterizes the underlying physical mechanisms through which stochastic uncertainties propagate into the system dynamics and observation channels. 
+
+Our purpose is to jointly estimate {ˆxk, ˆQk, ˆRk} under the governing equation (5). 
+
+3 Main Results 
+
+In this section, we formulate the joint estimation prob-lem as a two-stage sequential problem: marginalized maximum a posteriori (MMAP) estimation and one step hyper-parameter update. 
+
+3.1 The Proposed Method 
+
+The mean-field variational approximation provides a backbone for joint estimate {ˆxk, ˆQk, ˆRk}. How-ever, it should be noted that the state xk depends on the process noise covariance Qk, which compli-cates the variational inference process, as the joint posterior cannot be directly factorized into inde-pendent components. To address this, Huang et al. perform inference on Pk|k−1 rather than Qk, which simplifies the problem. However, it overlooks the in-trinsic structure of Qk and produces sub-optimal re-sults. Alternatively, we introduce an auxiliary variable 
+
+mk ∼ N (m− 
+
+> k
+
+, Σk) = N (Ax k−1, AP k−1|k−1AT ), termed the unperturbed prior state, representing the state excluding process noise. Thus, we have 
+
+
+
+m−
+
+> k
+
+0
+
+yk
+
+ =
+
+
+
+I 0
+
+I −I
+
+0 C
+
+"mk
+
+xk
+
+#
+
++
+
+
+
+pk
+
+Bw k
+
+Dv k
+
+ (6) where pk denotes the virtual noise, and mk ∼N (m− 
+
+> k
+
+, ΣP k ) with m− 
+
+> k
+
+= Ax k−1 and Σ P k = AP k−1|k−1AT .Denote 
+
+BkBTk =
+
+
+
+BpBTp 0 00 BB T 00 0 DD T
+
+ =
+
+
+
+ΣP k 0 00 Qk 00 0 Rk
+
+ (7) where Bp is obtained by Cholesky decomposition through BpBTp = Σ P k . It follows that 
+
+B−1 
+
+> k
+
+=
+
+
+
+B−1 
+
+> p
+
+0 00 B† 00 0 D−1
+
+ (8) where B† ∈ Rp×n is the Moore-Penrose pseudo-inverse of B. Left multiplying B−1 
+
+> k
+
+in both side of (6) gives the following whitened regression problem: 
+
+tk = Wkχk + ξk (9) where 
+
+tk = B−1
+
+> k
+
+
+
+m−
+
+> k
+
+0
+
+yk
+
+ , Wk = B−1
+
+> k
+
+
+
+I 0
+
+I −I
+
+0 C
+
+ , χk =
+
+"mk
+
+xk
+
+#
+
+ξk =
+
+
+
+ξp
+
+ξw
+
+ξv
+
+ = B−1
+
+> k
+
+
+
+pk
+
+Bw k
+
+Dv k
+
+ .
+
+(10) Note that the prior state estimate m− 
+
+> k
+
+is treated as a pseudo-measurement in the above equation. In the nom-inal case, one has E(ξkξTk ) = In+p+m.
+
+Remark 3 Reformulating (5) as (9) offers several ad-vantages. First, by augmenting the system dimensions, it treats the process and measurement noises in a unified manner. This is beneficial especially when Qk is rank-
+
+4deficient (i.e., rank Qk ≤ n). Second, whitening the noise as ξk allows us to treat channels in different ways, provid-ing flexibility in high-dimensional and complex problems. 
+
+Lemma 2 (Identifiability) Consider the whitened re-gression problem in (9) for the augmented state χk ∈ R2n.Assume the prior covariance ΣP k and the measurement noise covariance Rk are positive definite, and B has full column rank. The state χk has a unique solution if and only if N (BT ) ∩ N (C) = {0} (or equivalently 
+
+rank 
+
+ "BT
+
+C
+
+# 
+
+= n), where N (·) denotes the null space of a matrix. 
+
+The proof is provided in Appendix 6.1. Throughout this work, we restrict our attention to systems that satisfy the condition stated in Lemma 2. We define ek ≜ ξk = tk − Wkχk and denote 
+
+tk =
+
+
+
+tp
+
+tw
+
+tv
+
+ , e k =
+
+
+
+ep
+
+ew
+
+ev
+
+ , Σχ =
+
+
+
+In 0 00 ΣQk 00 0 ΣRk 
+
+ (11) where Σ Qk and Σ Rk are two diagonal matrices to be es-timated, reflecting the characteristic of time-varying wk
+
+and vk. Recall that our purpose is to jointly estimate both the state and associated unknown covariance ma-trices, we need to assign a prior distribution for ew and 
+
+ev to avoid over-fitting [18]. To proceed, we model them as element-wise independent Student’s t-distributions as follows: ew = [ ew, 1, . . . , e w,i , . . . , e w,p ]T ,ev = [ ev, 1, . . . , e v,j , . . . , e v,m ]T . (12) Each element in the above vector follows a zero-mean Student’s t-distribution, i.e., 
+
+ew,i ∼ St( ew,i | 0, τ 2 
+
+> i
+
+, ν i), i = 1 , 2, . . . , p, (13) 
+
+ev,j ∼ St( ev,j | 0, τ 2 
+
+> j
+
+, ν j ), j = 1 , 2, . . . , m, (14) where νi and νj denote the degrees of freedom (DOF) controlling the tail heaviness of the corresponding distri-butions, and τ 2 
+
+> i
+
+and τ 2 
+
+> j
+
+are the associated nominal vari-ances. Note that although ep ∼ N (0 , I n) is Gaussian. Based on Property 2, it can be regarded as a Student’s 
+
+t-distribution as follows: 
+
+ep,i ∼ St( ep,i | 0, τ 2 
+
+> i
+
+, ν i), i = 1 , 2, . . . , n, (15) with νi → ∞ . This allows us to treat the different ele-ments of ep in a uniform way. Applying Bayes’ rule along-side the Student’s t-distribution properties from (1), the joint posterior can be factorized as follows: 
+
+p(χk, ΣQk , ΣRk | t1: k) = p(χk, ΣQk , ΣRk , t k | t1: k−1)
+
+p(tk | t1: k−1)
+
+∝ p(tk, χ k | ΣQk , ΣRk )p(Σ Qk )p(Σ Rk ),
+
+(16) where p(tk | t1: k−1) is the marginal likelihood obtained by integrating out the optimization variables, and thus acts merely as a normalizing constant. Observe that the Gaussian prior p(χk | t1: k−1) is already equivalently rep-resented as a pseudo-measurement embedded within the first block of the whitened regression model in (9). Con-sequently, the prior is inherently absorbed into the aug-mented likelihood term p(tk | χk, ΣQk , ΣRk ), removing the need for an explicit, separate prior term to avoid double-counting. By denoting Θ = {χk, ΣQk , ΣRk } =
+
+{χk, λ wv }, we rewrite the joint posterior in a compact way as 
+
+p(Θ |t1: k) ∝ p(Θ , t k|t1: k−1)=N (tk; Wkχk, Σχ)
+
+> n+p+m
+
+Y
+
+> i=1
+
+IG( λi| νi
+
+2 , νiτ 2
+
+> i
+
+2 ). (17) The exact solution for (17) is intractable due to the cou-pling between χk and λwv . Thus, we resort to variational Bayesian inference to construct a tractable approxima-tion. Specifically, by the mean-field assumption, we as-sume the target distribution follows 
+
+p(Θ |t1: k) ≈ q(χk, λ wv ) = q(χk)
+
+> p+m
+
+Y
+
+> 1
+
+q(λwv i ), (18) where q(χk) is a Gaussian distribution and λwv i is diag-onal inverse-Gamma variational factors. Then, we mini-mize the Kullback-Leibler (KL) divergence between the separable approximation and the true posterior: KL( q(χk, λ wv )|| p(Θ |t1: k)) =
+
+Z Z 
+
+q(χk, λ wv ) ln 
+
+ q(χk, λ wv )
+
+p(Θ |t1: k)
+
+
+
+dχ kdλ wv , (19) which is equivalent to maximizing the following evidence lower bound (ELBO) [39]: 
+
+L(q) = Eq [log p(tk | χk, λ wv )] + Eq [log p(λwv )] 
+
+− Eq [log q(χk)] − Eq [log q(λwv )] . (20) Maximizing the ELBO with respect to χk and λwv gives: log q(χk) ∝  Eq(λwv ) [log p(tk | χk, λ wv )]  , (21a) log q(λwv ) ∝  Eq(χk ) [log p(tk | χk, λ wv ) + log p(λwv )]  .
+
+(21b) The coupled equations in (21) can be solved iteratively via coordinate-ascent variational inference (CAVI), see details in Appendix 6.2. The full iterative procedure is computationally expensive and tightly couples the state estimation with covariance tracking at every iteration. To decouple this and alleviate the computational bur-den, we resort to a computationally efficient approxi-mation. Initially, we marginalize λwv out from the joint distribution (17), which gives 
+
+p(χk, t k|t1: k−1) = 
+
+Z
+
+p(Θ , t k|t1: k−1)dλ 1 . . . dλ n+p+m
+
+∝
+
+> n+p+m
+
+Y
+
+> i=1
+
+ (tk,i − (Wkχk)i)2 + νiτ 2
+
+> i
+
+− νi+1 2 ,
+
+(22) which is a product of Gaussian distributions and heavy-tailed Student’s t-distributions. Then, the KL diver-5gence is redefined to evaluate the difference exclusively between the approximate posterior q(χk) and the true marginalized posterior p(χk|t1: k): KL( q(χk)|| p(χk|t1: k)) = 
+
+Z
+
+q(χk) ln 
+
+ q(χk)
+
+p(χk|t1: k)
+
+
+
+dχ k.
+
+(23) The associated ELBO is: 
+
+L(q(χk)) = Eq(χk ) [log p(χk, t k | t1: k−1)] 
+
+− Eq(χk ) [log q(χk)] . (24) It is worth noting that the marginalized posterior in (22) is generally asymmetric. Specifically, by evaluating the third-order derivative tensor of the log-posterior at the MAP estimate χ∗, the local skewness along any direction ∆ is driven by the coefficient ki ∝ ei(e2 
+
+> i
+
+− 3νiτ 2 
+
+> i
+
+)/(νiτ 2 
+
+> i
+
++
+
+e2 
+
+> i
+
+)3, where ei = tk,i − (Wkχ∗)i is the steady-state resid-ual. This reveals that the skewness vanishes as either 
+
+νiτ 2 
+
+> i
+
+≫ e2 
+
+> i
+
+or νiτ 2 
+
+> i
+
+≪ e2 
+
+> i
+
+(Practical applications are dominated by these two regimes). Under the symmetric assumption, by applying Lemma 1, we convert (24) to the following marginalized MAP (MMAP) optimization problem: ˆχk = arg max 
+
+> χk
+
+log p(χk, t k | t1: k−1)= arg min 
+
+> χk
+> n+p+m
+
+X
+
+> i=1
+
+νi + 1 2 log 
+
+
+
+1 + e2
+
+> i
+
+νiτ 2
+
+> i
+
+| {z }
+
+> Ji
+
+, (25) where ei = tk,i − (Wkχk)i. Note that the posterior co-variance for (24) does not have a closed-form solution. In addition, the exact solution for (24) is slightly over-confident due to the zero-force effect caused by KL( q|| p), extensive discussion on KL( q|| p) versus KL( p|| q) is available on [40]. To simplify the solution, we apply Laplace approximation as q(χk) ≈ N ( ˆ χk, ˆPχk ) around the MAP point, where ˆPχk ) =  W Tk ΛLap Wk
+
+−1 with ΛLap ,ii = ∂2
+
+> ∂e 2
+> i
+
+ νi+1 2 log ( Ji)
+
+> ei=ˆ ei
+
+, proving a sufficiently good starting point. Subsequently, we advocate for up-dating q(λwv ) via (21b) in a single step. The entire algorithm, called the hierarchical variational estimator (HVE), is summarized in Algorithm 1. A graphical com-parison between standard CAVI and the proposed HVE is shown in Fig. 1. As demonstrated by the 1D exam-ple, the proposed method achieves similar performance with just a single q(λ) update compared to multiple iterations of conventional CAVI. 
+
+Algorithm 1 HVE 
+
+1: Step 1: MMAP 
+
+2: Solve (25) accompanied with Laplace approximation to obtain N ( ˆ χk , ˆPχk ). 3: Step 2: Update q(λwv )4: Update q(λwv ) based on (21b). 
+
+Remark 4 Geometrically, standard CAVI suffers from slow, zig-zag convergence trajectories due to the tightly coupled, skewed contour of the joint posterior. Our strat-egy circumvents this by utilizing optimization (MAP) to directly navigate to the mode (or equivalently, the mean of the marginalized posterior distribution), employing the Laplace method to capture the local curvature, and exe-cuting a single variational step to align the marginalized distributions. It is worth mentioning that after updating 
+
+q(λwv ), one optional action is to update q(χk) based on 
+
+(21a) . However, this procedure usually can be neglected since the MMAP solution usually provides sufficiently good approximations as demonstrated in Fig. 1. 
+
+(a) Contour path -5 0 5 10 00.02 0.04 0.06 0.08 0.1 0.12 0.14 0.16 0.18 0.2    
+
+> density
+> 050 100 00.005 0.01 0.015 0.02
+> density
+
+(b) PDF comparison Fig. 1. Comparison of CAVI and marginalized MAP+1-step inference methods in a 1D example. The model assumes a Gaussian likelihood y ∼ N (x, λ ) for a single measurement 
+
+y = 12 .0, with priors x ∼ N (0 , 6.0) and λ ∼ IG(1 .5, 21 .0). The CAVI is executed based on (21) with 5 iterations. The proposed method is executed based on Algorithm 1. (a) Visu-alization of the convergence paths of different methods with the same initial point. (b) The resulting approximate dis-tributions. One observes that CAVI is slightly overconfident regarding the q(x) due to the zero-forcing effect of KL( q|| p), which is avoided by the MMAP. 
+
+3.2 Algorithm Derivation 
+
+This subsection provides details for Algorithm 1 under the whitened regression problem (9). Based on (25), we define the following objective function: 
+
+J (χk) = 
+
+> n+p+m
+
+X
+
+> i=1
+
+νi + 1 2 log 
+
+
+
+1 + e2
+
+> i
+
+νiτ 2
+
+> i
+
+
+
+. (26) Recalling Proposition 1, the robust objective (26) can be transformed into a sequence of tractable surrogate prob-lems by introducing an auxiliary optimization variable 
+
+λi > 0 for each residual term ei. Thus, we have: 
+
+J (χk) = inf 
+
+> λi>0
+> n+p+m
+
+X
+
+> i=1
+
+ e2
+
+> i
+
+2λi
+
++ ψ(λi)
+
+
+
+, (27) where the optimum of the augmented dual function is achieved at: 
+
+λi = ei
+
+ρ′(ei) = νiτ 2 
+
+> i
+
++ e2
+
+> i
+
+νi + 1 . (28) 6Consequently, minimizing the original objective function 
+
+J (χk) is mathematically equivalent to solving an iter-atively reweighted least squares (IRLS) problem. Let j
+
+denote the iteration index. At each iteration, we define the equivalent scalar weight as the inverse of the auxil-iary variable, w(j) 
+
+> i
+
+≜ (λ(j) 
+
+> i
+
+)−1, which is computed based on the current state estimate χ(j) 
+
+> k
+
+:
+
+w(j) 
+
+> i
+
+= νi + 1 
+
+νiτ 2 
+
+> i
+
++
+
+
+
+e(j)
+
+> i
+
+2 . (29) By assembling these scalar weights into a diagonal weighting matrix Λ k(e(j) 
+
+> k
+
+) ≜ diag 
+
+h
+
+w(j)1 , . . . , w (j)
+
+> n+p+m
+
+i
+
+,the non-linear optimization problem is solved by the following normal equations: 
+
+χ(j+1)  
+
+> k
+
+=
+
+
+
+W Tk Λk(e(j) 
+
+> k
+
+)Wk
+
+−1
+
+W Tk Λk(e(j) 
+
+> k
+
+) tk, (30) until the sequence {χ(j) 
+
+> k
+
+} converges to the optimal esti-mate. 
+
+Remark 5 (Structural Equivalence) By comparing the MMAP solution in (30) and the CAVI in (53) , we no-tice they share a similar least squares structure, differing in the handling of the weighting matrix. The two meth-ods become equivalent when the posterior variance of the residual is negligible, such that Eq(χk )[e2 
+
+> i
+
+] = e2 
+
+> i
+
+. In ap-plications, the residuals are generally significantly larger than the a posteriori error covariance, i.e., Eq(χk )[e2 
+
+> i
+
+] ≊
+
+e2 
+
+> i
+
+. This demonstrates that the MMAP solution provides a good approximation for the state mean of the KL diver-gence optimization. 
+
+Remark 6 (Computational Efficiency) The MMAP offers computational efficiency compared to CAVI, as shown in (6.2) . In CAVI, the posterior error covariance 
+
+Pχk must be recomputed at each iteration; however, this step is bypassed in the proposed framework. Further-more, our sequential pipeline, in which χk is obtained prior to updating the prior distribution parameters, pro-vides the flexibility to seamlessly integrate robust and adaptive estimation techniques, as demonstrated in [41]. 
+
+Theorem 1 (Monotonic Convergence) Consider the objective function J (χk) defined in (26) and the fixed-point iteration given by (30) , denoted as the map 
+
+χ(j+1)  
+
+> k
+
+= T (χ(j) 
+
+> k
+
+). The sequence {J (χ(j) 
+
+> k
+
+)}j≥0 is mono-tonically non-increasing and converges to a stationary point of J (χk).
+
+The proof is available in Appendix 6.3. 
+
+Remark 7 The convergence guarantee established in Theorem 1 can be extended to a broader class of robust M-estimators characterized by the objective 
+
+J (χk) = P 
+
+> i
+
+ρ(ei(χk)) , provided the loss function ρ(·)
+
+satisfies the following half-quadratic conditions: (1) Symmetry: ρ(ei) = ρ(−ei) for all x ∈ R.(2) Regularity: ρ(ei) is continuously differentiable. (3) Concavity: The function ϕ(u) = ρ(√u) is concave on the domain u ∈ [0 , ∞).The proof is similar to that of Theorem 1 and is therefore omitted. This class encompasses several commonly used robust loss functions, including the Geman-McClure [42], Welsch (also referred to as multi-kernel correntropy loss [9]), smoothed Huber loss, and fair loss; see details in Appendix 6.3. 
+
+By applying matrix inversion lemma [1], (30) can be identically expressed in a Kalman update format. To proceed, we denote ¯C = [0 , C ] and χ+ 
+
+> k, 0
+
+= χ− 
+
+> k
+
+as the initial state estimation at t = 0 iteration. Subsequently, for t ≥ 1, we have (see details in [9, 43]) 
+
+χ+ 
+
+> k,t
+
+= χ− 
+
+> k
+
++ ˜Kk,t (yk − ¯Cχ − 
+
+> k
+
+)˜Kk,t = ˜P − 
+
+> χk
+
+¯CT ( ¯C ˜P − 
+
+> χk
+
+¯CT + ˜Rk)−1
+
+˜P − 
+
+> χk
+
+=
+
+"ΣP k ΣP k 
+
+ΣP k ΣP k + ˜Qk
+
+#
+
+˜Qk = BΛ−1 
+
+> w
+
+BT
+
+Λw = diag[ dνn+1 (en+1 ), . . . , d νn+p (en+p)] ˜Rk = DΛ−1 
+
+> v
+
+DT
+
+Λv = diag[ dνn+p+1 (en+p+1 ), . . . , d νn+p+m (en+p+m)] 
+
+ek = tk − Wkχt−1
+
+> k
+
+(31) where the cross term of ˜P − 
+
+> χk
+
+comes from the fact that 
+
+E[( mk − m− 
+
+> k
+
+)( xk − x− 
+
+> k
+
+)T ] = E[( −pk)( −pk + wk)T ] = ΣPk . This process is iterated until convergence, subject to a predefined termination condition or a maximum number of iterations. At the final iteration, one can up-date the posteriori error covariance as: 
+
+P + 
+
+> χk
+
+= ( I − ˜Kk,t ¯C)P −
+
+> χk
+
+(I − ˜Kk,t ¯C)T + ˜Kk,t Rk ˜KTk,t . (32) The complete algorithm, named as MMAP estimator, is summarized in Algorithm 2. An alternative expression of (31) and (32), which update mk and xk explicitly, is also provided in Appendix 6.4. Let I = {n + 1 , . . . , n + p + m} denote the set of in-ference channels selected for covariance inference, and 
+
+F = {1, . . . , n } denotes the frozen set. We then focus on the update of {λi}i∈I . By applying mean-field approxi-mation, we have 
+
+q(χk, {λi}i∈I ) = q(χk) Y
+
+> i∈I
+
+q(λi). (33) According to Appendix 6.2, the one-step q(λi) update follows 
+
+q(λi) = IG 
+
+
+
+λi
+
+ν∗
+
+> i
+
+2 , ν∗ 
+
+> i
+
+(τ 2 
+
+> i
+
+)∗
+
+2
+
+
+
+, (34) 7Algorithm 2 MMAP 
+
+1: Step 1: Initialization 
+
+2: Choose νi, τ 2 
+
+> i
+
+for channel i, and select the maximum iteration miter and a threshold ε.3: Step 2: State Prediction 
+
+4: x− 
+
+> k
+
+= Aˆx+
+
+> k−1
+
+, m− 
+
+> k
+
+= Aˆx+
+
+> k−1
+
+5: Obtain Bk according to (7) 6: χ+ 
+
+> k, 0
+
+= χ−
+
+> k
+
+7: Obtain tk and Wk through (10) 8: Step 3: State Update 
+
+9: while χ+
+
+> k,t −χ+
+> k,t −1
+> χ+
+> k,t
+
+> ε and t ≤ miter do 
+
+10: Execute (31) 11: t = t + 1 12: end while 
+
+13: Update P + 
+
+> k
+
+using (32) 14: Step 4: Recursion 
+
+15: Set k ← k + 1 and return to Step 2. 
+
+where 
+
+ν∗ 
+
+> i
+
+= νi + 1 ,
+
+(τ 2 
+
+> i
+
+)∗ = Eq(χk )[([ tk − Wkχk]i)2]
+
+νi + 1 + νiτ 2
+
+> i
+
+νi + 1 , (35) and 
+
+Eq(χk )[([ tk−Wkχk]i)2] = tk − Wkχ+
+
+> k
+
+2 
+
+> i
+
++
+
+h
+
+WkP +
+
+> χk
+
+W Tk
+
+i
+
+> ii
+
+.
+
+Remark 8 By lifting the state space to explicitly incor-porate the process noise, (35) structurally unifies the pro-cess and measurement models. This enables the simulta-neous variational inference of both process and measure-ment noise covariances within a single, unified update framework. 
+
+Proposition 2 (Scale Invariance). For the system de-fined in (5) , if the initial error covariance P0 and the noise covariances Qk and Rk are scaled by a constant α > 
+
+0, then for all k ≥ 1, the Kalman gain Kk and state esti-mates ˆxk|k−1 and ˆxk|k remain invariant. Meanwhile, the error covariances are scaled by α, i.e., P ′ 
+
+> k|k−1
+
+= αP k|k−1
+
+and P ′ 
+
+> k|k
+
+= αP k|k.
+
+The proof is available in Appendix 6.5. Proposition 2 implies that simultaneously estimating all channels of 
+
+Qk and Rk (equivalently, {λi}i∈I ) is ill-posed. Further-more, in practical applications, It is common that only a subset of the process and measurement noise statistic characteristics change over time. To reflect this fact, we split (5) as: 
+
+xk = Ax k−1 + Bf wf k + Bv wvk 
+
+yk = Cx k + Df vf k + Dv vvk 
+
+(36) where Bf wf k and Df vf k denote the fixed components, while Bv wvk and Dv vvk represent the time-varying com-ponents to be inferred. We define an active set A ∈ I 
+
+which is a subset of I and contains the non-zero channels of Bv wvk and Dv vvk . Consequently, one can perform in-ference on A to avoid ill-posedness. 
+
+Remark 9 Consider the partitioned system in (36) . If the fixed noise components are positive-definite (i.e., 
+
+Bf Qf BTf ≻ 0 or Df Rf DTf ≻ 0), the uniform scale invariance established in Proposition 2 is strictly broken. 
+
+The update rule ν∗ 
+
+> i
+
+= νi + 1 in (35) implies that the de-grees of freedom increase monotonically over time. As 
+
+νi → ∞ , the innovation weight 1 
+
+> νi+1
+
+vanishes, causing the covariance inference to saturate and lose sensitiv-ity to new data. Meanwhile, as shown by Property 2, the increment of νi suppresses the robust mechanism by forcing the weight function dνi (ei) to converge to the constant 1 /τ 2 
+
+> i
+
+, degenerating the robust estimator into a standard Kalman filter. To maintain persistent adaptiv-ity, we introduce a forgetting factor 0 < ρ i < 1 to bound the growth of the degrees of freedom. The sequential up-date for νi is modified as: 
+
+νi,k |k−1 = ρiνi,k −1|k−1
+
+νi,k |k = νi,k |k−1 + 1 . (37) The whole hierarchical variational Kalman filtering (HVKF) is summarized in Algorithm 3. 
+
+Algorithm 3 HVKF 
+
+1: Step 1: Initialization 
+
+2: Set initial νi, 0|0, τ 2
+
+> i, 0|0
+
+, and forgetting factors ρi ∈ (0 , 1). 3: Step 2: Hyperparameter Prediction 
+
+4: for i ∈ A do 
+
+5: νi,k |k−1 = ρiνi,k −1|k−1
+
+6: τ 2 
+
+> i,k |k−1
+
+= τ 2 
+
+> i,k −1|k−1
+
+▷ Static model 7: end for 
+
+8: Step 3: State Estimation (MMAP) 
+
+9: Input νi,k |k−1 and τ 2 
+
+> i,k |k−1
+
+into Algorithm 2 
+
+10: Execute Algorithm 2 to obtain χ+ 
+
+> k
+
+and P + 
+
+> χk
+
+.11: Step 4: Hyperparameter Posterior Update 
+
+12: for i ∈ A do 
+
+13: νi,k |k = νi,k |k−1 + 1 14: (τ 2 
+
+> i
+
+)k|k = νi,k |k−1τ 2 
+
+> i,k |k−1
+> νi,k |k
+
++ [tk −Wk χ+ 
+
+> k
+
+]2     
+
+> i+
+> h
+> WkP+
+> χk WTk
+> i
+> ii
+> νi,k |k
+
+15: end for 
+
+16: Step 5: Recursion 
+
+17: Set k ← k + 1 and return to Step 2. 
+
+Remark 10 It is worth mentioning that νi,k |k controls how confident we are about our current estimate, and a smaller value indicates a larger uncertainty. In the steady state, one has νi,k |k = 11−ρi , demonstrating that the steady state νi,k |k indeed is controlled by the forget-ting factor. 3.3 Covariance Tracking Analysis and Delay Compen-sation 
+
+The whitened and lifted modeling in (10) allows us to analyze the covariance tracking speed channel by chan-nel. At the steady state, one has ρi = νi,k |k−1 
+
+> νi,k |k−1+1
+
+. Defining the realized variational error as Ei,k ≜ [tk − Wkχ+ 
+
+> k
+
+]2 
+
+> i
+
++[WkP +
+
+> χk
+
+W Tk ]ii , we assume it is a weakly stationary se-quence with mean σ2 
+
+> i
+
+and variance η4 
+
+> i
+
+. Subsequently, we 8rewrite the scale parameter update function as shown in Line 14 of Algorithm 3 (at the steady state) as (τi,k |k)2 = ρi(τi,k −1|k−1)2 + (1 − ρi)Ei,k . (38) 
+
+Theorem 2 Defining the prior steady-state degrees of freedom ν−
+
+i ≜ νi,k |k−1. The scale parameter update in 
+
+(38) forms an exponentially weighted moving average (EWMA) estimator, which satisfies the following steady-state properties: (1) Asymptotic Unbiasedness: lim k→∞ E (τ 2
+
+i )k|k
+
+ =
+
+σ2
+
+i .(2) Tracking Variance: lim k→∞ Var  (τ 2
+
+i )k|k
+
+ =
+
+1−ρi
+
+1+ ρp η4
+
+i = 12ν− 
+
+> i
+
++1 η4
+
+i .(3) Tracking Time Constant: Ti = −1ln( ρi) .
+
+The proof is available in Appendix 6.6. It is obvious that there is a trade-off between the covariance tracking speed and tracking smoothness based on Theorem 2, i.e., a bigger forgetting factor ρi gives a smaller tracking variance but a bigger tracking time constant. To address this, we provide two remedies: a higher-order filter and a sliding window filter, which will be detailed below. 
+
+3.3.1 High Order Filter 
+
+Here we provide a general prior model. For the scale parameter update, we design 
+
+τ 2
+
+i,k |k−1 =
+
+NX
+
+m=1 
+
+ϕmτ 2
+
+i,k −m|k−m, (39) with PNm=1 ϕm = 1. Substituting it into (38) gives 
+
+τ 2
+
+i,k |k = ρiNX
+
+m=1 
+
+ϕmτ 2
+
+i,k −m|k−m + (1 − ρi)Ei,k . (40) 
+
+Proposition 3 The estimator (40) is BIBO stable if and only if all roots of its corresponding characteristic polynomial, P (z) = zN − PNm=1 ρiϕmzN −m = 0 , lie strictly inside the unit circle. 
+
+The proof can be obtained by taking the Z-transform of (40) and applying standard linear system stability crite-ria [44]. We omitted it here for brevity. In the case N = 1, one has ϕ1 = 1, which recovers the EWMA estimator. In the case N = 2, we obtain a velocity compensation prior by assigning ϕ1 = 1 + γ and ϕ2 = −γ so that 
+
+τ 2
+
+i,k |k−1 = τ 2
+
+i,k −1|k−1 + γ(τ 2
+
+i,k −1|k−1 − τ 2
+
+i,k −2|k−2).
+
+This explicitly calculates the first-order difference (trend) of the variance. Based on Proposition 3, one has 
+
+P (z) = z2 − ρi(1 + γ)z + ρiγ. The system is strictly BIBO stable if the following condition holds: 0 ≤ γ < 1
+
+ρi
+
+. (41) In the case N = 3, we obtain an acceleration compensa-tion prior. Denote ∆ τ 2
+
+i,k −1 ≜ τ 2
+
+i,k −1|k−1 − τ 2
+
+i,k −2|k−2. We formulate the prior as              
+
+> τ2
+> i,k |k−1=τ2
+> i,k −1|k−1+γ1(∆ τ2
+> i,k −1) + γ2
+> h
+> ∆τ2
+> i,k −1−∆τ2
+> i,k −2
+> i
+> .(42)
+
+By expanding the differences, the corresponding filter weights are exactly synthesized as ϕ1 = 1 + γ1 + γ2,
+
+ϕ2 = −(γ1 + 2 γ2), and ϕ3 = γ2. This 3rd-order de-sign dramatically reduces dynamic tracking lag during parabolic or exponentially growing profiles by predict-ing the rate-of-change of the variance trend itself. How-ever, the stability margin becomes tighter. The roots of 
+
+P (z) = z3 − ρiϕ1z2 − ρiϕ2z − ρiϕ3 must be verified via the 3rd-order Jury test, requiring γ2 < γ 1 < 1/ρ i to prevent underdamped oscillatory divergence. We visualize the trade-off between tracking speed and steady-state variance for the N = 1 and N = 2 esti-mators in Fig. 2. For the N = 2 case, setting γ = ρ2
+
+1+ ρ
+
+yields two real poles: z1 = ρ2 and z2 = ρ
+
+1+ ρ . The N = 2 time constant is dictated by the dominant pole ( z1 = ρ2
+
+as ρ ≥ 0.618), while the steady-state variance is derived based on Theorem 2. The results confirm that the N = 2 scenario possesses a better Pareto profile compared with 
+
+N = 1. The detailed high-order HVKF (HOHVKF) is summarized in Algorithm 4. 0.60 0.65 0.70 0.75 0.80 0.85 0.90 0.95 1.00                      
+
+> Forgetting Factor ( )
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> Tracking Time Constant ( T)
+> (a) Trade-off in N= 1 EWMA Estimator
+> Time Constant (Speed)
+> Steady-State Variance (Precision)
+> 0.00 0.05 0.10 0.15 0.20 0.25 0.30
+> Steady-State Variance V
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> Time Constant  T
+> N= 1
+> = 0.905
+> V= 0.050
+> N= 2
+> = 0.951
+> V= 0.044
+> Lower Variance
+> (b) Breaking the Pareto Limit via Momentum
+> Baseline N= 1 Pareto Front
+> N= 2 Pareto Front ( =2
+> 1 + )
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> Normalized Steady-State Variance ( V )
+
+Fig. 2. Performance analysis of the N = 1 and N = 2 estima-tors. (a) The inherent speed-precision trade-off in the stan-dard N = 1 EWMA filter, plotting the time constant (solid blue line) and normalized steady-state variance (dashed red line) against ρ. (b) Pareto front comparison of tracking speed versus precision. By applying the optimal overdamped mo-mentum gain γ = ρ2 
+
+> 1+ ρ
+
+, the N = 2 trajectory (solid red line) successfully breaks the absolute Pareto limit of the N = 1 baseline (solid black line), achieving strictly lower variance at equivalent tracking speeds. 
+
+Algorithm 4 HOHVKF 
+
+1: Step 1: Initialization 
+
+2: Set initial νi, 0|0, τ 2
+
+> i, 0|0
+
+, ρi ∈ (0 , 1) for i ∈ A . Additionally, set the filter parameter {ϕm}m=1: N .3: Step 2: Hyper-parameter Prediction 
+
+4: for i ∈ A do 
+
+5: νi,k |k−1 = ρiνi,k −1|k−1
+
+6: τ 2 
+
+> i,k |k−1
+
+= PNm=1 ϕmτ 2 
+
+> i,k −m|k−m
+
+▷ High-order model 7: end for 
+
+8: Execute Step 3, 4, and 5 in Algorithm 3 
+
+93.3.2 Sliding Window Filter 
+
+By investigating (38), we find that Ei,k is influenced by the estimate of χk, which is coupled with the preceding scale parameter τ 2
+
+> i,k −1|k−1
+
+. This temporal dependency indicates that a refined historical estimate of τ 2
+
+> i,k −1|k−1
+
+contributes to a tighter current scale estimate. Moti-vated by this, we formulate a sliding-window scale pa-rameter estimator. Let L denote the length of the sliding window. At time step k, we define the sequence of the lo-calized scale parameters and the corresponding realized variational errors over the window as vectors: 
+
+T i,k ≜
+
+h
+
+τ 2
+
+> i,k −L+1 |k−L+1
+
+, . . . , τ 2
+
+> i,k |k
+
+iT
+
+,
+
+Ei,k ≜
+
+h
+
+Ei,k −L+1 , . . . , Ei,k 
+
+iT
+
+.
+
+To obtain an optimal and smooth estimation of the se-quence T i,k given the measurement sequence Ei,k , we cast the scale parameter update as a regularized local-ized optimization problem:             
+
+> ˆTi,k = arg min
+> Ti,k
+> 
+> kX
+> j=k−L+1
+> 12D
+> 
+> Ei,j , τ 2
+> i,j |j
+> 
+> +λ
+> 2R(Ti,k )
+> .(43)
+
+Here, D(·, ·) is a data fidelity penalty (typically the squared Euclidean distance Ei,j − τ 2
+
+> i,j |j
+> 22
+
+), and λ > 0is the regularization parameter controlling the trade-off between data fidelity and tracking smoothness. The penalty function R(T i,k ) explicitly encodes our prior belief regarding the dynamics of the scale parameter. Depending on the physical nature of the noise char-acteristics, three distinct smoothing strategies can be adopted as follows. 
+
+• ℓ2-Regularization: 
+
+Rℓ2 (T i,k ) = 
+
+> k
+
+X
+
+> j=k−L+1
+
+
+
+τ 2 
+
+> i,j |j
+
+− τ 2
+
+> i,j −1|j−1
+
+2
+
+.
+
+• ℓ1-Regularization: 
+
+Rℓ1 (T i,k ) = 
+
+> k
+
+X
+
+> j=k−L+1
+
+τ 2 
+
+> i,j |j
+
+− τ 2 
+
+> i,j −1|j−1
+
+.
+
+• ℓ0-Regularization: 
+
+Rℓ0 (T i,k ) = 
+
+> k
+
+X
+
+> j=k−L+1
+
+τ 2 
+
+> i,j |j
+
+− τ 2  
+
+> i,j −1|j−10
+
+.
+
+Theorem 3 Let ˆT i,k ≜ [( τi,k −L+1 |k)2, . . . , (τi,k |k)2]T
+
+be the global minimizer of the localized ℓ2-regularized ob-jective:             
+
+> J(Ti,k ) = 12
+> Pkj=k−L+1
+>  τ2
+> i,j − E i,j
+> 2+λ
+> 2
+> Pkj=k−L+1
+>  τ2
+> i,j −τ2
+> i,j −1
+> 2.
+
+(44) 
+
+If the regularization parameter is chosen as λ = ρi 
+
+> (1 −ρi)2
+
+,the optimal smoothed estimates (τi,j |k)2 can be exactly computed via a recursive two-pass algorithm (at the steady state sense): (1) Forward pass: (τi,j |j )2 = ρi(τi,j −1|j−1)2 + (1 − ρi)Ei,j . (45) 
+
+(2) Backward pass: (τi,j |k)2 = (1 − ρi)( τi,j |j )2 + ρi(τi,j +1 |k)2. (46) The proof is available in Appendix 6.7. The whole al-gorithm, termed as Sliding Window Hierarchical Varia-tional Kalman Filtering (SWHVKF), is summarized in Algorithm 5. 
+
+Algorithm 5 SWHVKF with ℓ2 Regularization. 
+
+1: Step 1: Sliding Window Initialization 
+
+2: Establish a sliding window of length L by running MMAP in Algorithm 2. 3: Step 2: Forward Pass 
+
+4: for i ∈ A do 
+
+5: for j = k − L + 1 to k do 
+
+6: (τi,j |j )2 = ρi(τi,j −1|j−1)2 + (1 − ρi)Ei,j 
+
+7: end for 
+
+8: end for 
+
+9: Step 3: Backward Pass 
+
+10: for i ∈ A do 
+
+11: for j = k − 1 down to k − L + 1 do 
+
+12: (τi,j |k )2 = (1 − ρi)( τi,j |j )2 + ρi(τi,j +1 |k )2
+
+13: end for 
+
+14: end for 
+
+15: Step 4: Standard Kalman Filter Rerun 
+
+16: Initialize the state at j = k − L and reconstruct noise covariance sequence T i,k = {(τi,j |k )2}i∈A ,j =k−L+1: k .17: for j = k − L + 1 to k do 
+
+18: Execute Kalman filter to obtain χ+ 
+
+> j|j
+
+and P +  
+
+> χj|j
+
+.19: end for 
+
+20: Step 5: Sliding Recursion 
+
+21: Set k ← k + 1, shift the sliding window, and return to Step 1. 
+
+Remark 11 Unlike the high-order estimator in (40) ,which relies on a momentum prior for causal prediction to mitigate tracking lag, SWHVKF refines the estimation by exploiting a sliding window of historical information through a forward-backward manner. In the extreme of-fline case where the sliding window encompasses the en-tire data trajectory, this two-pass operation mathemati-cally converges to a globally optimal zero-phase smoother, completely eliminating the time-delay (phase-shift) dis-tortion inherent to one-sided exponential tracking. 
+
+4 Simulation 
+
+This section presents numerical examples to demon-strate the effectiveness of the proposed methods. 
+
+4.1 Example 1: Fast Measurement Covariance Tracking 
+
+We formulate the target tracking problem using the fol-lowing discrete-time linear state-space model: 
+
+xk+1 = Ax k + Bw k
+
+yk = Cx k + vk
+
+10 where the system matrices are defined as A =
+
+"1 ∆ t
+
+0 1
+
+#
+
+,
+
+B =
+
+"0.5(∆ t)2
+
+∆t
+
+#
+
+, and C =
+
+h
+
+1 0 
+
+i
+
+, with the sampling in-terval ∆ t = 0 .01. The process noise is assumed to be 
+
+wk ∼ N (0 , 1). To simulate abrupt changes in measure-ment quality, we introduce a piecewise-constant mea-surement noise profile vk ∼ N (0 , R k), where 
+
+Rk =
+
+1, if k ∈ S1
+
+100 , if k ∈ S2.
+
+Here, S = S1 ∪ S2 represents the entire sequence of time steps. In the simulations, the root mean square error (RMSE) is calculated as 1
+
+> nT
+
+PTk=1 
+
+Pni=1 ei,k , where T is the trajectory length and N is the state dimension. During the simulation, we define ρ = [1 , 1, ρ 3] with ρ3 =0.99. Note that ρi = 1 indicates that variational infer-ence is not applied to that specific channel. For the HO-HVKF, we set γ = 0 .4925, which yields the following scale update equations: 
+
+τ 2 
+
+> i,k |k−1
+
+= τ 2 
+
+> i,k −1|k−1
+
++ 0 .4925( τ 2 
+
+> i,k −1|k−1
+
+− τ 2
+
+> i,k −2|k−2
+
+)(τi,k |k)2 = ρi(τi,k |k−1)2 + (1 − ρi)Ei,k .
+
+(47) For the SWHVKF, we set the window length as L = 5. We use the same nominal parameters across all evalu-ated filters: KF, VBKF [4], MMAP, HVKF, HOHVKF, and the Ideal KF (which utilizes the ground truth co-variance). The comparative results are visualized in Fig. 3, and the measurement covariance tracking trajectory is visualized in Fig. 4. KF VBKF HMAP HVKF HOHVKF SWHVKF Ideal KF 0.15 0.2 0.25 0.3 0.35 0.4 0.45 0.5 0.55 0.6 0.65 
+
+> Overall RMSE
+> KF VBKF HMAP HVKF HOHVKF SWHVKF Ideal KF -15 -10 -5 0
+> Overall RMSE (dB)
+> RMSE Comparison (10 Monte Carlo Runs)
+
+Fig. 3. Overall RMSE comparison over 10 Monte Carlo runs. The left and right panels show the error distribution and mean values (dB), respectively. Compared to the standard KF, all variants achieve significant accuracy gains. Notably, both HOHVKF and SWHVKF perform better than the base-line HVKF, achieving 51 .47% and 52 .15% improvement com-pared with the standard KF. 
+
+As shown in Fig. 4, the HOHVKF responds more than twice as fast as the HVKF, at the minor expense of slightly increased steady-state variance. This trade-off confirms the superiority of the proposed higher-order method. The detailed quantitative metrics are summa-rized in Table 1. The results indicate that both the pro-posed HOHVKF and SWHVKF perform better than the baseline HVKF, achieving accuracy levels closely ap-proximating the ideal KF. 0 500 1000 1500 2000 2500 3000 3500 4000 4500 5000  
+
+> Time Step
+> 050 100 150 HVKF vs HOHVKF vs Ground Truth (Single Realization)
+
+Fig. 4. Tracking performance of parameter λ in a single re-alization. HOHVKF responds faster to abrupt step changes in the ground truth compared to HVKF, but at the cost of slightly larger steady state variance. Table 1 RMSEs Comparison of Estimators. 
+
+Estimator RMSE RMSE (dB) Improvement (%) KF 0.536 ± 0.072 −5.48 ± 1.16 –VBKF 0.276 ± 0.053 −11 .34 ± 1.72 +48 .60 MMAP 0.349 ± 0.071 −9.30 ± 1.79 +34 .85 HVKF 0.276 ± 0.053 -11.33 ± 1.71 +48.51 HOHVKF 0.260 ± 0.052 -11.85 ± 1.74 +51.47 SWHVKF 0.257 ± 0.047 -11.95 ± 1.60 +52.15 Ideal KF 0.232 ± 0.057 −12 .91 ± 1.95 +56 .80 
+
+We further evaluate the performance of the proposed method over the entire measurement sequence under ℓ2,
+
+ℓ1, and ℓ0 regularizations (solved via ADMM with hard thresholding). The results, depicted on the left side of Fig. 5, verify the equivalence between the ℓ2 regulariza-tion optimization and the two-pass filter. Furthermore, we observe that ℓ1 regularization achieves superior per-formance compared to ℓ2 regularization, albeit at the cost of increased computational complexity. 
+
+4.2 Example 2: Rank Deficit Process Covariance Track-ing 
+
+We consider a torsion load system [45]. The system dy-namics are governed by the following equations: 
+
+xk = Akxk−1 + G1,k uk−1 + G2,k dk−1 + wk
+
+yk = Ckxk + vk
+
+(48) 11 Fig. 5. Performance comparison of different estimators. The left figure confirms the equivalent of ℓ2 regulation and two pass filter. The right figure show that the covariance estima-tor becomes a zero phase filter when containing the entire measurement sequence. 
+
+with                                   
+
+> Ak=
+> 
+> 0.9205 0.0795 0.0085 0.0003 0.2045 0.7955 0.0007 0.0085
+> −14 .3468 14 .3468 0.6872 0.0746 37 .5370 −37 .5370 0.1863 0.6405
+> 
+> G1,k =
+> h
+> 0.0826 ,0.0031 ,15 .5568 ,1.2100
+> iT
+> G2,k =
+> h
+> 0.0031 ,0.2076 ,1.2100 ,38 .7470
+> iT
+> Ck=
+> 
+> 1000010000100001
+> 
+
+where xk = [ θm, θ t, v m, v t]T ∈ R4 denotes the state vec-tor, uk ∈ R is the motor output torque, dk is the external disturbance, and yk is the measurement. In the simulation, we set wk ∼ N (0 , 0.01I 4) and vk ∼N (0 , I4). Additionally, we model dk as Gaussian noise with dk ∼ N (0 , 0.1λk), where λk follows 
+
+λk =
+
+1, if k ∈ S1
+
+100 , if k ∈ S2
+
+(49) with S1 = [0 , 100) ∪ [400 , 600) ∪ [900 , 1000] and 
+
+S2 = [100 , 400) ∪ [600 , 900). The time interval is ∆t = 0 .01 s. We use the same nominal covariances for all estimators, except for the ground-truth covariance in Ideal KF. Meanwhile, we set ν = 10 for all process channels in STKF [37], apply a velocity-prior model with γ = 0 .5 to HOHVKF, and use a sliding window length of 5 for SWHVKF. Additionally, we employ the same ρ = 0 .97 for VBKF, HVKF, HOHVKF, and SWHVKF (specifically regarding all process channels for VBKF, and the G2dk channel in its lifted form). The overall accuracy of the different estimators is illus-trated in Fig. 6, with the covariance tracking visualiza-tion depicted in Fig. 7 and the corresponding RMSE values detailed in Table 2. The results demonstrate that the exact rank deficit process covariance estima-tion E[( G2,k dk−1)( G2,k dk−1)T ] can be tracked by the proposed methods (but is failed by the other estima-tors). Notably, over 100 Monte Carlo runs, the pro-posed HOHVKF and SWHVKF achieve performance almost identical to that of the Ideal KF (overall RMSE of 0 .701 ± 0.011 for both HOHVKF and SWHVKF, compared to 0 .070 ± 0.011 for the Ideal KF). Overall RMSE 
+
+> KF Ideal KF STKF VBKF HVKF HOHVKF SWHVKF 00.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1
+> Overall RMSE
+> Overall RMSE (dB)
+> KF Ideal KF STKF VBKF HVKF HOHVKF SWHVKF -3.5 -3 -2.5 -2 -1.5 -1 -0.5 0
+> Overall RMSE (dB)
+> Estimator Comparison (Trails=100)
+
+Fig. 6. Comparison of different filtering algorithms over 100 Monte Carlo trials. The left panel displays the overall RMSE, while the right panel presents the overall RMSE in decibels (dB). 0 1 2 3 4 5 6 7 8 9   
+
+> Time (s)
+> 020 40 60 80 100 120 140 160 180 200
+> d(Ground Truth)
+> est (HVKF)
+> est (HOHVKF)
+
+Fig. 7. Tracking comparison for λ (see (49)) between the HVKF and HOHVKF algorithms. The higher-order ap-proach (HOHVKF) yields a faster tracking response to sud-den changes, at the cost of slightly increased fluctuation dur-ing the constant intervals. 
+
+4.3 Example 3: Disturbance Estimation 
+
+We consider a manipulator tracking example [9]. The augmented state-space model has 
+
+xk = Φ kxk−1 + Gkuk−1 + Bdwd,k + Bθ wθ,k 
+
+yk = Hkxk + Bv vk
+
+(50) with                          
+
+> Φk=
+> 
+> 100
+> TIm 1−bmT Im −kmT Im
+> 0T1
+> , G k=
+> 
+> 0
+> TIm
+> 0
+> 
+> Bd=
+> 
+> 1
+> TIm
+> 0
+> , B θ=
+> 
+> 0
+> T
+> T22
+> , B v=
+> 1
+> T
+> 
+> Hk=
+> 010000.1
+> 
+
+where xk = [ dk, ˙θk, θ k]T denotes the unknown external disturbance, the angular velocity and angle. T = 0 .01 s is the sampling interval, uk is the input torque driven by a computed torque controller (see [9]), Bd and Bθ maps the disturbance noise wd,k and the process noise wθ,k ∼N (0 , 0.01) into the systems, and vk ∼ N (0 , 0.01I 2) is the measurement noise. In the simulation, we use Im =12 Table 2 Performance comparison of different estimators over 100 Monte Carlo trials (Values: mean ± std). 
+
+Estimators RMSE of Individual States Overall RMSE RMSE (dB) 
+
+x1 x2 x3 x4
+
+KF 0.236 ± 0.015 0.236 ± 0.014 1.450 ± 0.039 1.146 ± 0.027 0.939 ± 0.020 -0.545 STKF 0.305 ± 0.023 0.425 ± 0.022 1.078 ± 0.025 1.001 ± 0.021 0.781 ± 0.013 -2.148 VBKF 0.288 ± 0.027 0.618 ± 0.141 0.980 ± 0.024 0.998 ± 0.021 0.781 ± 0.031 -2.146 HVKF 0.231 ± 0.015 0.231 ± 0.015 0.930 ± 0.023 0.998 ± 0.021 0.702 ± 0.011 -3.079 HOHVKF 0.231 ± 0.015 0.231 ± 0.015 0.929 ± 0.023 0.998 ± 0.021 0.701 ± 0.011 -3.085 SWHVKF 0.231 ± 0.015 0.231 ± 0.015 0.930 ± 0.023 0.998 ± 0.021 0.701 ± 0.011 -3.080 Ideal KF 0.231 ± 0.015 0.231 ± 0.015 0.927 ± 0.023 0.997 ± 0.021 0.700 ± 0.011 -3.094 
+
+Table 3 RMSEs (mean ± std) of different estimators over 100 Monte Carlo trials. 
+
+Method d (Nm) ˙θ (rad/s) θ (rad) tracking θ (rad) tracking ˙θ (rad/s) KF 5.4222 ± 0.0795 0.1748 ± 0.0039 0.0034 ± 0.0002 0.0246 ± 0.0004 0.8906 ± 0.0101 STKF 4.9861 ± 0.0695 0.0988 ± 0.0026 0.0033 ± 0.0002 0.0200 ± 0.0004 0.8306 ± 0.0072 VBKF 4.9755 ± 0.0719 0.0933 ± 0.0023 0.0033 ± 0.0002 0.0199 ± 0.0004 0.8301 ± 0.0076 HVKF 4.8888 ± 0.0797 0.0939 ± 0.0024 0.0031 ± 0.0002 0.0187 ± 0.0004 0.8296 ± 0.0080 HOHVKF 4.8837 ± 0.0799 0.0933 ± 0.0023 0.0031 ± 0.0002 0.0187 ± 0.0004 0.8288 ± 0.0080 
+
+0.1 Nm ·s2/ deg, bm = 1 Nm ·s/ deg, km = 0 .1 Nm / deg. Moreover, we assume that the unknown disturbance has 
+
+dk =
+
+( 50 + wd1,k , 400 ≤ k ≤ 600 
+
+wd2,k , otherwise where wd1,k ∼ N (0 , 100) and wd2,k ∼ N (0 , 1). The de-sired angle follows θd,k = 15 sin(0 .4πkT ). As for estimators, we apply the same nominal covariance for all estimators (if applicable), and tune the hyper-parameters (controlling the robustness level) for STKF, MKCKF [43] by trial and error. As for VBKF, HVKF, and HOHVKF, we use the same forgetting factor ρd =0.96, and apply γd = 0 .5 for HOHVKF. The estimation and control performance by utilizing different estima-tors is visualized in Fig. 8 and summarized in Table 3, where the best values are highlighted in gray. We find the proposed methods are consistently better than KF, STKF, and VBKF. 
+
+5 Conclusion 
+
+In this paper, we introduced a hierarchical variational Kalman filtering (HVKF) that systematically decouples variational inference into sequential robust state filter-ing and hyperparameter updating. By lifting the system dimensions, this framework unifies the treatment of pro-cess and measurement noise covariances, proving par-ticularly advantageous for inferring rank-deficient pro-cess covariances. Capitalizing on this decoupled archi-tecture, we successfully accelerated covariance conver-gence by either modifying the prior model of the latent scale parameters or estimating them via a sliding win-dow mechanism. Extensive simulations confirm the su-KF STKF VBKF HVKF HOHVKF 4.6 4.8 55.2 5.4 5.6 5.8 KF STKF VBKF HVKF HOHVKF 0.1 0.15 0.2 KF STKF VBKF HVKF HOHVKF 33.5 4 10 -3 
+
+> KF STKF VBKF HVKF HOHVKF 0.018 0.02 0.022 0.024 0.026 KF STKF VBKF HVKF HOHVKF 0.8 0.85 0.9
+
+Fig. 8. Performance comparison of KF, STKF, VBKF, HVKF, HOHVKF in 100 Monte Carlo runs. The sub-figures visualize the RMSEs of disturbance, angular velocity, angle, the angle tracking error, and the angular velocity tracking error, respectively. 
+
+periority of the proposed approaches compared to exist-ing approaches. 
+
+6 Appendix 
+
+6.1 Proof of Lemma 2 
+
+The state χk is uniquely identifiable if and only if the null space of the design matrix N (Wk) = {0}. Let qk =
+
+"mk
+
+xk
+
+#
+
+∈ N (Wk), implying Wkqk = 0. Expanding this 13 expression yields: 
+
+B−1 
+
+> p
+
+mk = 0, (51a) 
+
+B†(mk − xk) = 0, (51b) 
+
+D−1Cx k = 0. (51c) According to (9) and (7), we know that Bp and D
+
+are non-singular. Thus, (51a) guarantees mk = 0.Substituting this result into (51b) gives B†xk = 0.Note that B† and BT share the same null space, since 
+
+B† = ( BT B)−1BT where ( BT B)−1 is invertible. Thus, 
+
+xk ∈ N (BT ). Meanwhile, (51c) indicates xk ∈ N (C)since D is non-singular. Consequently, N (Wk) = {0} if and only if N (BT ) ∩ N (C) = {0}.
+
+6.2 The standard CAVI 
+
+We first focus on q(χk). Based on (21a) and denoting 
+
+q(χk) = N (μχk , Σχk ), the precision matrix determines the covariance and mean: Σχk =  W ⊤ 
+
+> k
+
+E Λ−1 Wk
+
+−1 , μχk = Σ χk W ⊤ 
+
+> k
+
+E Λ−1 tk
+
+(52) where E Λ−1 is a diagonal matrix and 
+
+E Λ−1 
+
+> ii
+
+= νi + 1 
+
+νiτ 2 
+
+> i
+
++ Eq(χk ) [( tk,i − Wk,i χk)2]with 
+
+Eq(χk )
+
+(tk,i − Wk,i χk)2 = ( tk,i − Wk,i μχk )2 + Wk,i Σχk W Tk,i .
+
+We then focus on q(λwv ). Based on (21b), one can de-rive that q∗(λi) follows an Inverse-Gamma distribution IG( ν∗ 
+
+> i
+> 2
+
+, ν∗ 
+
+> i
+> 2
+
+(τ ∗ 
+
+> i
+
+)2) with 
+
+ν∗ 
+
+> i
+
+= νi + 1 , (τ ∗ 
+
+> i
+
+)2 = νiτ 2 
+
+> i
+
++ Eq(χk )
+
+(tk,i − Wk,i χk)2
+
+νi + 1 .
+
+6.3 Proof of Theorem 1 
+
+Let ei(χk) = [ tk − Wkχk]i denote the i-th residual el-ement. The objective function in (26) can be reformu-lated as J (χk) = P 
+
+> i
+
+ϕ(e2 
+
+> i
+
+(χk)), where the scalar func-tion ϕ : R≥0 → R is defined as ϕ(u) = νi+1 2 log(1+ uνiτ 2
+
+> i
+
+). Since ϕ(u) is continuously differentiable and strictly con-cave on u ≥ 0 (verified by ϕ′′ (u) < 0), it is bounded above by its first-order Taylor expansion at any expan-sion point u0. Specifically, 
+
+ϕ(u) ≤ ϕ(u0) + ϕ′(u0)( u − u0).
+
+Let u(j) 
+
+> i
+
+≜ (ei(χ(j) 
+
+> k
+
+)) 2 be the squared residual at iter-ation j. Applying the concavity property, we construct a surrogate function Q(χk, χ (j) 
+
+> k
+
+) that serves as a global upper bound for J (χk): 
+
+J (χk) ≤ Q(χk, χ (j) 
+
+> k
+
+) := P
+
+> i
+
+h
+
+ϕ(u(j) 
+
+> i
+
+) + ϕ′(u(j) 
+
+> i
+
+)
+
+
+
+e2 
+
+> i
+
+(χk) − u(j)
+
+> i
+
+i 
+
+.
+
+(53) Minimizing Q(χk, χ (j) 
+
+> k
+
+) with respect to χk is equiv-alent to minimizing the weighted least squares term 
+
+P 
+
+> i
+
+ω(j) 
+
+> i
+
+e2 
+
+> i
+
+(χk), as the other terms are constant with re-spect to χk. The weights are given by ω(j) 
+
+> i
+
+= ϕ′(u(j) 
+
+> i
+
+) =   
+
+> νi+1
+> νiτ2
+> i+u(j)
+> i
+
+, which is identical to the diagonal elements of Λk(ek) defined in (29). The fixed-point iteration (30) computes the global minimizer of this surrogate: 
+
+χ(j+1)  
+
+> k
+
+= arg min 
+
+> χk
+
+Q(χk, χ (j) 
+
+> k
+
+). (54) The monotonic descent property follows from the majorization-minimization principle: 
+
+J (χ(j+1)  
+
+> k
+
+) ≤ Q(χ(j+1)  
+
+> k
+
+, χ (j) 
+
+> k
+
+) ≤ Q(χ(j) 
+
+> k
+
+, χ (j) 
+
+> k
+
+) = J (χ(j) 
+
+> k
+
+).
+
+(55) Since J (χk) is bounded below by 0, the sequence of ob-jective values {J (χ(j) 
+
+> k
+
+)} converges. This completes the proof. Some representative losses that can be solved by RWLS with guaranteed convergence are listed in Table 4. 
+
+Table 4 Exemplary losses that can be solved by RWLS. 
+
+Robust Loss Function ρ(x)Geman-McClure c2x2
+
+> 2( c2+x2)
+
+Welsch c2
+
+
+
+1 − exp 
+
+
+
+− x2
+
+> 2c2
+
+ 
+
+Smoothed Huber c2
+
+p1 + ( x/c )2 − 1
+
+
+
+Fair c2
+
+ |x| 
+
+> c
+
+− ln 
+
+
+
+1 + |x|
+
+> c
+
+ 
+
+6.4 An Alternative Expression of (31) and (32) By expanding ˜P − 
+
+> χk
+
+in (31), we arrive at                                                   
+
+> x+
+> k,t =x−
+> k+ ˜Kxk,t (yk−Cx −
+> k)˜Kxk,t =˜P−
+> kCT(C˜P−
+> kCT+ ˜Rk)−1
+> m+
+> k,t =m−
+> k+ ˜Kmk,t (yk−Cx −
+> k)˜Kmk,t = Σ P k CT(C˜P−
+> kCT+ ˜Rk)−1
+> ˜P−
+> k= Σ P k + ˜Qk
+> ˜Qk=BΛ−1
+> wBT
+> Λw= diag[ dνn+1 (en+1 ), . . . , d νn+p(en+p)] ˜Rk=DΛ−1
+> vDT
+> Λv= diag[ dνn+p+1 (en+p+1 ), . . . , d νn+p+m(en+p+m)]
+> ek=tk−Wkχt−1
+> k
+> (56)
+
+Correspondingly, at the final iteration, the posteriori er-ror covariance can be update as                             
+
+> P+
+> xk = ( I−˜Kxk,t C)P−
+> k(I−˜Kxk,t C)T+ ˜Kxk,t Rk˜KTxk,t
+> P+
+> mk= ( I−˜Kmk,t C)Σ P k (I−˜Kmk,t C)T+ ˜Kmk,t Rk˜KTmk,t
+> P+
+> mk xk= ( P+
+> xk xk)T= Σ P k (I−CT˜KTxk,t )(57)
+
+6.5 Proof of Proposition 2 
+
+We proceed by induction. For the base case k = 0, ˆx′ 
+
+> 0|0
+
+= ˆ x0|0 and P ′ 
+
+> 0|0
+
+= αP 0 hold by definition. Assume ˆx′ 
+
+> k−1|k−1
+
+= ˆ xk−1|k−1 and P ′ 
+
+> k−1|k−1
+
+= αP k−1|k−1. The 14 recursive filter updates yield:                                     
+
+> ˆx′
+> k|k−1=Aˆx′
+> k−1|k−1=Aˆxk−1|k−1= ˆ xk|k−1
+> P′
+> k|k−1=A(αP k−1|k−1)AT+αQ k−1=αP k|k−1
+> K′
+> k= ( αP k|k−1)CTC(αP k|k−1)CT+αR k
+> −1=Kk
+> ˆx′
+> k|k= ˆ x′
+> k|k−1+K′
+> k(yk−Cˆx′
+> k|k−1) = ˆ xk|k
+> P′
+> k|k= ( I−K′
+> kC)P′
+> k|k−1= ( I−KkC)( αP k|k−1) = αP k|k
+
+By induction, the lemma holds for all k ≥ 1. 
+
+6.6 Proof of Theorem 2 
+
+Taking the expectation of (38) yields a recursive geo-metric series that asymptotically converges to σ2 
+
+> i
+
+, sat-isfying Property 1. For Property 2, assuming temporal independence of Ei,k , by taking variance of (38) yields Var[( τi,k |k)2] = ρ2 
+
+> i
+
+Var[( τi,k −1|k−1)2]+(1 −ρi)2 Var[ E[e2 
+
+> i
+
+]] .
+
+Subsequently, the steady-state variance of the EWMA filter is given by V∞ = 1−ρi 
+
+> 1+ ρi
+
+η4 
+
+> i
+
+. Substituting ρi = νi
+
+> νi+1
+
+gives 
+
+V∞ = 1 − νi
+
+> νi+1
+
+1 + νi
+
+> νi+1
+
+η4 
+
+> i
+
+= 12νi + 1 η4 
+
+> i
+
+.
+
+For Property 3, the EWMA time constant is Ti = −1ln( ρi)
+
+(by the definition of EWMA). 
+
+6.7 Proof of Theorem 3 
+
+Setting the gradient ∂J /∂τ 2 
+
+> i,j
+
+= 0 yields the symmetric tridiagonal stationarity condition for the interior points: (1+2 λ)( τi,j |k)2 −λ(τi,j −1|k)2 −λ(τi,j +1 |k)2 = Ei,j . (58) Substituting λ = ρi 
+
+> (1 −ρi)2
+
+and multiplying by (1 − ρi)2,this condition becomes: (1+ ρ2 
+
+> i
+
+)( τi,j |k)2−ρi(τi,j −1|k)2−ρi(τi,j +1 |k)2 = (1 −ρi)2Ei,j .
+
+(59) To verify the proposed two-pass solution, we isolate the forward estimate from the backward pass: (1 − ρi)( τi,j |j )2 = ( τi,j |k)2 − ρi(τi,j +1 |k)2. (60) Rearranging the forward filter gives (1 − ρi)Ei,j =(τi,j |j )2 − ρi(τi,j −1|j−1)2. Multiplying by (1 − ρi) and substituting the relation from (60) for both steps j and 
+
+j − 1 yields: (1 − ρi)2Ei,j = (τi,j |k)2 − ρi(τi,j +1 |k)2
+
+− ρi
+
+(τi,j −1|k)2 − ρi(τi,j |k)2 . (61) Expanding the right side perfectly recovers the global optimality condition (59). Because J is strictly convex, satisfying this stationarity condition guarantees that the two-pass sequence is the unique exact minimizer. 
+
+References 
+
+[1] R. Mur-Artal, J. M. M. Montiel, and J. D. Tard´ os, “Orb-slam: A versatile and accurate monocular slam system,” IEEE Transactions on Robotics ,vol. 31, pp. 1147–1163, 2015. [2] G. Zeng, Q. Zeng, X. Li, B. Mu, J. Chen, L. Shi, and J. Wu, “Consistent and optimal solution to cam-era motion estimation,” IEEE Transactions on Pat-tern Analysis and Machine Intelligence , vol. 47, pp. 12 005–12 020, 2024. [3] P. Houtekamer and F. Zhang, “Review review of the ensemble kalman filter for atmospheric data as-similation,” 2016. [4] S. S¨ arkk¨ a and A. R. Nummenmaa, “Recursive noise adaptive kalman filtering by variational bayesian approximations,” IEEE Transactions on Automatic Control , vol. 54, pp. 596–600, 2009. [5] R. E. K´ alm´ an and R. S. Bucy, “New results in linear filtering and prediction theory,” Journal of Basic Engineering , vol. 83, pp. 95–108, 1961. [6] M. S. Grewal and A. P. Andrews, “Applications of kalman filtering in aerospace 1960 to the present [historical perspectives],” IEEE Control Systems Magazine , vol. 30, no. 3, pp. 69–78, 2010. [7] E. A. Wan and R. van der Merwe, “The unscented kalman filter for nonlinear estimation,” Proceedings of the IEEE 2000 Adaptive Systems for Signal Pro-cessing, Communications, and Control Symposium (Cat. No.00EX373) , pp. 153–158, 2000. [8] I. Arasaratnam and S. Haykin, “Cubature kalman filters,” IEEE Transactions on Automatic Control ,vol. 54, no. 6, pp. 1254–1269, 2009. [9] S. Li, D. Shi, Y. Lou, W. Zou, and L. Shi, “General-ized multikernel maximum correntropy kalman fil-ter for disturbance estimation,” IEEE Transactions on Automatic Control , vol. 69, no. 6, pp. 3732–3747, 2024. [10] R. Olfati-Saber, “Kalman-consensus filter : Opti-mality, stability, and performance,” in Proceedings of the 48h IEEE Conference on Decision and Con-trol (CDC) held jointly with 2009 28th Chinese Con-trol Conference , 2009, pp. 7036–7042. [11] A. Barrau and S. Bonnabel, “The invariant ex-tended kalman filter as a stable observer,” IEEE Transactions on Automatic Control , vol. 62, pp. 1797–1812, 2014. [12] Z. Yoon, J. ha Kim, and H.-W. Park, “Invariant smoother for legged robot state estimation with dy-namic contact event information,” IEEE Transac-tions on Robotics , vol. 40, pp. 193–212, 2024. [13] M. Yu, “Ins/gps integration system using adap-tive filter for estimating measurement noise vari-ance,” IEEE Transactions on Aerospace and Elec-tronic Systems , vol. 48, pp. 1786–1792, 2012. [14] W. Xia and Y. Zhang, “Resilient distributed esti-mation against fdi attacks: A correntropy-based ap-proach,” Inf. Sci. , vol. 635, pp. 236–256, 2023. [15] A. Y. Aravkin, J. V. Burke, L. Ljung, A. C. Lozano, and G. Pillonetto, “Generalized kalman smoothing: Modeling and algorithms,” Autom. , vol. 86, pp. 63– 86, 2016. [16] Y. Meng, S. Gao, Y. Zhong, G. Hu, and A. Subic, “Covariance matching based adaptive unscented kalman filter for direct filtering in ins/gnss inte-15 gration,” Acta Astronautica , vol. 120, pp. 171–181, 2016. [17] A. Mohamed and K. P. Schwarz, “Adaptive kalman filtering for ins/gps,” Journal of Geodesy , vol. 73, pp. 193–203, 1999. [18] T. D. Barfoot, State Estimation for Robotics . USA: Cambridge University Press, 2017. [19] X. R. Li and Y. Bar-Shalom, “A recursive multi-ple model approach to noise identification,” IEEE Transactions on Aerospace and Electronic Systems ,vol. 30, pp. 671–684, 1994. [20] M. A. Chappell, A. R. Groves, B. Whitcher, and M. W. Woolrich, “Variational bayesian inference for a nonlinear forward model,” IEEE Transactions on Signal Processing , vol. 57, no. 1, pp. 223–236, 2009. [21] R. Mehra, “Approaches to adaptive filtering,” 
+
+IEEE Transactions on Automatic Control , vol. 17, no. 5, pp. 693–698, 1972. [22] G. Revach, N. Shlezinger, X. Ni, A. L. Escoriza, R. J. Van Sloun, and Y. C. Eldar, “Kalmannet: Neural network aided kalman filtering for partially known dynamics,” IEEE Transactions on Signal Processing , vol. 70, pp. 1532–1547, 2022. [23] S. Shen, J. Chen, G. Yu, Z. Zhai, and P. Han, “Kalmanformer: using transformer to model the kalman gain in kalman filters,” Frontiers in Neuro-robotics , vol. 18, 2025. [24] X. Ni, G. Revach, and N. Shlezinger, “Adaptive kalmannet: Data-driven kalman filter with fast adaptation,” ICASSP 2024 - 2024 IEEE Interna-tional Conference on Acoustics, Speech and Signal Processing (ICASSP) , pp. 5970–5974, 2023. [25] I. Buchnik, G. Revach, D. Steger, R. J. Van Sloun, T. Routtenberg, and N. Shlezinger, “Latent-kalmannet: Learned kalman filtering for tracking from high-dimensional signals,” IEEE Transactions on Signal Processing , vol. 72, pp. 352–367, 2023. [26] Y. Dahan, G. Revach, J. Dunik, and N. Shlezinger, “Bayesian kalmannet: quantifying uncertainty in deep learning augmented kalman filter,” IEEE Transactions on Signal Processing , 2025. [27] Z. Wan and L. Zhao, “Diffpf: Differentiable particle filtering with generative sampling via conditional diffusion models,” IEEE Robotics and Automation Letters , 2026. [28] X. Chen and Y. Li, “Normalizing flow-based dif-ferentiable particle filters,” IEEE Transactions on Signal Processing , vol. 73, pp. 493–507, 2024. [29] J. He, C. Sun, B. Zhang, and P. Wang, “Varia-tional bayesian-based maximum correntropy cuba-ture kalman filter with both adaptivity and robust-ness,” IEEE Sensors Journal , vol. 21, no. 2, pp. 1982–1992, 2021. [30] H. Lan, J. Hu, Z. Wang, and Q. Cheng, “Variational nonlinear kalman filtering with unknown process noise covariance,” IEEE Transactions on Aerospace and Electronic Systems , vol. 59, pp. 9177–9190, 2023. [31] Y. Huang, Y. Zhang, Z. Wu, N. Li, and J. A. Cham-bers, “A novel adaptive kalman filter with inaccu-rate process and measurement noise covariance ma-trices,” IEEE Transactions on Automatic Control ,vol. 63, pp. 594–601, 2018. [32] S. Qiao, Y. Fan, G. Wang, D. Mu, and Z. He, “Max-imum correntropy criterion variational bayesian adaptive kalman filter based on strong tracking with unknown noise covariances,” Journal of the Franklin Institute , vol. 360, no. 9, pp. 6515–6536, 2023. [33] Y. Huang, F. Zhu, G. Jia, and Y. Zhang, “A slide window variational adaptive kalman filter,” IEEE Transactions on Circuits and Systems II: Express Briefs , vol. 67, no. 12, pp. 3552–3556, 2020. [34] K. Li, L. Chang, and B. Hu, “A variational bayesian-based unscented kalman filter with both adaptivity and robustness,” IEEE Sensors Journal ,vol. 16, no. 18, pp. 6966–6976, 2016. [35] X. Lv, P. Duan, Z. Duan, G. Chen, and L. Shi, “Stochastic event-triggered variational bayesian fil-tering,” IEEE Transactions on Automatic Control ,vol. 68, no. 7, pp. 4321–4328, 2022. [36] H. Lan, J. Hu, Z. Wang, and Q. Cheng, “Variational nonlinear kalman filtering with unknown process noise covariance,” IEEE Transactions on Aerospace and Electronic Systems , vol. 59, no. 6, pp. 9177– 9190, 2023. [37] S. Li, D. Shi, H. Yu, and L. Shi, “Varia-tional robust kalman filters: A unified framework,” 
+
+arXiv:2512.15419 , 2025. [38] M. Nikolova and M. K. Ng, “Analysis of half-quadratic minimization methods for signal and im-age recovery,” SIAM Journal on Scientific comput-ing , vol. 27, no. 3, pp. 937–966, 2005. [39] D. M. Blei, A. Kucukelbir, and J. D. McAuliffe, “Variational inference: A review for statisticians,” 
+
+Journal of the American Statistical Association , vol. 112, no. 518, pp. 859–877, 2017. [40] K. P. Murphy, Probabilistic Machine Learning: Advanced Topics . MIT Press, 2023. [Online]. Available: http://probml.github.io/book2 [41] S. Li, D. Shi, H. Yu, and L. Shi, “Variational ro-bust kalman filters: A unified framework,” arXiv preprint arXiv:2512.15419 , 2025. [42] J. T. Barron, “A general and adaptive robust loss function,” in Proceedings of the IEEE/CVF con-ference on computer vision and pattern recognition ,2019, pp. 4331–4339. [43] S. Li, D. Shi, W. Zou, and L. Shi, “Multi-kernel maximum correntropy kalman filter,” IEEE Con-trol Systems Letters , vol. 6, pp. 1490–1495, 2021. [44] K. Ogata, Discrete-Time Control Systems , 2nd ed. Englewood Cliffs, NJ, USA: Prentice-Hall, 1995. [45] X. Luan, W. Xue, S. Zhao, and F. Liu, “A Kalman & fading memory co-filter for uncertain systems based on self-perception mechanism,” IEEE Trans-actions on Automatic Control , 2025. 
+
+Shilei Li received the B.E. degree in Detection Guidance and Control Tech-16 nology and M.S. degree in Control Engineering both from Harbin Insti-tute of Technology, Harbin, China, in 2015 and 2018 respectively, and the Ph.D. degree in Electronic and Computer Engineering from The Hong Kong University of Science and Tech-nology, Hong Kong, China, in 2022. Currently, he is an assistant professor at the School of Automation, Beijing Institute of Technology, China. His research interests include robust filtering and smooth-ing, human-robot interaction, and exoskeleton robots. 
+
+Dawei Shi received the B.E. degree in Electrical Engineering and Automa-tion from the Beijing Institute of Tech-nology, Beijing, China, in 2008, the Ph.D. degree in Control Systems from the University of Alberta, Edmonton, AB, Canada, in 2014. In December 2014, he was appointed as an Associate Professor at the School of Automation, Beijing Institute of Technology. From February 2017 to July 2018, he was with the Harvard John A. Paulson School of Engineering and Applied Sciences, Harvard University, as a Postdoctoral Fellow in bioengineering. Since July 2018, he has been with the School of Automation, Beijing Institute of Technol-ogy, where he is a professor. His research focuses on the analysis and synthesis of complex sampled-data con-trol systems with applications to biomedical engineer-ing, robotics, and motion systems. He serves as an As-sociate Editor/Technical Editor for IEEE Transactions on Industrial Electronics, IEEE/ASME Transactions on Mechatronics, IEEE Control Systems Letters, and IET Control Theory and Applications. He is a member of the Early Career Advisory Board of Control Engineer-ing Practice. He was a Guest Editor for European Jour-nal of Control. He served as an associate editor for IFAC World Congress and is a member of the IEEE Control Systems Society Conference Editorial Board. He is a Se-nior Member of the IEEE. 
+
+Wei Zheng received his Bachelor of En-gineering degree in Electronic Infor-mation Engineering from the Depart-ment of Electronic Engineering, Ts-inghua University in 2002. He obtained his master’s degree in 2008 and his Ph.D. in 2013, both from the Intel-ligent Information Processing Labo-ratory, Institute of Computing Tech-nology, Chinese Academy of Sciences. From 2013 to March 2016, he conducted postdoctoral research at the Visual Intelligence Laboratory of Sam-sung Research Institute (Beijing) Communication Tech-nology. His research findings have been published in numerous renowned international conferences and jour-nals, including CVPR, ACCV, IEEE Transactions, and Elsevier, and he holds a number of domestic and inter-national invention patents. From 2009 to 2010, he con-ducted research on object recognition and multimedia retrieval at Panasonic Singapore Laboratories and Mi-crosoft Research Asia (MSRA) respectively. From 2013 to 2017, he led the development of intelligent algorithms for mobile devices at Samsung Research Institute Beijing Communication Technology, where he led his team in up-grading recognition algorithms from traditional classifi-cation methods to deep learning approaches, ultimately delivering core algorithms for the intelligent photo al-bum management engine in Samsung flagship smart-phones. From 2017 to 2019, he served as an algorithm researcher at the joint laboratory of the Hong Kong Uni-versity of Science and Technology and Youjia Innovation Co., Ltd., focusing on visual recognition algorithms for intelligent driving. Since 2019, he has been Vice Presi-dent of Algorithm R&D at Youjia Innovation Co., Ltd., leading a R&D team of over 100 members to develop in-telligent driving algorithms and designing core algorithm architectures for multiple autonomous driving products of the company. 
+
+Ling Shi(Fellow, IEEE) received the B.S. degree in electrical and elec-tronic engineering from Hong Kong University of Science and Technology, Kowloon, Hong Kong, in 2002 and the Ph.D. degree in Control and Dynam-ical Systems from California Institute of Technology, Pasadena, CA, USA, in 2008. He is currently a Professor in the Department of Electronic and Computer Engineering, and the associate director of the Robotics Institute, both at the Hong Kong University of Science and Technology. His research interests include cyber-physical systems security, networked control sys-tems, sensor scheduling, event-based state estimation, and exoskeleton robots. He served as an editorial board member for the European Control Conference 2013-2016. He was a subject editor for International Journal of Robust and Nonlinear Control (2015-2017). He has been serving as an associate editor for IEEE Transac-tions on Control of Network Systems from July 2016, and an associate editor for IEEE Control Systems Let-ters from Feb 2017. He also served as an associate editor for a special issue on Secure Control of Cyber Physical Systems in the IEEE Transactions on Control of Net-work Systems in 2015-2017. He served as the General Chair of the 23rd International Symposium on Mathe-matical Theory of Networks and Systems (MTNS 2018). He is a member of the Young Scientists Class 2020 of the World Economic Forum (WEF) and he is a fellow of IEEE (Class 2023). 17

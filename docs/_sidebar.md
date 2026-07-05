@@ -1,6 +1,9 @@
 * <a class="dpr-sidebar-root-link" href="#/">首页</a>
 * <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/tutorial/README">使用教程</a>
 * Daily Papers
+  * 2026-07-05 <!--dpr-date:20260705-->
+    * 速读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202607/05/2607.00877v1-hierarchical-variational-kalman-filtering" data-sidebar-item="{&quot;title&quot;: &quot;Hierarchical Variational Kalman Filtering&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2607.00877v1-hierarchical-variational-kalman-filtering&quot;, &quot;score&quot;: &quot;6.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;aqac&quot;}], &quot;evidence&quot;: &quot;用于数据同化的分层变分卡尔曼滤波&quot;}">Hierarchical Variational Kalman Filtering</a>
   * 2026-07-04 <!--dpr-date:20260704-->
     * 精读区
       * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202607/04/2607.01128v1-gaia-geometry-adaptive-operator-learning-for-forward-and-inverse-problems" data-sidebar-item="{&quot;title&quot;: &quot;GAIA: Geometry-Adaptive Operator Learning for Forward and Inverse Problems&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2607.01128v1-gaia-geometry-adaptive-operator-learning-for-forward-and-inverse-problems&quot;, &quot;score&quot;: &quot;8.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;aqac&quot;}], &quot;evidence&quot;: &quot;几何自适应积分自编码器用于算子学习，可构建PDE的快速神经代理模型，适用于空气质量模型代理&quot;}">GAIA: Geometry-Adaptive Operator Learning for Forward and Inverse Problems</a>
