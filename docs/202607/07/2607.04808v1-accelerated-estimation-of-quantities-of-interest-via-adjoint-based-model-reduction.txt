@@ -1,0 +1,2086 @@
+Title: Accelerated estimation of quantities of interest via adjoint-based model reduction
+
+URL Source: https://arxiv.org/pdf/2607.04808v1
+
+Published Time: Tue, 07 Jul 2026 06:10:57 GMT
+
+Number of Pages: 34
+
+Markdown Content:
+# Accelerated estimation of quantities of interest via adjoint-based model reduction 
+
+## Cl´ ement Vella 1* and Serge Prudhomme 2
+
+1Suqaba, 47 Avenue Victor Hugo, Vanves, 92170, France. 
+
+2Department of Mathematics and Industrial Engineering, Polytechnique Montr´ eal, C.P. 6079, succ. Centre-ville, Montr´ eal, H3C 3A7, Qu´ ebec, Canada. *Corresponding author(s). E-mail(s): cvella@suqaba.com; Contributing authors: serge.prudhomme@polymtl.ca; 
+
+Abstract 
+
+We introduce an adjoint-based reduced-order model framework for fast and accu-rate estimation of quantities of interest for many-query linear problems. The method builds a reduced-order model with respect to the adjoint problem, thus bypassing the solution of the primal problem and drastically reducing compu-tational cost. It creates a surrogate model that is independent of the loading configurations. It enables fast evaluation across multiple load cases and the gen-eration of virtual charts to support decision-making. Numerical experiments on the Poisson equation and a plane-stress elasticity problem demonstrate that the adjoint reduced-order model converges rapidly, outperforms its primal counter-part, and provides reliable estimates of the quantities of interest. Importantly, it is often more practical to parameterize a kernel function than an entire set of external loads, making the method generic and particularly suited for early-stage prototyping and design optimization. 
+
+Keywords: Adjoint Problem, Quantities of Interest, Surrogate Modeling, Proper Generalized Decomposition, Virtual Charts. 
+
+# 1 Introduction 
+
+Problems in design, control, optimization, or uncertainty quantification have sub-stantially increased computational costs [1]. This is driven by the demand for more 1
+
+> arXiv:2607.04808v1 [cs.CE] 6 Jul 2026
+
+predictive simulations, which requires accounting for variability in boundary condi-tions, material properties, and geometry. Reduced-Order Modeling (ROM) provides a framework to address this challenge, offering compact representations of high-fidelity models to enable fast evaluations of model outputs. Among the most widely used approaches is the Proper Orthogonal Decomposition (POD), which constructs low-dimensional bases from snapshots of high-fidelity simulations. It is particularly effective when representative training data are available [2–5]. The Reduced Basis (RB) method extends the concept by incorporating error estimation and adaptive sampling, enabling certified reduction in parameterized settings [6–9]. The Proper Generalized Decomposition (PGD) follows a different paradigm: it constructs an a priori separated representation directly from the variational formulation, allowing efficient exploration of high-dimensional parameter spaces without relying on snapshots [10–12]. In many applications, one is often interested in specific quantities of interest (QoIs) of the solution rather than in the full solution field. This has motivated the devel-opment of goal-oriented error estimation techniques [13–18], which rigorously control errors with respect to targeted outputs. Coupled with ROM techniques, this per-spective enables surrogate models that remain computationally efficient while being tailored to accurately predict the desired QoIs. Several goal-oriented extensions of reduced-order methods have been proposed. A goal-oriented variant of POD was presented in [19], where additional snapshots based on parametric derivatives (so-called sensitivity factors) were incorporated. This approach produces reduced-order solutions that capture parameter variations more accurately than the classical POD. Within the RB framework, goal-oriented strategies have been extensively investi-gated for a range of problems, including steady linear PDEs [20], unsteady linear parabolic PDEs [21, 22], and nonlinear fluid dynamics [23]. A posteriori error bounds are central to these approaches, and are specifically designed to estimate the error in QoIs. Dual-Weighted Residual (DWR) techniques have played a central role in extending goal-oriented error estimation to model reduction. Within the RB frame-work, DWR-based estimators are frequently embedded in greedy-sampling strategies to guide the selection of full-order solves and thereby enrich the reduced basis [24–26]. Beyond sampling, DWR has been leveraged for adaptive refinement of reduced mod-els: h-adaptation of the basis was proposed in [27, 28], while joint adaptation of the basis and hyper-reduction sample points was demonstrated in [29]. In the context of hyper-reduction, reduced quadrature rules have been developed from DWR formula-tions [30, 31]. In [32], goal-oriented estimates were employed to eliminate POD basis vectors with negligible contribution to the accuracy of the quantity of interest. Goal-oriented strategies have also been developed within the PGD framework, primarily with the aim of verification and certification [33–37]. A distinctive approach was intro-duced in [38], where a reduced adjoint solution is computed first and incorporated directly into the solution of the primal PGD problem as a constraint on the error in the quantity of interest, rather than subsequently solving the adjoint problem for error estimation. It was shown that this constrained strategy improved the accuracy of QoI predictions compared to standard PGD formulations. This work focuses on problems involving many loading configurations on a given geometry. Modern engineering workflows frequently require many-query analyses, 2where structures are evaluated under a large number of load cases. Examples include generative design and rapid prototyping, which demand repeated assessment of can-didate designs under varying loads, and probabilistic risk assessment, which relies on extensive simulations of structural responses to uncertain inputs. Although not explicitly goal-oriented, a PGD framework has been developed for nonlinear dynamic systems subjected to multiple non-parameterized loading conditions. The method employs a “parent simulation” strategy, where similar load cases are identified so that reduced bases and initializations can be reused, thereby accelerating simulations in many-query settings [39]. On another note, various Krylov subspace methods have been developed at the linear solver level to exploit common structures across repeated solves. Block-Krylov solvers [40] and recycling/deflation schemes [41–43] reuse Krylov subspaces or previously converged modes when solving successive right-hand sides. These strategies have also been incorporated into multigrid and domain decompo-sition solvers to handle multiple right-hand sides simultaneously [44]. Despite these advances, repeated solves of large-scale systems remain costly, further motivating the use of reduced-order models. In this work, a surrogate-based approach for linear boundary-value problems is developed by performing model reduction only on the associated adjoint problem. This enables 1) the construction of a ROM surrogate for the adjoint solution, and 2) evaluation of the QoI for any load configuration via the surrogate adjoint solution. In effect, the primal problem is bypassed: all computational effort is concentrated in the adjoint-based surrogate, and any query reduces to inexpensive post-processing. It will be demonstrated that this approach preserves accuracy while dramatically reducing online computation compared with solving each load case using a full-order solver. Furthermore, results will show that the adjoint-based surrogate not only achieves computational savings but also provides improved accuracy, compared to a primal-based surrogate. We demonstrate the developed method on two test cases: 1) Poisson equation with non-parameterized source terms, serving as a proof-of-concept to verify the accuracy of the surrogate; 2) a two-dimensional plane-stress elasticity problem, representative of an industrial design task, where the structure is subjected to many load configurations. In this case, we show that the adjoint-PGD surrogate can compute QoI estimates with high fidelity while drastically reducing the cost per evaluation. The remainder of the paper is organized as follows. Section 2 introduces the model problems under consideration. Section 3 presents the Proper Generalized Decom-position (PGD), including the adjoint-based surrogate modeling and multi-query framework. Section 4 reports numerical examples to assess accuracy and computational performance, and discusses possible extensions. Finally, Section 5 provides concluding remarks. 
+
+# 2 Model problems 
+
+## 2.1 Poisson problem 
+
+Let Ω ∈ R2 be an open bounded domain with Lipschitz boundary ∂Ω. The solution field u : ¯Ω → R, subjected to homogeneous Dirichlet boundary conditions, is governed 3by the following set of equations: 
+
+−∆u = f, in Ω ,u = 0 , on ∂Ω. (1) The function f : Ω → R is supposed to be sufficiently regular to yield a well-posed problem. We also introduce the Hilbert spaces: 
+
+H1(Ω) = {v ∈ L2(Ω) | ∇ v ∈ (L2(Ω)) 2},H10 (Ω) = {v ∈ H1(Ω) | v = 0 on ∂Ω},V = H10 (Ω) .
+
+Formulation 1 (Weak formulation of the Poisson problem) . The weak form of the Poisson problem reads: Find u ∈ V such that 
+
+Z
+
+> Ω
+
+∇u · ∇ v dx =
+
+Z
+
+> Ω
+
+f v dx, ∀v ∈ V, 
+
+which can be recast as: Find u ∈ V , such that B(u, v ) = F (v), ∀v ∈ V, (2) 
+
+where the bilinear form B and linear form F are defined as: 
+
+B(u, v ) = 
+
+Z
+
+> Ω
+
+∇u · ∇ v dx, F (v) = 
+
+Z
+
+> Ω
+
+f v dx. 
+
+We suppose in this work that one is interested in the solution u only at some points 
+
+μ within a subdomain ω ⊂ Ω rather than on the whole computational domain Ω. In other words, we would consider a family of quantities of interest (QoI) defined as, for 
+
+u sufficiently smooth: 
+
+Qμ(u) = u(μ) = 
+
+Z
+
+> Ω
+
+δ(x − μ)u(x) dx, μ ∈ ω ⊂ Ω,
+
+where δ is the Dirac delta function. However, it is well known that the linear functionals 
+
+Qμ(v) given above are not necessarily bounded for v ∈ V and would lead to an ill-posed adjoint problem. In practice, we will thus replace the Dirac function by a kernel function kϵ, where ϵ indicates that its support is small compared to the size of Ω, so that the quantities of interest: 
+
+Qμ(u) = u(μ) = 
+
+Z
+
+> Ω
+
+kϵ(x − μ)u(x) dx, μ ∈ ω ⊂ Ω,
+
+4define bounded linear functionals on V . The idea will be to choose the kernel function in such a way that the quantities of interest can be viewed as averages of the solution 
+
+u over small subdomains. 
+
+Formulation 2 (Weak formulation of the adjoint problem to Formulation 1) . The weak form of the adjoint problem associated with the quantity of interest Qμ(u) reads: Find zμ ∈ V such that B(v, z μ) = Qμ(v), ∀v ∈ V, 
+
+that is: Find zμ ∈ V such that 
+
+Z
+
+> Ω
+
+∇v · ∇ zμ dx =
+
+Z
+
+> Ω
+
+kϵ(x − μ)v(x) dx, ∀v ∈ V. (3) Whenever the adjoint solution zμ is sufficiently smooth, one can integrate by parts the integral on the left-hand side of the equation to obtain the strong formulation of the adjoint problem: 
+
+−∆zμ = kϵ(x − μ), ∀x ∈ Ω,zμ(x) = 0 , ∀x ∈ ∂Ω.
+
+The adjoint solution, parameterized by μ, is therefore governed by the Poisson equation and subjected to homogeneous Dirichlet conditions and loading term kϵ(x − μ). 
+
+## 2.2 Plane-stress elasticity 
+
+The second model problem we consider deals with plane-stress elasticity. Let Ω ⊂ R2
+
+be an open bounded subset with Lipschitz boundary ∂Ω = Γ d ∪ Γn, where Γ d and Γ n are disjoint portions of the boundary associated with Dirichlet and Neumann conditions, respectively. The displacement field u : ¯Ω → R2 satisfies the following set of equations: 
+
+−∇ · σ(u) = f, in Ω ,σ(u) = C : ε(u), in Ω ,ε(u) = 12
+
+ ∇u + ( ∇u)⊤ , in Ω ,u = 0 , on Γ d,n · σ(u) = g, on Γ n,
+
+where f : Ω → R2 represents the body force density and g : Γ n → R2 defines the prescribed traction density on Γ n. The vector n denotes the unit outward normal to the boundary. The stress tensor σ(u) is related to the strain tensor ε(u) according to Hooke’s law, which, in the case of isotropic materials, reads: 
+
+σ(u) = 2 μ ε (u) + λ tr  ε(u) I2,
+
+where λ and μ are the Lam´ e parameters and I2 ∈ R2×2 is the identity tensor. Under plane stress conditions and using the Voigt form, the Hooke’s law σ(u) = C : ε(u) in 5matrix notation reads: 
+
+σ11 
+
+σ22 
+
+σ12 
+
+ =
+
+2μ + λ λ 0
+
+λ 2μ + λ 00 0 μ
+
+ ε11 
+
+ε22 
+
+2ε12 
+
+ . (4) 
+
+Formulation 3 (Weak formulation of the plane-stress elasticity problem) .
+
+Find u ∈ U such that 
+
+Z
+
+> Ω
+
+σ(u) : ε(v) dx =
+
+Z
+
+> Ω
+
+f · v dx +
+
+Z
+
+> Γn
+
+g · v ds, ∀v ∈ U, (5) 
+
+with: 
+
+U = {v ∈ [H1(Ω)] 2 | v = 0 on Γd}.
+
+Equation (5) can be recast as: Find u ∈ U such that A(u, v ) = L(v), ∀v ∈ U, 
+
+where the bilinear form and linear form are given by: 
+
+A(u, v ) = 
+
+Z
+
+> Ω
+
+σ(u) : ε(v) dx, L(v) = 
+
+Z
+
+> Ω
+
+f · v dx +
+
+Z
+
+> Γn
+
+g · v ds. 
+
+We suppose here that we are interested in the evaluation of the normal displacement 
+
+u · n at some points μ located on a sub-portion γ ⊂ Γn of the boundary. We will consider the following QoI: 
+
+Jμ(u) = 
+
+Z
+
+> Γn
+
+kϵ(x − μ) n(x) · u(x) ds, μ ∈ γ, 
+
+where kϵ is a kernel function defined on Γ n. The kernel function will be chosen such that Jμ(u) is a local average of the normal displacement to the boundary γ.
+
+Formulation 4 (Weak formulation of the adjoint problem to Formulation 3) .
+
+Find zμ ∈ U such that A(v, z μ) = Jμ(v), ∀v ∈ U, 
+
+which also reads: Find zμ ∈ U such that 
+
+Z
+
+> Ω
+
+σ(v) : ε(zμ) dx =
+
+Z
+
+> Γn
+
+kϵ(x − μ) n(x) · v(x) ds, ∀v ∈ U. 
+
+(6) Assuming that the adjoint is sufficiently smooth to be able to apply the divergence theorem and using the symmetry of the elasticity tensor C, one obtains the strong 6formulation of the adjoint problem as: 
+
+−∇ · σ(zμ) = 0 , in Ω ,σ(zμ) = C : ε(zμ), in Ω ,ε(zμ) = 12
+
+ ∇zμ + ( ∇zμ)⊤ , in Ω ,zμ(x) = 0 , ∀x ∈ Γd,σ(zμ)( x) · n(x) = kϵ(x − μ) n(x), ∀x ∈ Γn.
+
+The adjoint solution zμ, parameterized by μ, is governed in the case of the quantity of interest Jμ(u) by an equilibrium equation with a homogeneous right-hand side and subjected to homogeneous Dirichlet boundary conditions on Γ d and Neumann conditions on Γ n.
+
+# 3 Proper Generalized Decomposition 
+
+## 3.1 Adjoint-based surrogate modeling 
+
+In many applications, such as generative design or fast prototyping, one must evalu-ate the response of a given system for a large number of loading configurations. Since optimization and analysis often focus on a specific quantity of interest (QoI), it seems natural to construct surrogate models associated with the adjoint problem, which cap-tures the sensitivity of the QoI with respect to variations in the loading configurations, rather than repeatedly solving the primal problem for each load and then computing the QoI. A key observation is that, in the current framework, the adjoint problem is inde-pendent of the external loads. This makes the method generic, regardless of whether the external loads are parameterized. As a trade-off, the complexity is shifted to the evaluation of the adjoint solution across multiple values of the parameter μ. In the presented framework, which involves linear problems and linear QoI, the evaluation of the QoI estimates will be performed using the fundamental relations: 
+
+Qμ(u) = B(u, z μ) = F (zμ),
+
+for the Poisson equation, or similarly, 
+
+Jμ(u) = A(u, z μ) = L(zμ),
+
+for the plane-stress elasticity problem. The efficient construction of surrogate models for the adjoint problems would enable rapid assessment of the response of the system for a large number of external loads. The idea is thus to bypass the computation of the solution to the primal problem to evaluate Qμ and Jμ. Instead, estimates ˆ zμ of the adjoint solution zμ can efficiently be obtained via surrogate modeling to evaluate 
+
+F (ˆ zμ) and L(ˆ zμ) as estimates of the QoI (see Figure 3). We shall use in this work the Proper Generalized Decomposition (PGD) to con-struct the reduced-order model associated with the adjoint problem. The technique 7Ω = Ω X × ΩY        
+
+> ω=ωX×ωYFig. 1 Schematic of the 2D computational domain Ω and subdomain ω⊂Ω, in which the solution to the Poisson equation is of interest.
+
+is described for the Poisson problem and the plane-stress elasticity equations in the following sections. 
+
+## 3.2 Poisson equation 
+
+We assume that the domain Ω is the tensor product of two one-dimensional inter-vals Ω X and Ω Y , i.e., Ω = Ω X × ΩY . Similarly, the subset ω is decomposed as 
+
+ω = ωX × ωY , as shown in Figure 1. Moreover, we assume that the kernel function kϵ
+
+is chosen as 
+
+kϵ(x − μx, y − μy ) = 12πϵ 2 exp 
+
+
+
+− (x − μx)2
+
+2ϵ2
+
+
+
+exp 
+
+
+
+− (y − μy )2
+
+2ϵ2
+
+
+
+,
+
+with ( μx, μ y ) ∈ ωX ×ωY and ϵ ∈ R∗
+
+> +
+
+. Although the Gaussian kernels are not compactly supported, we shall assume that they can be truncated as needed resulting in negligible errors in the evaluation of the quantities of interest. Moreover, we observe that they are not readily separable with respect to x and μx, nor to y and μy , but we shall assume the existence of separated representations such that: 
+
+kϵ(x−μx, y −μy ) ≃ ¯kϵ(x−μx, y −μy ) = 
+
+ nXX
+
+> κ=1
+
+gκ(x) hκ(μx)
+
+ nY
+
+X
+
+> j=1
+
+kj (y) ℓj (μy )
+
+
+
+. (7) In practice, we will perform a Singular Value Decomposition (SVD) on the discrete kernel, where gκ and kj are the spatial basis functions and hκ and ℓj denote the parametric basis functions. The number of modes nX and nY with respect to the two directions will be chosen so as to minimize the decomposition errors. The reader may refer to [45] for the study of approximation errors due to non-separable input data in the PGD framework for the Poisson equation. 8Formulation 5 (Weighted residual formulation of the parameterized adjoint problem associated with the Poisson equation) .
+
+Find zμ ∈ V × L2(ω) such that 
+
+Z
+
+> ω
+
+B(v, z μ) dμ =
+
+Z
+
+> ω
+
+Qμ(v) dμ, ∀v ∈ V × L2(ω).
+
+The PGD method consists then in searching for an approximation zm of the adjoint solution zμ to the above problem in the form: 
+
+zm(x, y, μ x, μ y ) = 
+
+> m
+
+X
+
+> i=1
+
+φi(x) ψi(y) λi(μx) ηi(μy ).
+
+The separated representation is built progressively by adding a single rank-one term at each enrichment step, following a greedy update algorithm. More precisely, given the approximation zm−1, we compute the next new modes at the enrichment step m as: 
+
+zm =
+
+> m−1
+
+X
+
+> i=1
+
+φiψiλiηi
+
+!
+
++ φψλη = zm−1 + φψλη, 
+
+where we have dropped the subscript m in φm, ψm, λm, and ηm for the sake of clarity in the notation. Moreover, for the first enrichment step m = 1, we choose the initial guess as z0 = 0. We now rewrite Formulation 5 in terms of the PGD approximation using the fact that B(·, ·) is bilinear. 
+
+Formulation 6 (PGD formulation of the parameterized adjoint problem associated with the Poisson equation) .
+
+Find (φ, ψ, λ, η ) ∈ VX × VY × L2(ωX ) × L2(ωY ) such that 
+
+Z
+
+> ω
+
+B(v, φψλη ) dμ =
+
+Z
+
+> ω
+
+Qμ(v) dμ −
+
+Z
+
+> ω
+
+B(v, z m−1) dμ, ∀v ∈ V × L2(ω),
+
+where the spaces VX and VY are defined as: 
+
+VX = v ∈ H1(Ω X ) | v = 0 on ∂ΩX ,VY = v ∈ H1(Ω Y ) | v = 0 on ∂ΩY .
+
+For each rank, Formulation 6 is nonlinear in the unknowns ( φ, ψ, λ, η ) as test functions in V × L2(ω) will be chosen in the form: 
+
+v(x, y, μ x, μ y ) = φ∗(x) ψ(y) λ(μx) η(μy ) + φ(x) ψ∗(y) λ(μx) η(μy )+ φ(x) ψ(y) λ∗(μx) η(μy ) + φ(x) ψ(y) λ(μx) η∗(μy ),
+
+where φ∗ ∈ VX , ψ∗ ∈ VY , λ∗ ∈ L2(ωX ), and η∗ ∈ L2(ωY ) are test functions in the respective one-dimensional spaces. Therefore, the above formulation is usually solved 9Start fixed-point 
+
+k ← 0Initialize ψ(0) , λ(0) and η(0) 
+
+Given ψ(k), λ(k) and η(k),solve Formulation 7 for φ(k+1) 
+
+and Aitken acceleration on φ(k+1) 
+
+Given φ(k+1) , λ(k) and η(k),solve Formulation 8 for ψ(k+1) 
+
+Given φ(k+1) , ψ(k+1) and η(k),solve Formulation 9 for λ(k+1) 
+
+Given φ(k+1) , ψ(k+1) and λ(k+1) ,solve Formulation 10 for η(k+1) 
+
+convergence? 
+
+k ← k + 1 
+
+Stop fixed-point 
+
+false 
+
+true  
+
+> Fig. 2 Flowchart of the fixed-point algorithm for the PGD modes.
+
+by means of a fixed-point algorithm. In the end, the approach significantly reduces computational complexity by decoupling the problem into one-dimensional subprob-lems involving one-dimensional integrals only, see for instance the expression of B(·, ·)in Appendix A. The process of solving for the modes in the PGD approximation is referred to as the offline or training phase . The fixed-point iteration is illustrated in Figure 2. Note that the sequence  φ(k) 
+
+> k∈N
+
+is accelerated by means of the Aitken’s ∆ 2
+
+process [46]. The reader is referred to [47–49] for a detailed description of the imple-mentation of the Aitken’s acceleration method into the PGD fixed-point procedure. We now established each PGD subproblem below. 
+
+Formulation 7 (PGD problem in parameter x for the Poisson equation) . Assum-ing ψ, λ, and η to be known and taking test functions in the form v(x, y, μ x, μ y ) = 10 φ∗(x)ψ(y)λ(μx)η(μy ), the weak formulation of the adjoint problem reads: Find φ ∈ VX such that BX (φ, φ ∗) = RX (φ∗), ∀φ∗ ∈ VX ,
+
+where: 
+
+BX (φ, φ ∗) = 
+
+Z 
+
+> ωX
+
+λ2 dμ x
+
+ Z 
+
+> ωY
+
+η2 dμ y
+
+
+
+B(φ∗ψ, φψ ),
+
+RX (φ∗) = 
+
+> nX
+
+X
+
+> κ=1
+
+Z 
+
+> ΩX
+
+φ∗gκ dx 
+
+ Z 
+
+> ωX
+
+λh κ dμ x
+
+ nY
+
+X
+
+> j=1
+
+Z 
+
+> ΩY
+
+ψk j dy 
+
+ Z 
+
+> ωY
+
+ηℓ j dμ y
+
+
+
+−
+
+> m−1
+
+X
+
+> i=1
+
+Z 
+
+> ωX
+
+λλ i dμ x
+
+ Z 
+
+> ωY
+
+ηη i dμ y
+
+
+
+B(φ∗ψi, φ iψi).
+
+Formulation 8 (PGD problem in parameter y for the Poisson equation) . Assum-ing φ, λ, and η to be known and taking test functions in the form v(x, y, μ x, μ y ) = 
+
+φ(x)ψ∗(y)λ(μx)η(μy ), the weak formulation of the adjoint problem reads: Find ψ ∈ VY such that BY (ψ, ψ ∗) = RY (ψ∗), ∀ψ∗ ∈ VY ,
+
+where: 
+
+BY (ψ, ψ ∗) = 
+
+Z 
+
+> ωX
+
+λ2 dμ x
+
+ Z 
+
+> ωY
+
+η2 dμ y
+
+
+
+B(φψ ∗, φψ ),
+
+RY (ψ∗) = 
+
+> nX
+
+X
+
+> κ=1
+
+Z 
+
+> ΩX
+
+φg κ dx 
+
+ Z 
+
+> ωX
+
+λh κ dμ x
+
+ nY
+
+X
+
+> j=1
+
+Z 
+
+> ΩY
+
+ψ∗kj dy 
+
+ Z 
+
+> ωY
+
+ηℓ j dμ y
+
+
+
+−
+
+> m−1
+
+X
+
+> i=1
+
+Z 
+
+> ωX
+
+λλ i dμ x
+
+ Z 
+
+> ωY
+
+ηη i dμ y
+
+
+
+B(φiψ∗, φ iψi).
+
+Remark 1. In Formulation 7, the bilinear form BX (·, ·) results from projecting B(·, ·)
+
+onto the x-direction, with multiplicative weights arising from the parametric factors and the fixed y-mode ψ; analogously, in Formulation 8, BY (·, ·) is determined with multiplicative weights and the fixed x-mode φ. Using the Finite Element Method, the construction of BX (or BY ) reduces to assembling one-dimensional stiffness and mass matrices. The separation structure ensures that the computation of φ or ψ is carried out through a sequence of standard 1D finite element problems (or linear systems) with modified coefficients. From an algorithmic perspective, the implementation alternates between assembling BX (fixing ψ, λ and η) or BY (fixing φ, λ and η), leading to a typical alternating direction scheme for PGD solvers. 
+
+Formulation 9 (PGD problem in parameter μx for the Poisson equation) . Assum-ing φ, ψ, and η to be known and taking test functions in the form v(x, y, μ x, μ y ) = 11 φ(x)ψ(y)λ∗(μx)η(μy ), the weak formulation of the adjoint problem reads: Find λ ∈ L2(ωX ) such that Bμ 
+
+> X
+
+(λ, λ ∗) = Rμ 
+
+> X
+
+(λ∗), ∀λ∗ ∈ L2(ωX ),
+
+where: 
+
+Bμ 
+
+> X
+
+(λ, λ ∗) = 
+
+Z 
+
+> ωY
+
+η2 dμ y
+
+
+
+B(φψ, φψ )
+
+Z
+
+> ωX
+
+λ∗λ dμ x,
+
+Rμ 
+
+> X
+
+(λ∗) = 
+
+> nX
+
+X
+
+> κ=1
+
+Z 
+
+> ΩX
+
+φg κ dx 
+
+ Z 
+
+> ωX
+
+λ∗hκ dμ x
+
+ nY
+
+X
+
+> j=1
+
+Z 
+
+> ΩY
+
+ψk j dy 
+
+ Z 
+
+> ωY
+
+ηℓ j dμ y
+
+
+
+−
+
+> m−1
+
+X
+
+> i=1
+
+Z 
+
+> ωY
+
+ηη i dμ y
+
+
+
+B(φiψi, φ iψi)
+
+Z
+
+> ωX
+
+λ∗λi dμ x.
+
+Formulation 10 (PGD problem in parameter μy for the Poisson equation) . Assum-ing φ, ψ, and λ to be known and taking test functions in the form v(x, y, μ x, μ y ) = 
+
+φ(x)ψ(y)λ(μx)η∗(μy ), the weak formulation of the adjoint problem reads: Find λ ∈ L2(ωY ) such that Bμ 
+
+> Y
+
+(η, η ∗) = Rμ 
+
+> Y
+
+(η∗), ∀η∗ ∈ L2(ωY ),
+
+where: 
+
+Bμ 
+
+> Y
+
+(η, η ∗) = 
+
+Z 
+
+> ωX
+
+λ2 dμ x
+
+
+
+B(φψ, φψ )
+
+Z
+
+> ωY
+
+η∗η dμ y ,
+
+Rμ 
+
+> Y
+
+(η∗) = 
+
+> nX
+
+X
+
+> κ=1
+
+Z 
+
+> ΩX
+
+φg κ dx 
+
+ Z 
+
+> ωX
+
+λh κ dμ x
+
+ nY
+
+X
+
+> j=1
+
+Z 
+
+> ΩY
+
+ψk j dy 
+
+ Z 
+
+> ωY
+
+η∗ℓj dμ y
+
+
+
+−
+
+> m−1
+
+X
+
+> i=1
+
+Z 
+
+> ωX
+
+λλ i dμ x
+
+
+
+B(φiψi, φ iψi)
+
+Z
+
+> ωY
+
+η∗ηi dμ y .
+
+Remark 2. In Formulation 9 (resp. Formulation 10), the bilinear form Bμ 
+
+> X
+
+(·, ·)
+
+(resp. Bμ 
+
+> Y
+
+(·, ·)) no longer involves differential operators, since Formulation 6 contains no derivatives with respect to the parameter μx (resp. μy ). These formulations are solved in their strong form, leading to algebraic equations that must be evaluated for values of the parameter μx ∈ ωX (resp. μy ∈ ωY ). 
+
+Subsequently to the offline phase, estimates of Qμ(u) = u(μx, μ y ), denoted here by ˆ u(μx, μ y ), can be obtained for any input data f : Ω → R and any point ( μx, μ y ) ∈ ω.Using the linear property of the linear form F , the estimates of the QoI are thus 12 efficiently computed as: ˆu(μx, μ y ) = F (zm) = 
+
+> m
+
+X
+
+> i=1
+
+F (φiψi) λi(μx)ηi(μy )=
+
+> m
+
+X
+
+> i=1
+
+Z 
+
+> Ω
+
+f (x, y ) φi(x)ψi(y) dxdy 
+
+
+
+λi(μx)ηi(μy ).
+
+(8) The contraction of such an expression is fast, especially when the rank m of the PGD approximation is low. This task is commonly referred to as the online phase .
+
+## 3.3 Plane-Stress Elasticity 
+
+As above, we assume that the kernel function kϵ is given in terms of the Gaussian function, for x ∈ Ω ⊂ R2 and μ ∈ γ ⊂ Γn, and takes the form 
+
+kϵ(x − μ) = 1
+
+√2πϵ exp 
+
+
+
+− ∥x − μ∥2
+
+2ϵ2
+
+
+
+,
+
+where ∥ · ∥ is the Euclidean norm in R2. We also assume that it can be represented as the separated expansion: 
+
+kϵ(x − μ) ≃
+
+> n
+
+X
+
+> κ=1
+
+hκ(x) kκ(μ). (9) 
+
+Formulation 11 (Weighted residual formulation of the parameterized adjoint problem for plane-stress elasticity) .
+
+Find zμ ∈ U × L2(γ) such that 
+
+Z
+
+> γ
+
+A(v, z μ) dμ =
+
+Z
+
+> γ
+
+Jμ(v) dμ, ∀v ∈ U × L2(γ).
+
+We now seek an approximation of the solution to the adjoint problem as: 
+
+zm(x, μ ) = 
+
+> m
+
+X
+
+> i=1
+
+φi(x)λi(μ) = 
+
+ m−1X
+
+> i=1
+
+φi(x)λi(μ)
+
+
+
++ φ(x)λ(μ).
+
+The fixed-point iteration is very similar to that illustrated in Figure 2, but this time with two subproblems to solve instead of four as we suppose here that we cannot separate the spatial mode φi(x), nor the parameter mode λi(μ), with respect to the directions x and y due to the complexity of the geometry. The sequence  φ(k) 
+
+> k∈N
+
+is also accelerated by means of the Aitken’s ∆ 2 process. 
+
+Formulation 12 (PGD problem in parameter x for plane-stress elasticity) . Assuming 
+
+λ to be known and taking test functions in the form v(x, μ ) = φ∗(x)λ(μ), the weak 
+
+13 Input data: f and g
+
+Solve primal problem for u
+
+Evaluate Jμ(u)
+
+Input parameter: μ ∈ γ
+
+Output: u(μ) · n
+
+Input parameter: μ ∈ γ
+
+Solve adjoint problem for zμ
+
+Evaluate 
+
+L(zμ) = 
+
+∫
+
+> Ω
+
+f · zμ dx +
+
+∫
+
+> Γn
+
+g · zμ ds 
+
+Input data: f and g
+
+Output: u(μ) · n
+
+Input data: f and g
+
+Input parameter: μ ∈ γ
+
+Evaluate L(zm) = 
+
+> m
+
+∑
+
+> i=1
+
+L(φi)λi(μ)
+
+Output: ˆu(μ) · n
+
+(1) Primal FOM (2) Adjoint FOM 
+
+(3) Adjoint-based Surrogate Fig. 3 Flowcharts of the three approaches to compute QoI estimates for the plane-stress elasticity problem, namely (1) the Primal Full-Order Model; (2) the Adjoint Full-Order Model; and (3) the Adjoint-based Surrogate. 
+
+formulation of the adjoint problem reads: Find φ ∈ U such that AΩ(φ, φ ∗) = RΩ(φ∗), ∀φ∗ ∈ U, 
+
+where: 
+
+AΩ(φ, φ ∗) = 
+
+Z 
+
+> γ
+
+λ2 dμ 
+
+
+
+A(φ, φ ∗),
+
+RΩ(φ∗) = 
+
+> n
+
+X
+
+> κ=1
+
+Z 
+
+> Γn
+
+φ∗ · n h κ ds 
+
+ Z 
+
+> γ
+
+λk κ dμ 
+
+
+
+−
+
+> m−1
+
+X
+
+> i=1
+
+Z 
+
+> γ
+
+λλ i dμ 
+
+
+
+A(φi, φ ∗).
+
+Formulation 13 (PGD problem in parameter μ for plane-stress elasticity) . Assuming 
+
+φ to be known and taking test functions in the form v(x, μ ) = φ(x)λ∗(μ), the weak formulation of the adjoint problem reads: Find λ ∈ L2(γ) such that Aμγ (λ, λ ∗) = Rμγ (λ∗), ∀λ∗ ∈ L2(γ),
+
+14 where: 
+
+Aμγ (λ, λ ∗) = A(φ, φ )
+
+Z
+
+> γ
+
+λ∗λ dμ, 
+
+Rμγ (λ∗) = 
+
+> n
+
+X
+
+> κ=1
+
+Z 
+
+> Γn
+
+φ · n h κ ds 
+
+ Z 
+
+> γ
+
+λ∗kκ dμ 
+
+
+
+−
+
+> m−1
+
+X
+
+> i=1
+
+A(φi, φ )
+
+Z
+
+> γ
+
+λ∗λi dμ. 
+
+Remark 3. Similarly to the Poisson equation, the PGD algorithm alternates here between Formulation 12, which solves a finite element problem for φ, and Formu-lation 13, which consists in a system of algebraic equations for λ, for values of 
+
+μ ∈ γ.
+
+Since L is a linear form, the estimates of the QoI, for any input data f : Ω → R2
+
+and g : Γ n → R2 and for any μ ∈ γ ⊂ Γn, can thus be computed in the online phase as: ˆu(μ) · n = L(zm) = 
+
+> m
+
+X
+
+> i=1
+
+L(φi)λi(μ) = 
+
+> m
+
+X
+
+> i=1
+
+Z 
+
+> Ω
+
+f · φi dx +
+
+Z
+
+> Γn
+
+g · φi ds 
+
+
+
+λi(μ). (10) 
+
+# 4 Numerical examples 
+
+We now introduce two examples based on the model problems presented above. The first one will deal with the Poisson problem and will serve as a proof-of-concept of the proposed methodology. The second example is concerned with the design of a structural bracket using plane-stress elasticity to illustrate the performance of the methodology on an application of engineering interest. 
+
+## 4.1 Example with the Poisson Equation 
+
+We consider the unit square Ω = Ω X × ΩY with Ω X = Ω Y = (0 , 1). The subdomain of interest is defined as the tensor-product ω = ωX × ωY with ωX = ωY = (0 .2, 0.8), see Figure 1. We are interested in solving the primal problem (1) for the three distinct source terms reported in Table 1, the objective being to assess the robustness of the method for various inputs. For given μ ∈ ω, we recall the adjoint problem: 
+
+−∆zμ = ¯kϵ(x − μx), ∀x ∈ Ω,zμ = 0 , ∀x ∈ ∂Ω.
+
+where the kernel function ¯kϵ is a separated approximation (7) of the Gaussian kernel: 
+
+kϵ(x − μx, y − μy ) = 12πϵ 2 exp 
+
+
+
+− (x − μx)2
+
+2ϵ2
+
+
+
+exp 
+
+
+
+− (y − μy )2
+
+2ϵ2
+
+
+
+The domain Ω is partitioned into a structured mesh of bilinear quadrilateral elements made of 249,001 elements resulting in a total of 250,000 degrees of freedom. The standard deviation in the Gaussian kernel is set to ϵ = 4 × 10 −3.15 Table 1 Source terms for the Poisson example      
+
+> Source term Expression
+> f11000
+> f21000 xy 2
+> f31000 cos(6 πx ) sin(2 πy )
+
+We assess the accuracy of the PGD approximations with respect to the finite element solutions uh solving the full model. More specifically, we evaluate the relative errors in the QoI estimates ˆ u (8) as follows: ˆϵω = ∥ˆu − Qμ(uh)∥L2(ω)
+
+∥Qμ(uh)∥L2(ω)
+
+.
+
+In practice, the reference Qμ(uh) is evaluated directly from the finite element solu-tion uh, i.e., Qμ(uh) = uh in ω, without using the kernel representation. As a result, the error ˆ ϵω includes both the model reduction error associated with the PGD approximation and the additional approximation errors introduced by the kernel-based representation of the QoI. Figures 4 and 5 show results of the PGD-based surrogate model using the adjoint formulation of the Poisson equation. The first five PGD modes shown in Figure 4 cap-ture the dominant parametric dependence of the adjoint solution, providing a compact reduced basis for the surrogate model. The QoI estimates obtained with the PGD sur-rogate using the first 50 modes match the FEM-based reference values with an error below 1% for the three considered load configurations, as shown in Figure 5. From a computational standpoint, the benefits of the surrogate approach are tan-gible on this toy problem, albeit on a limited scale. The resolution of the FEM problem requires about 31 seconds, whereas the PGD offline stage is completed in about 10 sec-onds. Once constructed, the cost per evaluation is significantly reduced: a single FEM solve, i.e., the cost of the forward and backward substitutions, takes around 50 ms per load case, while the corresponding PGD evaluation requires roughly 1 ms. These gains indicate the expected scaling advantage of the approach, with substantially larger sav-ings anticipated for problems of engineering relevance, with larger scales and involving many load cases. This level of accuracy confirms that the proposed methodology, replacing repeated primal solves by a surrogate model for the adjoint problem, can provide reliable QoI predictions at a fraction of the computational cost, thereby validating its suitability for scenarios requiring evaluations under multiple loading conditions. 
+
+## 4.2 Example with Plane-Stress Elasticity 
+
+This example deals with the validation of a structural bracket, shown in Figure 6, subjected to a wide range of load configurations, which is representative of a typical scenario in design optimization. The goal is to efficiently estimate a QoI under varying 16 0 1
+
+x
+
+01
+
+> ϕ1
+> ‖ϕ1‖L2(Ω X )
+
+0 1
+
+y
+
+01
+
+> ψ1
+> ‖ψ1‖L2(Ω Y )
+
+0.2 0.5 0.8 
+
+μx
+
+1.00 1.25 
+
+> λ1
+> ‖λ1‖L2(ωX )
+
+0.2 0.5 0.8 
+
+μy
+
+1.00 1.25 
+
+> η1
+> ‖η1‖L2(ωY )
+
+0 1
+
+x
+
+−101
+
+> ϕ2
+> ‖ϕ2‖L2(Ω X )
+
+0 1
+
+y
+
+01
+
+> ψ2
+> ‖ψ2‖L2(Ω Y )
+
+0.2 0.5 0.8 
+
+μx
+
+1.00 1.25 
+
+> λ2
+> ‖λ2‖L2(ωX )
+
+0.2 0.5 0.8 
+
+μy
+
+−101
+
+> η2
+> ‖η2‖L2(ωY )
+
+0 1
+
+x
+
+−101
+
+> ϕ3
+> ‖ϕ3‖L2(Ω X )
+
+0 1
+
+y
+
+01
+
+> ψ3
+> ‖ψ3‖L2(Ω Y )
+
+0.2 0.5 0.8 
+
+μx
+
+−101
+
+> λ3
+> ‖λ3‖L2(ωX )
+
+0.2 0.5 0.8 
+
+μy
+
+1.00 1.25 
+
+> η3
+> ‖η3‖L2(ωY )
+
+0 1
+
+x
+
+−101
+
+> ϕ4
+> ‖ϕ4‖L2(Ω X )
+
+0 1
+
+y
+
+01
+
+> ψ4
+> ‖ψ4‖L2(Ω Y )
+
+0.2 0.5 0.8 
+
+μx
+
+1.00 1.25 
+
+> λ4
+> ‖λ4‖L2(ωX )
+
+0.2 0.5 0.8 
+
+μy
+
+−101
+
+> η4
+> ‖η4‖L2(ωY )
+
+0 1
+
+x
+
+−101
+
+> ϕ5
+> ‖ϕ5‖L2(Ω X )
+
+0 1
+
+y
+
+01
+
+> ψ5
+> ‖ψ5‖L2(Ω Y )
+
+0.2 0.5 0.8 
+
+μx
+
+−101
+
+> λ5
+> ‖λ5‖L2(ωX )
+
+0.2 0.5 0.8 
+
+μy
+
+−101
+
+> η5
+> ‖η5‖L2(ωY )
+
+Fig. 4 Poisson equation – First five PGD modes of the Parameterized Adjoint Formulation 6. 
+
+loading conditions. We consider the following plane-stress problem: 
+
+−∇ · σ(u) = 0 , in Ω ,σ(u) = C : ε(u), in Ω ,ε(u) = 12
+
+ ∇u + ( ∇u)⊤ , in Ω ,u = 0 , on Γ d,σ(u) · n = gα n, on Γ α,σ(u) · n = gβ n, on Γ β ,σ(u) · n = 0 , on ∂Ω \ (Γ d ∪ Γα ∪ Γβ ),
+
+17 f1(x, y ) = 1000 
+
+ˆϵω = 0 .06% 
+
+f1(x, y ) = 1000 f2(x, y ) = 1000 xy 2
+
+ˆϵω = 0 .43% 
+
+f2(x, y ) = 1000 xy 2 f3(x, y ) = 1000 cos(6 πx ) sin(2 πy )
+
+ˆϵω = 0 .32% 
+
+f3(x, y ) = 1000 cos(6 πx ) sin(2 πy )Fig. 5 Poisson equation – Estimation of the QoI using the PGD surrogate model obtained from the Parameterized Adjoint Formulation 6 with 50 modes and associated errors. 
+
+where the Neumann boundary conditions on the portions Γ α and Γ β of the boundary depend on angles ( α, β ) ∈ D 2, with D = [0 , 2π), which determine the loading zone on the bearing seat, as shown in Figure 6. More specifically, Γ α and Γ β are subjected to the bearing loads: 
+
+gα(θ) = − 2FR
+
+πRL cos( θ − α) 1α(θ),gβ (θ) = − 2FR
+
+πRL cos( θ − β) 1β (θ),
+
+where FR is the magnitude of the resultant of the radial load, R and L are the radius and width of the bearing seat, respectively, and 1α denotes the indicator function with respect to parameter α given by: 
+
+1α(θ) = 
+
+
+
+1, if α − π
+
+2 < θ < α + π
+
+2 ,
+
+0, otherwise .
+
+The indicator function 1β with respect to β is defined in a similar manner. Later on, the load parameters α and β will be sampled on an evenly spaced grid over the interval 
+
+D = [0 , 2π). In this work, both grids consist of nα = nβ = 360 points, that is: 
+
+αi = 2π(i − 1) 360 , i = 1 , . . . , 360 ,
+
+and similarly for β.18 Γd
+
+γ
+
+Γα Γβ
+
+Ωe1
+
+e2
+
+θ
+
+α
+
+− 2FR 
+
+> πRL
+
+cos( θ − α) n
+
+RFig. 6 Plane-stress elasticity – Left: Schematic of the 2D computational domain Ω, Neumann bound-aries Γ α and Γ β for the primal problem, Neumann boundary γ for the adjoint problem, and Dirichlet boundary Γ d; Right: Schematic of the bearing load with an offset α = −π/ 2 pointing in the opposite direction of the unit outward normal vector n, which points here towards the center of the bore, that is, n = −(cos( θ), sin( θ)). 
+
+We suppose here is that we interested in the normal displacement along the top boundary γ of the structural bracket. The adjoint problem then reads: 
+
+−∇ · σ(zμ) = 0 , in Ω ,σ(zμ) = C : ε(zμ), in Ω ,ε(zμ) = 12
+
+ ∇zμ + ( ∇zμ)⊤ , in Ω ,zμ = 0 , on Γ d,σ(zμ) · n = 1
+
+√2πϵ exp 
+
+
+
+− ∥x − μ∥2
+
+2ϵ2
+
+
+
+n, on γ, σ(zμ) · n = 0 , on ∂Ω \ (Γ d ∪ γ).
+
+where the standard deviation in the Gaussian kernel is set to ϵ = 5 × 10 −2. Moreover, the Lam´ e parameters λ and μ in Hooke’s law (4) are evaluated here from the Young’s Modulus and Poisson ratio as (see Table 2): 
+
+λ = Eν 
+
+1 − ν2 and μ = E
+
+2(1 + ν) .
+
+The domain Ω is partitioned into a mesh of Lagrange quadrilateral elements of degree one, consisting of 993,893 elements and a total of 2,002,946 degrees of freedom. The mesh is chosen fine enough in order to neglect the discretization errors. We note 19 Table 2 Parameters for the plane-stress elasticity example               
+
+> Parameter Value
+> Young’s Modulus E70 ×10 3MPa Poisson ratio ν0.32 Radius R20 mm Magnitude FR500 N
+> 1Width L1 SI
+> 1Introduced for the purpose of unit consistency.
+
+that we will use the same mesh to compute both the FEM solutions uh of the full model and the modes of the PGD approximations of the reduced model. We shall assess the performance of the proposed methodology in terms of the accuracy of the approximations and the time efficiency: 1. The accuracy of the PGD approximations will be measured in term of the relative error ˆ ϵγ (α, β ) and root mean square relative error ˆ ηγ of the quantity of interest ˆu = L(zm), computed from Eq. (10), with respect to that computed from the finite element solutions uh, i.e. Jμ(uh), of the full-order model (FOM), for ( α, β ) ∈ D 2:ˆϵγ (α, β ) = ∥ˆu(α, β ) − Jμ(uh(α, β )) ∥L2(γ)
+
+∥Jμ(uh(α, β )) ∥L2(γ)
+
+,
+
+ˆηγ =
+
+vuut 1
+
+nαnβnαX
+
+> i=1
+> nβ
+
+X
+
+> j=1
+
+ ˆϵγ (αi, β j )2.
+
+For comparison purposes, we will also evaluate the quantity of interest Jμ(um) by considering the PGD approximation um (B1) of the primal problem, as shown in Appendix B. We will compute the relative error ϵγ (α, β ) and root mean square relative error ηγ in Jμ(um) with respect to that obtained using the FOM: 
+
+ϵγ (α, β ) = ∥Jμ(um(α, β )) − Jμ(uh(α, β )) ∥L2(γ)
+
+∥Jμ(uh(α, β )) ∥L2(γ)
+
+,ηγ =
+
+vuut 1
+
+nαnβnαX
+
+> i=1
+> nβ
+
+X
+
+> j=1
+
+ ϵγ (αi, β j )2.
+
+As for the Poisson example, the QoI Jμ are evaluated directly from the approximate displacement solutions, i.e., Jμ(u) = u on γ, without using the kernel representa-tion. Thus, the reported errors include both the PGD model reduction error and the approximation errors associated with the kernel-based QoI. 20 2. Computational efficiency of the proposed adjoint-based reduced-order model will be assessed with respect to the FOM and the primal-based PGD ROM by mea-suring wall-clock times when evaluating the structural response for multiple load configurations. In the case of the FOM solved by the FEM, the total time includes the Cholesky factorization of the stiffness matrix (performed once) and the for-ward/backward substitutions required for each right-hand side. Since the model is linear, the factorization can be reused for all load cases, and, by the superposition principle, only nℓ = nα + nβ substitutions are required instead of nα × nβ . In the case of the ROM, the total time amounts to the training phase , during which the surrogate model is built, and the online phase , during which the surrogate model is queried for any load configuration. Moreover, we compare the adjoint-based ROM with the FOM in terms of the operation counts: 
+
+cFOM = cfac + nℓ csub ,cROM = coff + nℓ con ,
+
+where the different terms are defined in Table 3. In the present work, the online evaluation cost ton is usually negligible, so the operation count for the ROM is approximately the same as that of the training phase given by: 
+
+cROM ≈ coff = cfac + csub 
+
+> m
+
+X
+
+> i=1
+
+ki = cfac + m ¯k c sub ,
+
+where m is the rank of the PGD approximation, ki denotes the number of fixed-point iterations per mode, and ¯k the average number of substitutions per mode. Therefore, the proposed method is expected to be computationally advantageous whenever m ¯k ≪ nℓ.                     
+
+> Table 3 Summary of operation counts in the FOM and ROM
+> Symbol Description
+> cfac Operation count of the Cholesky factorization 1, i.e. K=LL ⊤
+> csub Cost of one forward/backward substitution 2
+> coff Training cost of the ROM
+> con Online evaluation cost of the ROM (negligible)
+> nℓNumber of load cases
+> 1cfac ≈O(n3/2) for two-dimensional finite element graphs [50], where nis the number of degrees of freedom, i.e. K∈Rn×n.
+> 2csub ≈O(|L|), where |L|is the number of nonzero entries in the Cholesky factor.
+
+All computations were run on a computer with the following configuration: 
+
+• CPU: AMD Ryzen 7 PRO 4750U @ 1.7 GHz per core; 
+
+• RAM: 38 GB; 21 • OS: Arch Linux 6.15.3. The code was written in Python 3.13.3 with NumPy 2.3.0 [51] and SciPy 1.15.3 [52]. 
+
+scikit-sparse 0.4.16 is imported to leverage SuiteSparse’s CHOLMOD library for sparse Cholesky decomposition [53]. opt einsum 3.4.0 is leveraged to optimize tensor contractions [54]. Meshes are generated with Gmsh [55, 56]. Figures 7 and 8 show the first five PGD modes computed using the parameter-ized adjoint and primal formulations related to the plane-stress elasticity problem, respectively. While the primal modes describe the main deformation patterns of the structure under varying load configurations, the adjoint modes capture the dominant parametric behavior of the sensitivity of the quantity of interest. Figure 9 quantifies the approximation errors over 100 modes, for the purpose of illustrating the asymptotic convergence trends. For the adjoint ROM, the root mean square error decays rapidly at first and then steadily decreases, exhibiting a high convergence rate for the quantity of interest. In contrast, the primal ROM shows a slower decay before plateauing at the value ηγ ≈ 2 × 10 −2. One possible explanation for this slower convergence is that each primal PGD enrichment involves the product of three separable modes, whereas the adjoint-based PGD enrichment relies on only two, leading to a more complex approximation space and reduced efficiency per added mode. The density plots in Figure 9 further highlight the advantage of the adjoint ROM: the error distribution is narrower and the median error is one order of magnitude lower compared to the primal ROM, confirming its superior performance for QoI estimation.                    
+
+> Table 4 Summary of the elapsed time by task
+> Symbol Description Wall-clock time (s)
+> tfac Cholesky factorization 33
+> nℓtsub Forward/backward substitutions 278
+> toff =tfac +m¯k t sub Training of the ROM 56
+> nℓton Online evaluation of the ROM 5×10 −3
+
+The wall-clock time results reported in Table 4 are obtained for 10 modes, for which the adjoint PGD commits an error below 1% with respect to the QoI. It high-lights the substantially higher efficiency of the adjoint PGD approach compared to the FOM strategy. The full FEM computation requires 311 seconds in total, including 278 seconds spent on forward and backward substitutions for all load cases. In com-parison, the adjoint PGD approach incurs an offline cost of 56 seconds and an online evaluation time of only 5 ms for all loads, demonstrating its superior time efficiency. Figure 10 illustrates the deformed shapes for three load configurations together with the associated QoI. For the same number of modes, the adjoint PGD yields QoI errors that are approximately one order of magnitude smaller than those obtained with the primal PGD, highlighting the improved accuracy of the adjoint-based approach for QoI estimation. 22 φ1
+
+> ∥φ1∥L2(Ω)
+> φ2
+> ∥φ2∥L2(Ω)
+> φ3
+> ∥φ3∥L2(Ω)
+> φ4
+> ∥φ4∥L2(Ω)
+> φ5
+> ∥φ5∥L2(Ω)
+
+−50 0 50 100 
+
+μ
+
+0.00 0.05 0.10 0.15 
+
+> λ1
+> ‖λ1‖L2(γ)
+
+−50 0 50 100 
+
+μ
+
+−0.10.00.1
+
+> λ2
+> ‖λ2‖L2(γ)
+
+−50 0 50 100 
+
+μ
+
+−0.10.00.1
+
+> λ3
+> ‖λ3‖L2(γ)
+
+−50 0 50 100 
+
+μ
+
+−0.10.00.1
+
+> λ4
+> ‖λ4‖L2(γ)
+
+−50 0 50 100 
+
+μ
+
+−0.2
+
+−0.10.00.1
+
+> λ5
+> ‖λ5‖L2(γ)
+
+Fig. 7 Plane-stress elasticity – First five PGD modes for the parameterized adjoint formulation (Formulation 11). 
+
+23 φ1
+
+> ∥φ1∥L2(Ω)
+> φ2
+> ∥φ2∥L2(Ω)
+> φ3
+> ∥φ3∥L2(Ω)
+> φ4
+> ∥φ4∥L2(Ω)
+> φ5
+> ∥φ5∥L2(Ω)
+
+0 π 
+
+> 2
+
+π 3π 
+
+> 2
+
+2π
+
+α
+
+0.00.5
+
+> λ1
+> ‖λ1‖L2(D)
+
+0 π 
+
+> 2
+
+π 3π 
+
+> 2
+
+2π
+
+β
+
+0.20.40.6
+
+> η1
+> ‖η1‖L2(D)
+
+0 π 
+
+> 2
+
+π 3π 
+
+> 2
+
+2π
+
+α
+
+0.20.40.6
+
+> λ2
+> ‖λ2‖L2(D)
+
+0 π 
+
+> 2
+
+π 3π 
+
+> 2
+
+2π
+
+β
+
+0.00.5
+
+> η2
+> ‖η2‖L2(D)
+
+0 π 
+
+> 2
+
+π 3π 
+
+> 2
+
+2π
+
+α
+
+0.35 0.40 0.45 
+
+> λ3
+> ‖λ3‖L2(D)
+
+0 π 
+
+> 2
+
+π 3π 
+
+> 2
+
+2π
+
+β
+
+−0.50.00.5
+
+> η3
+> ‖η3‖L2(D)
+
+0 π 
+
+> 2
+
+π 3π 
+
+> 2
+
+2π
+
+α
+
+−0.50.00.5
+
+> λ4
+> ‖λ4‖L2(D)
+
+0 π 
+
+> 2
+
+π 3π 
+
+> 2
+
+2π
+
+β
+
+0.375 0.400 0.425 
+
+> η4
+> ‖η4‖L2(D)
+
+0 π 
+
+> 2
+
+π 3π 
+
+> 2
+
+2π
+
+α
+
+0.00 0.25 0.50 
+
+> λ5
+> ‖λ5‖L2(D)
+
+0 π 
+
+> 2
+
+π 3π 
+
+> 2
+
+2π
+
+β
+
+0.20.40.6
+
+> η5
+> ‖η5‖L2(D)
+
+Fig. 8 Plane-stress elasticity – First five PGD modes for the parameterized primal formulation (Formulation B2). 
+
+24 1 2 5 10 20 50 100 
+
+Mode      
+
+> 10 −4
+> 10 −3
+> 10 −2
+> 10 −1
+> 10 0
+> Errors
+> ˆηγ
+> ηγ
+> 10 −510 −410 −310 −210 −110 0
+
+Errors  
+
+> 0.00
+> 0.01
+> 0.02
+> 0.03
+> 0.04
+> 0.05
+> 0.06
+> Density
+> ˆγ
+> γFig. 9 Plane-stress elasticity – Left: Decay of the root mean square error for both the primal and adjoint ROMs for 100 modes; Right: Density plots of the errors for both the primal and adjoint ROMs for each load configuration for 100 modes (with the median errors indicated by the dashed vertical lines).
+
+Figure 11 presents a virtual chart of the maximum normal displacement along the boundary γ, obtained using the adjoint surrogate model. Fast QoI estimation enables rapid generation of such visualizations, providing timely insights into structural behav-ior for supporting informed decision-making. This capability would be particularly useful in generative design workflows, where it allows designers to quickly validate or invalidate design iterations based on their structural performance. 
+
+## 4.3 Further Discussion 
+
+Although not as efficient in the presented use case, the primal ROM can still provide useful reduced-order approximations of the full field solution. However, the approach is less generic than the adjoint-based strategy for linear problems. In particular, it relies on the ability to parameterize all relevant external loads. In many practical scenarios, such as industrial applications with complex, non-parametric loadings, constructing a suitable parametric representation may be challenging if not impossible. On the other hand, the adjoint-based PGD focuses directly on the QoI, decouples the surrogate model from the specifics of the loading configuration, and allows one to efficiently evaluate the QoI for multiple load scenarios without having to recompute the primal solution. On another note, it is worth mentioning that the SVDs performed to approximate the kernel functions (7) and (9) were not truncated, as this choice maximizes accuracy while having a negligible impact on efficiency thanks to the low computational cost of 25 α = 205 ◦ and β = 120 ◦
+
+ˆϵγ = 0 .10% 
+
+ϵγ = 1 .24% 
+
+α = 224 ◦ and β = 309 ◦
+
+ˆϵγ = 0 .36% 
+
+ϵγ = 3 .08% 
+
+α = 49 ◦ and β = 310 ◦
+
+ˆϵγ = 0 .12% 
+
+ϵγ = 1 .71% Fig. 10 Plane-stress elasticity – QoI estimates over γ for three load configurations, using primal and adjoint ROMs with 10 modes, and associated errors (full-field deformed shapes, obtained by FEM, are shown for visualization purposes). 
+
+evaluating one-dimensional integrals. In fact, the separation of the Gaussian kernels with respect to their spatial parameters ( x or y) and expected value parameters ( μx,
+
+μy , or μ) is rather poor, making truncation particularly detrimental to accuracy in this context (especially for low values of the parameter ϵ). For nonlinear problems, the strategy of bypassing the primal solution is generally not applicable. The linearity of the governing equations and of the QoI functional is conditional of computing the QoI solely from the adjoint solution. In the nonlinear case, the QoI depends nonlinearly on the primal solution, and therefore, one would need either a surrogate model for the primal problem in addition to that for the adjoint, or alternative hyper-reduction techniques to enable fast evaluations. Finally, the interplay between ROM enrichment and mesh adaptivity is an impor-tant topic for ensuring the reliability of simulations. The overall accuracy depends on both the discretization error introduced by the Finite Element basis functions and the 26 0 π   
+
+> 2π3π
+> 22π
+
+α      
+
+> 0
+> π
+> 2
+> π
+> 3π
+> 2
+> 2π
+> β
+> Contour lines of max
+> μ∈γˆu(in mm) for ( α, β )∈ D 2
+> 0.0
+> 0.0
+> 0.0
+> 0.0
+> 0.1
+> 0.1
+> 0.1
+> 0.1
+> 0.1
+> 0.1
+> 0.2
+> 0.2
+> 0.2
+> 0.2
+> 0.2
+> 0.2
+> 0.3
+> 0.3
+> 0.3
+> 0.3
+> 0.3
+> 0.4
+> 0.4
+> 0.4
+> 0.4
+> 0.4
+> 0.5
+> 0.5
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> 1.0
+> 1.1
+> 1.2
+> 1.3
+> 1.4
+> 1.5Fig. 11 Plane-stress elasticity – Virtual chart generated by the adjoint surrogate model showing the maximum normal displacement on γ, for all load configurations ( α, β )∈ D 2.
+
+reduction error arising from the reduced basis. Being able to assess these two sources of error separately is crucial, as it enables the identification of the dominant error and the design of adaptive strategies, by either refining the mesh or enriching the reduced basis. In this context, adaptive strategies are meant to maintain a balanced control of both errors while ensuring that the surrogate model remains predictive for the QoI [36]. 
+
+# 5 Conclusion 
+
+We have introduced an adjoint-based PGD reduced-order model for efficiently and accurately estimating QoIs when dealing with many-query studies. By building the reduced-order model solely for the adjoint problem, repeated primal solves are bypassed. The approach allows for substantial computational savings while maintain-ing high accuracy. Numerical experiments in the cases of the Poisson problem and of a structural bracket in plane-stress elasticity have demonstrated that the adjoint ROM converges rapidly with respect to the QoI and outperforms the primal ROM in terms of both accuracy and efficiency. The performance of the proposed approach is explained by the fact that the construction of the surrogate does not take into account the load configurations, enabling fast evaluation across many load cases. The by-product of the method is that it also allows one to quickly create virtual charts to support informed decision-making. Particularly suited to the study of linear problems, 27 the methodology provides a robust, scalable, and efficient tool for many-query analy-ses. It is especially useful in the early phases of prototyping where quick and reliable QoI predictions are essential. Future work will focus on extending the methodology to the case of nonlinear problems and quantities of interest. 
+
+# Declarations 
+
+Availability of data and materials 
+
+All data generated or analyzed during this study are included in this published article or available from the corresponding author on reasonable request. 
+
+Competing interests 
+
+The authors declare that they have no known competing financial interests or personal relationships that could have appeared to influence the work reported in this paper. 
+
+Funding 
+
+Cl´ ement Vella is grateful for the French Tech Emergence Grant awarded by Bpifrance. Serge Prudhomme is grateful for the support by a Discovery Grant from the Natural Sciences and Engineering Research Council of Canada [Grant No. RGPIN-2025-07199]. 
+
+Authors’ contributions 
+
+Cl´ ement Vella : Conceptualization, Methodology, Software, Validation, For-mal analysis, Investigation, Writing – original draft, Visu-alization. 
+
+Serge Prudhomme : Conceptualization, Formal analysis, Writing – review & editing, Supervision, Funding acquisition, Discussions. 
+
+# Appendix A 
+
+Let Ω = Ω X × ΩY . We explicitly evaluate here the bilinear form B using the product of two PGD spatial modes φ = φ(x), ∀x ∈ ΩX , and ψ = ψ(y), ∀y ∈ ΩY , in the case of the Poisson equation. Let ( φ, ψ ) ∈ VX × VY be a pair of spatial modes. Then the bilinear form reads: 
+
+B(φψ, φψ ) = 
+
+Z
+
+> Ω
+
+∇(φψ ) · ∇ (φψ ) dx. 
+
+By definition of the gradient: 
+
+∇(φψ ) = 
+
+ dφ dx ψ, φ dψ dy 
+
+
+
+,
+
+28 so that the bilinear form can be expanded as: 
+
+B(φψ, φψ ) = 
+
+Z
+
+> ΩY
+
+Z
+
+> ΩX
+
+ dφ dx 
+
+2
+
+ψ2 + φ2
+
+ dψ dy 
+
+2
+
+dxdy 
+
+=
+
+ Z 
+
+> ΩX
+
+ dφ dx 
+
+2
+
+dx 
+
+ Z 
+
+> ΩY
+
+ψ2 dy 
+
+
+
++
+
+ Z 
+
+> ΩX
+
+φ2 dx 
+
+ Z 
+
+> ΩY
+
+ dψ dy 
+
+2
+
+dy 
+
+
+
+.
+
+# Appendix B 
+
+We derive here the PGD approximation of the primal problem in the case of the plane-stress elasticity problem. Given um−1, the mode ( φm, λ m, η m) of the PGD approximation, given in the form: 
+
+um(x, α, β ) = 
+
+> m
+
+X
+
+> i=1
+
+φi(x)λi(α)ηi(β), (B1) satisfies the PGD weak formulation of the parameterized primal problem: Find ( φ, λ, η ) ∈ U × L2(D) × L2(D) such that 
+
+Z
+
+> D2
+
+A(φλη, v ) dα dβ =
+
+Z
+
+> D2
+
+L(v) dα dβ 
+
+−
+
+Z
+
+> D2
+
+A(um−1, v ) dα dβ, ∀v ∈ U × L2(D) × L2(D),
+
+(B2) with A(·, ·) and L(·) as defined in Formulation 3. Assuming that the body force density 
+
+f is zero everywhere in Ω and accounting for the Neumann boundary conditions, the linear form L then reads: 
+
+L(v) = 
+
+Z
+
+> Γα
+
+gα · v ds +
+
+Z
+
+> Γβ
+
+gβ · v ds, ∀v ∈ U. 
+
+Because of the presence of the indicator functions in the bearing loads (4.2), gα
+
+and gβ are not separable and need to be approximated by SVDs of their discrete representations. 
+
+# References 
+
+[1] Benner, P., Gugercin, S., Willcox, K.: A survey of projection-based model reduc-tion methods for parametric dynamical systems. SIAM Review 57 (4), 483–531 (2015) [2] Chatterjee, A.: An introduction to the proper orthogonal decomposition. Current Science 78 (7), 808–817 (2000) 29 [3] Kunisch, K., Volkwein, S.: Galerkin proper orthogonal decomposition methods for parabolic problems. Numerische mathematik 90 (1), 117–148 (2001) [4] Gunzburger, M.D., Peterson, J.S., Shadid, J.N.: Reduced-order modeling of time-dependent PDEs with multiple parameters in the boundary data. Computer Methods in Applied Mechanics and Engineering 196 (4-6), 1030–1047 (2007) [5] Lu, K., Jin, Y., Chen, Y., Yang, Y., Hou, L., Zhang, Z., Li, Z., Fu, C.: Review for order reduction based on proper orthogonal decomposition and outlooks of applications in mechanical systems. Mechanical Systems and Signal Processing 
+
+123 , 264–297 (2019) [6] Maday, Y., Rønquist, E.M.: A reduced-basis element method. Journal of Scientific Computing 17 (1), 447–459 (2002) [7] Haasdonk, B., Ohlberger, M.: Reduced basis method for finite volume approx-imations of parametrized linear evolution equations. ESAIM: Mathematical Modelling and Numerical Analysis 42 (2), 277–302 (2008) [8] Quarteroni, A., Manzoni, A., Negri, F.: Reduced Basis Methods for Partial Differential Equations: an Introduction vol. 92. Springer, Cham (2015) [9] Haasdonk, B.: Chapter 2. Reduced Basis Methods for Parametrized PDEs–A Tutorial Introduction for Stationary and Instationary Problems, vol. 15, pp. 65– 136. SIAM, Philadelphia (2017) [10] Chinesta, F., Keunings, R., Leygue, A.: The Proper Generalized Decomposition for Advanced Numerical Simulations: A Primer. Springer, Cham (2013) [11] Ladev` eze, P.: PGD in linear and nonlinear computational solid mechanics. In: Separated Representations and PGD-Based Model Reduction: Fundamentals and Applications, pp. 91–152. Springer, Vienna (2014) [12] Chinesta, F., Leygue, A., Bordeu, F., Aguado, J.V., Cueto, E., Gonz´ alez, D., Alfaro, I., Ammar, A., Huerta, A.: PGD-based computational vademecum for efficient design, optimization and control. Archives of Computational methods in Engineering 20 (1), 31–59 (2013) [13] Gartland, E. Jr: Computable pointwise error bounds and the Ritz method in one dimension. SIAM Journal on Numerical Analysis 21 (1), 84–100 (1984) [14] Becker, R., Rannacher, R.: A feed-back approach to error control in finite ele-ment methods: Basic analysis and examples. East-West Journal of Numerical Mathematics 4, 237–264 (1996) [15] Paraschivoiu, M., Peraire, J., Patera, A.T.: A posteriori finite element bounds for linear-functional outputs of elliptic partial differential equations. Computer 30 Methods in Applied Mechanics and Engineering 150 (1-4), 289–312 (1997) [16] Prudhomme, S., Oden, J.T.: On goal-oriented error estimation for elliptic prob-lems: application to the control of pointwise errors. Computer Methods in Applied Mechanics and Engineering 176 (1-4), 313–331 (1999) [17] Oden, J.T., Prudhomme, S.: Goal-oriented error estimation and adaptivity for the finite element method. Computers & mathematics with applications 41 (5-6), 735–756 (2001) [18] Almeida Pereira, O., Almeida, J.: Dual adaptive finite element refinement for multiple local quantities in linear elastostatics. International journal for numerical methods in engineering 83 (3), 347–365 (2010) [19] Carlberg, K., Farhat, C.: A low-cost, goal-oriented ‘compact proper orthogonal decomposition’ basis for model reduction of static systems. International Journal for Numerical Methods in Engineering 86 (3), 381–402 (2011) [20] Prud’homme, C., Rovas, D.V., Veroy, K., Machiels, L., Maday, Y., Patera, A.T., Turinici, G.: Reliable real-time solution of parametrized partial differential equations: Reduced-basis output bound methods. J. Fluids Eng. 124 (1), 70–80 (2002) [21] Prud’homme, C., Rovas, D., Veroy, K., Machiels, L., Maday, Y., Patera, A.T., Turinici, G.: Reduced–Basis Output Bound Methods for Parametrized Partial Differential Equations. In: Proceedings SMA Symposium, vol. 1, p. 1 (2002) [22] Rovas, D., Machiels, L., Maday, Y.: Reduced-basis output bound methods for parabolic problems. IMA Journal of Numerical Analysis 26 (3), 423–445 (2006) [23] Carlberg, K., Barone, M., Antil, H.: Galerkin v. least-squares Petrov–Galerkin projection in nonlinear model reduction. Journal of Computational Physics 330 ,693–734 (2017) [24] Nguyen, N.C.: A posteriori error estimation and basis adaptivity for reduced-basis approximation of nonaffine-parametrized linear elliptic partial differential equations. Journal of Computational Physics 227 (2), 983–1006 (2007) [25] Rozza, G., Huynh, D.B.P., Patera, A.T.: Reduced basis approximation and a posteriori error estimation for affinely parametrized elliptic coercive partial dif-ferential equations: Application to transport and continuum mechanics. Archives of Computational Methods in Engineering 15 (3), 229–275 (2008) [26] Fischer, H., Roth, J., Wick, T., Chamoin, L., Fau, A.: MORe DWR: Space-time goal-oriented error control for incremental POD-based ROM for time-averaged goal functionals. Journal of Computational Physics 504 , 112863 (2024) 31 [27] Carlberg, K.: Adaptive h-refinement for reduced-order models. International Journal for Numerical Methods in Engineering 102 (5), 1192–1210 (2015) [28] Etter, P.A., Carlberg, K.T.: Online adaptive basis refinement and compression for reduced-order models via vector-space sieving. Computer Methods in Applied Mechanics and Engineering 364 , 112931 (2020) [29] Collins, G., Fidkowski, K., Cesnik, C.E.: Output Error Estimation for Projection-Based Reduced Models. In: AIAA Aviation 2019 Forum, AIAA 2019-3528, (2019) [30] Yano, M.: Goal-oriented model reduction of parametrized nonlinear partial differential equations: Application to aerodynamics. International Journal for Numerical Methods in Engineering 121 (23), 5200–5226 (2020) [31] Sleeman, M.K., Yano, M.: Goal-oriented model reduction for parametrized time-dependent nonlinear partial differential equations. Computer Methods in Applied Mechanics and Engineering 388 , 114206 (2022) [32] Meyer, M., Matthies, H.G.: Efficient model reduction in non-linear dynam-ics using the Karhunen-Loeve expansion and dual-weighted-residual methods. Computational Mechanics 31 (1), 179–191 (2003) [33] Alfaro, I., Gonz´ alez, D., Zlotnik, S., D´ ıez, P., Cueto, E., Chinesta, F.: An error estimator for real-time simulators based on model order reduction. Advanced Modeling and Simulation in Engineering Sciences 2(1), 30 (2015) [34] De Almeida, J.M.: A basis for bounding the errors of proper generalised decompo-sition solutions in solid mechanics. International Journal for Numerical Methods in Engineering 94 (10), 961–984 (2013) [35] Ammar, A., Chinesta, F., Diez, P., Huerta, A.: An error estimator for separated representations of highly multidimensional models. Computer methods in applied mechanics and engineering 199 (25-28), 1872–1880 (2010) [36] Chamoin, L., Pled, F., Allier, P.-E., Ladev` eze, P.: A posteriori error estimation and adaptive strategy for PGD model reduction applied to parametrized linear parabolic problems. Computer Methods in Applied Mechanics and Engineering 
+
+327 , 118–146 (2017) [37] Ladev` eze, P., Chamoin, L.: On the verification of model reduction methods based on the proper generalized decomposition. Computer Methods in Applied Mechanics and Engineering 200 (23-24), 2032–2047 (2011) [38] Kergrene, K., Chamoin, L., Laforest, M., Prudhomme, S.: On a goal-oriented version of the proper generalized decomposition method. Journal of Scientific Computing 81 (1), 92–111 (2019) 32 [39] Daby-Seesaram, A., N´ eron, D., Charbonnel, P.-´E., Fau, A.: Model-order reduction framework for non-linear dynamics problems involving multiple non-parametrised loading configurations for damage assessment. Computational Mechanics, 1–14 (2025) [40] O’Leary, D.P.: The block conjugate gradient algorithm and related methods. Linear Algebra and its Applications 29 , 293–322 (1980) [41] Farhat, C., Crivelli, L., Roux, F.X.: Extending substructure based iterative solvers to multiple load and repeated analyses. Computer Methods in Applied Mechanics and Engineering 117 (1-2), 195–209 (1994) [42] Saad, Y., Yeung, M., Erhel, J., Guyomarc’h, F.: A deflated version of the conju-gate gradient algorithm. SIAM Journal on Scientific Computing 21 (5), 1909–1926 (2000) [43] Erhel, J., Guyomarc’h, F.: An augmented conjugate gradient method for solving consecutive symmetric positive definite linear systems. SIAM Journal on Matrix Analysis and Applications 21 (4), 1279–1299 (2000) [44] Jolivet, P., Tournier, P.-H.: Block iterative methods and recycling for improved scalability of linear solvers. In: SC’16: Proceedings of the International Conference for High Performance Computing, Networking, Storage and Analysis, pp. 190–203 (2016) [45] Zlotnik, S., D´ ıez, P., Gonzalez, D., Cueto, E., Huerta, A.: Effect of the sepa-rated approximation of input data in the accuracy of the resulting PGD solution. Advanced Mmodeling and Simulation in Engineering Sciences 2(1), 28 (2015) [46] Aitken, A.: XII.—Further numerical studies in algebraic equations and matrices. Proceedings of the Royal Society of Edinburgh 51 , 80–90 (1932) [47] Nouy, A., Pled, F.: A multiscale method for semi-linear elliptic equations with localized uncertainties and non-linearities. ESAIM: Mathematical Modelling and Numerical Analysis 52 (5), 1763–1802 (2018) [48] Vella, C., Gosselet, P., Prudhomme, S.: An efficient PGD solver for struc-tural dynamics applications. Advanced Modeling and Simulation in Engineering Sciences 11 (1), 15 (2024) [49] Vella, C., Prudhomme, S.: Proper generalized decomposition surrogate modeling with application to the identification of Rayleigh damping parameters. Computers & Structures 315 , 107826 (2025) [50] Gilbert, J.R., Tarjan, R.E.: The analysis of a nested dissection algorithm. Numerische Mathematik 50 (4), 377–404 (1986) 33 [51] Harris, C.R., Millman, K.J., Walt, S.J., Gommers, R., Virtanen, P., Cournapeau, D., Wieser, E., Taylor, J., Berg, S., Smith, N.J., Kern, R., Picus, M., Hoyer, S., Kerkwijk, M.H., Brett, M., Haldane, A., R´ ıo, J.F., Wiebe, M., Peterson, P., G´ erard-Marchant, P., Sheppard, K., Reddy, T., Weckesser, W., Abbasi, H., Gohlke, C., Oliphant, T.E.: Array programming with NumPy. Nature 585 (7825), 357–362 (2020) [52] Virtanen, P., Gommers, R., Oliphant, T.E., Haberland, M., Reddy, T., Courna-peau, D., Burovski, E., Peterson, P., Weckesser, W., Bright, J., van der Walt, S.J., Brett, M., Wilson, J., Millman, K.J., Mayorov, N., Nelson, A.R.J., Jones, E., Kern, R., Larson, E., Carey, C.J., Polat, ˙I., Feng, Y., Moore, E.W., VanderPlas, J., Laxalde, D., Perktold, J., Cimrman, R., Henriksen, I., Quintero, E.A., Har-ris, C.R., Archibald, A.M., Ribeiro, A.H., Pedregosa, F., van Mulbregt, P., SciPy 1.0 Contributors: SciPy 1.0: Fundamental Algorithms for Scientific Computing in Python. Nature Methods 17 , 261–272 (2020) [53] Chen, Y., Davis, T.A., Hager, W.W., Rajamanickam, S.: Algorithm 887: CHOLMOD, Supernodal Sparse Cholesky Factorization and Update/Downdate. ACM Trans. Math. Softw. 35 (3) (2008) [54] Smith, D.G.A., Gray, J.: opt einsum - A Python package for optimizing contrac-tion order for einsum-like expressions. Journal of Open Source Software 3(26), 753 (2018) [55] Geuzaine, C., Remacle, J.-F., Dular, P.: Gmsh: a three-dimensional finite element mesh generator. International Journal for Numerical Methods in Engineering 
+
+79 (11), 1309–1331 (2009) [56] Remacle, J.-F., Lambrechts, J., Seny, B., Marchandise, E., Johnen, A., Geuzaine, C.: Blossom-quad: A non-uniform quadrilateral mesh generator using a minimum-cost perfect-matching algorithm. International journal for numerical methods in engineering 89 (9), 1102–1119 (2012) 34

@@ -1,0 +1,1389 @@
+Title: Accelerating droplet-laden Stokes flow simulations with hierarchical surrogate modeling
+
+URL Source: https://arxiv.org/pdf/2607.03301v1
+
+Published Time: Tue, 07 Jul 2026 00:58:49 GMT
+
+Number of Pages: 27
+
+Markdown Content:
+# Accelerating droplet-laden Stokes flow simulations with hierarchical surrogate modeling 
+
+## Davide Pradovera ∗ Thomas Frachon † Sara Zahedi †
+
+## July 7, 2026 
+
+Abstract 
+
+We present a surrogate modeling strategy for Stokes flows with liquid droplets suspended in a carrier fluid. Our approach is based on a multi-fidelity framework. At the lowest fidelity, droplets are treated as passive tracers, neglecting their influence on the ambient flow field. Building on this approximation, we derive a PDE that represents the current modeling error. This error equation is then solved approxi-mately to correct the flow field and the procedure is iterated. Two fidelities are employed in an alternating fashion: Stokes flow in the absence of droplets and flow around a single droplet in free space. By systemat-ically combining these models, the method captures droplet-flow, droplet-boundary, and droplet-droplet interactions. For geometrically similar droplets, we further develop an efficient offline-online strategy that exploits this structure by reusing precomputed single-droplet solutions. Numerical experiments demon-strate the accuracy and efficiency of the proposed surrogate in a variety of tests, including scenarios with up to 10 4 droplets. Notably, we show that the proposed surrogate achieves substantially reduced computational cost compared to fully resolved multi-fluid simulations with state-of-the-art software. 
+
+# 1 Introduction 
+
+Multiphase flow systems arise in a wide range of applications, including microfluidics, porous media, ink-jet printing and biomedical applications. Accurate predictions for such systems increasingly rely on high-fidelity computer simulations [3, 9, 27, 30]. In this work, we study incompressible multiphase Stokes flow involving a large number of immiscible droplets suspended in a carrier fluid. From a computational point of view, a key difficulty arises when droplets are many and become highly concentrated or approach boundaries. Standard discretization techniques can only capture the dynamics in such regimes by resolving the narrow interfacial gaps and near-boundary interactions, making the resulting numerical schemes computationally demanding. For example, standard finite-element methods rely on fine meshes that conform to the interfaces and there-fore require repeated remeshing as the interfaces evolve. Unfitted methods such as CutFEM avoid remeshing but still require fine local resolution to accurately capture narrow gaps [2, 12]. Boundary integral methods face similar challenges, requiring specialized quadrature schemes and fine resolution around interfaces to accurately evaluate near-singular integrals arising from closely interacting droplets and boundaries [20]. Alternative particle-based methods, such as smoothed particle hydrodynamics [31] and the moving parti-cle semi-implicit method [5,28], eliminate the need for mesh generation and remeshing. However, accurately resolving near-contact interactions still requires sufficiently fine particle resolutions. Moreover, these meth-ods typically achieve lower accuracy than high-order finite-element or boundary-integral methods and often require careful tuning of numerical parameters (such as kernel functions and stabilization terms) to ensure numerical stability. An additional challenge arises as the interfaces evolve in time, since the flow problem must be approx-imated and solved on a sequence of changing geometries. In scenarios with many droplets, the fine spatial resolution required to capture near-contact interactions usually leads to expensive simulations. In this work, 
+
+> ∗Stockholm University, Stockholm, Sweden (davide.pradovera@math.su.se).
+> †KTH Royal Institute of Technology, Stockholm, Sweden (frachon@kth.se, sara.zahedi@math.kth.se).
+
+1
+
+> arXiv:2607.03301v1 [math.NA] 3 Jul 2026
+
+D. Pradovera, T. Frachon, S. Zahedi Hierarchical surrogate modeling for droplet-laden Stokes flows ΩF
+
+ΩB
+
+gD
+
+ΓD (gD = 0)
+
+ΓN
+
+Figure 1: Example: domain of the Stokes interface problem. we present a surrogate model that enables efficient prediction of droplet evolution, even in densely packed, time-varying configurations. 
+
+## 1.1 Target problem 
+
+We consider an incompressible multiphase Stokes system in a bounded Lipschitz domain Ω ⊂ Rd, d ∈ { 2, 3}.The system consists of M ≥ 1 droplets of immiscible fluid in a surrounding carrier fluid. The droplets occupy the region 1 ΩB ⊂ Ω, which consists of M connected components (the “droplets”). Each droplet is bounded by a smooth interface, and the surrounding fluid occupies Ω F = Ω \ ΩB . The union of all droplet interfaces is denoted by Γ = ∂ΩB . To represent the different fluid properties, we introduce a piecewise constant viscosity field μ : Ω → R>0, with jumps across the droplet interfaces Γ. Dirichlet and Neumann boundary conditions are prescribed on Γ D ⊂ ∂Ω and Γ N = ∂Ω \ ΓD , respectively, although other boundary conditions may also be considered. A schematic illustration of the computational domain and its boundaries is shown in Fig. 1. Across the interfaces Γ, the velocity is continuous, ensuring conservation of mass, while the jump in the normal stress balances the surface tension force. The interfaces evolve with the fluid velocity. At each time t ∈ [0 , T ], the flow satisfies the Stokes equations: 
+
+
+
+˙x(t) = u(t) on Γ( t),
+
+−∇ · σ(u(t), p (t); μ) = f in Ω \ Γ( t),
+
+∇ · u(t) = 0 in Ω \ Γ( t),
+
+Ju(t)K = 0 on Γ( t),
+
+Jσ(u(t), p (t); μ)nK = γκ n on Γ( t),
+
+u(t) = gD on Γ D ,
+
+σ(u(t), p (t); μ)n = gN on Γ N ,
+
+(1) with x(t) denoting the position of the interface, whereas u and p denote the velocity and pressure fields, respectively. Furthermore, σ(u, p ; μ) = 2 με(u) − pI is the viscous stress tensor, γ is the (piecewise constant) surface tension coefficient, κ : Γ → R is the mean curvature of the interface Γ and n is the unit normal to the interface (pointing towards Ω F ) and on the outer boundary (pointing outwards). We use double square brackets to denote jumps across Γ, i.e., JuK := u|ΩF − u|ΩB .The volume forcing term is f ∈ [H−1(Ω)] d, whereas the Dirichlet and Neumann boundary data are given by gD ∈ [H1/2(Γ D )] d and gN ∈ [H−1/2(Γ N )] d, respectively 2. For simplicity, we assume that the boundary data are time-independent, so that the only time dependence in (1) arises through the evolution of the interface Γ( t). This assumption can be relaxed, as the main challenge lies in the treatment of the evolving interface Γ( t). Assuming that Γ( t) is sufficiently smooth, there exists a weak solution ( u(t), p (t)) ∈
+
+[H1(Ω)] d × L2(Ω) for each fixed t ∈ [0 , T ]. The linearity (in u and p) of the multiphase Stokes problem (1) makes it particularly attractive for the development of compact surrogate models. While the more general multiphase Navier-Stokes equations are required when fluid inertia cannot be neglected, their nonlinear nature introduces substantial additional complexity. At the same time, the Stokes setting accurately describes a broad class of low-Reynolds-number      
+
+> 1We use the subscript “ B” (standing for “bubbles”) rather than “ D” (for “droplets”) to avoid misunderstandings with Dirichlet boundary notation.
+> 2If Γ N=∅, well-posedness requires supplementing the problem with a zero-mean condition on the pressure, R
+> Ωp= 0. This condition can be imposed in post-processing once a solution has been obtained and does not affect the present discussion.
+
+2D. Pradovera, T. Frachon, S. Zahedi Hierarchical surrogate modeling for droplet-laden Stokes flows multiphase flows and is already sufficiently rich to capture the geometric and interfacial challenges that motivate this work. 
+
+## 1.2 Surrogate modeling 
+
+There is growing interest in surrogate models that provide accurate and efficient predictions of multiphase flows, particularly in regimes where fully resolved simulations are computationally challenging. Machine learning (ML) algorithms are increasingly employed to construct such surrogates, with the aim of replac-ing expensive high-fidelity simulations with computationally efficient predictions. ML-based approaches have been used, for example, to predict droplet breakup [4], flow fields around obstacles such as spinning spheres [17], pairwise hydrodynamic interactions in Stokes flows [6], and the spatiotemporal evolution of mi-crostructures [29]. Most closely related to the problem considered here is the machine-learning-augmented reduced model proposed in [15], which also studies systems of many particles interacting through Stokes flow. For the stationary Stokes problem with rigid particles, we also mention the recent work [1], which com-bines the method of fundamental solutions with the method of images to obtain a computationally cheaper alternative to standard boundary integral formulations and demonstrates simulations with up to 2000 fixed spheres. In regimes with many droplets and small interfacial separations, existing high-fidelity solvers require extreme mesh refinement near narrow gaps, while existing ML surrogates often lack the physical transparency needed to guarantee reliability and accuracy, particularly outside the regimes represented by the training data. To address these challenges, this work introduces a novel hierarchical, physics-informed surrogate modeling framework for the multiphase Stokes problem (1). The core ideas and contributions of our approach are: 
+
+• Physics-based error correction. Instead of treating the surrogate as a black box, we propose a multi-fidelity iterative strategy. Beginning with a baseline Stokes solution that neglects interfaces, we sys-tematically derive and solve a sequence of PDE-based error equations to incrementally recover the high-fidelity solution. 
+
+• Replacing refinement with iteration. To avoid the high complexity of solving global error equations in tightly packed domains, we introduce an incremental approximation strategy. Corrections are con-structed locally through a superposition of the field contributions of individual droplets, reducing both memory requirements and computational cost. 
+
+• Accuracy at low cost. Numerical experiments demonstrate that the proposed framework achieves errors below ∼ 0.1%, compared to fully resolved high-fidelity simulations, at substantially lower computational cost. 
+
+# 2 Preliminaries 
+
+Since the only time-dependence in (1) is due to the evolving interface Γ( t), we first consider the stationary Stokes problem by itself, with Γ = Γ( t) for some t:
+
+
+
+−∇ · σ(u, p ; μ) = f in Ω \ Γ = Ω B ∪ ΩF ,
+
+∇ · u = 0 in Ω B ∪ ΩF ,
+
+JuK = 0 on Γ ,
+
+Jσ(u, p ; μ)nK = γκ n on Γ ,
+
+u = gD on Γ D ,
+
+σ(u, p ; μ)n = gN on Γ N .
+
+(2) This problem naturally arises whenever discretizing (1) with respect to time. As such, we set the solution (u, p ) of (2) as our preliminary target for surrogate modeling. We get back to the time-dependent problem in Section 4.2. 3D. Pradovera, T. Frachon, S. Zahedi Hierarchical surrogate modeling for droplet-laden Stokes flows We further assume that the surrounding fluid Ω F has homogeneous viscosity μF ∈ R>0, i.e., μ|ΩF ≡ μF .Moreover, μ is assumed to be constant on each droplet, although different droplets may have different viscosities. 
+
+## 2.1 Lowest fidelity 
+
+As lowest fidelity, we consider a Stokes problem in the absence of droplets. Specifically, we consider the case where the entire domain Ω is filled with a single fluid of homogeneous “nominal” viscosity μF . This corresponds to modeling the droplets as passive tracers , neglecting both viscosity contrast and surface tension. The governing equations then read 
+
+
+
+−∇ · σ(u0, p 0; μF ) = f in Ω ,
+
+∇ · u0 = 0 in Ω ,
+
+u0 = gD on Γ D ,
+
+σ(u0, p 0; μF )n = gN on Γ N .
+
+(3) Note, in particular, that the boundary conditions are consistent with those of (2), given our assumption on 
+
+μ. Standard arguments [10] show that this problem is well-posed, with solution ( u0, p 0) ∈ [H1(Ω)] d × L2(Ω). In addition, this solution satisfies the following interface conditions across the “immersed interfaces” Γ ⊂ Ω: 
+
+Ju0K = 0 = Jσ(u0, p 0; μF )nK on Γ . (4) The first identity follows from the fact that u0 ∈ [H1(Ω)] d, which admits a unique trace on Γ. Moreover, since (u0, p 0) ∈ [H1(Ω)] d ×L2(Ω) satisfies −∇· σ(u0, p 0; μF ) = 0 in the sense of distributions, an application of the divergence theorem on the subdomains separated by Γ shows that no singular interface term arises, and hence 
+
+Jσ(u0, p 0; μF )nK = 0; see, e.g., [10] or standard derivations of interface jump conditions in Stokes/elasticity problems. We can characterize the lowest-fidelity error ( u − u0, p − p0) as follows. 
+
+Proposition 2.1. Let (u, p ) and (u0, p 0) solve (2) and (3), respectively. The error fields v(0) := u − u0 and 
+
+q(0) := p − p0 satisfy 
+
+
+
+−∇ · σ(v(0) , q (0) ; μ) = 2( μ − μF )∇ · ε(u0) in Ω B ∪ ΩF ,
+
+∇ · v(0) = 0 in Ω B ∪ ΩF ,
+
+qv(0) y = 0 on Γ ,
+
+qσ(v(0) , q (0) ; μ)ny = ( γκ I − 2 JμK ε(u0)|ΩB ) n on Γ ,
+
+v(0) = 0 on Γ D ,
+
+σ(v(0) , q (0) ; μ)n = 0 on Γ N .
+
+(5) 
+
+Proof. The result follows by subtracting (3) and (4) from (2) equation by equation, using the bilinearity of 
+
+σ. This is also a special case of Theorem 3.2 below. The decomposition of the exact field into a lowest-fidelity field and an error field is illustrated in Fig. 2. Identifying an equation governing the lowest-fidelity error is crucial to our approach. Indeed, to improve the approximation quality, a second fidelity level is introduced on top of ( u0, p 0), based on (5). More specifically, a two-fidelity approximation of ( u, p ) will be constructed as ( u0 + v0, p 0 + q0), where ( v0, q 0) approximates the solution ( v(0) , q (0) ) of (5). Note that we seek a surrogate ( v0, q 0) rather than directly computing ( v(0) , q (0) ), since solving (5) incurs essentially the same computational cost as solving the original problem (2). In particular, both problems are affected by the same computational challenges associated with resolving the droplet interfaces. 
+
+## 2.2 Further fidelities 
+
+As outlined above, in order to recover computational tractability of the error equation (5), we consider a second auxiliary problem. Only the volume and interface effects of a single droplet are kept, while all other 4D. Pradovera, T. Frachon, S. Zahedi Hierarchical surrogate modeling for droplet-laden Stokes flows u0 v(0) u
+
++ =
+
+Figure 2: Example of Stokes flow in a channel with M = 2000 circular droplets, represented with white outlines (full details are provided in Section 5.3). Top: magnitude of velocity field. Bottom row: the solution can be decomposed into lowest-fidelity surrogate (Poiseuille flow) and error field, cf. Theorem 2.1. droplets, as well as the domain boundaries, are removed: given a connected Ω iB ⊂ ΩB (a single droplet), we look at 
+
+−∇ · σ(v, q ; μ) = 2( μ − μF )∇ · ε(ϕ) in Ω iB ,
+
+−∇ · σ(v, q ; μF ) = 0 in Rd \ ΩiB ,
+
+∇ · v = 0 in Rd \ ∂ΩiB ,
+
+JvK = 0 on ∂ΩiB ,
+
+Jσ(v, q ; μ)nK = ( eγκ I − 2 JμK ε(ϕ)) n on ∂ΩiB ,
+
+lim ∥x∥→∞ v(x) = 0.
+
+(6) The surface tension coefficient eγ and the generic flow field ϕ ∈ [H1(Ω iB )] d are meant as placeholders, although initially equal to γ and u0, respectively, cf. Theorem 2.1. This formulation resembles the full consistency equations in Theorem 2.1, after replacing the correct viscosity field μ with 
+
+μF + ( μ|ΩiB − μF )χΩiB , (7) that is, assuming that only the i-th droplet is present. Here and elsewhere, χA denotes the indicator function of A, equal to 1 on A and 0 elsewhere. Note that (6) is cast in free Rd-space and a zero velocity far-field is imposed for closure. This achieves four beneficial effects: 
+
+• When, in the original problem (2), the gap between a droplet Ω iB and the domain boundary ∂Ω is small, one is required to employ highly refined discretizations. See Theorem 3.5 for more details. This issue is completely absent in (6) due to the boundary removal. 
+
+• If two droplets Ω iB and Ω i′ 
+
+> B
+
+are (geometrically) similar to each other, the corresponding problems (6) can be mapped one to the other through simple affine mappings Ω iB 7 → Ωi′ 
+
+> B
+
+and changes in eγ and ϕ.As discussed in Section 3.4, this can be exploited for efficiency gains. 
+
+• Non-homogeneous forcing terms are present only at Ω iB and decay conditions are imposed at infinity, so that the magnitude of the solution ( v, q ) can be expected to decrease as the distance from the droplet 5D. Pradovera, T. Frachon, S. Zahedi Hierarchical surrogate modeling for droplet-laden Stokes flows increases. See also Section 3.3 below. In a fundamental way, this achieves localization in each droplet’s effect on the flow, which is crucial for the convergence of our approach. 
+
+• Problem (6) naturally lends itself to a boundary-integral-based discretization, where the infinite domain size is actually beneficial rather than detrimental [25]. In particular, approximating the solution to this problem through boundary-integral equations is much simpler than if boundary conditions at ∂Ωhad been imposed. 
+
+# 3 Surrogate modeling 
+
+In what follows, we restrict our attention to configurations where all M droplets are circular :ΩB =
+
+> M
+
+[
+
+> i=1
+
+B(xi; ri)
+
+| {z }
+
+> ΩiB
+
+,
+
+where centers xi and radii ri are suitably chosen so that droplets Ω iB are pairwise disjoint and Ω B ⊂ Ω, in line with our working assumptions. This condition greatly simplifies both the analytical derivations and the construction of surrogate models, while still capturing the essential features of the problem. In Section 3.5 we discuss possible extensions to non-circular droplets, which might be of particular relevance when simulating time-dependent flows, where interfaces naturally deform. If all droplets are circular, then the effects of surface tension may be accounted for in an exact way through pressure jumps. Specifically, recalling that surface tension is uniform on each droplet’s boundary but possibly different across droplets, consider 
+
+ep =
+
+> M
+
+X
+
+> i=1
+
+γi
+
+ri
+
+χΩiB ,
+
+where γi := γ|∂ΩiB ∈ R. Then ( u, p − ep) satisfies 
+
+
+
+−∇ · σ(u, p − ep; μ) = f in Ω B ∪ ΩF ,
+
+∇ · u = 0 in Ω B ∪ ΩF ,
+
+JuK = 0 on Γ ,
+
+Jσ(u, p − ep; μ)nK = 0 on Γ ,
+
+u = gD on Γ D ,
+
+σ(u, p − ep; μ)n = gN on Γ N ,
+
+cf. (2). This is easily seen by linearity of the equation and by inspecting the curvature κ ≡ r−1 
+
+> i
+
+on ∂ΩiB .For this reason, in describing our surrogate-modeling strategy, we may assume that no surface tension is present without loss of generality: γ = 0. Indeed, any nonzero amount of surface tension may be accounted for by just adding ep to the surrogate in a post-processing step. 
+
+## 3.1 Initial correction 
+
+As outlined in Section 2, we take the solution ( u0, p 0) of the “no-droplet” Stokes problem (3) with the prescribed boundary data ( gD , gN ) as a first low-fidelity surrogate. This solution satisfies all boundary conditions on ∂Ω but fails to satisfy the stress balance equation within the droplets Ω B and the interfacial force balance at Γ = ∂ΩB .This situation is captured in Theorem 2.1, which shows that, to steer ( u0, p 0) toward the true solution (u, p ) of (2), one would in principle need to add a globally supported correction ( v(0) , q (0) ) solving (5). However, computing such correction by solving (5) is computationally unfeasible, since we would require dealing with all droplets’ effects simultaneously. Instead, we construct a computationally cheaper surrogate correction ( v0, q 0) ≈ (v(0) , q (0) ) via localized corrections. 6D. Pradovera, T. Frachon, S. Zahedi Hierarchical surrogate modeling for droplet-laden Stokes flows First, note that the correction equation (5) has non-homogeneous forcing terms supported over Ω B ,which, if M non-overlapping droplets are present, consists of M disjoint connected components. The trick to recover tractability is to replace the single problem (5) with forcing terms at M droplets with M independent problems, each having forcing terms at a single droplet. More concretely, we consider a collection of M
+
+problems resembling (6), each targeting a different droplet Ω iB , namely, 
+
+
+
+−∇ · σ(v0,i , q 0,i ; μ) = 2( μ − μF )∇ · ε(u0) in Ω iB ,
+
+−∇ · σ(v0,i , q 0,i ; μF ) = 0 in Ω B ∪ ΩF \ ΩiB ,
+
+∇ · v0,i = 0 in Ω B ∪ ΩF ,
+
+Jv0,i K = 0 on Γ ,
+
+Jσ(v0,i , q 0,i ; μ)nK = −2 JμK ε(u0)|ΩiB n on ∂ΩiB ,
+
+Jσ(v0,i , q 0,i ; μF )nK = 0 on Γ \ ∂ΩiB ,
+
+(8) for i = 1 , . . . , M . Note that, as outlined above, we neglect surface tension ( γ = 0) since that can be accounted for exactly in the case of circular droplets. In the above M problems, we specify no boundary conditions on ∂Ω. Although Theorem 2.1 assumes homogeneous data there, we instead solve each problem through (6) (setting eγ = 0 and ϕ = u0), where the homogeneous Stokes equation is extended to Rd \ ΩiB and decay conditions as ∥x∥ → ∞ are enforced for closure. The benefits of this have been discussed in Section 2.2. 
+
+Remark 3.1. This decomposition into M problems with a simply supported forcing term bears some simi-larity to a partition-of-unity strategy, in that global forcing terms are decomposed into M local contributions at each droplet. 
+
+The first correction is then defined by summing the M local contributions, 
+
+v0 =
+
+> M
+
+X
+
+> i=1
+
+v0,i , q0 =
+
+> M
+
+X
+
+> i=1
+
+q0,i ,
+
+yielding the updated intermediate approximation 
+
+u1/2 = u0 + v0, p1/2 = p0 +
+
+> M
+
+X
+
+> i=1
+
+γi
+
+ri
+
+χΩiB + q0.
+
+(Note that the surface-tension-related pressure term discussed above has also been included.) Several further observations are crucial at this point: 
+
+• Each ( v0,i , q 0,i ) is computed based on the modified viscosity field (7), which is inconsistent with the true μ at all droplets except the i-th one. Consequently, if M > 1, ( u1/2, p 1/2) violates the Stokes equations at all droplet locations. This is made rigorous in Theorem 3.2 below. Nevertheless, as we discuss in Section 3.3, we expect the intermediate approximation ( u1/2, p 1/2) to be more accurate than the lowest-level surrogate ( u0, p 0) at Ω B , despite the partial lack of consistency. 
+
+• The homogeneous boundary conditions at ∂Ω are neglected in favor of the more computationally efficient decay conditions as ∥x∥ → ∞ . As such, ( v0, q 0) has support that includes the whole Ω, so that the new approximation ( u1/2, p 1/2) violates the boundary conditions on ∂Ω. These observations behoove us to add further corrections to improve consistency and accuracy. In order to streamline our approach, we choose to follow up the newly added “droplet correction” ( v0, q 0) with a “boundary correction” ( v1/2, q 1/2), whose target is recovering consistency in the boundary conditions at ∂Ω. To derive a boundary-correction equation, we first identify the error in Dirichlet and Neumann boundary conditions: 
+
+(
+
+(u − u1/2)|ΓD = gD − (u0 + v0)|ΓD = −v0|ΓD =: egD, 1/2,
+
+(σ(u, p ; μ)n − σ(u1/2, p 1/2; μ)n)|ΓN = . . . = −(σ(v0, q 0; μ)n)|ΓN =: egN, 1/2.
+
+7D. Pradovera, T. Frachon, S. Zahedi Hierarchical surrogate modeling for droplet-laden Stokes flows Adding any correction field ( v1/2, q 1/2) satisfying the above boundary conditions would yield a surrogate that is consistent at the domain boundaries. In order to reduce the “interior inconsistencies” that such correction adds, we compute ( v1/2, q 1/2) by solving the no-droplet Stokes problem (3) with uniform viscosity 
+
+μF , replacing the original boundary conditions gD and gN with egD, 1/2 and egN, 1/2, respectively. We then obtain the updated approximation 
+
+u1 := u1/2 + v1/2, p1 := p1/2 + q1/2,
+
+which, by construction and linearity, satisfies the correct boundary conditions in the original problem (2), as well as the Stokes equation in the fluid domain Ω F and continuity of the flow field across Γ. 
+
+## 3.2 Further corrections and iteration 
+
+Similarly to the lowest-fidelity surrogate ( u0, p 0), approximation ( u1, p 1) attains the correct boundary condi-tions but does not satisfy the stress balance equation within the droplets Ω B nor the interfacial force balance at Γ = ∂ΩB . At the same time, we expect the updated surrogate to be more accurate, e.g., in the sense that its residual with respect to the original PDE (2) is smaller. To further improve accuracy, we iterate the above steps, leading to the alternating correction scheme summarized in Algorithm 1. Termination criteria are discussed in Section 3.3. 
+
+Algorithm 1 Approximate solution of Stokes problem with droplets at Ω B = SMi=1 B(xi; ri)
+
+Require: viscosities μi = μ(B(xi; ri)) and surface tensions γi = γ(∂B (xi; ri)) 
+
+Require: BCs gD (Dirichlet) and gN (Neumann) 
+
+Require: Solver S boundary( ef , fgD , fgN ) for (3) with arbitrary forcing ef and BCs fgD and fgN
+
+Require: Solver S droplet( μi, eγ, ϕ, ΩiB ) for (6) with arbitrary eγ ∈ R and flow field ϕ : Ω iB → Rd 
+
+> 1:
+
+Compute baseline ( u0, p 0) ← S boundary( f , gD , gN ) 
+
+> 2:
+
+Update p0 ← p0 + PMi=1 γiχB(xi;ri)/r i to account for surface tension  
+
+> 3:
+
+Initialize v−1,i ← 0 for all i = 1 , . . . , M , v−1 ← 0, and v−1/2 ← u0 
+
+> 4:
+
+for j = 0 , 1, . . . , n iter − 1 do  
+
+> 5:
+
+for i = 1 , . . . , M do  
+
+> 6:
+
+Get interior consistency error field ϕj−1/2,i ← vj−1 + vj−1/2 − vj−1,i  
+
+> 7:
+
+Compute half-correction component ( vj,i , q j,i ) ← S droplet( μi, 0, ϕj−1/2,i , B (xi; ri))  
+
+> 8:
+
+end for  
+
+> 9:
+
+Compute interior half-correction vj ← PMi=1 vj,i and qj ← PMi=1 qj,i  
+
+> 10:
+
+Update uj+1 /2 ← uj + vj and pj+1 /2 ← pj + qj 
+
+> 11:
+
+Get boundary consistency errors egD,j +1 /2 ← − vj |ΓD and egN,j +1 /2 ← − (σ(vj , q j ; μ)n)|ΓN 
+
+> 12:
+
+Compute boundary half-correction ( vj+1 /2, q j+1 /2) ← S boundary( 0, egD,j +1 /2, egN,j +1 /2) 
+
+> 13:
+
+Update uj+1 ← uj+1 /2 + vj+1 /2 and pj+1 ← pj+1 /2 + qj+1 /2 
+
+> 14:
+
+end for  
+
+> 15:
+
+return (uniter , p niter )Fundamentally, each iteration proceeds in the same way: M solves of (6) (one per droplet) are followed by a single global solve of (3) to restore boundary consistency. In particular, at the j-th iteration of Algorithm 1, we set up M different one-droplet error equations (6) with certain forcing terms ϕ = ϕj−1/2,i , whose solutions are ( vj,i , q j,i ), i = 1 , . . . , M . As the following result shows, the forcing terms ϕj−1/2,i are selected so that the partial correction ( uj + vj,i , p j + qj,i ) is consistent with the original equation over the i-th droplet (although it is inconsistent at other droplets), generalizing Theorem 2.1. 
+
+Proposition 3.2. For any j ≥ 0, let (uj , p j ) denote the approximation produced by Algorithm 1. Define the 
+
+8D. Pradovera, T. Frachon, S. Zahedi Hierarchical surrogate modeling for droplet-laden Stokes flows 
+
+errors v(j) = u − uj and q(j) = p − pj . Then 
+
+
+
+−∇ · σ(v(j), q (j); μ) = 2( μ − μF )∇ · ε(ϕj−1/2) in ΩB ∪ ΩF ,
+
+∇ · v(j) = 0 in ΩB ∪ ΩF ,
+
+qv(j)y = 0 on Γ,
+
+qσ(v(j), q (j); μ)ny = −2 JμK ε(ϕj−1/2)|ΩB n on Γ,
+
+v(j) = 0 on ΓD ,
+
+σ(v(j), q (j); μ)n = 0 on ΓN ,
+
+where 
+
+ϕj−1/2 =
+
+> M
+
+X
+
+> i=1
+
+X 
+
+> i′̸=i
+
+vj−1,i ′ χΩiB + vj−1/2.
+
+Proof. The claim can be shown by induction on j, through careful use of the linearity of problems (2), (3) and (6). See Section A for the full proof. 
+
+Remark 3.3. Note that, for all j and i = 1 , . . . , M ,
+
+ϕj−1/2|ΩiB = X 
+
+> i′̸=i
+
+vj−1,i ′ + vj−1/2 = vj−1 − vj−1,i + vj−1/2 = ϕj−1/2,i ,
+
+justifying line 6 in Algorithm 1. 
+
+As already outlined in Section 2, the error equation provided in Theorem 3.2 is paramount in our approach, since it gives conditions to be satisfied (in approximate form) by further corrections. We also note the following. 
+
+Remark 3.4. For simplicity, we alternate “droplet corrections” and “boundary corrections”, with each forming a half-step in our iterative procedure. One might consider making several droplet corrections in a row, thus making the process staggered. (Note that repeated boundary corrections would not be useful because full-step surrogates attain boundary consistency.) This option might be useful as a way to achieve a more balanced procedure when droplet errors dominate boundary errors (in some sense). We leave analysis and testing of this option for future work. 
+
+Concerning the computational efficiency of Algorithm 1, it is important to note that the proposed proce-dure involves repeated solves of (3) and (6) with varying right-hand sides. Especially when these problems are discretized with high resolution, efficiency can be greatly improved by preassembling and pre-factorizing (e.g., via sparse LU) the corresponding stiffness matrices. This is particularly beneficial for (3). For (6), an even cheaper approximate strategy can be adopted, potentially avoiding repeated linear solves altogether at the cost of some accuracy. This alternative is discussed in Section 3.4. 
+
+## 3.3 Convergence considerations 
+
+The iterative scheme of Algorithm 1 interleaves M local (6) solvers with a global (3) solver. The problems solved at different iterations differ only in their right-hand sides, i.e., the forcing terms on Ω iB in (6) and the boundary conditions on ∂Ω in (3). The magnitudes of such right-hand sides, namely, the droplet residual norm 
+
+Rj = ε(ϕj−1/2) L2(Ω B ) + ε(ϕj−1/2)n H−1/2(Γ) (9) at the j-th “droplet half-step” and the boundary residual norm 
+
+Rj+1 /2 = ∥vj ∥H1/2(Γ D ) + ∥σ(vj , q j ; μ)n∥H−1/2(Γ N ) (10) 9D. Pradovera, T. Frachon, S. Zahedi Hierarchical surrogate modeling for droplet-laden Stokes flows at the j-th “boundary half-step”, j = 0 , 1, . . . , are useful to study the convergence of the iterates. To more rigorously justify our interest in (9) and (10), we note that, by the well-posedness of (3) and (6) [16, 22], the increment norm ∥uj+1 − uj ∥ may be bounded in terms of the residual norms, e.g., 
+
+∥uj+1 − uj ∥H1(Ω \Γ) = vj + vj+1 /2 H1(Ω \Γ) ≤
+
+> M
+
+X
+
+> i=1
+
+∥vj,i ∥H1(Ω \Γ) + vj+1 /2 H1(Ω \Γ) ≤≤ C1-drop 
+
+> M
+
+X
+
+> i=1
+
+μ(xi) − μF
+
+
+
+ε(ϕj−1/2) L2(Ω iB ) + ε(ϕj−1/2)n H−1/2(∂ΩiB )
+
+
+
++ C0-drop Rj+1 /2 ≤≤ eC1-drop max  
+
+> i
+
+μ(xi) − μF Rj + C0-drop Rj+1 /2.
+
+A similar derivation holds for the pressure increment ∥pj+1 − pj ∥ = qj + qj+1 /2 .Although further work is needed to fully analyze the convergence of the residual norms, we outline here an intuitive reason why we expect the residuals to decrease as j → ∞ . At iteration j, the correction ( vj,i , q j,i )due to the i-th droplet affects the boundary residual norm Rj+1 /2 only through boundary evaluations vj,i |ΓD
+
+and σ(vj,i , q j,i ; μ)n|ΓN . As displayed, e.g., in Fig. 3, we have empirical evidence that local corrections (vj,i , q j,i ) decay away from the i-th droplet, i.e., that the surrogate correction fields are “smaller” on the domain boundary than on the droplets that cause them. As such, field decay heuristically suggests that 
+
+Rj+1 /2 ≲ Rj .On the other hand, we may heuristically assume that Rj+1 ≲ Rj+1 /2 since boundary corrections at iteration j affect field ϕj+1 /2 at iteration ( j + 1) through the well-posed no-droplets Stokes equation (3). Unfortunately, this argument is not rigorous, since we have no theoretical handle on the constants involved in the above inequalities, especially because the Stokes equation is not endowed with an elliptic “maximum principle”. 
+
+Remark 3.5. By the above argument, we expect the convergence rate to suffer if a droplet is near the domain boundary, or even if two droplets are particularly close to each other. While this should ultimately be subject to a thorough theoretical analysis, we include some tests on the performance of our method in such regimes in Section 5. As a way to partially counteract the slow convergence due to such small gaps, we believe that it should be possible to design specialized correction problems that replace the single droplet in (6) with a (small) droplet cluster. We leave this as a direction for future research. At the same time, we note that such settings are difficult to handle even more so with standard ap-proximation techniques. For instance, finite-element-based approaches require mesh refinements, whereas boundary-integral formulations must see a local increase in the number of quadrature points. We expect our approach to deal with such cases (through iteration) more effectively than alternative options do (through refinement). 
+
+On the practical side, we require a convergence indicator as stopping criterion in Algorithm 1. For this we employ a simplified version of the boundary residual (10), with the L∞-norm replacing the expensive 
+
+H±1/2 ones. This is cheaply computable and readily available, since evaluations of the boundary residual are anyway needed when solving (3) within Algorithm 1. More robust, but costly, alternative termination criteria may also be based on global L2(Ω)- or H1(Ω)-norms of the full increments uj+1 − uj = vj + vj+1 /2.
+
+Remark 3.6. If the chosen convergence indicator provides evidence of diverging behavior, it remains possible to introduce a relaxation parameter 0 < ω < 1, as is typical in iterative (e.g., Richardson) schemes [13]. In Algorithm 1, a Richardson relaxation can be achieved through a simple rescaling 3 of all fields ϕj,i by the factor ω. While potentially improving the methods’ stability, this strategy may obviously lead to reduced convergence speeds if ω is chosen too small. In our numerical experiments in Section 5, relaxation was never needed.     
+
+> 3This not-so-trivial property holds true due to two combined properties: (i) the linearity of the ( M+ 1) PDEs solved at each iteration and (ii) the exactness of all full-step approximations ( uj, p j) in terms of boundary conditions.
+
+10 D. Pradovera, T. Frachon, S. Zahedi Hierarchical surrogate modeling for droplet-laden Stokes flows 
+
+## 3.4 Improving efficiency by exploiting self-similarity 
+
+We now discuss how to accelerate the computation of single-droplet problems (6) in free space. This is crucial for speeding up calculations in Algorithm 1, since the single-droplet problem must be solved M times within each iteration. In the approach described below, we rely on the fact that droplets are geometrically similar to each other, i.e., that affine transformations exist mapping each droplet to any other. Since we are presently working under the assumption that droplets are circular, this is obviously true. Extensions to non-circular droplets, as might arise in time-dependent simulations, are discussed in Section 3.5. In addition, we will assume that the surface tension is eγ = 0 for simplicity (as discussed at the beginning of Section 3, this assumption is natural for circular droplets), although our presentation naturally generalizes to non-trivial surface tensions. By geometric similarity of the droplets, the M single-droplet problems (6) (one per droplet) may be remapped to a reference configuration, viz., the unit disk Ω ♯B = B(0; 1), through droplet-dependent affine mappings. See Section B for more details and refer to Section 2.2 for a discussion on how this follows from our choice of an unbounded domain. As such, the task of (approximately) solving (6) on M different domains and forcing terms can then be replaced by the task of solving (6) on the unit disk with the M different forcing terms resulting from the remappings. Equivalently, we must evaluate operator 
+
+S : [ H1(Ω ♯B )] d → [H1(Rd)] d × L2(Rd) (11) 
+
+ϕ 7 → (u, p ) solving (6) with Ω iB = Ω ♯B and flow field ϕ
+
+at M different inputs { eϕj−1/2,i }Mi=1 (each obtained by remapping ϕj−1/2,i from Algorithm 1), one per droplet, at each iteration. 
+
+Remark 3.7. Operator S depends also on the viscosity values μ(xi) and μF , although this dependence is kept implicit in our notation. This fact is of relevance if different droplets have different viscosities. In such case, the upcoming construction must be repeated for each viscosity value. 
+
+A cheap-to-evaluate surrogate for S can be built through a (linear) subspace approach : given a set of N
+
+linearly independent vectors { bϕk}Nk=1 ⊂ [H1(Ω ♯B )] d, for any ϕ ∈ [H1(Ω ♯B )] d we approximate S(ϕ) ≈ S (PN ϕ), with PN : [ H1(Ω ♯B )] d → span { bϕk}Nk=1 a suitable projector operator. Computational efficiency can be achieved by exploiting the linearity of S. Indeed, introducing the coordi-nate map QN : [ H1(Ω ♯B )] d → RN , defined as PNk=1 (QN ϕ)k bϕk := PN ϕ, as well as the fundamental solutions 
+
+{S ( bϕk)}Nk=1 , we have 
+
+ϕ ≈ P N ϕ =
+
+> N
+
+X
+
+> k=1
+
+(QN ϕ)k bϕk ⇒ S(ϕ) ≈ S N (ϕ) := S(PN ϕ) = 
+
+> N
+
+X
+
+> k=1
+
+(QN ϕ)kS( bϕk). (12) This means that, after precomputing the fundamental solutions, evaluating SN (ϕ) comes at the only cost of evaluating the coordinate map QN and a linear combination of fundamental solutions. 
+
+Remark 3.8. In practice, we choose the sampled flow fields { bϕk}Nk=1 to have polynomial components up to a prescribed degree D ≥ 0. This has the advantage of implementation simplicity, as well as the guarantee of spectral approximation convergence for spatially smooth fields ϕ, although alternatives may be considered. Moreover, it allows evaluating the projector PN and the coordinate map QN through simple (least-squares) polynomial interpolation. More details on this are provided in Section C for d = 2 dimensions. 
+
+This strategy employs an offline-online decomposition: a large(r) cost is incurred in some precomputation so that later numerical operations may be made cheap(er). Namely, let chigh-fi denote the cost of a single high-fidelity evaluation of S through CutFEM or boundary-integral-based method, and assume that evaluating 
+
+SN has O(N 3) ≪ chigh-fi cost because of the coordinate map QN . If Neval evaluations of S at different inputs are required, then an O(Neval chigh-fi ) direct-evaluation cost is replaced by an O(N c high-fi + Neval N 3)approximate-evaluation cost. 11 D. Pradovera, T. Frachon, S. Zahedi Hierarchical surrogate modeling for droplet-laden Stokes flows 
+
+bϕk(x) = 
+
+x2
+
+x1
+
+bϕk(x) = 12
+
+ −2x1x2
+
+3x21 + x22
+
+bϕk(x) = 16
+
+3x21x2 − x32
+
+x31 − 3x1x22
+
+
+
+x1
+
+x2
+
+x1
+
+x2
+
+x1
+
+x2
+
+Figure 3: First components ( bvk)1 of flow fields of fundamental solutions ( bvk, bqk) = S( bϕk) corresponding to some linear (left), quadratic (center), and cubic (right) flow fields bϕk, reported on top of the respective plots. In all cases, μF = 1 and μ|Ω♯B
+
+≡ 100. Of course, an error is incurred due to the truncation of the basis at index N < ∞. It is relatively straightforward to derive a priori bounds on the basis-truncation error. Specifically, since (6) is well-posed [16, 22], we can find a ϕ-independent constant C such that 
+
+∥S (ϕ) − S N (ϕ)∥[H10 (Rd\∂Ω♯B )] d×[L2(Rd)\R] ≤≤ C μ(0) − μF
+
+
+
+∥ε(ϕ − ϕN )∥L2(Ω ♯B ) + ∥ε(ϕ − ϕN )n∥H1/2(∂Ω♯B )
+
+
+
+.
+
+by linearity of S. As such, we can control the error in the approximation of S(ϕ) by lowering the subspace-projection error. In our experiments, we found that a small N ≲ 10 is enough to achieve good accuracy in 
+
+d = 2 dimensions. Since, in Algorithm 1, Neval = niter M may much larger than such N , our approach is justified. As a final point, we wish to comment on how one may precompute the N fundamental solutions, cor-responding to setting ϕ = bϕk in (6) for k = 1 , . . . , N . In our numerical tests, we compute these through a boundary-integral formulation, which is natural due to the unboundedness of the domain. Alternatively, finite-elements or finite-differences techniques on truncated domains might also be suitable. In Fig. 3 we display some sample fundamental solutions corresponding to the polynomial basis derived in Section C. 
+
+## 3.5 Extensions 
+
+As discussed in Section 3.4, an efficient solve of (6) within Algorithm 1 assumes geometric similarity between each droplet and the reference configuration (the unit disk). This assumption allows a speed-up in each call to S droplet from approximately O(N 3BIE ), with NBIE being the number of degrees of freedom used to discretize (6) by boundary-integral equations, cf. Theorem 4.2, to O(N 3), with N the number of fundamental solutions used in (12). However, droplets may generally differ in shape, for instance and notably, within a time-domain simulation (1). This requires modifications to the strategy described so far. Firstly, the assumption of circular droplets allows drastic simplifications in the handling of surface tension, cf. Section 3. If droplets have general shapes, no analytic correction exists to account for surface tension. As such, surface tension remains part of the interface force balance that is corrected through iteration: a nonzero eγ must be included in (6). Iterated correction of the surface tension term can be handled within the call to S droplet, along with the other volume and interface correction terms. Secondly, and more importantly for computation, our efficient approach from Section 3.4 cannot be applied if drops are not self-similar. We suggest here three possible options for dealing with this. 
+
+Rigid-droplet approximation. Droplet deformations can be neglected at the cost of accuracy. In this setting, each time step induces an easy-to-handle, rigid-body motion of each droplet. This idea is described in Section 4.2 for circular droplets. 12 D. Pradovera, T. Frachon, S. Zahedi Hierarchical surrogate modeling for droplet-laden Stokes flows 
+
+Direct computation. One can skip the idea from Section 3.4 altogether, directly casting and solving (6) on each droplet without remapping. This incurs the above-mentioned O(N 3BIE ) cost per droplet , per iteration . Since a moderate number of degrees of freedom NBIE may be needed for a sufficiently accurate representation of the solution ( v, q ) of (6), this strategy can incur significant cost. 
+
+Shape parametrization. Depending on the application, it might be possible to predict in which ways the droplets will deform, allowing one to design a parametrized family of shapes that the droplets are “allowed” to take [18, 26]. In this setting, the collection of fundamental solutions corresponding to such shapes be-comes parameter-dependent too. Cheaply approximating the fundamental solutions induced by an arbitrary parameter choice (i.e., a given droplet shape) may be feasible through interpolation or machine-learning techniques [15, 18] starting from a discrete database of fundamental solutions, obtained by “sampling” the parametrized family of shapes. We leave this extension as future work. 
+
+# 4 Complexity and suggested computational pipelines 
+
+We now discuss the computational complexity of the proposed surrogate model, both at training and eval-uation time. Let M denote the number of droplets and N the number of fundamental solutions used to approximate the action of the single-droplet solution operator S in (12). To streamline our discussion, we will assume that M > N , since (i) our numerical tests show that a small number N of fundamental solutions is usually sufficient to achieve modest accuracy (say, 10 −4), cf. the theoretical discussion in Section 3.4 as well as our numerical tests in Section 5, and (ii) the many-droplet regime is ultimately our target. We specialize our discussion to two useful computational pipelines that use Algorithm 1 and (12) to emulate (2). They apply in different scenarios, depending on the target application. 
+
+## 4.1 Pipeline 1: static emulation of the solution field 
+
+A first setting where our surrogate model is useful is when one aims to approximately compute the stationary solution of the Stokes interface problem (2). This is relevant, for instance, when investigating the effect of the droplets Ω B on the surrounding flow field. In this context, one may wish to evaluate ( u, p ) at a collection of neval points in Ω, e.g., for visualization or postprocessing purposes. To this end, it suffices to execute Algorithm 1 with (12) and subsequently evaluate the resulting surrogate at the desired target points. The overall computational complexity of this procedure can be derived as follows. We first ignore the training procedure (the loop in Algorithm 1) and focus only on the evaluation task. If niter iterations are carried out within Algorithm 1, the surrogate is the sum of (2 niter + 1) terms: the surrogate flow field is 
+
+eu = u0 + v1/2 + . . . + vniter −1/2
+
+| {z }
+
+> euboundary
+
++ v0 + . . . + vniter −1
+
+| {z }
+
+> eudroplets
+
+.
+
+The surrogate pressure field has a similar expansion, which we ignore for simplicity in the following. Note that, above, we have grouped together all half-step corrections with the baseline solution u0 into 
+
+euboundary , since all ( niter + 1) addends relate to global Stokes solutions computed via S boundary, whose purpose is enforcing the boundary conditions on ∂Ω, disregarding droplets. In a computational framework, we may assume that all such field have been computed using the same (e.g., FEM-based) discretization of (3) (with different boundary conditions). By linearity, we may thus add all contributions together into a single “vector of degrees of freedom”, so that evaluating euboundary has niter -independent evaluation cost cboundary .By a similar token, we can exploit the similarity between all terms adding up to eudroplets . Namely, we can express 
+
+vj =
+
+> M
+
+X
+
+> i=1
+> N
+
+X
+
+> k=1
+
+αi,j,k bvk ◦ ηi
+
+where M is the number of droplets, ηi are the affine mappings defined in Algorithm 1, and αi,j,k are the 13 D. Pradovera, T. Frachon, S. Zahedi Hierarchical surrogate modeling for droplet-laden Stokes flows fundamental-solution-expansion coefficients ( QN ϕj−1/2,i )k, cf. (12). From here, we can compute 
+
+eudroplets =
+
+> niter −1
+
+X
+
+> j=0
+> M
+
+X
+
+> i=1
+> N
+
+X
+
+> k=1
+
+αi,j,k bvk ◦ ηi =
+
+> M
+
+X
+
+> i=1
+
+
+
+> niter −1
+
+X
+
+> j=0
+> N
+
+X
+
+> k=1
+
+αi,j,k bvk
+
+ ◦ ηi
+
+| {z }
+
+> evi:=
+
+. (13) Both indices j and k in the above expression can be collapsed, which leads to precomputing the M fields evi,each corresponding to the total effect that a droplet has on the field. In this way, we can make the cost of evaluating eudroplets independent of N and niter .On the other hand, it is not computationally possible to achieve an accurate representation of eudroplets 
+
+without incurring an O(M ) scaling, e.g., by collapsing the “droplet index” i in (13). Indeed, each droplet contributes to the total solution with a field that displays very localized features around the droplet itself, cf. our numerical results below. An accurate numerical representation of the total field eudroplets must thus necessarily resolve such effects, resulting in a linear scaling in M .In summary, the cost of a single surrogate evaluation scales as O(M c droplet + cboundary ), with cdroplet 
+
+being the niter - and N -independent cost of evaluating each of the fields evi in (13) at a single point. 
+
+Remark 4.1. In several settings, e.g., if many droplets are present ( M ≫ 1) or if (3) is discretized on a coarse mesh, the cost cboundary is negligible. In this regime, which we assume for simplicity from now on, the total cost of a single surrogate evaluation scales linearly with M .
+
+We now go back to the training procedure, consisting of an iterative correction loop. At the j-th iteration, the dominant costs arise from four sources: 1. Assembling the flow field ϕj−1/2,i for each droplet i = 1 , . . . , M . Since this requires evaluating the current surrogate, cf. the definition of ϕj−1/2,i , this has asymptotic cost O(M 2cdroplet ), cf. Theorem 4.1. 2. Solving (6) to find the volume corrections ( vj,i , q j,i ) for each droplet i = 1 , . . . , M . Assuming that (12) is used and that the basis-expansion coefficients αi,j,k are computed by interpolation, we can expect an O(M 2N c droplet + M N 3) cost, due to having to evaluate each ϕ at N points and solve M size-N
+
+interpolation problems. The complexity can be simplified to O(M 2N c droplet ) if M ≫ N .3. Assembling and evaluating the boundary errors egD,j +1 /2 and egN,j +1 /2 at Γ D and Γ N , respectively. Assuming that nBC boundary evaluations are needed in order for ( uj+1 /2, q j+1 /2) to be then computed through S boundary, this costs O(M c droplet nBC ). 4. Solving (3) within S boundary to find ( uj+1 /2, q j+1 /2). We denote the corresponding cost by cStokes .In the setting described in Theorem 4.1, the second step has the largest complexity. Notably, the last step has especially low cost cStokes if the matrix associated with the discretization of (3) is pre-factorized as suggested in Section 3.2. In such cases, the training complexity scales as O(M 2N c droplet niter ) overall. 
+
+Remark 4.2. More generally, the cost of the most expensive step (2 above) depends on the specific strategy used to obtain (vj,i , q j,i ). For instance, computing such fields “on the fly” by boundary-integral equations, discretized using NBIE degrees of freedom, costs approximately O(M 2NBIE cdroplet + M N 3BIE ).
+
+Putting all together yields a complexity of 
+
+O  M  M N n iter + neval 
+
+cdroplet 
+
+ .
+
+In our experiments, we have observed that, in some cases, the cost of the evaluation phase may dominate, especially when neval is large. This can occur, for example, when targeting high-resolution visualizations of the solution field. Concerning this, it is worth noting that surrogate evaluations are “embarassingly parallelizable”, which may allow for substantial speedups in practice. 
+
+Remark 4.3. The quadratic scaling in M is a symptom of the pairwise interactions between droplets during training. It might be possible to accelerate the training, reducing its complexity to M log M , through spatially hierarchical strategies in the style of the fast multipole method [11]. To achieve this, one leverages the decay of the interaction forces (here, the fundamental solutions {S ( bϕk)}k) as the distance between droplets increases to replace exact one-to-one interactions between distant droplets with approximate many-to-many interactions. Work on this idea is under way. 
+
+14 D. Pradovera, T. Frachon, S. Zahedi Hierarchical surrogate modeling for droplet-laden Stokes flows 
+
+## 4.2 Pipeline 2: time-domain simulation of moving droplets 
+
+A second setting with practical relevance is that where the positions and shapes of the droplets Ω B vary with time, since droplets are advected and deformed by the flow field solving (2). More rigorously, we consider the time-dependent problem (1). To handle this problem efficiently, we propose a surrogate-based evolution strategy. The key idea is to decouple the geometric evolution from the fluid solve by leveraging the surrogate model to rapidly evaluate the local velocity field acting on each droplet. At each time step tn in a time grid 4 0 = t0 < t 1 < . . . < t Ntime ,the following procedure is carried out: 1. Given the current droplet configuration Γ( tn), use Algorithm 1 to evaluate the surrogate model to obtain the approximate velocity field eu(tn). 2. Place nadv “markers” on each droplet (e.g., uniformly spaced on its boundary) {xl,i (tn)}nadv  
+
+> l=1
+
+⊂ Γi(tn)for i = 1 , . . . , M . Evaluate eu(tn) there. 3. Update droplet positions and shapes by a forward-Euler step over all droplets’ boundaries: 
+
+xl,i (tn+1 ) = xl,i (tn) + ( tn+1 − tn)eu(tn)|xl,i (tn).
+
+4. Update n ← n + 1 and go to step 1. This approach allows the flow–structure coupling to be approximated without solving a full Stokes system at every time step. It is crucial to observe that the above strategy will generally result in substantial deformations in the droplets’ shapes, since the markers {xl,i }nadv ,M l=1 ,i =1 are advected independently. This ultimately may result in unstable behavior, requiring the use of relaxation strategies [15]. Moreover, as our methods have been so far developed for circular droplets, we cannot yet handle general shape deformations. We refer to Section 3.5 for discussion on that. To recover tractability, we suggest a simplified advection strategy, which shifts each droplet by a rigid translation by averaging the corresponding markers’ velocities: 
+
+xl,i (tn+1 ) = xl,i (tn) + ( tn+1 − tn) 1
+
+nadv 
+
+> nadv
+
+X
+
+> l′=1
+
+eu(tn)|xl′,i (t). (14) This formula preserves droplet shapes at the cost of accuracy, especially when droplets deform substantially as a result of interactions with nearby droplets or boundaries. The computational cost of the resulting time-domain simulation scales as O(M 2(N n iter + nadv )cdroplet Ntime ). 
+
+# 5 Numerical examples 
+
+We perform a suite of numerical tests to validate the accuracy and efficiency of the proposed method for multiphase Stokes problems in d = 2 spatial dimensions. We consider a viscosity contrast of 100, with piecewise-constant viscosity μ = μF = 1 outside the droplets and μ = 100 inside them. We set the volume forcing f = 0 and the surface tension coefficient γ = 10. Unless otherwise specified, we employ the following surrogate setup: 
+
+• We use Algorithm 1, stopping the fixed-point iterations, indexed by j, according to the criterion 
+
+∥vj ∥L∞(Γ D ) + ∥σ(vj , q j ; μ)∥L∞(Γ N ) ≤ tol = 10 −3, (15) cf. Section 3.3. This choice of tol is validated in our first test. 
+
+> 4An adaptive time-stepping scheme based on the surrogate solution may of course be applied, e.g., where finer steps are taken if droplets are about to collide.
+
+15 D. Pradovera, T. Frachon, S. Zahedi Hierarchical surrogate modeling for droplet-laden Stokes flows Ω1
+
+> B
+> Ω2
+> B
+
+ΩF
+
+δ ϵ
+
+0 2 4
+
+10 −4
+
+10 −3
+
+10 −2
+
+10 −1
+
+D
+
+> relative  L2-error  tol = 10 −1
+> tol = 10 −2
+> tol = 10 −3
+
+0 2 4
+
+10 −3
+
+10 −2
+
+10 −1
+
+D
+
+> relative  L∞-error
+
+Figure 4: Left: numerical setup with M = 2 droplets at distance δ from the boundary and ε from each other. Middle and right: convergence of surrogate error with respect to truncation degree D for δ = ϵ = 0 .2, measured in the L2(Ω) and L∞(Ω) norms, respectively. 
+
+• We use (12) to more efficiently solve the single-droplet auxiliary problem (6). Namely, the flow field ϕ
+
+is approximated through a polynomial of degree D = 2, which results in N = 6 fundamental solutions, cf. Sections C and 3.4. The subspace projection ϕ 7 → ϕN is carried out via least-squares interpola-tion using 8 D uniformly distributed points on Ω iB , which is intended to mimic L2(Ω iB )-projection by quadrature. This choice of D is validated in our first test. 
+
+• The lowest-fidelity solution ( u0, p 0) is computed by the finite-element method (FEM) on a relatively coarse grid. The same method is used also to solve (3) through S boundary within Algorithm 1. For the sake of efficiency, a sparse LU factorization of the FEM matrix is precomputed and stored to disk. 
+
+• To test accuracy, we compute reference solutions using CutFEM [2] using the setup described in [8]. For the numerical representation of the interfaces, we use the level-set method [21,23], where the scalar function ϕ = ϕ(x) is used to characterize the droplets region Ω B := {x ∈ Ω : ϕ(x) > 0} and to discretize (2) using CutFEM, cf. Section D. The approximation error is computed on the velocity field in the L2(Ω) and L∞(Ω) norms. Unless otherwise specified, we run out tests in Python 3.12 on a workstation with an Intel ® Core ™ Ultra 7 processor 265 and 64GB of RAM. FEM and CutFEM are implemented in C++ as part of the open-source CutFEM library [7]. Reproducibility code is available at https://github.com/CutFEM/hierarchical2DDropletStokes .
+
+## 5.1 Convergence test 
+
+We first study the accuracy of our method by looking at the approximation error in the flow field u(niter ) −
+
+u. We consider a 2D square domain modeling a simple right-angle pipe junction: homogeneous Dirichlet conditions are imposed on the bottom and right boundaries, whereas two parabolic flow profiles (one in-going, one out-going) are imposed on the top and left boundaries through Dirichlet condition. We consider two droplets ( M = 2) with radii r1 = 0 .1 and r2 = 0 .05, centered at x1 = (0 .3, 0.7) and 
+
+x2 = (0 .65 , 0.7). We first study how the approximation error changes when varying (i) the approximation degree D used to approximate (6) with (12) and (ii) the tolerance tol set on the boundary residual norm (15), used to stop the fixed-point iterations in Algorithm 1. Recall that the numbers of fundamental solutions N
+
+needed for degree D are N = 0 for D = 0 and N = 4 D − 2 for D > 0. The number of fixed-point iterations increases as tol decreases: tolerances 10 −1, 10 −2, and 10 −3 require 1, 3, and 5 iterations, respectively. The number of fixed-point iterations may generally depend on D although no variations were observed here. The relative approximation errors are shown in Fig. 4 (middle and right). First, we note that the approximation error using just lowest-degree fundamental solutions ( D = 1) is 16 D. Pradovera, T. Frachon, S. Zahedi Hierarchical surrogate modeling for droplet-laden Stokes flows 0 2 4 6
+
+0
+
+0.2
+
+0.4
+
+0.6
+
+0.8
+
+1
+
+iteration index j        
+
+> ρj
+> D= 2, fixed distance to boundary δ= 0 .2
+> ϵ= 0 .2
+> ϵ= 0 .1
+> ϵ= 0 .05
+> ϵ= 0 .025
+> ϵ= 0 .00625
+
+0 5 10 15 
+
+iteration index j        
+
+> D= 2, fixed distance between drops ϵ= 0 .2
+> δ= 0 .2
+> δ= 0 .1
+> δ= 0 .05
+> δ= 0 .025
+> δ= 0 .00625
+
+0 2 4 6 8
+
+0
+
+0.2
+
+0.4
+
+0.6
+
+0.8
+
+1
+
+iteration index j        
+
+> ρj
+> D= 4, fixed distance to boundary δ= 0 .2
+> ϵ= 0 .2
+> ϵ= 0 .1
+> ϵ= 0 .05
+> ϵ= 0 .025
+> ϵ= 0 .00625
+
+0 5 10 15 
+
+iteration index j          
+
+> D= 4, fixed distance to boundary δ= 0 .2
+> ϵ= 0
+> ϵ=−0.025
+> ϵ=−0.05
+> ϵ=−0.15
+
+Figure 5: Contraction rate of fixed-point iterations for the setup in Fig. 4 (left) with tol = 10 −4. The polyno-mial degree D is reported above each plot. The bottom-right plot corresponds to non-physical configurations with overlapping droplets ( ε ≤ 0). already about one order of magnitude lower than that achieved by the lowest-fidelity solution ( u0, p 0), which corresponds to D = 0. An early termination of the fixed-point iterations due to a too large tol leads to saturation with respect to the polynomial degree D. Indeed, despite the more accurate approximation of the local volume residual on the droplet, cf. Section 3.4, large residuals are left when the fixed-point iterations end. Focusing now on the smallest tested value of tol, we observe exponential convergence with respect to D for both L2 and L∞
+
+errors. This is expected since we are performing a spectral (truncated-Taylor) approximation of a smooth function, namely, the flow field ϕ that is given as input to the linear operator S, cf. Section 3.4. As a test to investigate the convergence behavior of the fixed-point iterations with respect to the geo-metric configuration of the droplets, we fix D and place the droplets at different distances from the domain boundaries and from each other. See Fig. 4 (left). More specifically, given δ and ϵ, we place the droplets’ centers at x1 = ( δ + 0 .1, 0.7) and x2 = ( δ + ϵ + 0 .25 , 0.7), keeping the radii fixed. This places the first droplet at distance δ from the left boundary and the two droplets at distance ϵ from each other, cf. Fig. 4 (left). We choose a small tol = 10 −4, which results in more iterations than above, in order to allow the conver-gence behavior to fully develop, leading to a more clear comparison of different values of δ and ϵ. We run Algorithm 1 to build a surrogate model for each configuration, keeping track of the contraction rate 
+
+ρj = ∥vj+1 ∥L∞(Γ D ) + ∥σ(vj+1 , q j+1 ; μ)∥L∞(Γ N )
+
+∥vj ∥L∞(Γ D ) + ∥σ(vj , q j ; μ)∥L∞(Γ N )
+
+.
+
+This provides us with information on the contractive properties of the fixed-point operator and, by proxy, on the convergence properties of the fixed-point loop: larger values of ρj indicate slower convergence, with 
+
+ρj ≥ 1 being a symptom of no convergence at all. The contraction rate is plotted in Fig. 5 for four different configurations and varying values of δ and ϵ. Convergence was reached in all cases. We can make the following remarks: 1. The top two plots allow us to compare the effects of the distance δ between droplets and boundaries versus the distance ϵ between droplets only, since one of the two distances is kept fixed while the other varies. Decreasing either δ or ϵ increases the contraction rate, causing the need for more iterations, cf. Theorem 3.5. However, a small distance δ to the domain boundary seems to have a stronger effect 17 D. Pradovera, T. Frachon, S. Zahedi Hierarchical surrogate modeling for droplet-laden Stokes flows 1/2
+
+Figure 6: Snapshots of M = 50 droplets at t = 0 (left), t = 2 (center), and t = 4 (right). on convergence than a small distance ϵ between droplets, suggesting that “hard” boundaries hinder our method more than “soft” interfaces. 2. The left two plots allow us to compare the effects of the truncation degree D on convergence. We observe that nearby droplets seem to slow convergence down slightly more for larger degrees D. This is likely related to conditioning issues in iterating over the coefficients of higher-degree fundamental solutions. We also observe slight oscillations developing in ρj for D = 4 and ϵ = 0 .00625. These arise as symptoms of the strong two-way interactions between close droplets, which fixed-point iterations must approximate whenever M > 1, cf. Section 3.2. Despite the oscillations, the algorithm still behaves in a tame way, converging at a fairly rapid pace. 3. In the bottom right plot, we stress-test our method for ϵ ≤ 0, which correspond to overlapping droplets, which are non-physical since the corresponding interface conditions in (2) are incompatible. For small overlaps, the results are not so different from those in the bottom-left plot. On the other hand, more substantial overlaps lead to badly behaved iterations, with wild oscillations in the contraction rates, which in some cases exceed unity, a symptom of potential divergence. This being said, our algorithm eventually reaches convergence in all tests, even when droplets are concentric ( ϵ = −0.15), although more iterations are needed as a result of larger contraction rates. This provides empirical evidence of the robustness of our iterative approach, which might be of relevance in overlapping or almost-overlapping cases, where standard techniques such as CutFEM or boundary-integral methods may fail or require substantially increased computational effort. 
+
+## 5.2 Time-domain simulation 
+
+As a second, more realistic test, we consider a time-domain problem of the form (1). The problem concerns the time-evolution of M = 50 droplets in a 2D rectangular pipe that suddenly widens, cf. Fig. 6. The flow is driven by a simple parabolic inflow profile, whereas no-slip conditions are imposed on the pipe boundaries. The initial positions and radii of the droplets are randomly chosen. We fix a timestep ∆ t = 0 .005 and a number Ntime = 800 of time-steps, reaching the time horizon t = tNtime = 4. Our ultimate target is approximating the M trajectories of each droplet’s center of mass. We compare four methods for approximating these: 
+
+• CutFEM on a relatively fine mesh ( ∼ 4 · 10 6 DoFs). Since the droplets locations and shapes evolve in time, a time-dependent level-set function ϕ = ϕ(t, x) is used. Given the level-set function at time 
+
+t and the fluid velocity u(t, x) (computed by solving the Stokes equation with CutFEM Section D), the level-set function at time ( t + ∆ t) is found by evolving the interface Γ( t) through a discretized version [8] of the advection equation ∂tϕ + u · ∇ ϕ = 0, valid in the whole Ω and with initial condition given from the level-set function at the previous time step. In order to avoid instabilities, the level-set function is reinitialized every 5 time steps as described in [24]. We treat the resulting trajectories from this scheme as “reference” in our tests. Each time-step takes about 2 minutes on our workstation, with ∼ 25 seconds spent on CutFEM assembly, ∼ 75 seconds spent on solving the discrete Stokes 18 D. Pradovera, T. Frachon, S. Zahedi Hierarchical surrogate modeling for droplet-laden Stokes flows 1/10 0 1 2 3 4
+
+10 −5
+
+10 −4
+
+10 −3
+
+10 −2
+
+10 −1
+
+t
+
+> ∥˜xi(t) − xi(t)∥2
+> lowest fidelity
+> full surrogate
+> circ. CutFEM
+
+Figure 7: Left: Zoom of droplet trajectories near the bottom-right-most droplet. We show reference solu-tion (black circles, full lines), lowest-fidelity surrogate (teal squares, dotted lines), full surrogate (magenta diamonds, dashed lines), and no-deformation CutFEM solution (orange triangles, dash-dotted lines). For readability, markers are shown only at the final time t = 4. Thin black lines denote boundaries of reference droplets at the final time. Right: error in lowest-fidelity, full surrogate, and no-deformation CutFEM tra-jectories over time. Each envelope shows the spread of the error, with lines marking the minimum, median, and maximum error over all droplets. problem, and ∼ 20 seconds spent to assemble and solve the level-set-advection equation. Level-set reinitialization takes ∼ 30 additional seconds every 5 time steps. 
+
+• Lowest-fidelity Stokes flow u0. At each time-step, the droplets are advected as passive tracers, taking the mean of u0 at nadv = 100 markers uniformly distributed on each droplet’s boundary, cf. (14). Since field u0 is constant in time, this strategy is extremely cheap, taking only ∼ 0.4 milliseconds per time-step. This time does not include the one-time overhead of computing u0, which, since no droplets are present in (3), can be done on a coarse mesh at extremely low cost ( ∼ 4 seconds on our workstation). 
+
+• Our surrogate with the framework from Section 4.2. We use the same advection strategy as above, although the field approximation resulting from Algorithm 1 replaces the time-independent Stokes flow 
+
+u0. At each time-step, our method performs 5 fixed-point iterations (automatically determined based on tol) given the current droplet configuration, resulting in an average compute time of ∼ 1.5 seconds per time-step. About 80% of this time is spent solving Stokes problems of the form (3) by FEM on a coarse mesh (using triangular solvers on LU-pre-factorized FEM matrices). 
+
+• CutFEM without droplet deformations. We run the CutFEM code on the same mesh, but assuming that droplets do not deform and thus remain circular throughout the simulation. This assumption, consistently with our surrogate, slightly reduces the computational cost of advecting the droplets since the level set can be advected through rigid-body motion. Each time-step takes about 100 seconds, without the need for any reinitialization. In Fig. 7 (left) we display some of the droplets’ trajectories obtained using the four methods. The surro-gate trajectories are rather close to the reference ones, especially when compared to the lowest-fidelity results. This observation is confirmed quantitatively in Fig. 7 (right), where we show the trajectory approximation error. We can see that the full surrogate lowers the error by about an order of magnitude, compared to the lowest-fidelity approximation. Notably, the surrogate achieves a ×80 speed-up with respect to the reference code while attaining a fair accuracy. The lowest-fidelity “passive-tracer” surrogate is also remarkable, since, despite a one-order-of-magnitude-larger error, it achieves a ×3 · 10 5 speed-up (excluding the single Stokes solve). We look now at the non-deformable CutFEM results, whose computational cost is about 60 times larger than our full surrogate’s. As shown in Fig. 7 (right), the method’s accuracy is extremely close to our surrogate’s. This proves that the main source of error in our surrogate strategy is the circularity assumption, 19 D. Pradovera, T. Frachon, S. Zahedi Hierarchical surrogate modeling for droplet-laden Stokes flows 10 −2 10 −1 10 0 10 1 10 2 10 3 10 4
+
+10 2
+
+10 3
+
+10 4
+
+CPU time   
+
+> # of droplets  M CutFEM reference
+> surrogate (train only)
+> surr. (eval. on mesh)
+> surr. (eval. at markers)
+> O(M)
+> O(M2)
+
+10 −3 10 −2
+
+relative error 
+
+> L2
+> L∞
+
+Figure 8: Left: timing of surrogate training, compared to CutFEM assembly and solve. Total runtimes of two surrogate pipelines: surrogate field evaluation at all CutFEM degrees of freedom (Section 4.1) and at marker points (Section 4.2). Right: global relative approximation error in the velocity field. not the iterations or the subspace approximation of S droplet. As such, we have good hopes for the accuracy achievable by our approach, once deformations are incorporated in the pipeline through future work. As a final comparison, we also tried to run our CutFEM codes, both with and without droplet deformation, on a coarsened spatial mesh with about 20 times less degrees of freedom. The associated runtime per iteration was about 9 seconds in both cases, making these approaches comparable to our surrogate in terms of cost. However, the decreased computational cost comes with a decreased accuracy. In particular, the coarsened results with deformation were wildly inaccurate due to droplets unphysically merging into “peanut” shapes due to the low mesh resolution (interfaces can merge if they intersect a single mesh element). Once merged, droplet pairs are pulled together by surface tension, thus increasing trajectory errors at further times. On the other hand, the errors in the non-deformable, coarsened test were only roughly twice as large as in the non-deformable, non-coarsened simulation. This seems to suggest that coarsening might be a beneficial strategy for time savings as long as droplets are handled as rigid bodies. However, we must mention that, in order to achieve this level of accuracy, we had to manually “turn off” surface tension to prevent the above-mentioned persistent errors due to merging, a strategy that is physically justified only if droplets are circular, cf. Section 3. 
+
+## 5.3 Scaling test 
+
+As a last numerical experiment, we investigate the scaling of our method, in terms of both accuracy and efficiency, as the number of droplets M increases. To this aim, we consider the static problem (2) over a rectangular domain with 10 2 ≤ M ≤ 10 4 droplets at (quasi-uniform) random locations. The droplets’ radii scale as ri = O(√M ) to keep the “volume fraction” |ΩB |/|Ω| constant at about 20%. For simplicity, the flow is driven by parabolic inflow and outflow profiles at the left and right boundaries, respectively. See Fig. 2. For each M , the reference flow field is computed via CutFEM on a grid with O(M ) degrees of freedom. Note that the DoF scaling implies that the computational cost of the CutFEM solver scales approximately as O(M ), assuming an ideal cost of the linear-system solver. Such mesh refinement is needed in CutFEM in order to resolve the gaps between droplets but is optional in our method. Due to the high memory requirements for large M (e.g., ∼ 200 GB for M = 5000), the CutFEM simulations are run on a cluster (4 MPI nodes with an AMD EPYC 7742 CPU each). The reference results are compared to the field produced by Algorithm 1, which can be run on our workstation due to the much lower RAM requirements (e.g., ∼ 40 GB for M = 5000, which can be drastically lowered at the cost of efficiency by reducing caching). For a fair comparison, after the surrogate is “trained” through Algorithm 1, we evaluate the surrogate flow field on a fine grid with neval = O(M ) points, namely, the locations of the degrees of freedom in CutFEM. Incidentally, note that this large amount of evaluations is needed to compare surrogate and reference flows in the context of an error analysis, although it might be excessive in practical applications. The results are summarized in Fig. 8. Therein, we can observe that, given the large number of evaluation points neval , the surrogate evaluation takes almost 100 times longer than the surrogate training. In agreement 20 D. Pradovera, T. Frachon, S. Zahedi Hierarchical surrogate modeling for droplet-laden Stokes flows 10 0 10 1 10 2 10 3
+
+10 2
+
+10 3
+
+10 4
+
+training CPU time 
+
+> # of droplets  M
+
+20% vol. fract. 
+
+50% vol. fract. 
+
+O(M 2)
+
+10 −4 10 −3
+
+single eval. CPU time 
+
+O(M )
+
+5 10 15 20 
+
+# iterations niter 
+
+Figure 9: Comparison of low and high volume fraction. Left: timing of surrogate training. Center: timing of each surrogate point-evaluation. Right: number of fixed-point iterations needed to attain tol = 10 −3.with the analysis in Section 4, the surrogate evaluation at O(M ) points takes O(M 2) time, with each point-evaluation taking O(M ) time. We observe the same quadratic scaling also in the surrogate training for large M , which suggests that (i) the cost of solving Stokes problems (S boundary in Algorithm 1) becomes negligible for large M , as suggested in Section 4.1, and (ii) the number of fixed-point iterations niter remains roughly constant as M increases. In our experiments, we actually observed a decrease in niter as M increases, cf. Fig. 9 (right). This indicates that, at least in this setting with a fixed volume fraction, interaction effects between smaller droplets are easier to approximate through our method’s fixed-point iterations. As partial evidence supporting this, we note that the approximation error generally decreases as M increases even though D is kept constant, cf. Fig. 8 (right). Including also the surrogate evaluation, our algorithm is more efficient than the reference CutFEM for 
+
+M < 5000. At M = 5000 the surrogate’s quadratic scaling finally catches up with the almost linear cost of CutFEM. On the other hand, if one excludes the surrogate evaluation, our method is several orders of magnitude more efficient than the reference technique for all tested values of M . This means that our surrogate-modeling strategy is competitive if a sufficiently small(er) number of evaluations is required. For instance, this happens when the target problem is a transient time evolution as in Section 4.2, which requires evaluating the surrogate field at 100 M total marker points (when nadv = 100), rather than at the ∼ 6700 M
+
+CutFEM degrees of freedom. In both cases, neval scales linearly in M , but with vastly different proportionality constants. The corresponding timings are also included in Fig. 8 (left) and Fig. 9 (center). In order to show the effect of higher volume fraction on our method’s efficiency, we repeat our experiment with larger droplets, corresponding to |ΩB |/|Ω| ≃ 50%. This results in stronger interactions between droplets, making more fixed-point iterations necessary to attain the same tolerance tol. This is shown in Fig. 9 (right), where we notice that niter seems to stabilize at a (volume-fraction-dependent) value as M increases. This value represents a sort of “homogenized” (for M → ∞ with fixed volume fraction) fixed-point complexity for the corresponding volume fraction. Since a larger volume fraction generally yields smaller gaps between droplets as well as between droplets and domain boundaries, this result agrees with those presented in terms of contraction rate ρj in Fig. 5. Despite this difference in number of iterations, the surrogate training costs increases only slightly with the volume fraction, cf. Fig. 9 (left). This is because the most expensive steps in Algorithm 1, namely, the 
+
+O(M 2N ) evaluations of the fundamental solutions {S ( bϕk)}Nk=1 in (12), are cached at the first fixed-point iteration for efficiency, making the computational cost almost independent of the number of iterations. The surrogate evaluation costs are basically the same for both volume fractions, cf. Fig. 9 (center). This test provides further evidence of how our method’s computational cost does not drastically blow up when the droplet interactions strengthen as a result of small gaps between droplets, e.g., those that might naturally arise in a time-domain simulation involving (1). On the other hand, more standard discretization methods, e.g., based on CutFEM or boundary-integral equations, would face great difficulties in dealing with such small droplet gaps. While some evidence on this was provided in Section 5.2, we believe it would be of interest to carry out further, more detailed comparisons of our algorithm with other state-of-the-art methods. 21 D. Pradovera, T. Frachon, S. Zahedi Hierarchical surrogate modeling for droplet-laden Stokes flows 
+
+# 6 Conclusions 
+
+We have presented a multi-fidelity surrogate modeling strategy for Stokes flows with large numbers of sus-pended droplets. The approach alternates between a background Stokes solver and precomputed single-droplet disturbance fields, using an iterative error-PDE correction to systematically capture droplet–flow, droplet–boundary, and droplet–droplet interactions. For geometrically similar droplets, an offline–online decomposition enables efficient reuse of single-droplet solutions. Numerical experiments demonstrate that the method maintains good accuracy across a wide range of configurations, including systems with up to 10 4
+
+droplets. Even within a non-optimized implementation, the surrogate yields substantial speed-ups over fully resolved CutFEM simulations, demonstrating its potential to bring complex multiphase flow simulations within the reach of standard workstations, rather than requiring supercomputers. The present framework naturally leads to several directions for future research. First, the fixed-point iteration underlying the method performed robustly in all tests, but a theoretical convergence analysis is missing. Second, extending the framework to deformable droplets appears to be within reach, as outlined in Section 3.5. Third, reducing the quadratic surrogate cost through hierarchical approximations of long-range droplet interactions inspired by fast-multipole methods, as outlined in Theorem 4.3, is a promising direction for further improving efficiency. Fourth, exploring whether aspects of the multi-fidelity framework can be generalized to Navier–Stokes flows is an interesting but very challenging direction. 
+
+# Acknowledgements 
+
+This research was funded in part by the Wallenberg Academy Fellow grants KAW 2019.0190 and KAW 2024.0234. Part of the computations were enabled by resources provided by the National Academic Infrastructure for Supercomputing in Sweden (NAISS), funded by the Swedish Research Council. 
+
+# Appendix 
+
+## A Proof of Theorem 3.2 
+
+The proof proceeds by induction on j, by showing that, for all j, the claim from Theorem 3.2 holds, in addition to 
+
+
+
+−∇ · σ(uj+1 /2, p j+1 /2; μ) = f + 2( μ − μF )∇ · ε(vj+1 /2 − ϕj+1 /2) in Ω B ∪ ΩF ,
+
+∇ · uj+1 /2 = 0 in Ω B ∪ ΩF ,
+
+quj+1 /2
+
+y = 0 on Γ ,
+
+qσ(uj+1 /2, p j+1 /2; μ)ny =  γκ I − 2 JμK ε(vj+1 /2 − ϕj+1 /2)|ΩB
+
+ n on Γ ,
+
+(16) with ( uj+1 /2, p j+1 /2) from Algorithm 1. 
+
+Base case for j = 0 . We initialize ϕ−1/2 = v−1/2 = u0. The first claim, involving ( v(0) , q (0) ), follows by subtracting (3) and (4) from (2) equation by equation, cf. the inductive step. In addition, we can show that (16) holds for j = 0 by linearity and by definition of ϕ1/2. For instance, fix one of the interfaces Γ i, i = 1 , . . . , M . On Γ i, by definition of v0,i ′ for i′̸ = i, we have 
+
+Jσ(v0,i ′ , q 0,i ′ ; μ)nK = Jσ(v0,i ′ , 0; μ − μF )nK + Jσ(v0,i ′ , q 0,i ′ ; μF )nK
+
+=2( μF − μ|ΩiB )ε(v0,i ′ )|ΩiB n + 0 = 2 JμK ε(v0,i ′ )|ΩiB n,
+
+whereas, by definition of v0,i , cf. (8), 
+
+Jσ(v0,i , q 0,i ; μ)nK = −2 JμK ε(ϕ−1/2)|ΩiB n.
+
+22 D. Pradovera, T. Frachon, S. Zahedi Hierarchical surrogate modeling for droplet-laden Stokes flows From here we can use the previous claim and the definitions of u and ϕ1/2 to show that 
+
+qσ(u1/2, p 1/2; μ)ny = Jσ(u0, p 0; μ)nK +
+
+> M
+
+X
+
+> i′=1
+
+Jσ(v0,i ′ , q 0,i ′ ; μ)nK
+
+= Jσ(u, p ; μ)nK −
+
+r
+
+σ(v(0) , q (0) ; μ)n
+
+z
+
++ Jσ(v0,i , q 0,i ; μ)nK + X 
+
+> i′̸=i
+
+Jσ(v0,i ′ , q 0,i ′ ; μ)nK
+
+=γκ n + 2 JμK ε(ϕ−1/2)|ΩiB n − 2 JμK ε(ϕ−1/2)|ΩiB n + 2 JμK X 
+
+> i′̸=i
+
+ε(v0,i ′ )|ΩiB n
+
+=γκ n + 2 JμK ε(P  
+
+> i′̸=i
+
+v0,i ′ )|ΩiB n = γκ n + 2 JμK ε(ϕ1/2 − v1/2)|ΩiB n,
+
+with the final step following by inspection of ϕ1/2|ΩiB , cf. Theorem 3.3. A similar derivation can be carried out also within the droplet Ω iB .
+
+Inductive step for j > 0. The claim in Theorem 3.2, involving ( v(j), q (j)), can be proved by leveraging the linearity of the PDE and the inductive hypothesis on both the main claim of Theorem 3.2 and (16). For instance, by construction of vj−1/2, on Γ we have 
+
+qσ(vj−1/2, q j−1/2; μ)ny = qσ(vj−1/2, 0; μ − μF )ny + qσ(vj−1/2, q j−1/2; μF )ny
+
+=2( μF − μ|ΩB )ε(vj−1/2)|ΩB n + 0 = 2 JμK ε(vj−1/2)|ΩB n,
+
+so that, by inductive assumption, 
+
+Jσ(uj , p j ; μ)nK = qσ(uj−1/2, p j−1/2; μ)ny + qσ(vj−1/2, q j−1/2; μ)ny
+
+=γκ n + 2 JμK ε(ϕj−1/2 − vj−1/2)|ΩB n + 2 JμK ε(vj−1/2)|ΩB n
+
+=γκ n + 2 JμK ε(ϕj−1/2)|ΩB n.
+
+Recalling the definition of ( u, p ), we deduce that, on Γ, 
+
+r
+
+σ(v(j), q (j); μ)n
+
+z
+
+= Jσ(u, p ; μ)nK − Jσ(uj , p j ; μ)nK = −2 JμK ε(ϕj−1/2)|ΩB n.
+
+A similar derivation can be carried out also within the droplet Ω iB .From here, by following the same steps as in the base case we can show that (16) holds true. This is sufficient for the next induction step. 
+
+## B Change of coordinates in second-fidelity problem 
+
+For an arbitrary xi ∈ Rd and ri > 0, define the affine function ηi(x) = rix + xi, which maps the unit disk Ω ♯B to Ω iB . We consider problem (6) with Ω iB = B(xi; ri), ϕ ∈ [H1(Ω iB )] d smooth enough, and 
+
+μ = μF + ( μ(xi) − μF )χΩiB .Let bv := v ◦ ηi, bq := riq ◦ ηi, bμ := μ ◦ ηi, and bϕ := ϕ ◦ ηi. Moreover, by the chain rule, let b∇ := ri∇
+
+and bσ(bv(·), bq(·); bμ) = riσ(v(·), q (·); μ) ◦ ηi, which involve differential operators in the reference coordinates 
+
+η−1 
+
+> i
+
+(x). It follows that 
+
+
+
+−r−1 
+
+> i
+
+b∇ ·  r−1 
+
+> i
+
+bσ(bv, bq; bμ) = ( bμ − μF )r−1 
+
+> i
+
+b∇ · 
+
+
+
+r−1 
+
+> i
+
+bε( bϕ)
+
+
+
+in Rd \ ∂Ω♯B ,r−1 
+
+> i
+
+b∇ · bv = 0 in Rd \ ∂Ω♯B ,
+
+JbvK = 0 on ∂Ω♯B ,
+
+qr−1 
+
+> i
+
+bσ(bv, bq; bμ)ny = r−1
+
+> i
+
+
+
+γκ I − JbμK bε( bϕ)
+
+
+
+n on ∂Ω♯B ,
+
+lim ∥x∥→∞ bv(x) = 0.
+
+After canceling out the powers of ri, we see that this problem is equivalent to (6) with Ω iB = Ω ♯B , bϕ as forcing flow field, and μ = bμ.23 D. Pradovera, T. Frachon, S. Zahedi Hierarchical surrogate modeling for droplet-laden Stokes flows 
+
+## C Polynomial basis in dimension two 
+
+In Algorithm 1, we only apply S droplet, i.e., S from (11), to fields ϕ that satisfy the homogeneous Stokes equation over Ω iB , i.e., that belong to the space of smooth, compatible flow fields 
+
+V = v ∈ [C3(Rd)] 2, ∇ · v ≡ 0, ∇ × ∇ · ε(v) ≡ 0 .
+
+The last condition above encodes a compatibility condition, ensuring that, for each element v ∈ V , one can find a pressure field q ∈ C2(Rd) satisfying the homogeneous Stokes equation ∇ · σ(v, q ; μF ) = 0 [14, 19]. To compute a (polynomial) basis of V in d = 2 dimensions, we use stream functions. Recall that, in R2, V = ∇⊥W, with ∇⊥ = [ −∂x2 , ∂ x1 ]⊤ and with W being the space of biharmonic scalar fields [14] 
+
+W = ϕ ∈ C4(R2), ∇ · ∇ (∇ · ∇ ϕ) ≡ 0 .
+
+A hierarchical polynomial basis of W can be easily constructed as [19] 
+
+W = span 
+
+> ∞
+
+[
+
+> n=0
+
+ρψ ∈ Pn(R2), deg( ρψ ) = n, ρ (x) ∈ { 1, x 21 + x22}, ∇ · ∇ ψ ≡ 0 .
+
+In turn, harmonic polynomials ψ on R2 are easily expressible through holomorphy arguments as real or imaginary parts of polynomials in ( x1 + i x2). Accordingly, a hierarchical (in total degree) basis of W is found: 
+
+W = span 
+
+
+
+{1} ∪ { x1, x 2} ∪ x21 − x22, 2x1x2, x 21 + x22 ∪∪
+
+> ∞
+
+[
+
+> n=3
+
+Re (( x1 + i x2)n) , Im (( x1 + i x2)n) , (x21 + x22)Re  (x1 + i x2)n−2 , (x21 + x22)Im  (x1 + i x2)n−2 
+
+.
+
+From here, a polynomial basis for the space V = ∇⊥W of compatible flow fields can be derived by linearity of the differential operator involved. Note that, since differentiations is involved to extract flow fields from stream functions, and since ϕ
+
+enters (6) only through its strain field ε(ϕ), constant and linear basis functions of W are irrelevant and can be discarded. Additionally, the quadratic stream function ϕ(x) = x21 + x22 yields a strain-free rotation field and can thus be ignored: 
+
+ε  ∇⊥(x21 + x22) = ε  [−2x2, 2x1]⊤ =
+
+0 00 0
+
+
+
+.
+
+Truncating the basis of W at degree ( D + 1), with D ≥ 1, yields a degree-D basis for V with dimension 4D − 2. When precomputing the fundamental solutions corresponding to the above basis functions, the compu-tational effort may be reduced by exploiting the symmetry of stream functions. This can be used to cut the precomputation time in half. 
+
+## D CutFEM setup 
+
+Denote Kh a regular partition of Ω which does not need to conform to the interfaces Γ inside Ω but conforms to the polygonal boundary ∂Ω. Associated with the subdomain Ω B and Ω F , and with the interfaces Γ, we define the active meshes: 
+
+Kh, • = {K ∈ K h, K ∩ Ωi̸ = ∅} , • = B, F, and Kh, Γ = K ∈ K h, |Γ ∩ ¯K| > 0 .
+
+From the active meshes, we define the active domain Ωh, • = [
+
+> K∈K h, •
+
+K, • = B, F 
+
+and the approximate interface Γ h as a piecewise-polynomial approximation of Γ. 24 D. Pradovera, T. Frachon, S. Zahedi Hierarchical surrogate modeling for droplet-laden Stokes flows Let Vu 
+
+> h
+
+and Vph be the Taylor-Hood elements P2-P1 on Kh. The active finite-element space is then the restriction to the active domain: 
+
+Vu 
+
+> h, •
+
+= Vu 
+
+> h
+
+|Ωh, • and Vph, • = Vph |Ωh, • , • = B, F, 
+
+and we let 
+
+V u 
+
+> h
+
+= Vu 
+
+> h,B
+
+× V u 
+
+> h,F
+
+= vh = ( vh,B , vh,F ), vh, • ∈ V u
+
+> h, •
+
+, • = B, F ,V ph = Vph,B × V ph,F =
+
+n
+
+qh = ( qh,B , q h,F ), q h, • ∈ V ph, •, • = B, F 
+
+o
+
+.
+
+The weak formulation of (2) is: find ( uh, p h) ∈ V u 
+
+> h
+
+× V ph such that 
+
+a(uh, vh) + τusu(uh, vh) + b(uh, q h) − b(vh, p h) + τpsp(ph, q h) = l(vh, q h) ∀(vh, q h) ∈ V u 
+
+> h
+
+× V ph ,
+
+Above, 
+
+a(uh, vh) = X 
+
+> •∈{ B,F }
+
+(2 με(uh), ε(vh)) Ωh, • − ({2με(uh)n}, JvhK)Γh − (JuhK , {2με(vh)n})Γh
+
++ λΓ (JuhK , JvhK)Γh − (2 με(uh)n, vh)ΓD − (uh, 2με(vh)n)ΓD + λD (uh, vh)ΓD ,b(uh, q h) = X 
+
+> •∈{ B,F }
+
+(∇ · uh, q h)Ωh, • − (Juh · nK , {qh})Γh − (uh · n, q h)ΓD ,l(vh, q h) = X 
+
+> •∈{ B,F }
+
+(f , vh)Ωh,• + ( γκ n, {vh})Γh − (gN , vh)ΓN
+
+− (gD , 2με(vh)n)ΓD + λD (gD , vh)ΓD − (gD · n, q h)ΓD ,
+
+with ( ·, ·)A the L2(A)-inner product and {f } = 12 (f |ΩB + f |ΩF ) the average across Γ h.Given the set of edges Eh, • of each active mesh Kh, •, we define the stabilization terms su and sp as 
+
+su(uh, vh) = X 
+
+> •∈{ B,F }
+
+X
+
+> e∈E h, •
+
+
+
+h  J∂ne uh, •Ke , J∂ne vh, •Ke
+
+ 
+
+> e
+
++ h3  q∂2 
+
+> ne
+
+uh, •
+
+y 
+
+> e
+
+, q∂2 
+
+> ne
+
+vh, •
+
+y
+
+> e
+
+
+
+> e
+
+
+
+,sp(ph, q h) = X 
+
+> •∈{ B,F }
+
+X
+
+> e∈E h, •
+
+h3  J∂ne ph, •Ke , J∂ne qh, •Ke
+
+ 
+
+> e
+
+,
+
+with ne the unit normal to edge e and J·Ke the jump across edge e, both with arbitrary but fixed sign. 
+
+# References 
+
+[1] Anna Broms, Alex H. Barnett, and Anna-Karin Tornberg. Accurate close interactions of Stokes spheres using lubrication-adapted image systems. Journal of Computational Physics , 523:113636, 2025. [2] Erik Burman, Peter Hansbo, Mats G. Larson, and Sara Zahedi. Cut finite element methods. Acta Numerica , 34:1–121, 2025. [3] Jianchao Cai, Xiangjie Qin, Xuanzhe Xia, Xinghe Jiao, Hao Chen, Han Wang, and Yuxuan Xia. Nu-merical modeling of multiphase flow in porous media considering micro- and nanoscale effects: A com-prehensive review. Gas Science and Engineering , 131:205441, 2024. [4] Chris Cundy, Shahab Mirjalili, Charl´ elie Laurent, Stefano Ermon, Gianluca Iaccarino, and Ali Mani. A physics-informed machine learning model for the prediction of drop breakup in two-phase flows. 
+
+International Journal of Multiphase Flow , 180:104934, 2024. [5] Guangtao Duan, Bin Chen, Seiichi Koshizuka, and Hao Xiang. Stable multiphase moving particle semi-implicit method for incompressible interfacial flow. Computer Methods in Applied Mechanics and Engineering , 318:636–666, 2017. 25 D. Pradovera, T. Frachon, S. Zahedi Hierarchical surrogate modeling for droplet-laden Stokes flows [6] Hani Elmestikawy, Julia Reuter, Fabien Evrard, Sanaz Mostaghim, and Berend van Wachem. Determin-istic drag modelling for spherical particles in stokes regime using data-driven approaches. International Journal of Multiphase Flow , 178:104880, 2024. [7] Thomas Frachon and Sebastian Myrb¨ ack. CutFEM library. https://github.com/CutFEM/CutFEM-Library. [8] Thomas Frachon and Sara Zahedi. A cut finite element method for incompressible two-phase navier–stokes flows. Journal of Computational Physics , 384:77–98, 2019. [9] Manuel Garcia-Villalba, Tim Colonius, Olivier Desjardins, Dirk Lucas, Ali Mani, Daniele Marchisio, Omar K. Matar, Francesco Picano, and St´ ephane Zaleski. Numerical methods for multiphase flows. 
+
+International Journal of Multiphase Flow , 191:105285, 2025. [10] Vivette Girault and Pierre-Arnaud Raviart. Finite Element Methods for Navier–Stokes Equations: Theory and Algorithms , volume 5 of Springer Series in Computational Mathematics . Springer-Verlag, Berlin, 1986. [11] Leslie Greengard and Vladimir Rokhlin. A fast algorithm for particle simulations. Journal of Compu-tational Physics , 73(2):325–348, 1987. [12] Sven Gross and Arnold Reusken. Numerical Methods for Two-phase Incompressible Flows . Springer Berlin Heidelberg, 2011. [13] Wolfgang Hackbusch. Iterative Solution of Large Sparse Systems of Equations , volume 95 of Applied Mathematical Sciences . Springer International Publishing, Cham, 2016. [14] John Happel and Howard Brenner. Low Reynolds number hydrodynamics: with special applications to particulate media . Mechanics of fluids and transport processes. Springer Netherlands, Dordrecht, 1983. [15] G¨ okberk Kabacao˘ glu and George Biros. Machine learning acceleration of simulations of Stokesian suspensions. Physical Review E , 99, 2019. [16] Olga Aleksandrovna Ladyzhenskaya. The Mathematical Theory of Viscous Incompressible Flow . Gordon and Breach, 1963. [17] Kai Liu, Kun Luo, Yuzhou Cheng, Anxiong Liu, Haochen Li, Jianren Fan, and S. Balachandar. Parame-terized physics-informed neural networks (p-pinns) solution of uniform flow over an arbitrarily spinning spherical particle. International Journal of Multiphase Flow , 180:104937, 2024. [18] Martyna Minakowska, Thomas Richter, and Sebastian Sager. A finite element/neural network framework for modeling suspensions of non-spherical particles. Vietnam Journal of Mathematics , 49(1):207–235, 2021. [19] Nikoloz Muskhelishvili. Some Basic Problems of the Mathematical Theory of Elasticity . Noordhoff, Groningen, 2nd edition, 1953. English translation of Russian original (1949). [20] Rikard Ojala and Anna-Karin Tornberg. An accurate integral equation method for simulating multi-phase Stokes flow. Journal of Computational Physics , 298:145–160, 2015. [21] Stanley Osher and Ronald P. Fedkiw. Level set methods: An overview and some recent results. Journal of Computational Physics , 169(2):463–502, 2001. [22] Constantine Pozrikidis. Boundary Integral and Singularity Methods for Linearized Viscous Flow . Cam-bridge University Press, 1992. [23] James A. Sethian. Evolution, implementation, and application of level set and fast marching methods for advancing fronts. Journal of Computational Physics , 169(2):503–555, 2001. 26 D. Pradovera, T. Frachon, S. Zahedi Hierarchical surrogate modeling for droplet-laden Stokes flows [24] Mark Sussman and Emad Fatemi. An efficient, interface-preserving level set redistancing algorithm and its application to interfacial incompressible fluid flow. SIAM Journal on Scientific Computing ,20(4):1165–1191, 1999. [25] Anna-Karin Tornberg and Leslie Greengard. A fast multipole method for the three-dimensional Stokes equations. Journal of Computational Physics , 227(3), 2008. [26] Henry von Wahl and Thomas Richter. Using a deep neural network to predict the motion of underre-solved triangular rigid bodies in an incompressible flow. International Journal for Numerical Methods in Fluids , 93(12):3364–3383, 2021. [27] Martin Worner. Numerical modeling of multiphase flows in microfluidics and micro process engineering: a review of methods and applications. Microfluidics and Nanofluidics , 12(6):841–886, 2012. [28] Jinxin Wu, Guiyong Zhang, Zhe Sun, Haoran Yan, and Bo Zhou. An improved mps method for simulating multiphase flows characterized by high-density ratios and violent deformation of interface. 
+
+Computer Methods in Applied Mechanics and Engineering , 412:116103, 2023. [29] Kaiqi Yang, Yifan Cao, Youtian Zhang, Shaoxun Fan, Ming Tang, Daniel Aberg, Babak Sadigh, and Fei Zhou. Self-supervised learning and prediction of microstructure evolution with convolutional recurrent neural networks. Patterns , 2(5):100243, 2021. [30] Jiun-Der Yu, Shinri Sakai, and James Sethian. A coupled quadrilateral grid level set projection method applied to ink jet simulation. Journal of Computational Physics , 206(1):227–251, 2005. [31] Shuaihao Zhang, S´ ergio D.N. Louren¸ co, and Xiangyu Hu. Multiphase sph for surface tension: Resolving zero-surface-energy modes and achieving high reynolds number simulations. Computer Methods in Applied Mechanics and Engineering , 444:118147, 2025. 27
