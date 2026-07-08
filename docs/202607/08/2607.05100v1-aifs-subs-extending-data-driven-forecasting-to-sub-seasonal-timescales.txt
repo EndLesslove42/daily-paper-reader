@@ -1,0 +1,379 @@
+Title: AIFS-SUBS: Extending Data-Driven Forecasting to Sub-Seasonal Timescales
+
+URL Source: https://arxiv.org/pdf/2607.05100v1
+
+Published Time: Tue, 07 Jul 2026 03:38:25 GMT
+
+Number of Pages: 23
+
+Markdown Content:
+# AIFS-SUBS: Extending Data-Driven Forecasting to Sub-Seasonal Timescales 
+
+# Jakob Schloer 1, Steffen Tietsche 1, Christopher D. Roberts 1, Lorenzo Zampieri 1, Simon Lang 1, Gert Mertes 1, Gareth Jones 1, Matthew Chantry 1,and Frederic Vitart 11European Centre for Medium-Range Weather Forecasts (ECMWF) July 7, 2026 
+
+Abstract 
+
+Data-driven models now rival numerical weather prediction in the medium range, but extending them to sub-seasonal lead times raises challenges absent at shorter horizons. Errors accumulate over long autoregressive rollouts, systematic biases grow with lead time, and several years of data must be held out for independent verification, even though machine-learning models otherwise benefit from longer training records. To address these challenges, we adapt ECMWF’s AIFS-CRPS medium-range model. AIFS-SUBS adopts a 24 h autoregressive time step to reduce error accu-mulation, adds stratospheric levels and top-of-atmosphere thermal radiation as pre-dictors, and reserves 2007–2011 as an independent verification window. We evalu-ate two configurations: AIFS-SUBS, fine-tuned on operational analyses, and AIFS-SUBS-ERA5, trained on ERA5 alone. Across weeks 2–6, AIFS-SUBS matches the operational Integrated Forecasting System (IFS) in probabilistic skill while reduc-ing systematic biases. For the convective (OLR) component of the Madden–Julian Oscillation (MJO), AIFS-SUBS extends skilful forecasts (correlation > 0.5) by eight days relative to the IFS, while matching or exceeding the IFS for the full multi-variate RMM index. AIFS-SUBS also reproduces the observed MJO modulation of tropical cyclone activity comparably. Stratospheric skill is particularly strong with AIFS-SUBS reproducing sudden stratospheric warming (SSW) frequency and surface impact. In the AI Weather Quest, AIFS-SUBS-ERA5 attains a variable-averaged ranked probability skill score slightly ahead of the IFS at weeks 3 and 4. At inference, AIFS-SUBS uses about 200 times less energy than the IFS, open-ing the door to much larger real-time ensembles. AIFS-SUBS is ECMWF’s first machine-learning model targeted at sub-seasonal time-scales. 
+
+# 1 Introduction 
+
+Skilful forecasts at the sub-seasonal timescale are important for decision-makers in agri-culture, water management, energy, and disaster preparedness, providing valuable lead time to act on upcoming weather extremes. We define the sub-seasonal timescale as 1
+
+> arXiv:2607.05100v1 [physics.ao-ph] 6 Jul 2026
+
+forecast lead times from week 2 to week 6, roughly days 8–42. This range sits between the medium-range, up to about 14 days, where atmospheric initial conditions dominate predictability, and the seasonal range, where slowly varying boundary conditions become the primary source of skill. Because neither source is strong in this window, it is often referred to as the “predictability desert”, reflecting the difficulty of issuing skilful forecasts at these lead times (Mariotti et al., 2020; Robertson et al., 2020). Only a handful of studies have explored global deep-learning weather prediction (DLWP) at sub-seasonal timescales. Weyn et al. (2021) were among the first, demon-strating that a convolutional neural network (CNN) based ensemble can retain skill be-yond two weeks but still falls short of dynamical models. More recently, Lang et al. (2026) showed that a medium-range DLWP model retains substantial skill up to week 4 with reduced biases and higher anomaly skill than the Integrated Forecasting System (IFS). Building tailored systems for longer horizons, Chen et al. (2024) introduced FuXi-S2S, which extends forecasts to 42-day lead times, while Ling et al. (2024) proposed FengWu-W2S, which couples ocean–atmosphere–land states seamlessly from weather to sub-seasonal timescales. Beyond these full global machine-learning (ML) models, a broad range of domain-specific approaches has been developed, for instance models targeting individual climate phenomena such as the El Niño–Southern Oscillation (ENSO) or the Madden–Julian Oscillation (MJO) (e.g., Delaunay and Christensen, 2022; Ham et al., 2019; Schlör et al., 2024), alongside post-processing models that refine dynamical or ML forecasts (e.g., Bouallègue et al., 2024; Guan et al., 2026; Roberts, 2026; Worsnop et al., 2024). In this work we focus on global ML models, and we refer the reader to the AI Weather Quest for a broader intercomparison of data-driven sub-seasonal forecasting (Loegel et al., 2025). Domain-specific models can optimise a loss defined directly on their target, such as quintile probabilities at week 4. DLWP models, by contrast, are autoregressive and are typically trained to predict only the next global weather state, or a handful of steps ahead. Backpropagating gradients through long rollouts is computationally costly and numerically unstable, as gradients tend to vanish or explode over many autoregressive steps. Extending ML models to sub-seasonal lead times thereby introduces two specific challenges: (i) The loss of initial-condition information in the atmosphere decays within roughly two to three weeks (e.g., Judt, 2020). Beyond this point the signal-to-noise ratio drops sharply, making it difficult for a model trained on short-range targets to learn the weak but potentially predictable signal at week 3–6 lead times. (ii) The residual predictability is instead governed by large-scale, slowly evolving patterns and is therefore strongly flow-dependent. At sub-seasonal ranges, useful skill comes from phenomena such as the MJO (Madden and Julian, 1972; Madden and Julian, 1994; Zhang, 2005, and references therein), sudden stratospheric warmings (SSWs) (e.g. Baldwin and Dunkerton, 2001; Karpechko et al., 2017), slowly-evolving sea surface temperature patterns, and land-surface memory (e.g. Koster et al., 2010). These modes also modulate high-impact weather, for instance the MJO’s well-documented control on tropical cyclone activity (e.g. Camargo et al., 2009; Vitart, 2009), so that skill at these lead times can translate into useful forecasts of impacts. These features open intermittent and spatially heterogeneous windows of opportunity for skilful forecasts (Mariotti et al., 2020), and because they occur infrequently in the training record they yield few samples from which to learn in the short observational record. We address these challenges by building upon the AIFS-CRPS (Lang et al., 2026), a model trained to minimise the almost fair continuous ranked probability score (afCRPS), 2a proper score that accounts for finite ensemble size effects such that forcast members are rewarded when they appear to be sampled from the same distribution as observerations (REFS). In constrast to approaches that minimize mean squared error (MSE), this proba-bilistic training objective rewards ensemble forecasts that are both sharp and statistically reliable (e.g. Gneiting and Raftery, 2007), which is crucial when forecast uncertainty is large and flow-dependent. Our modifications to the medium-range system are as follows. We adopt a 24 h autoregressive time step, compared to 6 h in the medium-range model, to mitigate error accumulation over long rollouts. We include stratospheric variables so that the model can represent stratosphere–troposphere coupling and the SSW events that are a key source of sub-seasonal predictability. We add top-of-atmosphere thermal radi-ation ( ttr ), from which outgoing longwave radiation is derived, to better diagnose the convective component of the MJO. Finally, we leave out the years 2007 to 2011 from the training, providing an independent five-year verification period. Unlike medium-range models, whose skill can be assessed from many quasi-independent forecasts within a sin-gle year, sub-seasonal skill hinges on rare events such as SSWs and MJO episodes that recur only a handful of times per year. A multi-year window is therefore required to sample enough of these events for statistically meaningful skill estimates, at the cost of reducing the amount of training data. Here, we present two model configurations. AIFS-SUBS is designed for real-time operational use and fine-tuned on operational ECMWF analyses; because this fine-tuning ties its skill to the initialisation source. AIFS-SUBS-ERA5 is a companion model trained exclusively on ERA5 reanalysis, which removes this dependence and which we submit to the AI Weather Quest competition under the name AIFSgaia. 
+
+# 2 Methods 
+
+# 2.1 Data 
+
+All models are trained on ERA5 (Hersbach et al., 2020), the fifth-generation ECMWF atmospheric reanalysis, at 6 h temporal resolution on an O96 grid (approximately 0.9 ◦). The standard ERA5 dataset contains a known warm bias in the lower stratosphere for the period 2000–2006. We correct for this bias by using the upper atmospheric levels (≤ 300 hPa) from ERA5.1 (Simmons et al., 2020), which provides an improved strato-spheric analysis for this period and ensures consistent upper-level boundary conditions throughout training. Since AIFS-SUBS is designed for realtime use and will be initialised from operational ECMWF analyses, we include such analyses in the fine-tuning phase. ERA5 and the operational analysis differ both in model configuration and in their treatment of the lower boundary. ERA5 was produced with IFS Cycle 41r2 at a horizontal resolution of approximately 31 km, whereas the current operational analysis uses IFS Cycle 50r1 at approximately 9 km resolution. ERA5 uses externally prescribed daily sea-surface temperature and sea-ice boundary conditions, whereas in Cycle 50r1 the ocean and sea-ice states are updated within the outer loops of the atmospheric 4D-Var analysis. Such differences can lead to a distribution shift when a model trained or fine-tuned on one analysis product is initialised from the other. Table 1 lists all input and output variables. Compared to the medium-range AIFS-CRPS, the key additions are top-of-atmosphere thermal radiation ( ttr ) and a set of stratospheric pressure levels reaching up to 2 hPa. 31979 2007 2006 2007 2026 2012 2015 2025 2020 ERA 5
+
+> ERA 5.1
+> Oper analysis Pretraining Rollout -finetuning Evaluation Realtime forecast Reforecasts lead time lead time
+> (a) (b)
+
+Figure 1: Training and evaluation protocol of AIFS-SUBS (a) . We first train for a single-step 24 h forecast on ERA5 and then fine-tuned with a 3-step autoregressive rollout on a combined dataset of ERA5 and operational analyses. For evaluation, we withhold 2007– 2011 as an independent verification period. For each target date, a forecast ensemble is generated alongside a set of reforecasts initialised on the same month–day in each of the 20 preceding years ( b). The resulting reforecast distribution defines the model climatology against which the forecast members are calibrated, removing systematic biases. 
+
+# 2.2 Model Architecture 
+
+The AIFS-SUBS architecture follows the encoder–processor–decoder design of AIFS-CRPS (Lang et al., 2026), which builds on the AIFS graph neural network framework (Lang et al., 2024). It combines a graph-transformer neural network encoder and decoder with a sliding-window transformer processor. The encoder maps gridded input fields onto an O48 latent grid using a graph-attention layer. Attention in the processor is computed along spiral longitudinal bands (Lang et al., 2024). The processor comprises 16 layers with an embedding dimension of 1024 and 8 attention heads, totalling approximately 230 million trainable parameters. Forecast ensembles are generated by conditioning on random noise: for each member i, independent samples zi drawn from a standard normal distribution (dimension = latent grid × 4 noise channels) are transformed by a two-layer MLP and injected via conditional layer normalisation in each processor layer. Given the atmospheric state x at times t−24 h and t, each ensemble member i predicts the 24-hour tendency, such that the next state is obtained as 
+
+ˆxi(t + 24 h) = x(t) + fΘ(x(t), x (t − 24 h) , z i) , (1) where fΘ denotes the encoder–processor–decoder network with parameters Θ and zi the 4member-specific noise sample described above. Forecasts at longer leads are produced by iterating Eq. 1 autoregressively. This longer time step — compared to 6 h in the medium-range model — reduces the number of rollout steps required to reach week 6 from ∼240 to 
+
+∼42 , substantially decreasing both error accumulation and inference cost. On ECMWF’s supercomputer, a single-member 46-day forecast of AIFS-SUBS uses about 200 times less energy than the corresponding IFS run. We report energy because the IFS runs on CPUs while AIFS-SUBS runs on GPUs. In terms of compute time producing a forecast, AIFS-SUBS is roughly 920 times faster. However, we note that the two models differ considerably in resolution (O320, for the IFS versus O96 for AIFS-SUBS) and number of variables (137 vertical levels for IFS versus 18 for AIFS-SUBS). 
+
+# 2.3 Training 
+
+Training proceeds in two stages: pre-training on single-step targets followed by fine-tuning with multi-step autoregressive rollouts. Throughout both stages, we maintain Exponen-tial Moving Average (EMA) weights of the model parameters (Polyak and Juditsky, 1992; Tarvainen and Valpola, 2017). EMA smooths parameter updates across training itera-tions and proves important for the stability of long autoregressive rollouts at inference time. 
+
+Pre-training. Both AIFS-SUBS and AIFS-SUBS-ERA5 are pre-trained on ERA5 for the period 1979–2006 and 2012–2024, excluding the held-out 2007–2011 verification win-Table 1: Variables used by AIFS-SUBS. Prognostic variables are both input and output, diagnostic are output, and forcing variables are input only. 
+
+Category Variables Levels Type 
+
+Upper-air Geopotential ( z) 2, 5, 10, 30, 50, 70, 100, 150, prognostic Temperature ( t) 200, 250, 300, 400, 500, 600, U/V wind 700, 850, 925, 1000 Specific humidity ( q) same levels but only >= 150 hPa W wind same levels diagnostic Single-level 10 metre u wind, 10 metre v wind component, prognostic 2 metre dewpoint temperature, 2 metre temperature, Mean sea level pressure, Surface pressure, Total column water, Low cloud cover, Medium cloud cover, Total cloud cover, Skin temperature Total precipitation, Convective precipitation, diagnostic Snowfall, Total cloud cover, Low cloud cover, Medium cloud cover, Top net thermal radiation, Surface solar radiation downwards, Surface thermal radiation downwards Insolation, Land–sea mask, orography, forcing Std. dev. of orography, Slope of sub-gridscale orography 5dow, see Fig. 1 (a). The objective is a single-step 24 h forecast, allowing the model to learn accurate short-range dynamics before being exposed to the multi-step regime. We train with ensemble size 4, for 300k iterations with an effective batch size of 16 on 16 NVIDIA A100 GPUs ( ∼4 days wall-clock time), using AdamW with cosine annealing (peak learning rate 10 −3, 1000 warm-up iterations). 
+
+Fine-tuning AIFS-SUBS-ERA5. AIFS-SUBS-ERA5 is fine-tuned with a 3-step (3-day) autoregressive rollout on ERA5 for 2015–2024, keeping the training signal entirely within the reanalysis. This configuration provides a clean ERA5-only baseline and serves as the basis for participation in the AI Weather Quest competition. Fine-tuning runs for 50k iterations with a reduced peak learning rate of 5×10 −5, retaining the same batch size and hardware setup. We selected the 3-step rollout by ablation; extending the rollout beyond three steps did not improve forecast scores, so we retain three steps to limit fine-tuning cost. 
+
+Fine-tuning AIFS-SUBS. AIFS-SUBS is fine-tuned with a 3-step rollout on a com-bined dataset: ERA5 for 2015–2019 and operational ECMWF analyses for 2020–2024. The combined dataset is then randomly shuffled, drawing minibatches across both eras. The operational analyses span multiple IFS versions, introducing version-to-version vari-ability that encourages generalisation to real-time forecasting conditions. The optimisa-tion schedule mirrors that of AIFS-SUBS-ERA5. 
+
+# 2.4 Evaluation of sub-seasonal forecasts 
+
+Sub-seasonal evaluation differs from medium-range evaluation in three aspects: we score (i) weekly averages rather than instantaneous fields, because day-to-day variability is large relative to the predictable signal; (ii) anomalies relative to each model’s own climatology, which removes systematic biases that would otherwise dominate, and (iii) indices derived by projecting anomalies onto pre-defined patterns to provide low-dimensional evaluation of large-scale circulation (e.g. MJO, polar vortex index). Designing an evaluation protocol for ML-based sub-seasonal forecasting involves sev-eral constraints compared to dynamical models. First, robust skill estimates require a sufficiently long verification period, yet any year withheld for evaluation is a year un-available for training potentially leading to lower forecast skill. Second, climate change introduces a distribution shift, which favours training on the most recent data so that the model operates in an approximately stationary regime. Third, the quality of reanalysis used for training is not uniform in time and degrades noticeably in the pre-satellite era. Fourth, AIFS-SUBS is fine-tuned on operational analyses, which restricts that part of the training signal to the most recent years. Balancing these constraints, we withhold 2007–2011 from all training stages and use it as an independent five-year verification set. Five years lies at the lower end of what the S2S community typically uses (around twenty years), but it preserves the bulk of the recent record for training while still providing a meaningful number of independent forecast cases. We chose this particular window because it spans several phenomena that are central to sub-seasonal predictability: 
+
+• ENSO: the 2009–10 El Niño and the strong 2010–11 La Niña. 6• Sudden stratospheric warmings: multiple major events, including February 2008, January 2009, and February/March 2010. 
+
+• Modern satellite coverage, which ensures consistent data quality and a realistic test of the model’s ability to real-time forecasting. We complement the reforecast evaluation with forecasts submitted to the AI Weather Quest competition over the period mid-August 2025 to mid-February 2026. Although limited to six months of weekly forecasts, these test the model on future cases and thus provide an independent estimate of real-world performance. Throughout, ERA5 is the verification reference (ground truth) for all variables, except the tropical-cyclone analysis, which verifies against IBTrACS observations. The full evaluation protocol is illustrated in Fig. 1(b) and detailed in Sec. A.1 of the Supplementary Material. 
+
+# 3 Results 
+
+# 3.1 Global biases and skill 
+
+We first verify AIFS-SUBS in a controlled reforecast setting, which yields statistically robust results across the full set of predicted variables. We use the five-year period 2007– (b) (a) Bias score: AIFS-subs vs IFS fCRPS: AIFS-subs vs IFS 
+
+Figure 2: AIFS-SUBS significantly reduces biases ( a) relative to IFS (49r1) for key surface and upper-air variables at week 1 through week 6 averaged over the Northern Hemisphere and Tropics. For the probabilistic fCRPSS computed over anomalies ( b), AIFS-SUBS shows significant improvement in week 1 and 2 for most variables and neutral scores for week 3 and beyond in the Northern Hemisphere. In the Tropics, surface and tropospheric variables improve significantly in weeks 1 and 2, while stratospheric variables improve across all lead times. Scores are computed over the 5-year verification period 2007-2011 with 5 initialisation days per month. 72011, which is held out from training, with five initialisation dates per month (the 1st, 7th, 13th, 19th, and 25th) and ten ensemble members. We follow Roberts et al. (2026) and separately evaluate climatological mean state and forecast anomalies calculated following the ‘by-member–other-years’ method described in Roberts and Leutbecher (2025), which references each forecast member to a climatol-ogy built from the remaining verification years and stays unbiased for short reforecast periods. Impacts on the mean state are assessed by computing relative changes in the mean absolute bias (MAB) using the mean absolute bias score (MABS; Eq. 6 in appendix Sec. A.1.2). Probabilistic skill of anomaly forecasts is evaluated using the fair version of the continuous ranked probability score (fCRPS, Ferro, 2014; Ferro et al., 2008; Leut-becher, 2019). Skill scores are computed from area-weighted scores averaged over all forecast cases for a given lead time, following Eqs. 7–9 in appendix Sec. A.1.3. AIFS-SUBS significantly reduces biases relative to the IFS (49r1) for surface and upper-air variables from week 1 through week 6 (Fig. 2a). In the Northern Hemisphere, the reduction is variable and lead-time dependent: most variables and lead times improve significantly, while a few, such as u850 and v850, retain biases comparable to the IFS. The bias reduction is strongest in the Tropics ( > 5% ), with two exceptions: 500 hPa geopotential height, where AIFS-SUBS is worse than the IFS, and mean sea-level pressure beyond week 3, where the two are comparable. As in the real-time evaluation, we focus on anomaly scores relative to the model climatology, computing the anomalies of each year with respect to the climatology over the remaining four years in the verification period. The fCRPSS between AIFS-SUBS and the IFS gives a mixed picture (Fig. 2b). In the Northern Hemisphere, AIFS-SUBS is on par with the IFS for most variables and lead times; surface variables in week 1 improve slightly but significantly, whereas stratospheric variables in week 1 are slightly degraded. In the Tropics, AIFS-SUBS improves significantly over the IFS in weeks 1 and 2 for surface and tropospheric variables, and is on par thereafter, although 2 m temperature, t850, and z500 are notably worse in weeks 5 and 6. The stratospheric variables, by contrast, improve significantly across all lead times in the Tropics, except for u, v, and t at 10 hPa in week 1. The improvement is largest for zonal wind at 50 hPa, suggesting a better representation of the quasi-biennial oscillation (QBO) in AIFS-SUBS. 
+
+# 3.2 Madden–Julian Oscillation 
+
+To evaluate the MJO we use the bivariate Real-Time Multivariate MJO (RMM) index (Gottschalck et al., 2010; Wheeler and Hendon, 2004) calculated for IFS and AIFS fore-casts as described in Roberts and Vitart (2026) and references therein. In brief, the two components of the bivariate index (RMM1 and RMM2) are derived by projecting daily mean anomalies onto the two leading observation-based multivariate EOFs of meridion-ally averaged (15 ◦S–15 ◦N) zonal winds at 850 hPa and 200 hPa and outgoing longwave radiation (OLR). MJO amplitude and phase are defined as pRMM1 2 + RMM2 2 and arctan2 (RMM2 , RMM1 ), respectively. Phase numbers correspond to the different sectors of the MJO phase diagram and are indicative of MJO activity over the Indian Ocean (phases 2 and 3), maritime continent (phases 4 and 5), western Pacific Ocean (phases 6 and 7), and the Atlantic Ocean/Africa (phases 8 and 1). Unlike previous versions of AIFS-CRPS tested at sub-seasonal lead times, AIFS-SUBS includes top-of-atmosphere thermal radiation ( ttr ) as a diagnostic variable, from which we derive outgoing longwave radiation (OLR), which allows us to separately evaluate the convective component of the 80.25 
+
+> 0.50
+> 0.75
+> 1.00
+> COR
+
+(a) Multivariate 
+
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+
+(b) OLR 
+
+> 0.4
+> 0.6
+> 0.8
+> fCRPSS
+
+(c) 
+
+IFS 
+
+AIFS-subs 
+
+> 0.4
+> 0.6
+> 0.8
+
+(d)     
+
+> 010 20 30 40
+
+Lead time (days) 
+
+> 0.75
+> 0.50
+> 0.25
+> 0.00
+> Amplitude bias
+
+(e)     
+
+> 010 20 30 40
+
+Lead time (days) 
+
+> 0.15
+> 0.10
+> 0.05
+> 0.00
+
+(f) Figure 3: MJO forecast skill of AIFS-SUBS and IFS as a function of forecast lead time over the 2007–2011 verification period. Bivariate correlation (COR) (a, b) , fCRPSS (c, d) , and amplitude bias (e, f ) are computed from the bivariate RMM index derived from OLR/U200/U850 (left column) and its OLR component, i.e. the OLR anomaly projected onto the OLR part of the RMM EOFs (right column). The dashed line in (a, b) marks the COR = 0.5 skill threshold. Shadings denote the 95% confidence interval from 500 bootstrap resamples of forecast start dates. MJO RMM index. Fig. 3 shows the MJO forecast skill of AIFS-SUBS and the IFS as a function of lead time over the held-out verification period. We evaluate two forms of the RMM index: the full multivariate RMM index derived from OLR/U200/U850 (left column) and its OLR component alone (right column). For the full multivariate RMM index, AIFS-SUBS either matches or exceeds IFS performance at all lead times, both in the bivariate correlation (Fig. 3a) and in the probabilistic fCRPSS, where the difference is not significant beyond day 12 (Fig. 3c). The improvement from AIFS-SUBS is strongest in the OLR component of the index. Using a correlation threshold of 0.5 for a skilful forecast, 10-member forecasts with AIFS-SUBS retain skill in the OLR component out to 33 days, compared with 25 days for the IFS, a statistically significant gain of eight days (Fig. 3b), with a matching significant 9Figure 4: Anomaly in the number of tropical storms within a 300 km radius per day (×1000) for different MJO phases, averaged over JJASON in the 2007–2011 verification period. A tropical storm day is counted when the wind speed exceeds 17 m s −1. Counts are normalised by the number of years, ensemble members, and daily output steps, and shown as the anomaly relative to the all-phase climatology. The top row shows the observed relationship from IBTrACS, while the middle and bottom rows show the same for IFS and AIFS-SUBS-ERA5 reforecasts, respectively. improvement in fCRPSS (Fig. 3d). This indicates that the main improvements to the multivariate RMM index are coming from improvements to the representation of tropical convection rather than the tropical wind field that dominates the full RMM index. Both models damp the MJO with increasing lead time and exhibit an amplitude bias, a common shortcoming of sub-seasonal forecasts. For AIFS-SUBS, however, this bias is significantly smaller than for the IFS across all lead times and for both index defini-tions (Fig. 3e, f), indicating a better representation of the MJO’s strength. The reduced amplitude bias is particularly relevant because dynamical models tend to underestimate MJO amplitude, a leading source of error in their representation of MJO teleconnections (Vitart, 2017). Nevertheless, we caution that these skill differences are estimated over a single five-year verification window and may be sensitive to the period of evaluation, given the small number of independent MJO events it contains. More extensive real-time testing across a wider range of cases will be necessary to confirm that the gains in the OLR component of the RMM index are robust. The MJO is a well-documented modulator of tropical cyclone (TC) activity, shifting the regions of enhanced and suppressed genesis as its convective envelope propagates east-ward (e.g., Camargo et al., 2009; Vitart, 2009). We assess whether AIFS-SUBS-ERA5 captures this teleconnection by comparing the anomaly in the number of tropical storms per day and MJO phase in observations (IBTrACS Knapp et al. (2010)), the IFS, and AIFS-SUBS-ERA5 over JJASON (Fig. 4). Counts are normalised by the number of years, ensemble members, and daily output frequency, and expressed relative to the all-phase climatology, so that the single observed realisation and the multi-member reforecasts are directly comparable. Both the IFS and AIFS-SUBS-ERA5 reproduce the observed mod-10 ulation well, in the training period (Fig. A.1) and the out-of-training verification period (Fig. 4) alike: TC activity increases where the MJO enhances convection and decreases where convection is suppressed, producing the characteristic eastward propagation of the activity anomaly. Notably, AIFS-SUBS-ERA5 reproduces this relationship in the shorter out-of-training period almost equivalently as in the 15-years withing the training period (Fig. A.1). Two features are less well captured: the increase in TC activity in the South Pacific during phases 2–3, and the decrease over the northern part of the north-western Pacific during phases 6–7. These discrepancies aside, the agreement lends confidence that AIFS-SUBS-ERA5 can be used for sub-seasonal forecasts of TC activity. 
+
+# 3.3 Sudden stratospheric warming events 
+
+The stratosphere is a known source of sub-seasonal predictability (Domeisen et al., 2020). Therefore, AIFS-SUBS is trained on and predicts additional levels in the stratosphere (see Table 1). Training data for the stratospheric levels is ERA5, with two modifications: First, to avoid severe stratospheric errors present in ERA5 between 2000-2006, we train on the corrected reanalysis ERA5.1 for these years (Simmons et al., 2020). Second, we 
+
+Figure 5: Forecast plumes of AIFS-SUBS and IFS for the SSW event in January 2009 with forecast initialization on 13 Jan are shown in (a). Surface impact composites 10-35 days from all SSW events occurring in the 2007-2011 reforecasts for (b) mean sea level pressure, (c) 2m temperature, and (d) total precipitation. See supplementary material for the equivalent composites in 49R1 IFS reforecasts. 11 found that training on the ERA5 stratospheric humidity is detrimental to forecast quality, a fact that we ascribe to the limited quality of the ERA5 stratospheric humidity analysis. AIFS-SUBS therefore does not include humidity on levels from 100 hPa upwards. When comparing AIFS-SUBS with and without additional stratospheric levels in pre-training (not shown), we find that including stratospheric levels improves the middle and lower tropospheric forecast scores by 1-2% for Northern Hemisphere winter, whereas in other regions and seasons there is limited tropospheric impact. However, forecast scores for the upper troposphere and lower stratosphere (200 – 50 hPa) are significantly improved. Fig. 2 shows that the final fine-tuned AIFS-SUBS provides predictions that are much improved over IFS beyond week one for the lower stratosphere (50 hPa and 10 hPa) in the tropics, whereas they are on par with IFS in the Northern Hemisphere extratropics. Predictions of the few major Northern Hemisphere SSWs during the 2007-2011 test period are also competitive with IFS. As an example, Fig. 5a shows forecasts of the January 2009 SSW event for IFS and AIFS-SUBS initialized on 13 January. For this event, half of the members of AIFS-SUBS correctly predict a disruption of the stratospheric polar vortex, indicated by a reversal of the 60N zonal-mean zonal winds at 10 hPa, whereas no IFS member predicts this event. Evolution and surface impact of SSWs varies substantially from case to case, so the 4 events happening in the test period 2007-2011 are too small a sample to draw robust conclusions. We therefore use the approach described in Spaeth and Birner (2022) and provide statistics on all SSW that are generated within the reforecast ensemble. We find that AIFS-SUBS ensemble members throughout all Dec-Feb 2007-2011 reforecasts generate 112 SSW within forecast day 10 to 36. This corresponds to a frequency of about 1 SSW every two winters. 49% of these events have strong surface impact as defined in Karpechko et al. (2017). The corresponding numbers for the IFS 49R1 reforecasts are 98 SSW, 51% of which have strong surface impact. Both the frequency of generation and the fraction of surface impact are thus similar in AIFS-SUBS and IFS. Considering the substantial event-to-event variability, this seems consistent with the observational record. The spatial patterns of surface impact warrant some further attention. Canonical patterns of mean sea-level pressure, 2m temperature and precipitation have been reported (e.g., Butler et al., 2017) and, especially in Europe, are often used to anticipate winter cold spells in the sub-seasonal range. Fig. 5 b-d show composites of these surface parameters after SSWs generated by AIFS-SUBS. A clear negative phase of the Arctic Oscillation is evident, alongside consistent anomalies in 2m temperature and precipitation: cold and dry in Northern Europe, warm and wet in Southern Europe. These SSW surface impacts are broadly consistent with composites from the observational record. Overall, the surface impact composites in AIFS-SUBS are very similar to those in IFS (see Fig. A.2 in the Appendix). A few caveats apply to the reforecast evaluation from 2007-2011. We use ERA5 both to initialise and to verify AIFS-SUBS, except for the TC analysis which is based on observations. Because AIFS-SUBS is fine-tuned on operational analyses, we expect the reported scores to underestimate the skill of real-time forecasts initialised from operational analyses. The comparison with the IFS remains fair, however, as the IFS reforecasts are also verified against ERA5. The five-year verification period is relatively short, but it is a compromise that preserves a sufficiently long training period while retaining an independent verification set. We also note that the 2007–2011 window is bracketed by training data (1979–2006 and 2012–2024), so it is not a strict temporal-causal split: unlike 12 the live AI Weather Quest period (mid-August 2025 to mid-February 2026), which is a genuine out-of-sample future test, the model may draw on climate and trend information from years on both sides of the verification window. 
+
+# 3.4 AI Weather Quest results 
+
+The reforecast verification above is based on the ‘by-member–other-years’ anomaly calcu-lations (Roberts et al., 2026) in the period 2007-2011. We complement it with real-time forecasts submitted to the AI Weather Quest competition, a challenge to compare data-driven global sub-seasonal forecasts (Loegel et al., 2025). We submit AIFS-SUBS-ERA5 as a weekly entry to the competition, which compares sub-seasonal forecasts from op-erational and experimental systems against a common protocol. The required outputs are quintile probability forecasts of weekly-mean 2 m temperature (land only), mean sea-level pressure (global), and total precipitation (land only) at week 3 and week 4 lead times. Forecasts are issued weekly and the period analysed here spans 29 weeks from mid-August 2025 to mid-February 2026. For each target date and lead time, the model climatology is constructed from a 10-member reforecast ensemble initialised on five dates {− 4, −2, 0, +2 , +4 } around the corresponding month–day in each of the 20 preceding years, yielding Nc = 1000 hindcast samples per target date (see Fig. 1(b)). The real-time forecasts themselves are issued with an ensemble of Ne = 200 members. The quintile thresholds are estimated from the climatological distribution and the target probabilities are defined analogously from ERA5, following Loegel et al. (2025). Following the competition protocol, skill is reported as the RPSS relative to a uniform climatological reference, see also A.1 in the Appendix. Given the limited number of forecast cases, confidence intervals are estimated by boot-strapping the forecast cases with replacement 1000 times and recomputing the RPSS for each resample. We compare AIFS-SUBS-ERA5 against a leading physics-based model, ECMWF’s IFS, and a ML model tailored for sub-seasonal forecasting, FuXi-S2S. The IFS ensemble is a leading operational physics-based S2S system and serves as our primary benchmark. We use the operational cycle 49r1, whose 51-member ensemble derives its spread from initial-condition perturbations (Ensemble of Data Assimilations and singular-vector perturbations) and stochastic model-physics perturbations (Lang et al., 2012; Lang et al., 2021; Leutbecher and Palmer, 2008). 
+
+FuXi-S2S acts as a ML sub-seasonal baseline (Chen et al., 2024), which extends the FuXi medium-range architecture to 42-day lead times and directly generates quintile probabilities. Rather than rerunning the model, we use its AI Weather Quest submissions, entered as Fengshun , which the China Meteorological Administration (CMA) reports to correspond to FuXi-S2S. Further, we include AIFS-SUBS* and AIFS-ENS-v2* in Fig. 6. AIFS-ENS-v2 is ECMWF’s operational medium-range ML ensemble (Lang et al., 2026), run at ∼0.25 °
+
+(N320, full Gaussian grid with 320 latitude circles) with a 6 h time step, pre-trained on ERA5 and fine-tuned on operational analyses with a 12-step (72 h) rollout. Both models, denoted with an asterisk, are here initialised from ERA5 for both reforecasts and real-time forecasts, which departs from their operational setup: in operations they are initialised from operational analyses (version 50r1), which only became available in May 2026, after the evaluation window. While the RPSS scores of AIFS-SUBS* and AIFS-ENS-v2* are therefore not directly comparable to the other models, they provide a useful reference for 13 Week 3 Week 4    
+
+> 0.2
+> 0.1
+> 0.0
+> RPSS (2t)
+> (a)
+> AIFS-SUBS-ERA5
+> AIFS-SUBS*
+> AIFS-ENS-v2*
+> IFS
+> FuXi-S2S
+> Week 3 Week 4
+> 0.05
+> 0.00
+> 0.05
+> 0.10
+> RPSS (msl)
+> (b)
+> Week 3 Week 4
+> 0.050
+> 0.025
+> 0.000
+> 0.025
+> RPSS (tp)
+> (c)
+> Week 3 Week 4
+> 0.10
+> 0.05
+> 0.00
+> 0.05
+> RPSS (average)
+> (d)
+
+Figure 6: Period-aggregated Ranked Probability Skill Score (RPSS) for the AI Weather Quest evaluation (mid-August 2025 to mid-February 2026), showing ( a) 2 m temperature, (b) mean sea-level pressure, ( c) total precipitation, and ( d ) the average across the three variables of the quintile probability forecasts. Both AIFS-SUBS and AIFS-ENS-v2 were not submitted to the competition and are marked with an asterisk (*) because they are initialised here from ERA5 rather than from the operational analyses they were fine-tuned on; their scores therefore do not reflect the skill expected in operational use. Error bars indicate 90 % confidence intervals estimated via bootstrapping. the impact of the initialisation source and motivate the design choices of AIFS-SUBS. Period-aggregated RPSS scores are summarised in Fig. 6. Averaged across the three variables, AIFS-SUBS-ERA5 scores are comparable to the IFS and significantly higher than the ML baseline, FuXi-S2S (Fig. 6d). The ranking varies by variable. For 2 m temperature, the IFS attains the highest RPSS at both week 3 and week 4, followed 14 Figure 7: RPSS score maps for 2m temperature (a), mean sea level pressure (c), and total precipitation (e) for week 3 of AIFS-SUBS-ERA5 against climatology. Differences in RPSS relative to IFS are shown in (b, d, f) with blue indicating an improvement and red indicating a degradation with respect to the IFS. Stippling indicates grid cells where the RPSS difference is statistically significant at the 90 % confidence level, estimated via bootstrapping. by AIFS-SUBS-ERA5 (Fig. 6a). For mean sea-level pressure, AIFS-SUBS-ERA5 is on par with the IFS and again outperforms FuXi-S2S (Fig. 6b). For total precipitation, AIFS-SUBS-ERA5 significantly outperforms the IFS at week 3, while FuXi-S2S shows the highest central RPSS at both lead times (Fig. 6c). AIFS-SUBS* scores slightly below AIFS-SUBS-ERA5, which we attribute to its fine-tuning on operational analyses: initialised here from ERA5, the model must accommodate a distribution shift in its initial conditions and loses some skill. The same effect applies to AIFS-ENS-v2*. Its higher spatial resolution ( ∼0.25 °) and 6 h time step additionally lead to strong biases under autoregressive rollout beyond the medium range. We include it to illustrate the value of two design priorities: adapting models specifically for longer timescales, and ensuring they generalise across different initial conditions. 15 The spatial distribution of week 3 skill is shown in Fig. 7. The absolute RPSS for AIFS-SUBS-ERA5 (Fig. 7a, c, e) is positive (green) across most of the globe for all three variables, with mean sea-level pressure exhibiting the most spatially coherent skill, while regions of negative skill (brown) are concentrated in the deep tropics for 2 m temperature and over scattered land regions for total precipitation. Differences in RPSS between AIFS-SUBS-ERA5 and the IFS (Fig. 7b, d, f) are noisy on this short sample, but several patterns emerge from the bootstrap. For 2 m temperature and mean sea-level pressure, AIFS-SUBS-ERA5 shows statistically significant improvements over Europe and Eurasia, accompanied by a significant degradation of skill over the Tropical Pacific. For total precipitation, significant improvements appear in the tropics, particularly over Asia; we caution that several of these regions have very low climatological precipitation, which can inflate relative skill scores. The six-month evaluation window for the real-time AI Weather Quest remains short, and the results should be interpreted with this sample size in mind. 
+
+# 4 Discussion 
+
+We have adapted the AIFS-CRPS medium-range model for sub-seasonal prediction. AIFS-SUBS extends the autoregressive time step to 24 h to limit error accumulation, adds stratospheric levels and top-of-atmosphere thermal radiation as predictors, and reserves 2007–2011 for independent verification. Unlike the medium-range setting, which opti-mises real-time forecasts only, AIFS-SUBS targets calibrated anomalies defined relative to its reforecast climatology. Our mixed fine-tuning protocol allows generalisation across ERA5 and operational initial conditions. Across weeks 2–6 AIFS-SUBS matches the operational IFS in probabilistic skill while significantly reducing systematic biases. For the convective (OLR) component of the MJO, AIFS-SUBS extends skilful forecasts by approximately eight days, while matching or exceeding the IFS for the full multivariate RMM index. In addition, AIFS-SUBS reproduces sudden stratospheric warming frequency and surface impact comparable to the IFS. It also captures the observed MJO modulation of tropical cyclone activity as well as the IFS, lending confidence to its sub-seasonal forecasts of tropical cyclone activity. In real-time submissions to the AI Weather Quest, AIFS-SUBS-ERA5 shows the highest variable-averaged ranked probability skill score at weeks 3 and 4 among fully ML models and is narrowly ahead of the IFS. Several limitations point to future improvements. AIFS-SUBS forecasts the atmo-sphere alone. At sub-seasonal lead times, however, much of the predictability arises from the slowly varying boundary conditions such as the land, surface ocean and sea ice. Cou-pling AIFS-SUBS to land and ocean components is therefore a natural next step (Hahner et al., 2026), and one we expect to be particularly beneficial for surface variables over land and in the tropics. The 24 h time step limits error accumulation over the long autoregressive rollout, but it comes at a cost: the model sees only instantaneous fields at a single time of day and cannot resolve the diurnal cycle. In future work we aim to stabilise error accumulation so that we can return to a 6 h time step, or alternatively predict daily means rather than instantaneous snapshots, either of which would recover sub-daily information without sacrificing rollout stability. AIFS-SUBS is trained on ERA5 and fine-tuned on operational analyses. Incorporating 16 additional data sources, in particular operational reforecasts, could expand the training data and could allow the model to identify predictable patterns from non-predictable ones. Finally, the low inference cost of AIFS-SUBS — about 200 times less energy per fore-cast than the IFS (Sec. 2.2) — opens a more immediate opportunity: real-time ensembles of the order of 1000 members that could yield more accurate probabilistic sub-seasonal forecasts. 
+
+# Acknowledgements 
+
+We thank the whole AIFS team at ECMWF, and in particular Cathal O’Brien for his support in running these models on the EuroHPC supercomputers and in estimating their compute cost. We acknowledge the EuroHPC Joint Undertaking for awarding us access to the Eu-roHPC supercomputers MN5, hosted by BSC in Barcelona, and JUPITER, hosted by the Jülich Supercomputing Centre. 
+
+# References 
+
+Baldwin, M. P. and T. J. Dunkerton (2001). “Stratospheric Harbingers of Anomalous Weather Regimes”. In: Science 294.5542, pp. 581–584. doi : 10.1126/science.1063315 .Bouallègue, Z. B., J. A. Weyn, M. C. A. Clare, J. Dramsch, P. Dueben, and M. Chantry (2024). “Improving Medium-Range Ensemble Weather Forecasts with Hierarchical Ensemble Transformers”. In: Artificial Intelligence for the Earth Systems 3.1. doi :
+
+10.1175/AIES-D-23-0027.1 .Butler, A. H., J. P. Sjoberg, D. J. Seidel, and K. H. Rosenlof (2017). “A Sudden Strato-spheric Warming Compendium”. In: Earth System Science Data 9.1, pp. 63–76. doi :
+
+10.5194/essd-9-63-2017 .Camargo, S. J., M. C. Wheeler, and A. H. Sobel (2009). “Diagnosis of the MJO Modu-lation of Tropical Cyclogenesis Using an Empirical Index”. In: Journal of the Atmo-spheric Sciences 66.10, pp. 3061–3074. doi : 10.1175/2009JAS3101.1 .Chen, L., X. Zhong, H. Li, J. Wu, B. Lu, D. Chen, S.-P. Xie, L. Wu, Q. Chao, C. Lin, Z. Hu, and Y. Qi (2024). “A Machine Learning Model That Outperforms Conventional Global Subseasonal Forecast Models”. In: Nat Commun 15.1, p. 6425. doi : 10.1038/s41467-024-50714-1 .Delaunay, A. and H. M. Christensen (2022). “Interpretable Deep Learning for Probabilis-tic MJO Prediction”. In: Geophysical Research Letters 49.16, e2022GL098566. doi :
+
+10.1029/2022GL098566 .Domeisen, D. I. V., A. H. Butler, A. J. Charlton-Perez, B. Ayarzagüena, M. P. Baldwin, E. Dunn-Sigouin, J. C. Furtado, C. I. Garfinkel, P. Hitchcock, A. Y. Karpechko, H. Kim, J. Knight, A. L. Lang, E.-P. Lim, A. Marshall, G. Roff, C. Schwartz, I. R. Simp-son, S.-W. Son, and M. Taguchi (2020). “The Role of the Stratosphere in Subseasonal to Seasonal Prediction: 2. Predictability Arising From Stratosphere-Troposphere Cou-pling”. In: Journal of Geophysical Research: Atmospheres 125.2, e2019JD030923. doi :
+
+10.1029/2019JD030923 .Ferro, C. A. T. (2014). “Fair Scores for Ensemble Forecasts: Fair Scores for Ensemble Forecasts”. In: Q.J.R. Meteorol. Soc. 140.683, pp. 1917–1923. doi : 10.1002/qj.2270 .17 Ferro, C. A. T., D. S. Richardson, and A. P. Weigel (2008). “On the Effect of Ensemble Size on the Discrete and Continuous Ranked Probability Scores”. In: Meteorological Applications 15.1, pp. 19–24. doi : 10.1002/met.45 .Gneiting, T. and A. E. Raftery (2007). “Strictly Proper Scoring Rules, Prediction, and Estimation”. In: Journal of the American Statistical Association 102.477, pp. 359–378. 
+
+doi : 10.1198/016214506000001437 .Gottschalck, J., M. Wheeler, K. Weickmann, F. Vitart, N. Savage, H. Lin, H. Hendon, D. Waliser, K. Sperber, M. Nakagawa, C. Prestrelo, M. Flatau, and W. Higgins (2010). “A Framework for Assessing Operational Madden–Julian Oscillation Forecasts: A CLI-VAR MJO Working Group Project”. In: Bulletin of the American Meteorological So-ciety 91.9, pp. 1247–1258. doi : 10.1175/2010BAMS2816.1 .Guan, H., S. Mouatadid, P. Orenstein, J. Cohen, H. Dong, Z. Ni, J. Berman, G. Flaspohler, A. Lu, J. Schloer, J. Talib, J. A. Weyn, and L. Mackey (2026). Enhancing AI and Dynamical Subseasonal Forecasts with Probabilistic Bias Correction . doi : 10.48550/ arXiv.2604.16238 .Hahner, S., L. Zampieri, J.-R. Bidlot, P. Browne, M. Chantry, M. C. A. Clare, H. Cook, P. Dueben, R. Furner, S. Keeley, J. Kousal, S. Lang, C. Lessig, G. Mertes, K. Mogensen, G. Moldovan, C. Pelletier, F. Pinault, A. P. Nemesio, B. Raoult, I. Sandu, M. S. Cruz, J. Schloer, S. Tietsche, and H. Zuo (2026). Representing the Surface Ocean in ECMWF’s Data-Driven Forecasting System AIFS . doi : 10.48550/arXiv.2604. 25559 .Ham, Y.-G., J.-H. Kim, and J.-J. Luo (2019). “Deep Learning for Multi-Year ENSO Forecasts”. In: Nature 573.7775, pp. 568–572. doi : 10.1038/s41586-019-1559-7 .Hersbach, H., B. Bell, P. Berrisford, S. Hirahara, J. Nicolas, C. Peubey, R. Radu, D. Schepers, A. Simmons, C. Soci, S. Abdalla, X. Abellan, G. Balsamo, P. Bechtold, G. Biavati, J. Bidlot, M. Bonavita, G. De Chiara, P. Dahlgren, D. Dee, M. Diamantakis, R. Dragani, J. Flemming, R. Forbes, M. Fuentes, A. Geer, L. Haimberger, S. Healy, R. J. Hogan, S. Keeley, P. Laloyaux, P. Lopez, C. Lupu, G. Radnoti, P. de Rosnay, I. Rozum, F. Vamborg, and S. Villaume (2020). “The ERA5 Global Reanalysis”. In: 
+
+Q. J. R. Meteorolog. Soc. 146.730, pp. 1999–2049. doi : 10.1002/qj.3803 .Judt, F. (2020). “Atmospheric Predictability of the Tropics, Middle Latitudes, and Polar Regions Explored through Global Storm-Resolving Simulations”. In: Journal of the Atmospheric Sciences 77.1, pp. 257–276. doi : 10.1175/JAS-D-19-0116.1 .Karpechko, A. Y., P. Hitchcock, D. H. W. Peters, and A. Schneidereit (2017). “Pre-dictability of Downward Propagation of Major Sudden Stratospheric Warmings”. In: 
+
+Quarterly Journal of the Royal Meteorological Society 143.704, pp. 1459–1470. doi :
+
+10.1002/qj.3017 .Knapp, K. R., M. C. Kruk, D. H. Levinson, H. J. Diamond, and C. J. Neumann (2010). “The International Best Track Archive for Climate Stewardship (IBTrACS): Unify-ing Tropical Cyclone Data”. In: Bulletin of the American Meteorological Society 91.3, pp. 363–376. doi : 10.1175/2009BAMS2755.1 .Koster, R. D., S. P. P. Mahanama, T. J. Yamada, G. Balsamo, A. A. Berg, M. Bois-serie, P. A. Dirmeyer, F. J. Doblas-Reyes, G. Drewitt, C. T. Gordon, Z. Guo, J.-H. Jeong, D. M. Lawrence, W.-S. Lee, Z. Li, L. Luo, S. Malyshev, W. J. Merryfield, S. I. Seneviratne, T. Stanelle, B. J. J. M. van den Hurk, F. Vitart, and E. F. Wood (2010). “Contribution of Land Surface Initialization to Subseasonal Forecast Skill: First Re-sults from a Multi-Model Experiment”. In: Geophysical Research Letters 37.2. doi :
+
+10.1029/2009GL041677 .18 Lang, S. T. K., M. Leutbecher, and S. C. Jones (2012). “Impact of Perturbation Meth-ods in the ECMWF Ensemble Prediction System on Tropical Cyclone Forecasts”. In: 
+
+Quarterly Journal of the Royal Meteorological Society 138.669, pp. 2030–2046. doi :
+
+10.1002/qj.1942 .Lang, S., M. Alexe, M. Chantry, J. Dramsch, F. Pinault, B. Raoult, M. C. A. Clare, C. Lessig, M. Maier-Gerber, L. Magnusson, Z. B. Bouallègue, A. P. Nemesio, P. D. Dueben, A. Brown, F. Pappenberger, and F. Rabier (2024). AIFS - ECMWF’s Data-Driven Forecasting System . doi : 10.48550/arXiv.2406.01465 .Lang, S., M. Alexe, M. C. A. Clare, C. Roberts, R. Adewoyin, Z. Ben Bouallègue, M. Chantry, J. Dramsch, P. D. Dueben, S. Hahner, P. Maciel, A. Prieto-Nemesio, C. O’Brien, F. Pinault, J. Polster, B. Raoult, S. Tietsche, and M. Leutbecher (2026). “AIFS-CRPS: Ensemble Forecasting Using a Model Trained with a Loss Function Based on the Continuous Ranked Probability Score”. In: npj Artif. Intell. 2.1, p. 18. 
+
+doi : 10.1038/s44387-026-00073-7 .Lang, S. T. K., S.-J. Lock, M. Leutbecher, P. Bechtold, and R. M. Forbes (2021). “Revision of the Stochastically Perturbed Parametrisations Model Uncertainty Scheme in the Integrated Forecasting System”. In: Quarterly Journal of the Royal Meteorological Society 147.735, pp. 1364–1381. doi : 10.1002/qj.3978 .Leutbecher, M. and T. N. Palmer (2008). “Ensemble Forecasting”. In: Journal of Compu-tational Physics . Predicting Weather, Climate and Extreme Events 227.7, pp. 3515– 3539. doi : 10.1016/j.jcp.2007.02.014 .Leutbecher, M. (2019). “Ensemble Size: How Suboptimal Is Less than Infinity?” In: Quar-terly Journal of the Royal Meteorological Society 145.S1, pp. 107–128. doi : 10.1002/ qj.3387 .Ling, F., K. Chen, J. Wu, T. Han, J.-J. Luo, W. Ouyang, and L. Bai (2024). FengWu-W2S: A Deep Learning Model for Seamless Weather-to-Subseasonal Forecast of Global Atmosphere . doi : 10.48550/arXiv.2411.10191 .Loegel, O., J. Talib, F. Vitart, J. Hoffmann, and M. Chantry (2025). “The AI Weather Quest: An International Competition for Sub-Seasonal Forecasting with AI”. In: Mach. Learn.: Earth 1.1, p. 010701. doi : 10.1088/3049-4753/adf649 .Madden, R. A. and P. R. Julian (1972). “Description of Global-Scale Circulation Cells in the Tropics with a 40–50 Day Period”. In: Journal of the Atmospheric Sciences 29.6, pp. 1109–1123. doi : 10.1175/1520-0469(1972)029<1109:DOGSCC>2.0.CO;2 .— (1994). “Observations of the 40–50-Day Tropical Oscillation—A Review”. In: Monthly Weather Review 122.5, pp. 814–837. doi : 10 . 1175 / 1520 - 0493(1994 ) 122<0814 : OOTDTO>2.0.CO;2 .Mariotti, A., C. Baggett, E. A. Barnes, E. Becker, A. Butler, D. C. Collins, P. A. Dirmeyer, L. Ferranti, N. C. Johnson, J. Jones, B. P. Kirtman, A. L. Lang, A. Molod, M. Newman, A. W. Robertson, S. Schubert, D. E. Waliser, and J. Albers (2020). “Windows of Opportunity for Skillful Forecasts Subseasonal to Seasonal and Beyond”. In: Bulletin of the American Meteorological Society 101.5, E608–E625. doi : 10.1175/BAMS-D-18-0326.1 .Polyak, B. T. and A. B. Juditsky (1992). “Acceleration of Stochastic Approximation by Averaging”. In: SIAM J. Control Optim. 30.4, pp. 838–855. doi : 10.1137/0330046 .Roberts, C. D. and M. Leutbecher (2025). “Unbiased Calculation, Evaluation, and Cali-bration of Ensemble Forecast Anomalies”. In: Quarterly Journal of the Royal Meteo-rological Society 151.771, e4993. doi : 10.1002/qj.4993 .19 Roberts, C. D. and F. Vitart (2026). “Ensemble Reliability and the Signal-to-Noise Para-dox in ECMWF Subseasonal Forecasts”. In: Quarterly Journal of the Royal Meteoro-logical Society n/a.n/a, e70224. doi : 10.1002/qj.70224 .Roberts, C. D. (2026). Ensemble-Size-Dependence of Deep-Learning Post-Processing Meth-ods That Minimize an (Un)Fair Score: Motivating Examples and a Proof-of-Concept Solution . doi : 10.48550/arXiv.2602.15830 .Roberts, C. D., S. Keeley, K. Mogensen, C. Pelletier, and H. Zuo (2026). The Role of the Oceans for Subseasonal Prediction: Insights from Eddy-Permitting and Eddy-Rich Coupled Forecast Systems . doi : 10.48550/arXiv.2605.00621 .Robertson, A. W., F. Vitart, and S. J. Camargo (2020). “Subseasonal to Seasonal Predic-tion of Weather to Climate with Application to Tropical Cyclones”. In: Journal of Geo-physical Research: Atmospheres 125.6, e2018JD029375. doi : 10.1029/2018JD029375 .Schlör, J., M. Newman, J. Thuemmel, A. Capotondi, and B. Goswami (2024). A Hybrid Deep-Learning Model for El Niño Southern Oscillation in the Low-Data Regime . doi :
+
+10.48550/arXiv.2412.03743 .Simmons, A., C. Soci, J. Nicolas, B. Bell, P. Berrisford, R. Dragani, J. Flemming, L. Haim-berger, S. Healy, H. Hersbach, A. Horanyi, A. Inness, J. M. Sabater, R. Radu, and D. Schepers (2020). Global Stratospheric Temperature Bias and Other Stratospheric As-pects of ERA5 and ERA5.1 . https://www.ecmwf.int/en/elibrary/81149-global-stratospheric-temperature-bias-and-other-stratospheric-aspects-era5-and. Text. doi : http : / / dx . doi.org/10.21957/rcxqfmg0 .Spaeth, J. and T. Birner (2022). “Stratospheric Modulation of Arctic Oscillation Extremes as Represented by Extended-Range Ensemble Forecasts”. In: Weather and Climate Dynamics 3.3, pp. 883–903. doi : 10.5194/wcd-3-883-2022 .Tarvainen, A. and H. Valpola (2017). “Mean Teachers Are Better Role Models: Weight-averaged Consistency Targets Improve Semi-Supervised Deep Learning Results”. In: 
+
+Proceedings of the 31st International Conference on Neural Information Processing Systems . NIPS’17. Red Hook, NY, USA: Curran Associates Inc., pp. 1195–1204. Vitart, F. (2009). “Impact of the Madden Julian Oscillation on Tropical Storms and Risk of Landfall in the ECMWF Forecast System”. In: Geophysical Research Letters 36.15. 
+
+doi : 10.1029/2009GL039089 .Vitart, F. (2017). “Madden—Julian Oscillation Prediction and Teleconnections in the S2S Database”. In: Quarterly Journal of the Royal Meteorological Society 143.706, pp. 2210–2220. doi : 10.1002/qj.3079 .Weyn, J. A., D. R. Durran, R. Caruana, and N. Cresswell-Clay (2021). “Sub-Seasonal Forecasting With a Large Ensemble of Deep-Learning Weather Prediction Models”. In: Journal of Advances in Modeling Earth Systems 13.7, e2021MS002502. doi : 10. 1029/2021MS002502 .Wheeler, M. C. and H. H. Hendon (2004). “An All-Season Real-Time Multivariate MJO Index: Development of an Index for Monitoring and Prediction”. In: Monthly Weather Review 132.8, pp. 1917–1932. doi : 10.1175/1520-0493(2004)132<1917:AARMMI>2. 0.CO;2 .Worsnop, R. P., M. Scheuerer, T. M. Hamill, T. A. Smith, and J. Schlör (2024). “RUFCO: A Deep Learning Framework to Postprocess Subseasonal Precipitation Accumulation Forecasts”. In: Artificial Intelligence for the Earth Systems 3.4. doi : 10.1175/AIES-D-24-0020.1 .Zhang, C. (2005). “Madden-Julian Oscillation”. In: Reviews of Geophysics 43.2. doi : 10. 1029/2004RG000158 .20 A Supplementary Material 
+
+# A.1 Evaluation protocol 
+
+A.1.1 Realtime forecast evaluation 
+
+For each forecast target date t and lead time τ , we construct the model climatology from a 10-member ensemble of hindcasts initialised on the five days {− 4, −2, 0, +2 , +4 }
+
+around the corresponding month–day in each of the 20 preceding years. This yields 
+
+Nc = 5 × 20 × 10 = 1000 hindcast samples per target date, from which the climatological mean and distribution are estimated. Forecast anomalies at grid cell g are defined as 
+
+ˆx′
+
+> i
+
+(τ, g ) = ˆxi(τ, g ) − ˆxc(τ, g ), ˆxc(τ, g ) = 1
+
+Nc
+
+> Nc
+
+X
+
+> j=1
+
+ˆxc 
+
+> j
+
+(τ, g ), (2) where ˆxc 
+
+> j
+
+denotes the j-th hindcast sample. ERA5 serves as the ground truth; its climatology xc(τ, g ) is built analogously from a [−4, +4] day window over the same 20-year period, and observed anomalies are defined as x′(τ, g ) = x(τ, g ) − xc(τ, g ). This ensures that forecast and observed anomalies share a consistent bias-corrected reference. Following the AI Weather Quest protocol, we bin the climatological distribution into five equiprobable categories, bounded by the quintile thresholds qk/ 5(τ, g ) for k = 1 , . . . , 4,with q0 = −∞ and q5/5 = + ∞. The forecast probability that the verification falls in bin 
+
+k is 
+
+pk(τ, g ) = 1
+
+Ne
+
+> Ne
+
+X
+
+> i=1
+
+1 q(k−1) /5(τ, g ) < ˆxi(τ, g ) ≤ qk/ 5(τ, g )  , (3) where Ne is the number of forecast ensemble members and 1[·] the indicator function. 
+
+A.1.2 Mean absolute bias score 
+
+For each variable and lead time τ , the systematic bias at grid cell g is the mean error of the ensemble-mean forecast over the Nf forecast cases, 
+
+b(τ, g ) = 1
+
+Nf
+
+> Nf
+
+X
+
+> n=1
+
+ ˆxn(τ, g ) − xn(τ, g ) , (4) where ˆxn is the ensemble mean and xn the ERA5 verification. The mean absolute bias (MAB) is the area-weighted average of |b| over a region R,
+
+MAB( τ ) = X
+
+> g∈R
+
+wg |b(τ, g )|, wg ∝ cos ϕg, X
+
+> g∈R
+
+wg = 1 , (5) with latitude ϕg. The mean absolute bias score (MABS) is the relative change in MAB against the reference, 
+
+MABS( τ ) = 1 − MAB model (τ )MAB ref (τ ) , (6) so that MABS > 0 indicates a smaller bias than the reference. 21 A.1.3 Fair continuous ranked probability score 
+
+For an Ne-member anomaly forecast ˆX′ = {ˆx′
+
+> i
+
+} verifying against x′, the fair CRPS (Ferro, 2014; Ferro et al., 2008; Leutbecher, 2019) is 
+
+fCRPS( ˆX′, x ′) = 1
+
+Ne
+
+> Ne
+
+X
+
+> i=1
+
+|ˆx′ 
+
+> i
+
+− x′| − 12Ne(Ne − 1) 
+
+> Ne
+
+X
+
+> i=1
+> Ne
+
+X
+
+> j=1
+
+|ˆx′ 
+
+> i
+
+− ˆx′ 
+
+> j
+
+|. (7) The (Ne − 1) normalisation removes the finite-ensemble bias of the standard estimator, so the score is unbiased with respect to ensemble size. The area-weighted regional score at lead τ averages over grid cells and forecast cases, 
+
+fCRPS( τ ) = 1
+
+Nf
+
+> Nf
+
+X
+
+> n=1
+
+X
+
+> g∈R
+
+wg fCRPS 
+
+ ˆX′
+
+> n
+
+(τ, g ), x ′
+
+> n
+
+(τ, g )
+
+
+
+, (8) and the corresponding skill score against the reference is 
+
+fCRPSS( τ ) = 1 − fCRPS model (τ )fCRPS ref (τ ) . (9) 
+
+# A.2 MJO forecasts 
+
+Figure A.1: Same as Fig. 4 but for years within the training period, i.e. 2005-2024, excluding the verification period 2007-2011. The anomaly number of TC days per MJO phase shows a similar pattern as in the out-of-training verification period. 22 A.3 Surface impact of SSW events in the IFS 
+
+Figure A.2: Same as Fig. 5 but for the 49R1 IFS reforecasts. Surface impact composites 10-35 days from all SSW events occurring in the 2007-2011 reforecasts for (a) mean sea level pressure, (b) 2m temperature, and (c) total precipitation. 23
