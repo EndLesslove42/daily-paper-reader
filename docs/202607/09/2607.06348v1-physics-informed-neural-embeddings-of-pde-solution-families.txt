@@ -1,0 +1,1437 @@
+Title: Physics-Informed Neural Embeddings of PDE Solution Families
+
+URL Source: https://arxiv.org/pdf/2607.06348v1
+
+Published Time: Wed, 08 Jul 2026 01:08:39 GMT
+
+Number of Pages: 36
+
+Markdown Content:
+# Physics-Informed Neural Embeddings of PDE Solution Families 
+
+## Raul Jimenez 1,2 , Svitlana Mayboroda 3, Pavlos Protopapas 4,Leonid Sarieddine 1,5* , David N. Spergel 6,Pedro Taranc´ on- ´Alvarez 1,5* 
+
+> 1*
+
+Institute of Cosmos Sciences (ICC), University of Barcelona, Mart´ ı i Franqu` es 1, ES-08028, Barcelona, Spain. 
+
+> 2
+
+ICREA, Pg. Llu´ ıs Companys 23, 08010, Barcelona, Spain. 
+
+> 3
+
+Department of Mathematics, ETH Zurich, R¨ amistrasse 101, 8092, Z¨ urich, Switzerland. 
+
+> 4
+
+Institute for Applied Computational Science, Harvard University, Cambridge, MA, USA. 
+
+> 5
+
+Department of F´ ısica Qu` antica i Astrof´ ısica, Universitat de Barcelona, Mart´ ı i Franqu` es 1, ES-08028, Barcelona, Spain. 
+
+> 6
+
+Flatiron Institute, 162 Fifth Avenue, New York, NY, 10011, USA. *Corresponding author(s). E-mail(s): leonid.sarieddine@icc.ub.edu; pedro.tarancon@icc.ub.edu; 
+
+Abstract 
+
+We introduce a physics-informed framework for learning finite-dimensional embeddings of solution families of partial differential equations. The method uses a multihead Physics-Informed Neural Network in which a shared body learns a latent manifold representing the solution space, while linear heads reconstruct individual solutions associated with different initial conditions. A head-orthogonalization penalty removes degeneracies in the latent representa-tion and stabilizes the principal-component spectrum across training realizations. Because the initial condition is built into the network output by construction, these principal components measure the additional variability the network learns on top of the initial profile, not the full solution itself. We apply the method to the one-dimensional viscous Burgers equation, with the heat and wave equations as robustness checks. For a latent dimension nb = 20 , the learned manifolds exhibit pronounced effective dimensional reduction: for Burgers dynamics, only 
+
+2–4 principal components capture about 95% of the latent-space variance, while 
+
+1arXiv:2607.06348v1 [cs.LG] 7 Jul 2026 4–7 capture about 99% , depending on the initial-condition family; the same qualitative compression holds for the heat and wave equations. We also split the wavenumber axis into bands (“Fourier shells”) and measure how much each band contributes to every principal component. The resulting frequency profile is invariant under the change-of-basis freedom that the orthogonalization penalty leaves in the latent space, and is therefore reproducible across independent train-ing runs. More broadly, this establishes the learned spectral profiles and principal components as robust observables of solution-manifold geometry.  
+
+> Keywords: Physics-Informed Neural Networks, partial differential equations, latent representations, multihead neural networks, reduced-order modelling, Burgers equation, solution manifolds
+
+# 1 Introduction 
+
+A central question in physics-informed machine learning is whether the space of solutions of a nonlinear partial differential equation (PDE) can be understood as a low-dimensional geometric object, and whether neural networks (NNs) can be used to uncover the geometry directly from the governing equations. This question is phys-ically motivated: nonlinear PDEs generate solution families with intricate structure arising from interactions across scales, from shock formation in viscous flows to mul-tiscale transport in turbulence (Frisch (1995); Doering and Gibbon (1995); Alexakis and Biferale (2018)). The Navier–Stokes equations stand as a paradigmatic example, but the question applies broadly to any system in which a compact description of the solution manifold would provide interpretable insight beyond individual numeri-cal realizations. The mathematical complexity of these equations — global regularity in 3D remains an open Millennium Problem (Fefferman (2000)), and non-uniqueness of weak solutions has only recently been established (Buckmaster and Vicol (2019)) — underscores that solution spaces of nonlinear PDEs have structure that is far from fully understood, even analytically. Traditionally, progress in this area has relied on a combination of analytical approximations, phenomenological modeling, and increasingly sophisticated numerical simulations. While these approaches have achieved remarkable success in reproducing observed phenomena, numerical solvers produce individual realizations correspond-ing to specific initial or boundary conditions (IC/BC) and do not directly expose the structure of the solution space. Classical reduced-order techniques — proper orthogonal decomposition (Berkooz et al. (1993)), reduced-basis methods (Quarteroni et al. (2015)), and Koopman-based approaches such as dynamic mode decomposition (Schmid (2010); Mezi´ c (2005)) — partially address this gap, but they work post-hoc on precomputed snapshots and are not coupled to the governing equations during basis construction. As a result, the basis functions they produce reflect the statistics of the precomputed snapshot ensemble rather than a representation informed by the 
+
+> The authors are listed in alphabetical order.
+
+2governing equations for the chosen family of solutions. This limitation becomes espe-cially acute in high-dimensional or multiscale systems, where the sheer volume of data generated by simulations can obscure rather than clarify the essential physics. In parallel with these developments, recent advances in machine learning (ML) have introduced a complementary paradigm based on representation learning. In this framework, high-dimensional data are projected into a more semantically meaning-ful embedding — typically of lower dimension, though sometimes higher — in which their essential structure becomes more interpretable (Bengio et al. (2013); Goodfel-low et al. (2016)). This raises the question of whether similar ideas can be applied to physical systems governed by PDEs: namely, whether the space of solutions of a nonlinear equation can itself be understood as a geometric object embedded in a lower-dimensional representation space. Addressing this question requires methods capable of learning representations that remain constrained by the governing equations themselves, rather than solely by collections of precomputed solutions. Physics-Informed Neural Networks (PINNs) provide a natural framework for this purpose precisely because they incorporate the governing differential equations (DEs) directly into the training objective, allowing NNs to approximate solutions while enforcing physical consistency (Raissi et al. (2019); Mattheakis et al. (2019); Kar-niadakis et al. (2021)). Unlike traditional solvers, which must be rerun for each choice of parameters or ICs, PINNs can be trained to represent parametric fami-lies of solutions by treating parameters, BCs, ICs, and forcing terms as inputs to the network (Flamant et al. (2020); Cuomo et al. (2022); Lu et al. (2021b)). In this sense, PINNs define an implicit mapping from a parameter space to a space of functions, thereby providing a representation of the solution manifold associated with the PDE. Crucially, this representation is learned under the governing equation and BC/IC constraints during training, rather than constructed post-hoc from pre-computed solution datasets. Related equation-informed approaches for constructing reduced representations of parametric PDEs have also been developed within reduced-basis and manifold-approximation frameworks (Lassila et al. (2013); Quarteroni et al. (2015)). In parallel with the development of PINNs, a closely related line of research has focused on operator learning , in which the goal is to approximate mappings between infinite-dimensional function spaces rather than individual solutions. Prominent exam-ples include Deep Operator Networks (DeepONet) (Lu et al. (2021a)) and Fourier Neural Operators (FNO) (Li et al. (2020, 2023)), which learn solution operators that map initial or boundary data directly to the corresponding solutions of a PDE. These approaches have demonstrated remarkable efficiency and generalization capa-bilities, particularly in parametric and high-dimensional settings, and have recently been extended to incorporate physical constraints through hybrid architectures such as physics-informed neural operators (Goswami et al. (2022)). From this perspective, the solution manifold of a PDE is implicitly encoded as the image of a learned operator acting on a space of inputs. In contrast, the present work does not learn a solution operator, but instead con-structs a finite-dimensional representation of the solution family via latent coordinates and learned basis functions. To this aim, we use a multihead (MH) PINN to learn an 3explicit, finite-dimensional embedding of the PDE solution manifold. Each solution is represented through low-dimensional coordinates together with a set of learned basis functions, so that the network directly parametrizes a compact representation of the solution family. A head-orthogonalization penalty removes degeneracies in the latent representation and stabilizes the principal-component (PC) spectrum across training realizations, making it a robust, training-independent observable. We further split the wavenumber axis into bands (“Fourier shells”) and measure how much each band con-tributes to every PC, giving each PC a frequency profile that is invariant under the change-of-basis freedom that the orthogonalization penalty leaves in the latent space and is therefore reproducible across independent training runs. This provides a con-crete diagnostic of how information at different physical scales is organized within the learned solution manifold, going beyond variance-based dimensional reduction to a scale-resolved description of the embedding geometry. We do not aim to train a generalizable model that predicts solutions for unseen ICs outside the training set. The focus is on extracting training-independent geometric information from the latent space learned for a particular family of ICs. As a controlled testbed, we focus on the one-dimensional viscous Burgers equation, which provides a minimal model for nonlinear advection and diffusion while retaining key qualitative features of more complex systems, including shock formation, dissi-pation, and energy transfer across scales (Burgers (1948); Hopf (1950)). It can be viewed as a simplified limit of the Navier–Stokes equations, making it an ideal set-ting in which to develop and validate new methodologies before extending them to higher-dimensional systems. In particular, it allows us to systematically study how the solution depends on initial conditions and viscosity under full numerical and analytical control. Applying the method to this system, we find that only 2–4 principal components are required to capture approximately 95% of the latent-space variance, despite a nominal embedding dimension of 20 — indicating a pronounced effective dimensional reduction. This reveals a hierarchical organization of the latent space, in which a small number of dominant components account for most of the variance, with rapidly decreasing contributions from higher-index components. We also apply the method to the heat and wave equations as robustness checks under both dissipative and non-dissipative linear dynamics, allowing us to isolate which features of the learned embedding are specific to the nonlinearity of Burgers versus generic to the PINN framework. The same compression persists across qualitatively different IC families. More broadly, these results support the view that meaningful geometric structure can emerge in representation spaces learned under explicit PDE constraints, even in the absence of precomputed solution datasets. This suggests that physics-informed representation learning can provide a direct route to extracting interpretable low-dimensional structure from the solution spaces of nonlinear PDEs. These findings open a concrete path toward equation-informed reduced-order modeling and toward the geometric analysis of nonlinear dynamical systems. The paper is organized as follows. In Sec. 2 we review the Burgers equation and its relation to the Navier–Stokes system. In Sec. 3 we introduce the PINN framework and describe the MH architecture used to learn the embedding space, together with 4the novel techniques (head orthogonalization and spectral decomposition of the latent space) developed in this work to extract degeneracy-free information from the embed-ding space. In Sec. 4 we present the numerical results for Burgers equation and explore the structure of the latent representations using principal component analysis (PCA) and spectral decomposition of the PCs. Finally, in Sec. 5 we discuss the implications of our findings and outline directions for future work. We also include in this work four appendices. In appendix A we summarize the technical details of the NN architecture and the training process. In appendix B we explain how different IC families are gen-erated. In appendix C we apply the setup to both the heat and wave equations. In appendix D we give an expression for the error bound on the robustness of the PCA decomposition of the latent space depending on the loss function. 
+
+# 2 Burgers equation and its relation to the Navier-Stokes system 
+
+The classic Navier–Stokes equations are among the central systems of hydrodynamics. They describe the dynamics of a non-relativistic viscous fluid. The equation can be written in the following form (Landau and Lifshitz (1987)) 
+
+∂⃗ u∂t + ( ⃗u · ∇ )⃗u = − ∇pρ + ν∇2⃗u +
+
+
+
+ξ + 13 ν
+
+
+
+∇ (∇ · ⃗u ) (1) where ⃗u represents the velocity of the fluid, ρ the density, p the pressure and ν and 
+
+ξ the shear and bulk kinematic viscosities respectively. Throughout this paper, we focus on the one-dimensional case. To obtain a closed scalar evolution equation, one typically replaces the pressure contribution by a phenomenological closure or assumes a regime in which pressure gradients can be absorbed into an external forcing or are dynamically negligible. Under this modeling assumption, the dynamics reduce to the viscous Burgers equation 
+
+∂u ∂t + u ∂u ∂x = ν ∂2u∂x 2 . (2) The viscous Burgers equation can be viewed as a prototypical scalar conservation law with viscosity, sharing the same nonlinear advection–diffusion structure as Navier– Stokes but without the nonlocal pressure constraint. For a more detailed derivation, we refer the reader to Refs. Landau and Lifshitz (1987); Enflo and Hedberg (2002). It is often used as a toy model for qualitative features of turbulent flow. The behavior depends strongly on the viscosity ν. For positive viscosity ( ν > 0), one obtains the viscous Burgers equation. In this regime, there is no true turbulence in the classical sense, but the dynamics still show nonlinear effects such as shock formation regularized by diffusion and energy dissipation. For zero viscosity ( ν = 0), one obtains the inviscid Burgers equation. In this case, smooth initial conditions can develop shocks in finite time. The system remains much simpler than fully developed turbulence, but it exhibits features such as nonlinear transfer across scales without dissipation. We restrict attention to the viscous case in this work, while the inviscid limit is left for future study. 53 Methodology 
+
+This section presents the methodological framework for learning and analyzing low-dimensional embeddings of PDE solution families. We build on PINNs and extend them to MH architectures in which a shared body learns a latent representation of the solution manifold while linear heads map this embedding to solutions associated with different ICs/BCs. We further introduce a head-orthogonalization penalty to remove degeneracies in the principal components of the latent space and define a spectral decomposition of the latent covariance that quantifies scale-resolved structure across different initial-condition families. 
+
+## 3.1 Physics-Informed Neural Networks background 
+
+PINNs, first introduced in the works of Dissanayake and Phan-Thien (1994) and Lagaris et al. (2000), have emerged as a powerful tool for solving PDEs and ODEs. Raissi et al. (2019) proved this approach to be valid on a wide variety of challeng-ing physical problems, while other researchers have made significant advancements in applying NNs to PDEs and ODEs, including notable examples such as Cai et al. (2019); Mattheakis et al. (2020); Sirignano and Spiliopoulos (2018). In this paradigm, one typ-ically trains a distinct NN for each unknown function in the governing equations. The training process involves minimizing a loss function that encodes the squared residuals of the DEs, thereby embedding the physics directly into the learning objective. Throughout this work, we consider standard feedforward fully connected neural networks (FCNNs) with element-wise nonlinear activation functions. Details of the architecture are given in appendix A. In the standard PINNs construction, we use one NN for every unknown func-tion appearing in the DEs. We denote these objects as ψN N (xμ), which represent the approximate solutions produced by the NNs, evaluated at different points of the inde-pendent variables and, when applicable, for different parameter values or IC/BCs, all of them denoted by xμ, which represents the inputs to the model 1. The training pro-cess consists of minimizing a loss function, typically defined as the sum of squared residuals of the DEs evaluated over all sample points in the input domain: 
+
+L = X
+
+> μ=batch
+
+(Dψ N N (xμ) − f (xμ)) 2 + λL add (3) where D is a differential operator and f (xμ) a source/forcing term, both depending on the particular DE (with f ≡ 0 for the homogeneous equations considered in this work). The term Ladd represents additional contributions to the loss function that can be included to provide extra information during training. Its relative weight is controlled by the hyperparameter λ.While traditional numerical methods often outperform PINNs in terms of com-putational efficiency and accuracy, recent developments in PINNs are offering unique advantages. One key benefit is the ability of PINNs to learn parametric dependence of   
+
+> 1Note that xμincludes both spatiotemporal coordinates and different parameters within the same DE form. The distinction between these two will be made precise in the following sections.
+
+6the solutions to different ICs/BCs, or even different values of parameters appearing in the equations (Flamant et al. (2020); Cuomo et al. (2022); Karniadakis et al. (2021); Lu et al. (2021b)). In contrast with traditional numerical methods, this allows us to train the model on a wide range of different parameters at once, whereas a traditional solver must be rerun for different values of ICs/BCs, or parameters. Another key advantage of PINNs is their capability of learning a general, high-dimensional space of functions called the latent or embedding space . The final solution is simply a combination of these functions in a certain way. This latent space depends, in general, on the independent variables of the problem, but it can also be learned for different ICs/BCs or different values of parameters appearing in the equations (Flamant et al. (2020)). In this work, we learn a latent space of Burgers equation for different values of the viscosity ν, and different ICs in the so-called multihead (MH) training (Pellegrin et al. 2022; Desai et al. 2022). We also learn this embedding space for the heat and wave equations, for different values of the heat diffusivity and the wave speed respectively. We will explain the proposed framework in the following subsection. PINNs offer further advantages: PINNs are mesh-free, allowing one to obtain a solu-tion at any point in the domain. Moreover, they can also be used to find new solutions on stiff regimes via transfer learning (Auroy and Protopapas (2025); Taranc´ on- ´Alvarez et al. (2025)). PINNs have also been widely used to tackle inverse problems (Raissi et al. (2019); Yang et al. (2021); Bea et al. (2024); Taranc´ on- ´Alvarez et al. (2025)) due to their ability to learn the dependence of DEs solutions on boundary data. 
+
+## 3.2 Multihead architecture 
+
+In this section, we describe one of the key components used throughout this work: the MH architecture and training. This consists of splitting the NN ψN N into two parts: the body, which learns the latent or embedding space; and the head, which maps the latent components to the final solution. This architecture has already been shown to be useful for transfer learning of DE solutions in stiff regimes (Taranc´ on- ´Alvarez et al. 2025). Here, we instead use MH training to analyze the mathematical structure of the embedding space, providing insight into the functional basis learned by the model to represent the solution. 
+
+3.2.1 Basic concepts 
+
+The MH approach for solving DEs with PINNs aims to learn the solution manifold (latent or embedding space) of a given system, rather than a single specific solution. This formulation allows the model to account for variations in ICs, BCs, system param-eters, and forcing terms f in the inhomogeneous part of the DE. By capturing the dependence of the solution on these factors, the model can generalize across a broad family of DE problems. To formalize this approach, we represent the DE system as follows: 
+
+Dψ N N (xμ) − f (xμ) = 0 ; μ = 1 , 2, 3, . . . (4) 7where each xμ represents different inputs to the model. D is a generic differential operator that encodes the form of the DE system, {xμ}μ=1 ,..,m −1 are the independent variables, {xμ}μ=m,..,d is a list of parameters describing the solutions for different ICs, BCs or parameters of the equations, and ψN N (xμ) is the solution of the DE system. 
+
+f (xμ) is a general function that depends on the independent variable and may also depend on a parameter. From this point forward, we will refer to any scenario with the same DE form (same 
+
+D) and some choice of ICs, BCs, parameters and/or forcing functions f as belonging to the same family of DEs. Any variation of {xμ}μ=m,..,d and/or f will be a variation within the same family of the DEs, and a specific choice of them will be an element 
+
+of the family of DEs. The MH approach is based on learning a mapping to an embedding space that generalizes across different solutions within the same family of DEs. This space is represented by a set of nb functions, Hi(xμ), which are generated by the body NN. This NN contains a set of weights and biases that we denote by WB .The latent space of solutions can then generate a specific solution of the family of the DE system by combining the nb components. This mapping is performed by another NN, known as the head . The NN produces an approximate solution ψN N (xμ)of a DE. The final result of the head can be expressed as follows 
+
+ψN N (xμ) = head Wj [Hi(xμ)] where head denotes the response of the head, and Wj the set of weights and biases of the j-th head model. We now describe how the model is trained. Once an approximate solution is obtained, the loss function is computed from the squared residuals of the DEs together with any additional penalty terms (Eq. 3). The total loss is given by the sum of the individual losses over all heads. The model is then trained by minimizing this objec-tive. The corresponding training graph is shown in Fig. 1. At convergence, the model simultaneously solves all specified DE problems. Since the body is shared across all heads, it captures global properties of the solution family associated with the DE. 
+
+3.2.2 Linear heads and head orthogonalization 
+
+As we have mentioned, the aim of this work is to analyze the properties of the embed-ding space of solutions Hi(xμ). However, it is well known that the components of the latent space are not uniquely defined due to degeneracies during the training of the model. A NN has so much freedom that, up to some accuracy given by the loss function, it can encode the same information in the latent space in many different ways. Therefore, looking at the individual components of Hi(xμ) will not give us any valuable information, since they will strongly vary across different architectures, ini-tialization, training schedule, etc. In this subsection we will present a method to break this degeneracy when looking at the Principal Components (PCs) of the embedding space. 8Body 
+
+Latent space 
+
+Heads Loss 
+
+Total loss 
+
+> Backprop.
+
+Fig. 1 Graphical representation of the training graph of the MH setup. The input xμ contains the independent variables and any variation of parameters of the DE. This is then mapped to the latent space Hi(xμ). Then, the components of Hi are linearly combined to generate the solution ψN N to the DE for the i-th initial condition. The loss function is computed as the MSE of the residual of DE. Finally, the head weights Wi and the parameters of the body WB are updated using backpropagation. 
+
+We focus on the case in which each of the heads is as simple as possible: a linear layer. This simplification will allow us to gain explainability on the latent space com-ponents. In this case, the response of each of the heads can be written in the following form 
+
+ψraw (xμ; IC ) = 
+
+> nb
+
+X
+
+> i=1
+
+w(IC )iHi(xμ) (5) where Hi(xμ) are the latent space components and w(IC ) the set of weights of the head solving the equation for a particular IC/BC. The output is then reparameterized (see Eq. 6 below) into ψN N (xμ; IC ), such that the IC/BC is matched exactly 2. Note that in these expressions the weights of the head can be thought of as coefficients, and the latent space functions act as a “basis”. So, in some way, the NN is learning what is the optimal basis made out of nb functions to solve the DE problem for different ICs/BCs, for a fixed domain of the independent variables, and for a range of values of different parameters {xμ}μ=m,...,d .To make things more explicit, the response of each head can be written as follows: 
+
+ψN N (xμ; IC i) = v(x; IC i) + F (x, t )
+
+> nb
+
+X
+
+> j=1
+
+w(IC i)j Hj (xμ) (6) where t represents the temporal independent variable 3, and v(x; IC i) is the i-th IC at 
+
+t = 0. Here F (x, t ) is an auxiliary function that allows to impose the IC at t = 0, and   
+
+> 2This is the hard enforcement approach, in which the IC is built into the ansatz exactly.
+> 3Our presentation focuses on the IC setting. However, the framework extends straightforwardly to BCs.
+
+9the Dirichlet BC at the edges of the interval. The specific expression of this function is the following 
+
+F (x, t ) = x − xmin 
+
+xmax − xmin 
+
+
+
+1 − x − xmin 
+
+xmax − xmin 
+
+  1 − e−t
+
+where xmin and xmax represent the edges of the spatial domain of interest, this is, 
+
+x ∈ [xmin , x max ]. Note that the weights wj (IC i) and the latent space components Hj
+
+depend on the initialization of the NN parameters, and hence do depend on arbitrary choices that one makes. However, the full solution ψN N (xμ; IC i) does not depend on those choices, since it is defined as the solution to a DE with an IC. Therefore, up to an error term of the order of the DE residual loss, we have the following relation between different latent space realizations 
+
+> nb
+
+X
+
+> j=1
+
+wij Hj (xμ) = 
+
+> nb
+
+X
+
+> j=1
+
+ˆwij ˆHj (xμ), i ∈ { 1, . . . , N h},
+
+where Nh is the number of heads (i.e., the number of ICs/BCs solved simultaneously in the MH setup), ˆ · denotes quantities obtained from an independently trained model (e.g., different random initialization), and wij ≡ wj (IC i) are the linear-head weights associated with the i-th IC. In matrix form, this relation reads W H = ˆW ˆH, where 
+
+W ∈ RNh×nb and H ∈ Rnb (with entries given by the functions Hj evaluated at xμ). In our experiments we choose Nh = nb, so W is a square matrix. We further assume that it is invertible. We can then left-multiply by W −1 to obtain 
+
+Hj (xμ) = ( W −1)j i ˆW ik ˆHk(xμ). (7) In principle, we do not have to assume W to be invertible. It is sufficient that W has full column rank (hence Nh ≥ nb), so that the latent components are identifiable from the collection of heads up to an nb × nb linear transformation. In practice, full column rank is expected when the heads correspond to sufficiently diverse ICs/BCs and the optimization does not collapse multiple latent directions; the head-orthogonalization procedure introduced below is designed to discourage such degeneracies. For complete-ness, if Nh̸ = nb one may replace W −1 by the Moore–Penrose pseudoinverse W + but we do not consider such a case in our work here. We now introduce the centered latent-space components. Subtracting the mean removes the overall offset of each latent direction and isolates the fluctuations around the average latent configuration. This is the natural quantity to consider in PCA, since PCs are intended to capture directions of maximal variance rather than the mean embedding itself. Moreover, centering removes a possible rank-one contribution associated with the average latent profile, preventing the PCA spectrum from being dominated by trivial global shifts. The centered latent variables are defined as 
+
+Hic(xμ) = Hi(xμ) − μi,
+
+10 where the mean of the i-th latent component is computed over the sampled points in the xμ directions, 
+
+μi = 1
+
+M
+
+> M
+
+X
+
+> l=1
+
+Hi(xμl ).
+
+where we have a total of M sampling points {xμl }l∈{ 1,...,M } across different parame-ters (we use uppercase M to avoid confusion with m, used earlier for the number of independent variables). It is important to note that, under changes between different training realizations, the mean transforms covariantly in the same way as the latent components themselves. Indeed, since the latent transformation matrix is independent of the sampling points 
+
+xμ, one finds 
+
+μj = ( W −1)j i ˆW ik ˆμk.
+
+Consequently, the centered latent-space components obey the same transformation law as the original latent variables, 
+
+Hjc (xμ) = ( W −1)j i ˆW ik ˆHkc (xμ).
+
+Since centered and non-centered latent variables transform identically, we work from this point onward with centered latent-space components and, for notational simplicity, suppress the subscript c in Hic.
+
+## 3.3 PCA of the latent space 
+
+Let us call the matrix W −1 ˆW ≡ A. In order to perform a PCA of the embedding space, we need to compute the covariance matrix. This object is defined as follows: 
+
+Cij =
+
+> M
+
+X
+
+> l=1
+
+Hi(xμl )Hj (xμl ). 
+
+> 4
+
+Using the transformation rule given in Eq. 7 we obtain that the covariance matrix transforms in the following way under latent space reparameterizations 
+
+Cij =
+
+> M
+
+X
+
+> l=1
+> nb
+
+X
+
+> k=1
+> nb
+
+X
+
+> m=1
+
+Aik ˆHk(xμl ) Ajm ˆHm(xμl )=
+
+> nb
+
+X
+
+> k=1
+> nb
+
+X
+
+> m=1
+
+Aik ˆCkm (A⊤) jm, (8) where ˆC corresponds to the covariance matrix in the ˆH basis ˆCij =
+
+> M
+
+X
+
+> l=1
+
+ˆHi(xμl ) ˆHj (xμl ).            
+
+> 4We omit the conventional 1/M normalization for notational simplicity; including it rescales all eigenvalues by the same factor and does not affect the analysis below.
+
+11 The covariance matrix therefore transforms as 
+
+C = A ˆCA ⊤.
+
+PCA amounts to solving 
+
+C v = λ v, (9) where λ are the eigenvalues (explained variances) and v are the corresponding eigen-vectors (principal directions). Equivalently, the eigenvalues are the roots of the characteristic polynomial det( C − λI ) = 0 .
+
+If A ∈ O(nb), then C and ˆC are related by an orthogonal similarity transform, 
+
+C = A ˆCA ⊤. Since det A det A⊤ = 1 and λI = A(λI )A⊤, this gives det( C − λI ) = det( ˆC − λI ), so C and ˆC share the same eigenvalues. Hence C and ˆC have the same eigenvalues when A ∈ O(nb), i.e., when the change of latent basis between two trainings is orthogonal. In general, relating two latent representations requires that the head-weight matrix W to be full rank (so that W −1
+
+exists in the square case). We enforce head orthogonalization as a practical way to (i) discourage rank collapse and (ii) make the induced change of basis approximately orthogonal, stabilizing the PCA spectrum across random initializations. Let W ∈ RNh×nb denote the matrix collecting the head weights, with entries 
+
+Wij = wj (IC i). In the square case used in this work ( Nh = nb), we add the penalty 
+
+Ladd = ∥W W ⊤ − I∥2 
+
+> F
+
++ ∥W ⊤W − I∥2 
+
+> F
+
+. (10) For square W both terms vanish on the same set, so only one is strictly necessary; we keep both because they generate symmetric gradients and stabilize optimization. This drives W to be approximately orthogonal, which in particular implies that W is full rank. If both W and ˆW are (approximately) orthogonal, then A = W −1 ˆW = W ⊤ ˆW ∈
+
+O(nb) (up to the accuracy enforced by the penalty), and the PCA eigenvalues become insensitive to the particular latent-space representation learned in a given training run. A natural question at this point is whether we can quantify the error on the corresponding eigenvalues given the loss residuals. Here we provide the final result, the reader is referred to the Appendix D for the full details. Given two NN realizations corresponding to different initial seeds, the full solutions are denoted by ψ and ˆψ, with corresponding latent space components H and ˆH as well as their weight matrices W
+
+and ˆW and their covariance matrices C and ˆC. The resulting bound on the eigenvalue difference is 
+
+|λk(C) − λk( ˆC)| ≤ 
+
+
+
+∥H∥L2(D) + ∥A bH∥L2(D)
+
+
+
+× ∥ W −1∥2 · 4LK H1 (√ϵ + √ˆϵ) + δ∥ ˆC∥2
+
+with 
+
+ϵ := ∥R (ψ)∥2 
+
+> L2(D)
+
+bϵ := ∥R ( bψ)∥2
+
+> L2(D)
+
+12 and 
+
+δ := ∥AT A − I∥2.
+
+This is not meant to be an optimal bound, and is only meant to illustrate the fact that one can control the error on the difference between the eigenvalues given the error on the losses as well as some regularity estimates on the approximate solutions ψ and ˆψ. In particular, when the loss residuals ϵ, ˆϵ and the orthogonalization error δ are all small, the right-hand side is small, and the PCA spectra of C and ˆC agree up to a controlled error — so the spectrum becomes effectively independent of the training realization. 
+
+## 3.4 Spectral weight decomposition 
+
+PCA orders the latent directions by explained variance, but each principal component is itself a vector in latent space and can mix contributions from many spatial scales. For a physically meaningful interpretation we would like to know which spatial frequencies are responsible for the variance captured by each PC . The decomposition introduced in this section answers exactly that question: it splits each PC’s eigenvalue λn into a sum over wavenumber bands (“Fourier shells”) Q, giving a profile ρn(Q) that tells us how much of λn comes from each scale. This profile is invariant under the change-of-basis freedom that the orthogonalization penalty leaves in the latent space, and is therefore a training-independent observable. The construction proceeds in three steps. (i) Fourier-transform the latent compo-nents along the spatial axis x1 and group wavenumbers into shells. (ii) Define the Q-shelled covariance C(Q) and show it transforms in the same way as the full covariance under latent reparametrizations. (iii) Define the spectral weight ρn(Q) ≡ v⊤ 
+
+> n
+
+C(Q)vn
+
+and verify it is independent of the training realization. Assume we have a realization of the latent space components Hi(xμ). We define the discrete Fourier transform with respect to the x1 variable 5 as 
+
+eHi(k, x ν ) = X
+
+> x
+
+e−ikx 1
+
+Hi(x1, x ν ),
+
+where ν = 2 , . . . , d .The inverse transform can be written as a sum over discrete momentum shells 
+
+Q ⊂ K as 
+
+Hi(xμ) = X
+
+> Q
+
+X
+
+> k∈Q
+
+12π eikx 1 eHi(k, x ν ),
+
+where the sum runs over all momentum shells K. 
+
+> 5We restrict the Fourier analysis to the spatial coordinate x1, as the associated Fourier modes naturally encode the scale dependence of the solutions. However, the PC spectral decomposition introduced below is fully general and can be applied to any other coordinate or variable without modification.
+
+13 With this definition, the covariance matrix reads 
+
+Cij =
+
+> M
+
+X
+
+> l=1
+
+Hi(xμl )Hj (xμl )=
+
+> M
+
+X
+
+> l=1
+
+X
+
+> Q,R ∈K
+
+X
+
+> k∈Q
+
+X
+
+> k′∈R
+
+eix 1 
+
+> l(k+k′)
+
+(2 π)2 eHi(k, x νl ) eHj (k′, x νl )=
+
+> M
+
+X
+
+> l=1
+
+X
+
+> Q
+
+X
+
+> k∈Q
+
+12π eHi(k, x νl ) eHj (−k, x νl )= X
+
+> Q
+
+C(Q) 
+
+> ij
+
+,
+
+where we have defined the Q-shelled covariance matrix as 
+
+C(Q) 
+
+> ij
+
+≡
+
+> M
+
+X
+
+> l=1
+
+X
+
+> k∈Q
+
+12π eHi(k, x νl ) eHj (−k, x νl ).
+
+Note that to simplify the expression of the covariance matrix we have used the discrete Fourier identity X
+
+> xl
+
+eix l(k+k′) = 2 πδ k, −k′ .
+
+It is important to note that the Q-shelled covariance matrix transforms in the same way as the full covariance matrix. Recall that the Fourier transformed latent space components transform as 
+
+eHi(k, x ν ) = Aij 
+
+gˆH j (k, x ν ),
+
+where the ˆ · denotes quantities obtained from an independent training run. The matrix 
+
+A is defined in terms of the head weights as A ≡ W −1 ˆW .From this we obtain the transformation of the Q-shelled covariance matrix, 
+
+C(Q) 
+
+> ij
+
+=
+
+> M
+
+X
+
+> l=1
+
+X
+
+> k∈Q
+
+12π Aim gˆH m(k, x νl )Ajn gˆH n(−k, x νl )= Aim Ajn ˆC(Q) 
+
+> mn
+
+.
+
+In matrix notation, 
+
+C(Q) = A ˆC(Q)A⊤. (11) This is the same transformation rule as for the full covariance matrix. It follows immediately that spec( C(Q)) = spec( ˆC(Q)),
+
+14 provided that A is orthogonal as is the case in our usual setup. Hence both Q-shelled covariance matrices share the same eigenvalues, denoted {λ(Q) 
+
+> n
+
+}.The Q-shelled covariance matrix admits a natural spectral interpretation. In par-ticular, its trace measures the total power carried by the Fourier modes contained within the momentum shell Q,
+
+P (Q) = X
+
+> k∈Q
+
+X
+
+> i
+
+eHi(k, x ν ) eHi(−k, x ν ) = Tr 
+
+
+
+C(Q)
+
+.
+
+Thus, the trace of C(Q) can be interpreted as the contribution of the shell Q to the total variance of the latent representation. Moreover, this quantity is invariant under latent-space reparametrizations, as follows directly from the transformation rule of the Q-shelled covariance matrix given in Eq. 11. In general, the eigenvalues of C(Q) do not sum to those of the full covariance matrix, 
+
+λn̸ = X
+
+> Q
+
+λ(Q) 
+
+> n
+
+,
+
+unless the commutativity condition holds, [C(Q), C (R)] = 0 , ∀Q, R 
+
+which is generally not the case. However, one can define the Q-shelled spectral weight as 
+
+ρn(Q) ≡ vTn C(Q)vn,
+
+where vn is the eigenvector of the full covariance, satisfying Cv n = λnvn.This quantity measures the contribution of shell Q to the total variance captured by the n-th principal component. Summing over all shells one recovers the full eigenvalue, 
+
+λn = X
+
+> Q
+
+vTn C(Q)vn = X
+
+> Q
+
+ρn(Q).
+
+Finally, we verify that this quantity is invariant under latent space reparameteri-zations. Using that the eigenvector transforms as vn = Aˆvn, with ˆC ˆvn = λn ˆvn ⇒ C(Aˆvn) = λn(Aˆvn),
+
+we compute 
+
+ρn(Q) = ( Aˆvn)⊤C(Q)(Aˆvn)= ˆ v⊤ 
+
+> n
+
+A⊤C(Q)Aˆvn
+
+= ˆ v⊤ 
+
+> n
+
+A⊤A ˆC(Q)A⊤Aˆvn
+
+= ˆ vTn ˆC(Q) ˆvn = ˆ ρn(Q),
+
+15 where we assumed that the eigenvalues are non-degenerate so that eigenvectors transform as vn = Aˆvn.The PCA spectrum of the latent space admits a fully invariant decomposition into Fourier shells, where each eigenvalue λn is expressed as a sum of scale-resolved contributions ρn(Q). In this sense, PCs are not tied to a single characteristic frequency, but instead define robust spectral profiles over momentum space that are stable under latent reparametrizations induced by different training realizations. In Sec. 4, we apply this framework to the viscous Burgers, heat and wave equations, and show that the dominant spectral shells for each principal component cluster around intermediate scales, with a dependence on the IC family. 
+
+## 3.5 Initial conditions and model specifics 
+
+A key element in our pipeline is the choice of ICs, which are used to probe the structure of the solution manifold learned by the model. We distinguish three complementary families of ICs: Fourier modes, polynomials, and wavelets. In this work, we always train the models with Nh = nb = 20 ICs drawn from these families. We also impose vanishing Dirichlet boundary conditions at the edges of the spatial domain for all the families, i.e., ψN N (t, x min ; IC ) = ψN N (t, x max ; IC ) = 0. Rather than being arbitrary choices, these IC families are selected to probe quali-tatively different aspects of the solution space geometry. Fourier ICs provide globally supported, spectrally pure perturbations and therefore probe the model’s ability to represent and disentangle individual frequency components. Polynomial ICs empha-size smooth, low-frequency variations and test the capacity of the representation to capture globally coherent trends and non-oscillatory structure. In contrast, wavelet ICs are spatially localized and inherently multiscale, allowing us to probe how the learned manifold encodes localized structures, sharp features, and scale-dependent interactions. Together, these three families form a minimal but complementary basis of probes that span global-to-local and smooth-to-oscillatory regimes. The explicit construction of these ICs, including the precise sampling procedures for the Fourier coefficients, polynomial bases, and wavelet parametrizations, is deferred to Appendix B, as these details are implementation-specific and not essential for understanding the geometric role of the IC families within our framework. 
+
+# 4 Results 
+
+In this section, we present results for the one-dimensional Burgers equation (Eq. 2) using three families of ICs: Fourier modes, polynomials, and wavelets. The main quantitative result is that the learned embeddings have a much smaller effective dimension than the nominal latent dimension nb = 20. Across the Burgers experiments, 2–4 principal components are sufficient to recover 95% of the latent-space variance, while 4–7 components recover 99%, depending on the IC family. The same compression pattern persists for the heat and wave equations, indicating that the effect is not specific to a single PDE or to a particular choice of ICs (Fig. 3). We therefore use the PCA spectrum as the primary diagnostic of effective dimensionality, and complement it with the Fourier-shell decomposition introduced in Sec. 3.4 with 16 Equation Initial condition Min. Loss PC (90%) PC (95%) PC (99%) Dom. shells (PC1-PC3)                                                                                  
+
+> Burgers
+> Fourier 2.06 ×10 −3346Q3,Q2,Q4
+> Polynomials 4.15 ×10 −4224Q3,Q2,Q3
+> Wavelets 6.77 ×10 −3347Q3,Q4,Q4
+> Heat
+> Fourier 1.16 ×10 −4335Q4,Q2,Q3
+> Polynomials 2.52 ×10 −4112Q2,Q1,Q1
+> Wavelets 1.53 ×10 −2346Q3,Q4,Q4
+> Wave
+> Fourier 1.67 ×10 −2457Q4,Q2,Q3
+> Polynomials 4.72 ×10 −2223Q2,Q1,Q2
+> Wavelets 7.62 ×10 −2346Q3,Q4,Q4
+
+Table 1 Minimum loss function and number of principal components required to recover 90%, 95%, and 99% of the latent-space variance, for each equation and initial condition basis. The total dimension of the latent space is 20. Dominant shells are listed compactly as the top dyadic shell for each PC from PC1 to PC3. 5.0 2.5 0.0 2.5 5.0                                     
+
+> x
+> 2
+> 1
+> 0
+> 1
+> 2
+> u(x,t)
+> Fourier
+> 5.0 2.5 0.0 2.5 5.0
+> x
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> Polynomials
+> 5.0 2.5 0.0 2.5 5.0
+> x
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0 Wavelets
+> 5.0 2.5 0.0 2.5 5.0
+> x
+> 10 7
+> 10 5
+> 10 3
+> 10 1
+> Abs. error
+> 5.0 2.5 0.0 2.5 5.0
+> x
+> 10 7
+> 10 6
+> 10 5
+> 10 4
+> 10 3
+> 10 2
+> 5.0 2.5 0.0 2.5 5.0
+> x
+> 10 7
+> 10 5
+> 10 3
+> 10 1
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> Time t
+> NN Numerical
+
+Fig. 2 Comparison between numerical solutions (dashed lines) and multihead PINN predictions (solid lines) for the one-dimensional Burgers equation with viscosity ν = 0 .1. Results are shown for representative initial conditions drawn from the three families considered in this work: Fourier modes (left), polynomials (center), and wavelets (right). Different colors correspond to different time snapshots of the evolution. The lower panels display the absolute error between the neural-network prediction and the numerical solution. 
+
+dyadic shells, which assigns scale-resolved weights to the leading principal components (Figs. 3, 4). This lets us check whether each leading PC corresponds to a distinct spatial scale, or instead mixes contributions across many scales. Our results are made degeneracy-free by the head-orthogonalization penalty (Eq. 10). In order to complete our analysis and further demonstrate the robustness of our results, we also applied the method to the heat and wave equations. From a mathe-matical perspective, both the heat and Burgers equations are dissipative systems. In 17 0.25                                     
+
+> 0.50
+> 0.75
+> Burgers
+> Explained
+> Variance
+> Fourier Polynomials Wavelets
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> Heat
+> Explained
+> Variance
+> 02468
+> Principal Component
+> 0.25
+> 0.50
+> 0.75
+> Wave
+> Explained
+> Variance
+> 02468
+> Principal Component
+> 02468
+> Principal Component
+> 0.6
+> 0.8
+> 1.0
+> Cumulative
+> Variance
+> 0.6
+> 0.8
+> 1.0
+> Cumulative
+> Variance
+> 0.6
+> 0.8
+> 1.0
+> Cumulative
+> Variance
+> Q1:= 0.00 Q2:[0.62, 0.62] Q3:[1.24, 1.87] Q4:[2.49, 4.35]
+> Q5:[4.98, 9.33] Q6:[9.95, 19.29] Q7:[19.91, 31.10]
+> Cumulative variance 90% 95% 99%
+
+Fig. 3 Principal-component spectra of the learned latent space for all equations and initial-condition families. Each bar shows the explained variance ratio λn/ P 
+
+> m
+
+λm for each principal component, with colors indicating the contribution of each momentum shell Q according to the spectral weight decom-position ρn(Q)/ P 
+
+> m
+
+λm (Subsec. 3.4). The orange curve and right axis show the cumulative explained variance; dashed lines mark the 90%, 95%, and 99% thresholds. Rows correspond to Burgers (top), heat (middle), and wave (bottom); columns to Fourier, polynomial, and wavelet initial-condition fam-ilies. 
+
+particular, the heat equation is linear and admits an explicit solution in Fourier space. The evolution is obtained by acting with the heat kernel on the initial condition, leading to an exponential suppression of the Fourier modes, ˆu(k, t ) = e−κk 2t ˆu0(k). (12) This behavior is qualitatively similar to the decay observed in the Principal Component Analysis (PCA) spectrum (Fig. 3). To further assess the robustness of our conclusions, we also considered a non-dissipative linear PDE, namely the wave equation, whose Fourier modes evolve as ˆu(k, t ) = Akeivkt + Bke−ivkt , (13) and therefore exhibit purely oscillatory, rather than dissipative, behavior. A summary of the results is provided in Table 1. Details of the NN architecture, the collocation points, and the training procedure are provided in Appendix A. A comparison between the numerical solutions and those obtained with the PINN is shown in Figs. 2, C1, and C2, for the Burgers, heat, and wave equations, respectively. We observe good agreement between the numerical and PINN solutions, with absolute errors of order 10 −2. The worst-performing case corresponds to the wavelet IC family 18 0.0                          
+
+> 0.2
+> 0.4
+> 0.6
+> Burgers
+> n(Qq)/  m m
+> Fourier Polynomials Wavelets
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> Heat
+> n(Qq)/  m m
+> Q1Q2Q3Q4Q5Q6Q7
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> Wave
+> n(Qq)/  m m
+> Q1Q2Q3Q4Q5Q6Q7Q1Q2Q3Q4Q5Q6Q7
+> 12345
+
+Fig. 4 Spectral weight decomposition ρn(Q)/ P 
+
+> m
+
+λm as a function of momentum shell Q for the leading five principal components ( ρ1 through ρ5), shown for each combination of equation (rows: Burgers, heat, wave) and initial-condition family (columns: Fourier, polynomials, wavelets). The stacked bars indicate the contribution of each principal component to the total latent-space variance carried by shell Q, taking into account just the five most relevant principal components. 
+
+for the Burgers equation. We attribute the mismatch occurring near x ≃ 2 to the formation of a near-shock structure, which makes it difficult for the PINN to converge in that region. A crucial point is that the PCA is not performed on the full solution u(x, t ). The IC is imposed explicitly through the ansatz 6
+
+ψNN (x, t ; IC) = v(x; IC) + F (x, t )
+
+nbX
+
+j=1 
+
+wj (IC) Hj (xμ). (14) Thus the latent functions Hj represent the residual degrees of freedom required to evolve away from the prescribed IC. The PCA spectrum should therefore be inter-preted as the effective dimension of this residual solution manifold, rather than of the full solution family including the initial data. This distinction is especially relevant for the wave equation. A PCA of the full solution family can be dominated by the imposed IC. For instance, for orthogonal 
+
+> 6
+
+For wave equation we slightly change the parametrization of the solution to 
+
+F (x, t ) = x − xmin 
+
+xmax − xmin 
+
+
+
+1 − x − xmin 
+
+xmax − xmin 
+
+  
+
+1 − e−t2 
+
+This choice automatically enforces the IC 
+
+∂tψNN (x, 0; IC) = 0 ,
+
+since the prefactor (1 − e−t2
+
+) and its first time derivative both vanish at t = 0. 
+
+19 Fourier ICs in the wave equation, the full solutions remain approximately orthogonal in space-time, leading to a nearly flat spectrum at sufficiently long times. Our analysis removes this trivial contribution and instead probes the remaining latent degrees of freedom learned by the shared body of the network. Further discussion regarding this point is included in the wave equation appendix C. The results in both Table 1 and Fig. 3 show that all three equations exhibit a pronounced reduction in effective latent dimension, but with clear dependence on both the PDE and the IC family. Polynomial ICs lead to the strongest compression, while Fourier and wavelet ICs generally require more PCs. The wave equation with Fourier IC is the least compressed case, consistent with the absence of diffusive damping. Thus, the PCA spectrum should be viewed as a property of the equation-constrained residual manifold sampled by a chosen ensemble of ICs, not as an intrinsic dimension of the entire PDE solution space. We next use the Fourier-shell decomposition to assign a scale-resolved profile to each leading PC (Figs. 3 and 4). For the n-th principal component vn, the decomposition gives 
+
+λn = X
+
+> Q
+
+ρn(Q), ρn(Q) = v⊤ 
+
+> n
+
+C(Q)vn, (15) where C(Q) is the contribution of Fourier shell Q to the latent covariance. Since C(Q)
+
+transforms covariantly under the same latent reparametrizations as the full covariance, the weights ρn(Q) provide degeneracy-free spectral profiles for the PCA modes. The shell profiles should be interpreted conservatively. They do not define universal preferred frequencies for Burgers, heat, or wave dynamics. The dominant shells depend visibly on the IC family. What can be read directly from Table 1 and Figs. 3, 4 is that, for the first three PCs, the largest shell contribution lies in Q1–Q4 across the experiments considered. This suggests that, in the present setup, the dominant residual variance is associated with low-to-intermediate spatial scales. The precise shell locations, however, remain conditioned by the chosen IC family and by the shell discretization. The physical role of the shell decomposition is therefore not to identify a universal frequency band, but to show that the degeneracy-free PCA modes have a scale-resolved structure. For heat, the residual latent degrees of freedom encode diffusion-induced changes of the initial profile. For Burgers, they encode the deformation generated by nonlinear advection together with viscous damping. For wave dynamics, the absence of diffusion is reflected most clearly in the weaker PCA compression for Fourier ICs. In all cases, the Fourier-shell analysis turns the abstract PCA hierarchy into a set of scale-resolved observables of the learned residual manifold. 
+
+# 5 Conclusions 
+
+In this work we have studied the structure of embedding (or latent) spaces associ-ated with neural-network representations of families of PDE solutions. Although our numerical analysis uses the one-dimensional viscous Burgers equation as a controlled testbed, the central point is more general: a latent space learned from a family of 20 PDE solutions can be regarded as a geometric object carrying information about the corresponding solution manifold. The present study should therefore be viewed as a first step toward extracting interpretable geometrical information from latent spaces of NNs trained on PDEs in general. Using a MH PINN architecture, we have learned a shared latent representation encoding families of solutions with different ICs and parameter values. The shared body defines the embedding space, while the solution-specific heads reconstruct indi-vidual members of the family. This formulation shifts the focus from approximating isolated solutions to characterizing the geometry of the solution space itself. While tested here for 1D problems, the construction is in principle applicable to any PDE family amenable to PINN training, though convergence in higher-dimensional systems remains to be demonstrated. A central result is that the learned latent space exhibits pronounced low-dimensional organization. With linear heads and orthogonality constraints, the representation admits a stable PC decomposition with rapidly saturating explained-variance spectra across the tested families of ICs. For Burgers dynamics, only 2–4 PCs are sufficient to capture approximately 95% of the latent-space variance, despite a nominal embedding dimension of 20. This hierarchy is not imposed by construction, but emerges from the simultaneous enforcement of the governing equations and the representation of a family of solutions. A complementary result is provided by the Fourier-shell decomposition of the latent covariance: the spectral weights ρn(Q) reveal that the dominant PCs concentrate their variance at low-to-intermediate momen-tum shells ( Q1–Q4), with the precise distribution depending on the IC family. This scale-resolved structure is invariant under admissible latent reparametrizations and therefore constitutes a robust, training-independent observable of the learned embed-ding. The dependence of both the effective dimensionality and the shell-resolved spectral profiles on the equation and on the IC ensemble suggests that the latent representation reflects properties of the chosen solution family, rather than merely providing a generic low-dimensional compression. We further find that the effective dimensionality and spectral organization of the latent space depend on the family of ICs used during training. Polynomial ICs, which are spectrally concentrated at low wavenumbers, require fewer PCs and shift the dom-inant spectral weight toward lower shells compared to Fourier or wavelet families. This IC dependence is a feature of the method rather than a limitation: it indicates that the learned manifold faithfully reflects the structure of the solution family it was trained on, rather than producing a universal representation independent of the input ensemble. More broadly, the latent hierarchy suggests that neural representations of PDEs may encode intrinsic collective degrees of freedom. The ordering of modes is defined by explained variance in latent space rather than by spatial wavelength, providing a data-driven form of scale organization. This bears a structural similarity to Wilsonian (Wilson and Kogut (1974)) coarse-graining: a high-dimensional description of a family of solutions is mapped onto a hierarchy of progressively more relevant latent degrees of freedom, while less important directions contribute increasingly little to the repre-sentation. The Fourier-shell decomposition further suggests an interpretation in terms 21 of scale-dependent organization. Although no explicit renormalization-group transfor-mation or flow is constructed here, the observed hierarchy indicates that latent spaces may provide a natural framework for identifying effective variables in nonlinear PDEs. Establishing whether a genuine RG structure underlies these learned representations remains an interesting direction for future work (Chen et al. 1996; Forster et al. 1977; Goldenfeld 2018). This perspective raises several structural questions for future work. One nat-ural direction is to define a metric tensor on the learned manifold, which would provide a coordinate-independent characterization of its geometry and help distin-guish robust physical structure from artifacts of parametrization or optimization. Similarly, approximate equivariances associated with symmetries of the underlying PDE—such as translations, rotations, scalings, Galilean transformations, or conser-vation laws—may define natural flows in latent space and provide a principled link between representation learning and coarse-graining. The implications extend beyond Burgers equation. Neural networks trained on PDEs may provide access not only to approximate solutions, but also to the geometry of the full solution space. This is particularly relevant for nonlinear and multiscale sys-tems, where high-dimensional simulations often obscure the underlying organization. Potential applications include Navier–Stokes dynamics, reaction–diffusion systems, kinetic equations, plasma models, relativistic evolution equations, and PDEs arising in astrophysics and cosmology. In cosmological and astrophysical contexts, large-scale structure formation, turbulence, and other nonlinear systems involve coherent struc-tures, multiscale interactions, and expensive high-dimensional simulations (Angulo and White 2010; Villaescusa-Navarro et al. 2021). Operator-learning and effective-field-theory approaches already indicate the existence of reduced descriptions (Li et al. 2020; Lu et al. 2021a). Our results suggest a complementary interpretation: such reductions may be understood geometrically as properties of learned latent manifolds. We emphasize that the present work is exploratory. While the analysis in this paper is restricted to one-dimensional spatial systems, the underlying method is not inher-ently limited to 1D, although the computational cost is substantial (approximately 10 days per experiment on an NVIDIA H100). The learned representation is also specific to the IC family used during training rather than universal. Extensions to higher-dimensional systems, forced dynamics, non-dissipative equations, complex boundary conditions, and turbulent regimes are required to assess the generality of the observed structure. Future work will apply this framework to the Navier–Stokes equations and other nonlinear PDEs, develop coordinate-independent diagnostics of latent geometry, and test whether similar hierarchies persist in more realistic physical settings. In this broader sense, NNs may serve not only as solvers or emulators, but also as tools for uncovering the geometry of PDE solution spaces. 
+
+Acknowledgements. We thank Pablo Tejerina-P´ erez, Pau Sol´ e Vilar´ o, Marisol Traforetti, and Ali Kalout for useful discussions on PINNs, multihead architectures, and model explainability. This work was supported by a grant from the Simons Foundation (00017375, RJ). Funding for the work of RJ, LS and PT was partially provided by project PID2022-141125NB-I00, and the “Center of Excellence Maria de Maeztu 2025-2029” award to 22 the ICCUB funded by grant CEX2024-001451-M from AEI/10.13039/501100011033. PT is supported by the project “Dark Energy and the Origin of the Universe” (PRE2022-102220), funded by MCIN/AEI/10.13039/501100011033. 
+
+AI disclaimer and LLM usage. The AI multi-agent Denario suggested exploring principal-component analyses of neural-network embeddings as a possible avenue for studying the structure of latent spaces (see pp. 23–26 of Villaescusa-Navarro et al. (2025)). The present work develops this initial suggestion into a complete research program, including the design of the multihead PINN framework, the construction of latent-space observables, the numerical experiments, the analysis of the results, and the interpretation of the emerging geometric structure. Standard AI-assisted programming tools were used during software development to improve efficiency in routine tasks such as debugging, code refactoring, and mod-ification of existing implementations. Large language models were also used to assist with language editing and manuscript polishing. All scientific decisions, methodologi-cal choices, numerical experiments, analyses, and conclusions were carried out by the authors. 
+
+Code availability. The code used to generate the results is available at the GitHub repository. It is built on a modified version of the existing Neurodiffeq package (Chen et al. (2020); Liu et al. (2025)), a Python library developed for the implementation of Physics-Informed Neural Networks (PINNs) in PyTorch .
+
+# Appendix A Neural network architecture and training details 
+
+We summarize in this appendix the technical details of the neural network architecture and the training setup. The three tests performed for the Burgers equation have the same technical spec-ifications. The temporal independent variable is chosen to be in the interval t ∈ [0 , 5], whereas the spatial variable is taken to be x ∈ [−5, 5]. We sample both variables from an equally spaced distribution, with 100 points on each direction. As we have already mentioned, we are interested in solving for different values of the viscosity parameter 
+
+ν. We solve for 25 values of this parameter sampled from a logarithmic distribution from 10 −2 to 1. For the body model we have used a FCNN composed of 5 layers of 128 neurons each. Following Sec. 3.2.2, we set the latent-space dimension to nb = 20 and train Nh = 20 linear heads, each associated with a different initial condition. The head is chosen to be a linear layer without activation or bias. The model is then trained for 3 .0 · 10 5 epochs. The loss function is chosen to be the residual of DE squared, multiplied by a gradient annihilation term that allows the model to better resolve the points at which the derivatives are large (Ferrer-S´ anchez et al. (2024)). An additional term that forces the head orthogonalization technique is added to the loss function, as shown in Eq. 10. The hyperparameter chosen to multiply this additional loss was found experimentally, and it has a value of λ = 1 · 10 −3. The optimization algorithm used is Adam, with initial learning rate 10 −3 and the default parameters given by 
+
+pytorch . An initial linear warm-up phase is done during 1000 epochs from a learning 23 rate of 10 −6 to facilitate the convergence of the model. During training a sequential learning rate scheduler has been used. This scheduler reduces the learning rate by a factor of 0 .985 every 1000 epochs. These models have been trained on an NVIDIA H100 GPU. Each test took ∼ 10 days of computational time. Despite the large train-ing cost, this investment yields a foundational model that captures a broad class of solutions within a single framework. Beyond predictive accuracy, the learned latent space provides access to meaningful geometric and dynamical information, offering a degree of interpretability that is typically absent in solution-specific models. For the heat equation, the technical specifications of the model are the same as the ones used for Burgers equation. The only difference is that we no longer use the gradient annihilation term, since the heat equation is not expected to develop steep gradients as the thermal diffusivity goes to zero. In this case, the viscosity ν, is replaced by the thermal diffusivity κ. The training domain for the independent variables x and 
+
+t is exactly the same. The range of κ is the same as the one for the viscosity ν.For the wave equation the specifications of the setup are similar to the ones we used for Burgers equation. However, there are two main differences. The first one is that we again do not use a gradient annihilation term, since the wave equation is not expected to develop steep gradients. The second one is that this equation is no longer exponentially sensitive to the value of the parameter v. It is for this reason that we choose to use a set of 25 points linearly sampled between 0 .1 and 2. The sampling of the independent variable is identical to the one used in the previous cases. 
+
+# Appendix B Initial condition generation 
+
+In this appendix, we explain how the ICs for the different families introduced in the main text are generated. On top of these ICs, we impose vanishing Dirichlet BCs at the edges of the spatial interval. 
+
+## B.1 Fourier components 
+
+We start by explaining how ICs for the Fourier family are generated. As we have explained in Subsec. 3.5, the model is trained for Nh = 20 different ICs. For this particular family of IC, we generate 10 sines and 10 cosine components that vanish on the edges of the x interval specified in the previous appendix. To be concrete, the particular expression for the i-th IC can be written as follows 
+
+vF(x; IC i) = 
+
+
+
+As,i sin 
+
+ xn iπ
+
+5
+
+
+
+, if i ≤ 10 
+
+Bs,i cos 
+
+ xm iπ
+
+10 
+
+
+
+, if i > 10 (B1) where As,i and Bs,i are random numbers sampled for each IC from a uniform distri-bution between 0 .1 and 2 .0. ni is a random integer between 1 and 5, and mi a random odd integer between 1 and 5. 24 B.2 Polynomials 
+
+In this subsection we explain how different ICs for the polynomial case are generated. We have trained the model with Nh = 20 different ICs. Each of those has been generated as the sum of three different polynomials with degree in between 2 and 7, all of them vanishing at the edges of the interval. These three polynomials have been combined with coefficients in between 0 and 1, sampled from a uniform random distribution. More concretely, these ICs can be expressed as follows 
+
+vP(x; IC i) = X
+
+> j
+
+Cij paj (x) (B2) where Cij are coefficients sampled from a random uniform distribution, aj is a random integer number in between 2 and 7, and pi denotes a polynomial of degree i that vanishes at the edges of the interval. 
+
+## B.3 Wavelets 
+
+We explain how different ICs are sampled in the wavelet case. We have trained the model with Nh = 20 different ICs. These are generated by linearly combining 10 Ricker wavelets with randomly generated scales and shifts. More concretely, the ICs for this case are generated using the following expression 
+
+vW (x; IC i) = 
+
+> 10
+
+X
+
+> j=1
+
+Cij Ψ x − Bij
+
+Sij
+
+!
+
+(B3) where Ψ is the Ricker wavelet defined as follows: Ψ( x) = 2
+
+√3π1/4
+
+ 1 − x2 e− x22 .Cij are coefficients sampled from a uniform random distribution between 0 and 1. The shift ( Bij ) and the scale ( Sij ) of the wavelet are sampled from a uniform random distribution between −1 and 1, and 0 .45 and 1 .0 respectively. 
+
+# Appendix C Heat and Wave equations 
+
+In this appendix, we present both the heat and the wave equations. The PCA decom-position of the latent spaces, and their corresponding spectral weight decomposition are shown in Figs. 3 and 4. 
+
+## C.1 Heat equation 
+
+The heat equation is a second-order, linear, partial differential equation that is used to describe the evolution of a temperature profile on a domain of interest. This equation 25 5.0 2.5 0.0 2.5 5.0                                        
+
+> x
+> 0.75
+> 0.50
+> 0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> u(x,t)
+> Fourier
+> 5.0 2.5 0.0 2.5 5.0
+> x
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> Polynomials
+> 5.0 2.5 0.0 2.5 5.0
+> x
+> 1
+> 0
+> 1
+> 2
+> 3Wavelets
+> 5.0 2.5 0.0 2.5 5.0
+> x
+> 10 7
+> 10 6
+> 10 5
+> 10 4
+> 10 3
+> 10 2
+> Abs. error
+> 5.0 2.5 0.0 2.5 5.0
+> x
+> 10 7
+> 10 6
+> 10 5
+> 10 4
+> 10 3
+> 5.0 2.5 0.0 2.5 5.0
+> x
+> 10 7
+> 10 6
+> 10 5
+> 10 4
+> 10 3
+> 10 2
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> Time t
+> NN Numerical
+
+Fig. C1 Solutions of the one-dimensional heat equation reconstructed by the multihead PINN for a thermal diffusivity κ = 0 .2. Columns correspond to representative Fourier, polynomial, and wavelet initial conditions. Solid and dashed lines denote the neural-network prediction and numerical solution, respectively, while colors indicate different times during the evolution. The lower panels show the corresponding absolute errors. 
+
+can be written in 1 spatial dimension in the usual following form 
+
+∂u (x, t )
+
+∂t = κ ∂2u(x, t )
+
+∂x 2
+
+where u(x, t ) represents the temperature profile, and κ is the thermal diffusivity. We train the model for different sets of ICs. We generate them in the same way as we have explained for Burgers equation. We consider the same three cases: fourier components, polynomials and wavelets. We show the corresponding results in Figs. 3, 4 and C1. 
+
+## C.2 Wave equation 
+
+The wave equation is a second order, non-dissipative, linear, partial differential equation. In one spatial dimension, this equation can be written in the following form 
+
+∂2u(x, t )
+
+∂t 2 = v2 ∂2u(x, t )
+
+∂x 2
+
+where u is a scalar quantity that propagates as a wave, and v is a positive real number that represents the propagation speed of the wave. Note that since wave equation is second order in time, we also need to fix the partial derivative with respect to time at the initial time step. We do so by slightly 26 5.0 2.5 0.0 2.5 5.0                                         
+
+> x
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> u(x,t)
+> Fourier
+> 5.0 2.5 0.0 2.5 5.0
+> x
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Polynomials
+> 5.0 2.5 0.0 2.5 5.0
+> x
+> 1
+> 0
+> 1
+> 2
+> Wavelets
+> 5.0 2.5 0.0 2.5 5.0
+> x
+> 10 7
+> 10 6
+> 10 5
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> Abs. error
+> 5.0 2.5 0.0 2.5 5.0
+> x
+> 10 7
+> 10 6
+> 10 5
+> 10 4
+> 10 3
+> 10 2
+> 5.0 2.5 0.0 2.5 5.0
+> x
+> 10 7
+> 10 6
+> 10 5
+> 10 4
+> 10 3
+> 10 2
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> Time t
+> NN Numerical
+
+Fig. C2 Solutions of the one-dimensional wave equation reconstructed by the multihead PINN for a wave velocity v = 1. Columns correspond to representative Fourier, polynomial, and wavelet initial conditions. Solid and dashed lines denote the neural-network prediction and numerical solution, respectively, while colors indicate different times during the evolution. The lower panels display the absolute error between the neural-network prediction and the numerical solution. 
+
+changing the F (x, t ) function in the reparameterization of the NN to 
+
+F (x, t ) = x − xmin 
+
+xmax − xmin 
+
+
+
+1 − x − xmin 
+
+xmax − xmin 
+
+ 
+
+1 − e−t2 
+
+We train the model for three different sets of ICs. The way of generating these initial conditions is the same as the one we used for both the Burgers and the heat equation. We show the results obtained for the wave equation in Figs. 3, 4 and C2. We now discuss how our results are related to doing the PCA directly on the solution for the Fourier IC family. Intuitively one might expect the PCA to look flat for orthonormal Fourier modes. This is only true if we do the PCA on the full solution set not on the latent space elements. Let us sketch the argument. Suppose we have a set of k = 1 , .., K orthonormal fourier modes 
+
+⟨ϕk, ϕ k′ ⟩x = δkk ′
+
+which satisfy the eigenvalue equation ∂xx ϕk = −λkϕk (for instance λk = (2 πk/L )2
+
+for a domain of length L with periodic boundary conditions). The solution to the wave equation with initial conditions uk(x, 0) = ϕk(x), ∂tu(x, 0) = 0, is easily seen to be 
+
+u(x, t ) = ϕk(x) cos( v√λkt). Then doing the PCA on the full solution, 27 ⟨uk, u k′ ⟩x,t = δkk ′
+
+Z T
+
+> 0
+
+cos 2(vpλkt) dt 
+
+= 12 δkk ′
+
+
+
+T + sin(2 v√λkT )2v√λk
+
+
+
+.
+
+At large T , the first term dominates, so the spectrum is flat and there is no dimensionality reduction. 
+
+# Appendix D Quantitative Eigenvalue Estimate Error 
+
+Here we will prove the bounds for the continuum limit case, i.e. where sums are integrals etc. We define the following L2 norm 
+
+∥H∥L2(D) := 
+
+sZ 
+
+> D
+
+X
+
+> i
+
+(Hi(ξ)) 2
+
+Sometimes we will need to estimate the norm, say, only in the spatial variable x
+
+then the obvious definition is 
+
+∥H(t, ν )∥L2 
+
+> x
+
+:= 
+
+sZ X
+
+> i
+
+(Hi(x, t, ν )) 2dx 
+
+Suppose we have two initial seed runs corresponding to Hi and ˆHi, and for notational convenience most of the times we will drop the independent variable argu-ments of Hi and other associated quantities. Then we can write their corresponding parametrizations as 
+
+ψi − vi = α(t)g(x)W ij Hj
+
+ˆψi − vi = α(t)g(x) ˆW ij ˆHj
+
+Where α(t) = 1 − e−t. And g(x) is defined by 
+
+g(x) = x − xmin 
+
+xmax − xmin 
+
+
+
+1 − x − xmin 
+
+xmax − xmin 
+
+
+
+Hence to compare the eigenvalues of the two corresponding covariance matrices, we first take the difference between the two equations: 
+
+W ij Hj − ˆW ij ˆHj = ψi − ˆψi
+
+(1 − e−t)g(x)Now multiplying by W −1 we get: 28 Hi − (W −1 ˆW )ij ˆHj = ( W −1)ij
+
+ψj − ˆψj
+
+(1 − e−t)g(x)Then it follows that: 
+
+∥H − (W −1 ˆW ) ˆH∥L2(D) ≤ ∥ (W −1)∥2∥QF (ψ − ˆψ)∥L2(D)
+
+Where QF (ψ − ˆψ) = ψ− ˆψ 
+
+> (1 −e−t)g(x)
+
+and the norms ∥.∥F and ∥.∥2 refer to the Frobenius and operator norms respectively. Now define the empirical latent covariance matrices 
+
+Cij := ⟨Hi, H j ⟩L2(D) ˆCij := ⟨ ˆHi, ˆHj ⟩L2(D)
+
+We compare C not directly to ˆC, but to the transformed covariance. In the continuum setting, 
+
+A bCA T =
+
+Z
+
+> D
+
+(A bH)( ξ)( A bH)( ξ)T dξ. 
+
+Set 
+
+X(ξ) := H(ξ), Y (ξ) := A bH(ξ).
+
+Then 
+
+C − A bCA T =
+
+Z
+
+> D
+
+X(ξ)X(ξ)T − Y (ξ)Y (ξ)T  dξ. 
+
+Using 
+
+X(ξ)X(ξ)T − Y (ξ)Y (ξ)T = ( X(ξ) − Y (ξ)) X(ξ)T +
+
+Y (ξ)( X(ξ) − Y (ξ)) T
+
+Then 
+
+C − A bCA T =
+
+Z
+
+> D
+
+X(ξ)X(ξ)T − Y (ξ)Y (ξ)T  dξ. 
+
+Using 
+
+X(ξ)X(ξ)T − Y (ξ)Y (ξ)T = ( X(ξ) − Y (ξ)) X(ξ)T
+
++ Y (ξ)( X(ξ) − Y (ξ)) T .
+
+we get 29 ∥C − A bCA T ∥2 ≤
+
+Z
+
+> D
+
+X(ξ)X(ξ)T − Y (ξ)Y (ξ)T 
+
+> 2
+
+dξ 
+
+≤
+
+Z
+
+> D
+
+
+
+∥(X(ξ) − Y (ξ)) X(ξ)T ∥2
+
++ ∥Y (ξ)( X(ξ) − Y (ξ)) T ∥2
+
+
+
+dξ 
+
+≤
+
+Z
+
+> D
+
+
+
+|X(ξ) − Y (ξ)|2 |X(ξ)|2
+
++ |Y (ξ)|2 |X(ξ) − Y (ξ)|2
+
+
+
+dξ 
+
+≤ ∥ X − Y ∥L2(D)∥X∥L2(D)
+
++ ∥Y ∥L2(D)∥X − Y ∥L2(D)
+
+=  ∥X∥L2(D) + ∥Y ∥L2(D)
+
+ ∥X − Y ∥L2(D)
+
+Therefore, 
+
+∥C − A bCA T ∥2
+
+≤
+
+
+
+∥H∥L2(D) + ∥A bH∥L2(D)
+
+
+
+∥H − A bH∥L2(D)
+
+Combining this with the previous estimate gives: 
+
+∥C − A ˆCA T ∥2 ≤
+
+
+
+∥H∥L2(D) + ∥A bH∥L2(D)
+
+
+
+∥W −1∥2
+
+× ∥ QF (ψ − ˆψ)∥L2(D)
+
+We now compare the eigenvalues of C and ˆC. Since A is not necessarily orthogonal, 
+
+A ˆCA T is not exactly orthogonally similar to ˆC. Therefore we write 
+
+|λk(C) − λk( ˆC)| ≤ | λk(C) − λk(A ˆCA T )|
+
++ |λk(A ˆCA T ) − λk( ˆC)|.
+
+Since ˆC is symmetric positive semidefinite it has a square root, and hence we can write it as ˆC = ˆC 12 ˆC 12
+
+The non zero eigenvalues of A ˆCA T are the same as that of ˆC 12 AT A ˆC 12 , hence by Weyl’s eigenvalue theorem we have 
+
+|λk(A ˆCA T ) − λk( ˆC)| ≤ ∥ ˆC 12 AT A ˆC 12 − ˆC∥2
+
+Hence we can write 30 |λk(A ˆCA T ) − λk( ˆC)| ≤ ∥ ˆC1/2(AT A − I) ˆC1/2∥2
+
+≤ ∥ ˆC∥2 ∥AT A − I∥2
+
+:= δ∥ ˆC∥2
+
+where we defined δ = ∥AT A − I∥2 i.e. the orthogonalization error. Using Weyl’s eigenvalue theorem one more time, we get 
+
+|λk(C) − λk(A ˆCA T )| ≤ ∥ C − A ˆCA T ∥2
+
+≤
+
+
+
+∥H∥L2(D) + ∥A bH∥L2(D)
+
+
+
+∥W −1∥2 ∥QF (ψ − ˆψ)∥L2(D)
+
+We now estimate the quotient appearing in the latent-space perturbation. Let 
+
+z := ψ − ˆψ, 
+
+and define the Burgers residuals 
+
+R(ψ) := ψt + ψψ x − νψ xx , R( ˆψ) := ˆψt + ˆψ ˆψx − ν ˆψxx .
+
+We denote 
+
+ϵ := ∥R(ψ)∥2
+
+> L2(D)
+
+, ˆϵ := ∥R( ˆψ)∥2
+
+> L2(D)
+
+.
+
+Since the hard-enforcement factor is 
+
+F (x, t ) = g(x)(1 − e−t),
+
+with 
+
+g(x) = x − xmin 
+
+L
+
+
+
+1 − x − xmin 
+
+L
+
+
+
+, L = xmax − xmin ,
+
+the quotient appearing in the latent-space perturbation is 
+
+QF z := zg(x)(1 − e−t) .
+
+Let 
+
+d(x, ∂ Ω) = min {| x − xmin |, |xmax − x|} .
+
+Then 
+
+g(x) = (x − xmin )( xmax − x)
+
+L2 = d(x, ∂ Ω)  L − d(x, ∂ Ω) 
+
+L2 .
+
+Since d(x, ∂ Ω) ≤ L/ 2, we have 
+
+g(x) ≥ d(x, ∂ Ω) 2L ,
+
+31 and therefore 1
+
+g(x) ≤ 2Ld(x, ∂ Ω) .
+
+Both realizations satisfy the same homogeneous Dirichlet boundary conditions and the same initial condition. Hence 
+
+z(xmin , t ) = z(xmax , t ) = 0 , z(x, 0) = 0 .
+
+Thus the numerator vanishes on the same parts of the space-time boundary on which the hard-enforcement factor vanishes. To control the corresponding quotient on the full spatial domain, we use the one-dimensional Hardy inequality 
+
+ud(x, ∂ Ω) L2(Ω) 
+
+≤ 2∥ux∥L2(Ω) ,
+
+valid for functions u vanishing on ∂Ω. Taking 
+
+u = z
+
+1 − e−t ,
+
+we obtain 
+
+∥QF z∥L2(D) = zg(x)(1 − e−t) L2(D)
+
+≤ 4L ∂x
+
+ z
+
+1 − e−t
+
+
+
+> L2(D)
+
+.
+
+We use the following H1 
+
+> x
+
+stability estimate: 
+
+∂x
+
+ z
+
+1 − e−t
+
+
+
+> L2(D)
+
+≤ KH1
+
+√ϵ + √ˆϵ
+
+
+
+,
+
+where KH1 depends on the domain, final time, viscosity, and regularity bounds on ψ
+
+and ˆψ. It follows that 
+
+∥QF z∥L2(D) ≤ 4LK H1
+
+√ϵ + √ˆϵ
+
+
+
+.
+
+Hence, putting everything together we have: 
+
+|λk(C) − λk( ˆC)| ≤ 
+
+
+
+∥H∥L2(D) + ∥A bH∥L2(D)
+
+
+
+× ∥ W −1∥2 · 4LK H1 (√ϵ + √ˆϵ) + δ∥ ˆC∥2
+
+32 References 
+
+Alexakis A, Biferale L (2018) Cascades and transitions in turbulent flows. Physics Reports 767–769:1–101. https://doi.org/10.1016/j.physrep.2018.08.001 Angulo RE, White SDM (2010) One simulation to fit them all — changing the back-ground parameters of a cosmological n-body simulation. Mon Not Roy Astron Soc 405:143–154. https://doi.org/10.1111/j.1365-2966.2010.16459.x Auroy S, Protopapas P (2025) One-shot transfer learning for nonlinear pdes with perturbative pinns. arXiv preprint arXiv:251111137 Bea Y, Jimenez R, Mateos D, et al (2024) Gravitational duals from equations of state. JHEP 07:087. https://doi.org/10.1007/JHEP07(2024)087, arXiv:2403.14763 [hep-th] Bengio Y, Courville A, Vincent P (2013) Representation learning: A review and new perspectives. IEEE Trans Pattern Anal Mach Intell 35:1798–1828 Berkooz G, Holmes P, Lumley JL (1993) The proper orthogonal decomposition in the analysis of turbulent flows. Annual Review of Fluid Mechanics 25:539–575. https: //doi.org/10.1146/annurev.fl.25.010193.002543 Buckmaster T, Vicol V (2019) Nonuniqueness of weak solutions to the Navier-Stokes equation. Annals of Mathematics 189(1):101–144. https://doi.org/10.4007/annals. 2019.189.1.3 Burgers JM (1948) A mathematical model illustrating the theory of turbulence. Adv Appl Mech 1:171–199 Cai W, Jiang C, Wang Y, et al (2019) Structure-preserving algorithms for the two-dimensional sine-gordon equation with neumann boundary conditions. Journal of Computational Physics 395:166–185. https://doi.org/10.1016/j.jcp.2019.05.048 Chen F, Sondak D, Protopapas P, et al (2020) Neurodiffeq: A python package for solving differential equations with neural networks. Journal of Open Source Software 5(46):1931 Chen LY, Goldenfeld N, Oono Y (1996) Renormalization group and singular perturba-tions: Multiple scales, boundary layers, and reductive perturbation theory. Physical Review E 54(1):376 Cuomo S, Schiano Di Cola V, Giampaolo F, et al (2022) Scientific machine learning through physics-informed neural networks: Where we are and what’s next. J Sci Comput 92:88 Desai S, Mattheakis M, Joy H, et al (2022) One-shot transfer learning of physics-informed neural networks. arXiv preprint arXiv:211011286 https://doi.org/10. 33 48550/arXiv.2110.11286, iCML AI4Science Workshop 2022 Dissanayake MWMG, Phan-Thien N (1994) Neural-network-based approximations for solving partial differential equations. Communications in Numerical Methods in Engineering 10(3):195–201. https://doi.org/10.1002/cnm.1640100303 Doering CR, Gibbon JD (1995) Applied Analysis of the Navier–Stokes Equations. Cambridge University Press Enflo BO, Hedberg CM (2002) Theory of Nonlinear Acoustics in Fluids. No. 67 in Fluid Mechanics and Its Applications, Kluwer Academic Publishers, Dordrecht Fefferman CL (2000) Existence and smoothness of the Navier–Stokes equation. Clay Mathematics Institute Millennium Prize Problem description, URL https://www. claymath.org/millennium-problems/navier-stokes-equation Ferrer-S´ anchez A, Mart´ ın-Guerrero JD, de Austri-Bazan RR, et al (2024) Gradient-annihilated pinns for solving riemann problems: Application to relativistic hydro-dynamics. Computer Methods in Applied Mechanics and Engineering 424:116906. https://doi.org/10.1016/j.cma.2024.116906 Flamant C, Protopapas P, Sondak D (2020) Solving differential equations using neural network solution bundles. CoRR abs/2006.14372. URL https://arxiv.org/abs/2006. 14372, 2006.14372 Forster D, Nelson DR, Stephen MJ (1977) Large-distance and long-time properties of a randomly stirred fluid. Phys Rev A 16:732–749 Frisch U (1995) Turbulence: The Legacy of A. N. Kolmogorov. Cambridge University Press Goldenfeld N (2018) Lectures on Phase Transitions and the Renormalization Group. CRC Press Goodfellow I, Bengio Y, Courville A (2016) Deep Learning. MIT Press Goswami S, Bora A, Yu Y, et al (2022) Physics-informed deep neural operator networks. arXiv:220705748 Hopf E (1950) The partial differential equation ut + uu x = μu xx . Commun Pure Appl Math 3:201–230 Karniadakis GE, Kevrekidis IG, Lu L, et al (2021) Physics-informed machine learning. Nat Rev Phys 3:422–440 Lagaris I, Likas A, Papageorgiou D (2000) Neural-network methods for boundary value problems with irregular boundaries. IEEE Transactions on Neural Networks 11(5):1041–1049. https://doi.org/10.1109/72.870037 34 Landau LD, Lifshitz EM (1987) Fluid Mechanics, Second Edition: Volume 6 (Course of Theoretical Physics), 2nd edn., Butterworth-Heinemann. Course of theoretical physics / by L. D. Landau and E. M. Lifshitz, Vol. 6, URL http://www.worldcat. org/isbn/0750627670 Lassila T, Manzoni A, Quarteroni A, et al (2013) Generalized reduced basis methods and n-width estimates for the approximation of the solution manifold of parametric pdes. In: Analysis and numerics of partial differential equations. Springer, p 307–329 Li Z, Kovachki N, Azizzadenesheli K, et al (2020) Fourier neural operator for parametric partial differential equations. arXiv:201008895 Li Z, Huang DZ, Liu B, et al (2023) Fourier neural operator with learned deformations for pdes on general geometries. J Mach Learn Res 24:1–26 Liu S, Protopapas P, Sondak D, et al (2025) Recent advances of neurodiffeq–an open-source library for physics-informed neural networks. arXiv preprint arXiv:250212177 Lu L, Jin P, Pang G, et al (2021a) Learning nonlinear operators via deeponet based on the universal approximation theorem of operators. Nat Mach Intell 3:218–229 Lu L, Meng X, Mao Z, et al (2021b) Deepxde: A deep learning library for solving differential equations. SIAM review 63(1):208–228 Mattheakis M, Protopapas P, Sondak D, et al (2019) Physical symmetries embedded in neural networks. URL https://arxiv.org/abs/1904.08991, arXiv:1904.08991 Mattheakis M, Sondak D, Dogra AS, et al (2020) Hamiltonian neural networks for solving equations of motion. arXivorg perpetual, non-exclusive license https://doi. org/10.48550/ARXIV.2001.11107 Mezi´ c I (2005) Spectral properties of dynamical systems, model reduction and decompositions. Nonlinear Dynamics 41(1–3):309–325. https://doi.org/10.1007/ s11071-005-2824-x Pellegrin R, Bullwinkel B, Mattheakis M, et al (2022) Transfer learning with physics-informed neural networks for efficient simulation of branched flows. arXiv preprint arXiv:221100214 Quarteroni A, Manzoni A, Negri F (2015) Reduced basis methods for partial differential equations: an introduction. Springer Raissi M, Perdikaris P, Karniadakis G (2019) Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving non-linear partial differential equations. Journal of Computational Physics 378:686–707. https://doi.org/10.1016/j.jcp.2018.10.045 35 Schmid PJ (2010) Dynamic mode decomposition of numerical and experimental data. Journal of Fluid Mechanics 656:5–28. https://doi.org/10.1017/S0022112010001217 Sirignano J, Spiliopoulos K (2018) Dgm: A deep learning algorithm for solving partial differential equations. Journal of Computational Physics 375:1339–1364. https:// doi.org/10.1016/j.jcp.2018.08.029 Taranc´ on- ´Alvarez P, Tejerina-P´ erez P, Jimenez R, et al (2025) Efficient pinns via multi-head unimodular regularization of the solutions space. Communications Physics 8(1):335 Villaescusa-Navarro F, Bolliet B, Villanueva-Domingo P, et al (2025) The denario project: Deep knowledge ai agents for scientific discovery. URL https://arxiv.org/ abs/2510.26887, arXiv:2510.26887 Villaescusa-Navarro F, et al (2021) The camels project: Cosmology and astrophysics with machine-learning simulations. Astrophys J 915:71 Wilson KG, Kogut J (1974) The renormalization group and the ϵ expansion. Physics reports 12(2):75–199 Yang L, Meng X, Karniadakis GE (2021) B-pinns: Bayesian physics-informed neu-ral networks for forward and inverse pde problems with noisy data. Journal of Computational Physics 425:109913 36

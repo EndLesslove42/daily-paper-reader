@@ -1,0 +1,605 @@
+Title: CoFINN: Conservation Flux Informed Neural Networks for Physics Problems Governed by Conservation Laws
+
+URL Source: https://arxiv.org/pdf/2607.06587v1
+
+Published Time: Thu, 09 Jul 2026 00:02:54 GMT
+
+Number of Pages: 28
+
+Markdown Content:
+# CoFINN: Conservation Flux Informed Neural Networks for Physics Problems Governed by Conservation Laws 
+
+Adnan Harun Do˘ gan ∗
+
+Dept. of Computer Engineering Middle East Technical University Ankara, Turkey 
+
+Mert Deniz 
+
+Dept. of Mechanical Engineering Middle East Technical University Ankara, Turkey 
+
+Hande Alemdar 
+
+Dept. of Computer Engineering Middle East Technical University Ankara, Turkey 
+
+Özgür U˘ gra¸ s Baran 
+
+Dept. of Mechanical Engineering Middle East Technical University Ankara, Turkey 
+
+# Abstract 
+
+We present CoFINN (Conservation Flux Informed Neural Networks), a physics-informed deep learning framework for predicting compressible flow fields gov-erned by conservation laws. Unlike conventional data-driven convolutional neural networks (CNNs), which optimize only pixel-wise similarity metrics, CoFINN embeds finite-volume conservation physics directly into the training process. Un-like classical physics-informed methods which enforce differential-equation resid-uals at collocation points through automatic differentiation, CoFINN adopts a finite-volume perspective consistent with modern CFD methodology. CoFINN interprets CNN output fields as structured computational grids, where each pixel represents a finite-volume cell, and enforces conservation consistency through so-phisticated numerical flux calculations. The framework is evaluated on transonic flow prediction around airfoils at ( M = 0 .7, Re = 6 × 10 6), including challeng-ing conditions involving shock waves and high angles of attack. Results show that CoFINN improves aerodynamic force prediction accuracy, reducing drag predic-tion error by up to 34% at extreme angles of attack and by approximately 15% on average across the test set. Improvements are particularly significant in limited-data regimes, demonstrating that the conservation-based loss acts as an effective physical regularizer. The proposed approach maintains the computational effi-ciency advantages of CNN surrogates while significantly improving physical con-sistency and conservation behavior. The framework is architecture-agnostic and extensible to broader classes of conservation-law-governed physical systems. 
+
+# 1 Introduction 
+
+Traditional machine learning approaches for fluid-flow prediction have demonstrated impressive speed and interpolation capability, yet they often remain fundamentally data-driven approximators that lack awareness of the governing physics. In aerodynamic applications, this limitation becomes especially critical because physically meaningful flow behavior is governed not merely by visual similarity of flow fields, but by strict conservation laws that couple pressure, density, momentum, velocity, and energy throughout the domain. 
+
+> ∗
+
+Corresponding author: doganh@metu.edu.tr 
+
+Preprint. Under review. arXiv:2607.06587v1 [cs.CV] 5 Jul 2026 Prediction of flow around aerodynamic bodies is central to many engineering applications, including aircraft design, turbomachinery, automotive aerodynamics, and renewable energy systems. High-fidelity Computational Fluid Dynamics (CFD) simulations can accurately capture complex phenom-ena such as shock waves, flow separation, and boundary-layer development, but these simulations remain computationally expensive for iterative design and optimization studies. As a result, ma-chine learning methods have emerged as promising surrogate models capable of providing rapid approximations of detailed flow fields. Among these approaches, Convolutional Neural Networks (CNNs) are particularly attractive because flow solutions on structured grids resemble image-like data representations. CNN-based surrogate models can therefore learn mappings between geomet-ric or flow-condition inputs and corresponding flow-field outputs. Prior studies have demonstrated substantial computational speedups while retaining reasonable predictive accuracy for aerodynamic quantities and flow structures. However, purely data-driven CNN models suffer from an important limitation: they are not inherently constrained by the physical laws governing fluid motion. Standard training procedures optimize pixel-wise similarity metrics without explicitly enforcing conservation of mass, momentum, or energy. Consequently, predicted flow fields may appear visually plausible while still violating the underlying physics of compressible flow. This limitation becomes especially pronounced in regions dominated by strong physical interac-tions, such as shock waves, boundary layers, and separated flow regions. In such areas, small spatial inconsistencies in predicted pressure or velocity fields can lead to significant violations of conserva-tion principles and large errors in derived engineering quantities such as lift and drag. Furthermore, conventional CNNs do not inherently preserve the physical coupling between variables such as pres-sure, density, velocity, and energy, even though these relationships are fundamentally governed by the Navier–Stokes equations and the equation of state. The CNN model primarily learns to map input images to output images without explicitly under-standing the underlying physics of the flow. This raises concerns about the physical accuracy of the predictions, even if they appear visually similar to the CFD results. The model lacks an inherent connection between the predicted pressure and velocity distributions, even though these quantities are fundamentally linked by physical laws. A significant portion of the prediction errors are concen-trated around shock waves. The sharp gradients in pressure and velocity in these regions means that even small spatial inaccuracies in the CNN’s predictions leads to large errors in standard metrics. For example, the prediction of shock strength can be accurate enough, but a few pixel shifts of the shock location can lead to discrepancies in force calculations since the flow properties at the both sides of the shock are very different. Similar issues are observed near the object’s surface (wall boundaries). The CNN model can not capture the geometric details as finely as the CFD mesh, and it is not possible to directly impose physical boundary conditions. This is especially true considering the no-slip boundary conditions at the solid walls and thin boundary-layer region. These observations motivate the central question addressed in this study: “Can a neural-network-based flow predictor be trained in a manner that directly incorporates the conservation physics gov-erning compressible flow, rather than relying solely on data similarity?” To address this question, we propose CoFINN: Conservation Flux Informed Neural Networks, a physics-informed learn-ing framework in which the neural network is trained not only against CFD-generated reference fields, but also against discretized conservation-law residuals computed directly from the predicted flow field itself. Unlike conventional Physics-Informed Neural Networks (PINNs), which typically enforce differential-equation residuals at collocation points, the present approach embeds finite-volume conservation directly into the learning process through numerical flux calculations. The key idea underlying this work is to reinterpret the CNN output field as a finite-volume computational mesh. Each pixel of the predicted flow image is treated as a control volume, while neighboring pix-els define computational interfaces across which numerical fluxes are evaluated. This interpretation establishes a direct correspondence between modern CFD methodology and neural-network train-ing. By computing intercell fluxes using a Godunov-type Harten-Lax-van Leer Contact (HLLC) Riemann solver, the model is trained to minimize violations of the same conservation principles en-forced in high-fidelity CFD solvers. This formulation transforms the neural network from a purely image-processing system into a conservation-aware predictive model. Rather than learning only geometric correlations in the data, the model is explicitly guided toward physically admissible solu-tions that satisfy discrete conservation behavior throughout the domain. Our focus is on the prediction of compressible flow around airfoils at moderate to extreme angles of attack, a problem characterized by complex fluid physics. The fundamental principles governing 2pi,j pi+1,j p i-1,j p i,j+1 p i,j-1 Figure 1: Pixels as control volumes concept fluid flow are the conservation laws: conservation of mass, momentum, and energy. For compress-ible flows, an equation of state, such as the ideal gas law used in our case, is also essential. These conservation laws state that the total amount of a conserved property within a defined volume re-mains constant over time, unless there is a net flow (flux) of that property across the boundaries of the volume. Finite-volume method (FVM)-based CFD solvers directly implement these conserva-tion laws by considering discrete computational cells (finite volumes). In FVM, the conservation laws are interpreted such that the sum of the fluxes through the surfaces of a cell equals the rate of change of the conserved variables within that cell. We propose interpreting a CNN’s output “image” as a computational grid, where each pixel rep-resents a computational cell, and the interfaces between pixels can be seen as the control surfaces through which fluxes occur. Figure 1 shows a typical pressure field around an airfoil on the left. Pixels of the image essentially form a structured grid. Each cell, then, can be assigned to the pres-sure at the center of the cell. The grid connections are automatically provided within this embedded grid as depicted in the rightmost sketch in Figure 1. Similarly “cell values” of other primitive (i.e. density velocity, temperature) or conservative variables (i.e. mass, momentum, energy) can be as-signed from the available “image” data. Therefore, conservation laws can be applied on each Finite Volume Cell shown right. This allows us to train our model not only to match the provided CFD data but also to minimize the errors in the conserved physical quantities using calculated fluxes across these “cell interfaces.” Our hypothesis is that the CoFINN loss will lead to predictions with comparable accuracy to purely data-driven models but with significantly improved physical fidelity. This, in turn, should result in better usability and reliability of the predictions for real-world design applications. To achieve this, we have implemented a detailed and carefully designed approach. Our high-fidelity CFD data was generated using a flux calculation scheme for compressible flows. We have selected the HLLC flux scheme Toro and Chakraborty [1994], which is considered highly accurate and robust method. The HLLC scheme is a sophisticated approximate Riemann solver suitable for a wide range of flow speeds, from low subsonic to very high supersonic regimes. We have also utilized the same advanced HLLC flux scheme to calculate the CoFINN loss within our CNN model. Note that the implementation of the model is not depend on any flux calculation method, nor it requires the same method for the flux calculation method of CFD and loss function calculations. the method devised in this study can be generalized to any flux calculation method pairs. By incorporating the CoFINN loss, we aim to produce flow field predictions around airfoils that exhibit better physical consistency. We anticipate that the predicted pressure and velocity fields will be more intrinsically linked. While we might observe a slight decrease in the overall accuracy as measured by traditional pixel-wise error metrics for individual flow variables, we expect significant improvements in the prediction of physically derived quantities such as forces and a more accurate representation of critical flow features like shock waves. Machine learning for aerodynamic prediction has progressed from early neural network approaches for coefficient estimation Faller and Schreck [1996], Rai and Madavan [2000], Thirumalainambi and Bardina [2003], Suresh et al. [2003] to modern architectures capable of predicting full spatial 3flow fields. CNNs have been particularly successful for flow prediction tasks Guo et al. [2016], Singh et al. [2017], Yilmaz and German [2017], Jin et al. [2018], Fukami et al. [2019], Lee and You [2019], Viquerat and Hachem [2020], demonstrating effectiveness for steady and unsteady flows, turbulent separated flows, super-resolution reconstruction, and drag prediction. Encoder-decoder and U-Net architectures Chen et al. [2019], Thuerey et al. [2020], Bhatnagar et al. [2019], Sekar et al. [2019], Duru et al. [2020, 2022], Xie et al. [2025] leverage skip connections to preserve spatial information across resolution levels, enabling predictions of pressure and velocity fields around airfoils with speedups of up to three orders over CFD. Duru et al. Duru et al. [2020, 2022] extended these approaches to compressible and transonic regimes with the CNNFOIL architecture. Specialized architectures have been developed for challenging compressible and transonic flow regimes Hui et al. [2020], Wang et al. [2021], WU et al. [2022], Chen and Thuerey [2023, 2024], Wang et al. [2023], Zuo et al. [2022], Catalani et al. [2023], addressing shock wave prediction, high Reynolds number flows, and data scarcity. Chen and Thuerey Chen and Thuerey [2023, 2024] achieved order-of-magnitude improvements through canonical space encoding and attention-based U-Net models with roll-out training for unsteady transonic flows, while Catalani et al. Catalani et al. [2023] showed that Graph Neural Networks outperform CNNs for shock capture on unstruc-tured meshes. Graph Neural Networks have emerged as powerful tools for handling unstructured meshes Nabian et al. [2024], Catalani et al. [2023], while neural operators, particularly the Fourier Neural Operator (FNO) Wen et al. [2022], Qin et al. [2024], Zuo et al. [2023b], learn solution oper-ators in Fourier space with resolution independence. Implicit neural representations Catalani et al. [2024], Xiao et al. [2024] provide continuous flow field representations with five orders of magni-tude speedup over traditional solvers. Physics-Informed Neural Networks (PINNs) Sharma et al. [2023] embed physical laws into the learning process by penalizing partial differential equation (PDE) residuals, with applications to in-terface problems and moving boundaries Zhu et al. [2023], Roy et al. [2025], Mullins et al. [2025], Bi et al. [2025], Zhu et al. [2024], Lu et al. [2024], airfoil pressure prediction Huang et al. [2025], transonic airfoil flows with artificial dissipation Wassing et al. [2025], flight dynamics Michek et al. [2024], and specialized formulations including physics-informed extreme learning machines Ren et al. [2025] and improved PINNs with small sample learning Li et al. [2023]. Physics-informed diffusion models Bastek et al. [2025], Hu et al. [2024] have reduced residual errors by up to two orders of magnitude, with geometry-conditioned variants demonstrating superior performance over CNNs in handling complex geometries. Hybrid approaches combining physics-informed techniques with traditional architectures Wang and Perdikaris [2021], Sharpe and Hansman [2025], Patel et al. [2025], Teimourian et al. [2024], Sun et al. [2021], Wu et al. [2022], Hassanian et al. [2022] have achieved consistent improvements; notably NeuralFoil Sharpe and Hansman [2025] embeds phys-ical symmetries structurally, achieving between 8× to 1,000 × speedups over XFoil Drela [1989] with guaranteed extrapolation behavior. Despite this progress, a critical gap persists: existing methods do not explicitly enforce conserva-tion laws at the discrete computational level. PINNs penalize PDE residuals at collocation points but do not ensure that predicted fields satisfy conservation of mass, momentum, and energy in a finite volume sense—the fundamental principle underlying CFD solvers. Recent work on Godunov-Riemann Informed Neural Networks (GoRINNs) Patsatzis et al. [2025] combines shallow neural networks with Godunov-type finite volume schemes to learn physical flux functions for hyperbolic conservation laws, but focuses on inverse problems for 1D scalar laws rather than supervised flow field prediction. Our proposed Conservation Flux Informed Neural Network (CoFINN) addresses this gap by treating CNN output pixels as finite volume cells and calculating fluxes across cell in-terfaces using the same Riemann solvers employed in high-fidelity CFD. This bridges data-driven learning with rigorous numerical methods, combining the computational efficiency of CNNs with the physical consistency of finite volume methods. 
+
+# 2 Related Work 
+
+Machine learning for aerodynamic prediction has progressed from early neural network approaches for coefficient estimation Faller and Schreck [1996], Rai and Madavan [2000], Thirumalainambi and Bardina [2003], Suresh et al. [2003] to modern architectures capable of predicting full spatial flow fields. Convolutional Neural Networks have been particularly successful for flow prediction tasks Guo et al. [2016], Singh et al. [2017], Yilmaz and German [2017], Jin et al. [2018], Fukami 4et al. [2019], Lee and You [2019], Viquerat and Hachem [2020], demonstrating effectiveness for steady and unsteady flows, turbulent separated flows, super-resolution reconstruction, and drag pre-diction. Encoder-decoder and U-Net architectures Chen et al. [2019], Thuerey et al. [2020], Bhatna-gar et al. [2019], Sekar et al. [2019], Duru et al. [2020, 2022], Xie et al. [2025] leverage skip connec-tions to preserve spatial information across resolution levels, enabling predictions of pressure and velocity fields around airfoils with speedups of up to three orders over CFD. Duru et al. Duru et al. [2020, 2022] extended these approaches to compressible and transonic regimes with the CNNFOIL architecture, upon which the present work builds. Specialized architectures have been developed for challenging compressible and transonic flow regimes Hui et al. [2020], Wang et al. [2021], WU et al. [2022], Chen and Thuerey [2023, 2024], Wang et al. [2023], Zuo et al. [2022], Catalani et al. [2023], addressing shock wave prediction, high Reynolds number flows, and data scarcity. Chen and Thuerey Chen and Thuerey [2023, 2024] achieved order-of-magnitude improvements through canonical space encoding and attention-based U-Net models with roll-out training for unsteady transonic flows, while Catalani et al. Catalani et al. [2023] showed that Graph Neural Networks outperform CNNs for shock capture on unstruc-tured meshes. Graph Neural Networks have emerged as powerful tools for handling unstructured meshes Nabian et al. [2024], Catalani et al. [2023], while neural operators, particularly the Fourier Neural Operator Wen et al. [2022], Qin et al. [2024], Zuo et al. [2023b], learn solution opera-tors in Fourier space with resolution independence. Implicit neural representations Catalani et al. [2024], Xiao et al. [2024] provide continuous flow field representations with five orders of magni-tude speedup over traditional solvers. Physics-Informed Neural Networks (PINNs) Sharma et al. [2023] embed physical laws into the learning process by penalizing PDE residuals, with applications to interface problems and mov-ing boundaries Zhu et al. [2023], Roy et al. [2025], Mullins et al. [2025], Bi et al. [2025], Zhu et al. [2024], Lu et al. [2024], airfoil pressure prediction Huang et al. [2025], Li et al. [2024], tran-sonic airfoil flows with artificial dissipation Wassing et al. [2025], flight dynamics Michek et al. [2024], and specialized formulations including physics-informed extreme learning machines Ren et al. [2025] and improved PINNs with small sample learning Li et al. [2023]. Physics-informed diffusion models Bastek et al. [2025], Hu et al. [2024] have reduced residual errors by up to two orders of magnitude, with geometry-conditioned variants demonstrating superior performance over CNNs in handling complex geometries. Hybrid approaches combining physics-informed techniques with traditional architectures Wang and Perdikaris [2021], Sharpe and Hansman [2025], Patel et al. [2025], Teimourian et al. [2024], Sun et al. [2021], Wu et al. [2022], Hassanian et al. [2022] have achieved consistent improvements; notably NeuralFoil Sharpe and Hansman [2025] embeds phys-ical symmetries structurally, achieving between 8× to 1,000 × speedups over XFoil Drela [1989] with guaranteed extrapolation behavior. Despite this progress, a critical gap persists: existing methods do not explicitly enforce conserva-tion laws at the discrete computational level. PINNs penalize PDE residuals at collocation points but do not ensure that predicted fields satisfy conservation of mass, momentum, and energy in a finite volume sense—the fundamental principle underlying CFD solvers. Recent work on Godunov-Riemann Informed Neural Networks (GoRINNs) Patsatzis et al. [2025] combines shallow neural networks with Godunov-type finite volume schemes to learn physical flux functions for hyperbolic conservation laws, but focuses on inverse problems for 1D scalar laws rather than supervised flow field prediction. Our proposed Conservation Flux Informed Neural Network (CoFINN) addresses this gap by treating CNN output pixels as finite volume cells and calculating fluxes across cell in-terfaces using the same Riemann solvers employed in high-fidelity CFD. This bridges data-driven learning with rigorous numerical methods, combining the computational efficiency of CNNs with the physical consistency of finite volume methods. For many physical processes, including fluid flow, heat and mass transfer, electric charge, and even traffic flow, conservation laws constitute our fundamental tool for comprehending and modeling the physical mechanisms of these processes. These models include one or more conserved variables and the mechanisms defining the relationship between the local quantity of a conserved variable and its transport. A conservation law can be described as a differential equation within a domain, or it can be for-mulated as an integral equation on a finite control volume using Green’s theorem. From a machine learning perspective, the distribution of conserved variables can be estimated by training on existing solutions. However, there is no guarantee that the estimated solutions are physically acceptable. 5We theorize that, for a physical system governed by a conservation law, more physically realistic solutions can be generated by minimizing the deviation from these laws. For this purpose, we utilize the integral form of the conservation laws and ensure the deviation from the conservation laws within the whole domain is minimized. Our neural network architecture estimates the local values of physical parameters as pixels values, and each pixel is treated as a finite control volume. In this section, we will discuss conservation laws in general. Then, we introduce a challenging problem in compressible fluid flow that includes several coupled conserved variables and involves both convection and diffusion. Finally, we explain the essence of our method and its basic theory, followed by the simplification and implementation details for the selected model problem. 
+
+# 3 Conservation laws 
+
+For a given finite control volume Ω, any conservation law in integral form is described as in (1). 
+
+∂∂t 
+
+Z
+
+> Ω
+
+U dΩ + 
+
+I
+
+> ∂Ω
+
+F · n dS =
+
+Z
+
+> Ω
+
+S dΩ (1) In this equation, U is the vector of conserved variables, which consists of mass, x-momentum, y-momentum, and Total Energy. Fcis the flux vector. S is the source term vector, which is typically zero for standard flow problems without external forces. The second term is the flux through the control surface, integrated through surface S along the boundary ( dΩ) of the control volume ( Ω). It is possible, and often useful to split the flux vector into its convective and diffusive parts, F =
+
+Fc + Fv . Here, Fc. is the convective (inviscid) flux vector. Fv is the viscous (convective) flux vector. Then Equation (1) can be written is the following form: 
+
+∂∂t 
+
+Z
+
+> Ω
+
+U dΩ + 
+
+I
+
+> ∂Ω
+
+(Fc − Fv ) · n dS =
+
+Z
+
+> Ω
+
+S dΩ (2) 
+
+Conservation laws for compressible fluid flow 
+
+Equation (2) is a rather generalized form and can be applied in a variety of conservation-laws driven problems. For a 2D compressible flow problem, the vector of conserved variables are as such: 
+
+U =
+
+
+
+ρρu ρv ρE 
+
+ (3) In this equation, ρ is density u, v are velocity components in x and y directions and E is the total energy per unit mass given as: 
+
+E = e + 12 (u2 + v2) (4) where, e is internal energy. Therefore the volume integral given in Equation (2) of conserved vari-ables contained within vector U of Equation (3) are mass, x and y-momentum ( ρu , ρv ) and the energy within the control volume. Convective (inviscid) Flux Vector ( Fc) represents the flux of conserved quantities due to the bulk motion of the fluid and pressure forces. For 2D flow, dot product in Eq. (2) allows us to split the flux vector in its x and y components, Fc,x and Fc,y 
+
+Fc,x =
+
+
+
+ρu ρu 2 + pρuv ρuH 
+
+ , Fc,y =
+
+
+
+ρv ρuv ρv 2 + pρvH 
+
+ (5) In this equation, p is pressure, and H is the total enthalpy per unit mass 
+
+H = E + pρ (6) 6Viscous Flux Vector ( Fv ) represents the flux of conserved quantities due to viscous shear stresses and heat conduction. It is also written in terms of its x and y component. 
+
+Fv,x =
+
+
+
+0
+
+τxx 
+
+τxy 
+
+uτ xx + vτ xy − qx
+
+ , Fv,y =
+
+
+
+0
+
+τyx 
+
+τyy 
+
+uτ yx + vτ yy − qy
+
+ (7) In this equation, τij are the components of the viscous stress tensor, qx, q y are the components of the heat flux vector. We assumed Newtonian fluid and Fourier’s Law of conductivity for this study. The shear stress is given using the Bousinnesq approximation as 
+
+τij = μ
+
+ ∂u i
+
+∂x j
+
++ ∂u j
+
+∂x i
+
+− 23
+
+∂u k
+
+∂x k
+
+δij 
+
+
+
+, (8) For the RANS modelling, the viscosity term, μ is the combination of laminar and turbulent counter-parts. The turbulent viscosities can be calculated through turbulence models, whereas the material viscosity is calculated by the Sutherland Law. For this study we used air as the working gas with the viscosity given as Eq. (9). 
+
+μ = 1.458 × 10 −6T 3/2
+
+T + 110 .4 (9) where, T is temperature defined in Kelvin. The governing equations in Eq. (1) contain four equations and five unknowns (ρ, p, T, u, v ). There-fore, a fifth equation is required, which is the state equation. We use the ideal gas law in this study, which is sufficient for the flow regimes presented in this work. 
+
+p = ρRT (10) 
+
+# 4 Interpreting image data as a finite-volume mesh 
+
+The model problem can be solved by an analytical or numerical method and the solutions on the domain can be used to train machine-learning algorithm. For the selected model problem given in equations (3) to (10), the field solutions are obtained using a finite-volume-based CFD solver. As discussed earlier, the integral form of the conservation laws are utilized to ensure the fidelity of the solution. Therefore, finite volumes to evaluate the flux and volume integrals defined in equation (1) are required. For this purpose, the dense flow field solution obtained from the high-fidelity CFD simulation is mapped onto an “ N × M pixel array”, representing a discretized spatial domain. Within this struc-ture, each pixel is treated as a closed, non-overlapping finite control volume (or cell), effectively transforming the image data into a computational mesh (as conceptually depicted in Figure 1). Each cell is assigned a single, average value for every flow property. Specifically, the data assigned to cell (i, j ) is the cell-centered average of the conserved variable vector Ui,j (as shown in Figure 2), where U includes density, momentum components, and total energy. To enforce the conservation laws, the fluxes must be evaluated across the interface (or face) connect-ing adjacent control volumes. For any given cell (i, j ), there are four surrounding interfaces where fluxes must be calculated: the north, south, east, and west faces. At each cell interface, the constant cell-centered value must be used to define the states on either side of the face. For an interface separating cell i from cell j, this process yields two distinct states: the left state UL (from cell at the direction normal to the face) and the right state UR (from the opposing cell). Since the governing Partial Differential Equations (PDEs) for many physical processes allow for non-smooth solutions, the left state UL and right state UR can be significantly different across the interface. This requires the use of a specialized numerical flux function or a Riemann solver to correctly compute the physically meaningful flux Fk across the face, ensuring the correct amount of conserved property flows between the two control volumes. For our specific model problem –compressible flow– we utilize the HLLC (Harten-Lax-van Leer Contact) Riemann solver. This advanced numerical scheme takes the interpolated states UL and 7Ui,j =           
+
+> ρ, ρu, ρv, ρ e
+> (i, j )
+> (i+ 1 , j )(i−1, j )
+> (i, j + 1)
+> (i, j −1)
+> ULUR
+> (Fc)F ace =F(UL,UR)
+
+Figure 2: Control volume cell and its neighbors 
+
+UR, along with the face normal vector ( n), to calculate the final convective flux Fc. This approach effectively accounts for the possibility of shock waves and contact discontinuities present in tran-sonic flow fields: 
+
+Fc = F(UL, UR, n) (11) 
+
+# 5 Conservation Flux Informed Neural Networks, CoFINN 
+
+To embed physical principles into our CNN training, we utilize the integral form of the conservation laws, simplifying them to focus on the steady-state and the balance between convective, viscous fluxes, and any internal source terms. Therefore, we start from the general conservation equation given in Equation (2). For a steady-state flow field, the rate of change of conserved variables within a control volume Ω is zero. The general integral form of the conservation laws for steady-state simplifies to the following exact balance: I
+
+> ∂Ω
+
+Fc · n dS −
+
+I
+
+> ∂Ω
+
+Fv · n dS = RHS , (12) where Fc and Fv are the convective and viscous flux vectors. Note that, splitting the fluxes into convective and diffusive parts are rather artificial and starting from equation (1) is also possible, if the fluxes are calculated on the pixel-based control volumes. The Right-Hand Side ( RHS ) of the Equation (12) is defined here as the net rate of external forces, work, or heat added to the control volume. We introduce the vector Binternal to capture all source, sink, and external force effects acting within or on the control volume. This term specifically includes effects such as body forces, chemical reactions, and, crucially, solid boundary effects. For a cell adjacent to an airfoil surface, Binternal 
+
+includes the net forces and work applied by the solid boundary on the fluid, such as pressure forces and work done by shear stresses at the wall. Incorporating this term, the conservation equation becomes: 
+
+I
+
+> ∂Ω
+
+Fc · n dS −
+
+I
+
+> ∂Ω
+
+Fv · n dS = Binternal (13) 8For an internal cell not connected to a solid boundary and where there are no other internal sources (like chemical reactions or dedicated heat addition), Binternal = 0
+
+For the purposes of our CNN training, we strategically group all non-convective terms into a single Ground Truth Flux Residual ( FGT ), which we calculate directly from the high-fidelity CFD data. This allows us to use the prediction capability of the CNN only for the convective fluxes, while ensuring the model is accountable for the correct overall conservation balance. We define the residual FGT for any control volume (CV) as the sum of all terms other than the convective flux contribution: 
+
+FGT =
+
+I
+
+> ∂Ω
+
+Fv · n dS + Binternal (14) The core conservation equation for any cell, therefore, must satisfy the following exact balance, which represents our ground truth condition: 
+
+I
+
+> ∂Ω
+
+Fc · n dS = FGT (15) This formulation holds true for all cells, regardless of whether they are internal (where Binternal is zero, and Fv is small) or boundary-adjacent (where Binternal accounts for the wall interaction and 
+
+Fv is significant). This residual FGT contains all necessary source and viscous terms required for conservation law. It is important to note that FGT is precomputed from the CFD ground truth, making the CoFINN loss a supervised regularizer rather than a self-supervised constraint. Unlike PINNs, which penalize PDE residuals without requiring solution data, CoFINN requires the same high-fidelity training data as a purely data-driven model. the CoFINN loss reshapes the loss landscape to favor predictions with better conservation compliance, but does not reduce data requirements. The model is then trained to minimize the error between the right-hand side, FGT , and the convective flux calculated from the network’s prediction, Fpred :
+
+ε ∼ |F GT − F pred | , (16) where Fpred = H 
+
+> ∂Ω
+
+Fc(Upred ) · n dS . By minimizing this error, we ensure that the predicted flow field, when plugged back into the conservation equation, satisfies the known conservation balance (which includes all boundary and viscous effects) for every cell. 
+
+5.1 Flux Computation 
+
+As mentioned before, we have utilized a Riemannian flux calculation routine in this study. We have selected the HLLC flux scheme for this purpose. The implemented HLLC variant is given on the supplementary materials. Please note that, CoFINN methodology is not bound to any flux scheme. One can use any flux scheme or any discretion method. In this section we describe the flux method of our choice, that is shared between the CFD and CoFINN methods. 
+
+Pixel-Level Flux Balance 
+
+In our image-as-mesh formulation, each pixel (i, j ) has four interfaces. The left and right states are obtained by picking adjacent pixel values. We have used first-order discretizations, which means the left and right states at the cell face are equal to cell (pixel) value for the Riemannian flux method we use. It is also possible to use second-order accurate discretization using slope limiters. Note that if a central scheme is used, face values should be interpolated from the pixel data. The fluxes should be evaluated all interfaces (East, West, North, South), using the face normal. The face areas should be considered. We have used an unequal scaling in x (Drag) and y directions while generating the pixelated data. Therefore, we used with face areas proportional to the pixel dimensions ( Aeas t,west = 1 /255 , Anorth,south = 2 /255 ). The net flux imbalance for pixel (i, j ) is: 
+
+εi,j =
+
+ X
+
+> k∈{ E,W,N,S }
+
+Fk
+
+ − F GT ,i,j (17) 9The entire CoFINN flux computation is implemented as differentiable tensor operations, enabling gradient backpropagation through the selected flux calculation method during training. Algorithm 1 given in supplementary materials summarizes the complete procedure. 
+
+5.2 Loss Functions 
+
+Both data-driven and physics-informed losses are active from the start of training, with their relative contribution controlled by the CoFINN loss weight λ.
+
+Numerical Loss (Data-Driven) 
+
+The Mean Absolute Error (MAE) between predicted and ground truth primitive variables: 
+
+Ldata = 1
+
+n
+
+> n
+
+X
+
+> j=1
+
+|yj − ˆyj | (18) where yj represents the ground truth values, ˆyj represents the network predictions, and n is the number of data points in the flow field. 
+
+Physical Loss (Physics-Informed) 
+
+After computing the predicted primitive variables, we calculate momentum fluxes using the under-lying flux solver of CoFINN (Eq. (11)) at each cell interface. The CoFINN loss measures the error in momentum conservation: 
+
+Lflux = MAE (FGT − F pred ) (19) where Fpred is computed from the network’s predicted flow field using the same flux calculation procedures as the CFD solver. The total loss function combines both components using a convex combination controlled by a single weight λ ∈ [0 , 1] :
+
+Ltotal = (1 − λ) × L data + λ × L flux (20) When λ = 0 , the model reduces to a purely data-driven MAE model; when λ = 1 , only the CoFINN loss is active. Intermediate values balance data fidelity with conservation compliance. 
+
+# 6 Force calculations 
+
+The methodology establishes a direct link between the network’s output and the principles of the Finite Volume Method (FVM). As conceptually illustrated in Figure1 of main text, an airfoil is positioned within the computational domain. This entire domain is represented by a large rectangular control volume (CV), which is itself composed of an N × M grid of individual cells, or “pixels.” Therefore, the entire image output is not merely a representation within a larger CV; rather, the entire CV is the union of the N × M discrete computational cells. Each of these cells acts as a local control volume for which the conservation laws are locally enforced. The figure depicts the conceptual flow that occurs across the external boundaries of this N × M domain, representing the interaction with the far-field conditions. This structured discretization allows us to directly map the network’s pixel-based predictions to a finite volume framework, enabling the calculation of fluxes and the assessment of conservation law compliance at a granular level across the entire domain. The methodology for calculating the net aerodynamic forces (Lift, L, and Drag, D) acting on the airfoil is achieved by applying the integral form of the momentum conservation equation to the large, rectangular control volume (CV) that encompasses the entire airfoil as depicted in Figure 3. By placing the control surface far from the airfoil, we can make two key simplifications: Zero Inter-nal Sources: Since the airfoil boundary is contained entirely within the selected CV, the source term 
+
+Binternal applied across the outer control surface is zero. Diminishing Viscous Effects: As the con-trol volume boundary is moved further away from the airfoil, the velocity gradients at the boundary diminish, allowing us to approximate the viscous flux ( Fv ) at the outer boundary as negligible. Under these steady-state and far-field approximations, the momentum conservation equation (Eq. (3) of the main text) simplifies to a balance between the net forces acting on the fluid and the net 10 Airfoil                      
+
+> ∮
+> ∂Ω Fc · n dS  = − ∮
+> ∂Ω Fc,x  dS  = − ∑ Fc,x AL,j
+> ∮
+> ∂Ω Fc · n dS  = ∑ Fc,x AR,j
+> ∮
+> ∂ΩFc·ndS =∑Fc,y AU,i
+> ∮
+> ∂ΩFc·ndS =−∑Fc,y AD,i
+> Fy=−L
+> Fz=−D
+
+Figure 3: Rectangular control volume around an airfoil used for force calculations convective momentum flux across the control surface: 
+
+I
+
+> ∂Ω
+
+Fc · n dS = FFluid on Airfoil (21) Here, FFluid on Airfoil represents the net aerodynamic force exerted by the fluid on the solid airfoil surface. This force is often broken down into the Lift ( L) and Drag ( D) components. Conversely, the net force acting on the fluid within the control volume ( FNet ) is given by the negative of the force on the airfoil, as shown in the figure: 
+
+FNet = −(L + D) (22) Therefore, the integral of the convective momentum flux directly equals the negative of the net aerodynamic force on the airfoil: 
+
+I
+
+> ∂Ω
+
+Fc · n dS = −(L + D) (23) By calculating the momentum flux integral from the predicted flow field over the control surface, one can obtain the Lift and Drag forces acting on the airfoil, thereby providing a robust, conservation-law-compliant metric for model evaluation. Since our aim is to provide more physically consistent predictions, testing the results against the lift and drag predictions seems reasonable. We have utilized calculation of drag and lift forces by the using the integral form of the conservation momentum on the large, far-field control volume. 
+
+# 7 Results 
+
+7.1 Dataset 
+
+The CNNFoil dataset contains 204 airfoil geometries from diverse airfoil families spanning a range of thickness ratios and camber values, providing geometric diversity. In total, there are 6,324 high-fidelity Reynolds-Averaged Navier-Stokes (RANS) CFD simulations at transonic conditions: Mach number M∞ = 0 .7, Reynolds number Re = 6 ,000 ,000 , and angles of attack (AOA) ranging from 11 −10 ◦ to 20 ◦ with 1◦ intervals. The working fluid is air modeled as an ideal gas with Sutherland vis-cosity law, and turbulence closure is provided by the Spalart-Allmaras model Spalart and Allmaras [1992]. The flow field data around the airfoil calculated by CFD analysis is extracted to a grid data. For this purpose, the airfoil is rotated around the quarter chord by AOA. Then the flow data is extracted in a domain of 2 chord lengths in x, and one chord lengths in y to a grid size of 256 ×256 . The difference in the x and y resolutions are applied to capture the details of flow properties above the wing. For this reason, airfoil solution images provided in this study looks thicker than they actually are, and should be assessed considering this fact. All primitive variables undergo standardization, i.e., projection to zero-mean unit-variance space (z-score normalization), during training. Predictions are projected back to physical space (denormalization) before flux calculations to ensure physically meaningful momentum fluxes. Ten airfoils from different airfoil families (Avistar, USA-35, NPL 9510, SC1012R8, NACA 2421, NACA M12, FX 61-184, NACA 747A415, NPL 9626, RAE 5215) are held out as a fixed test set (the 
+
+eval partition ) across all angles of attack to prevent data leakage. These airfoils belong to distinct families; no other airfoils from these families appear in the training or validation sets. From the remaining airfoils, a validation set of equal size (10 airfoils) is randomly drawn, with the rest used for training. To investigate how the breadth of training data affects CoFINN training, we train models on five angle-of-attack ranges of increasing size, summarized in Table 1. For each range, the same set of test airfoils is evaluated at all constituent angles, enabling assessment of both interpolation accuracy within the training range and the interaction between multi-AOA training and the CoFINN loss. Table 1: Training angle-of-attack ranges used in the ablation study. Training samples = 184 airfoils 
+
+× # train AOAs. All ranges are tested on 10 held-out airfoils at each constituent AOA.                                               
+
+> Name AOA range # AOAs Train samples Validation samples Test cases Single 0◦1184 10 10 Narrow −4◦to 4◦(4◦step) 3552 30 30 Medium −8◦to 8◦(4◦step) 5920 50 50 Broad −10 ◦to 18 ◦(2◦step) 15 2,760 150 150 Full −10 ◦to 20 ◦(1◦step) 31 5,704 310 310
+
+The progression from Single to Full allows us to disentangle two effects: how additional training angles improve generalization across the AOA envelope, and whether the CoFINN loss remains beneficial as the data-driven baseline strengthens with more training samples. 
+
+7.2 Network Architectures 
+
+To demonstrate that the CoFINN training methodology is architecture-agnostic, we evaluate four fundamentally different network families. All models share the same input representation—a 256 ×
+
+256 single-channel distance field (DF)—and predict four primitive flow variables ( p, u, v, T ) at the same resolution. Table 2 summarizes the key characteristics. Table 2: Network architectures evaluated with the CoFINN training methodology.                     
+
+> Model Type Params Depth Passes CNNFoil Duru et al. [2020] Encoder-decoder CNN 4.8M 14 1FNO Li et al. [2021] Fourier Neural Operator 2M 41ViT Dosovitskiy et al. [2021] Vision Transformer 5.5M 61Diffusion Bastek et al. [2025] Conditional denoising U-Net 8.9M 18 4/20
+
+CNNFoil is the baseline encoder-decoder architecture from Duru et al. [2020, 2022], consisting of four independent sub-networks that each predict one flow variable. The encoder compresses spatial dimensions from 256 ×256 to 2×2 through strided convolutions, and the decoder reconstructs the full-resolution field via transposed convolutions. 12 FNO (Fourier Neural Operator) Li et al. [2021] learns mappings between function spaces through spectral convolutions in the Fourier domain. Four FNO blocks with 12 Fourier modes per dimension provide a global receptive field, enabling the network to capture long-range flow interactions without pooling operations. 
+
+ViT (Vision Transformer) Dosovitskiy et al. [2021] divides the input DF into 16 ×16 non-overlapping patches, projects them into a 384-dimensional embedding space, and processes the resulting sequence through 6 transformer blocks with 6-head self-attention. A decoder head re-constructs the spatial output from the patch representations. While Zuo et al. Zuo et al. [2023a] applied a transformer encoder to airfoil flow prediction, their architecture fuses patch features with point coordinates and wall distance via an MLP, making it a point-query model rather than a purely image-to-image mapping. We adopt the standard ViT to maintain a consistent image-to-image in-terface across all architectures. 
+
+Diffusion is a conditional denoising diffusion probabilistic model (DDPM) using the U-Net archi-tecture from Bastek et al. [2025]. The backbone follows a 4-level U-Net with channel multipliers 
+
+(1 , 2, 4, 8) , ResNet blocks with time-conditioned adaptive group normalization, spatial linear atten-tion at every level, and full self-attention at the bottleneck. A cosine noise schedule with 100 diffu-sion steps is used. The model is trained as a DDPM (denoising diffusion probabilistic model) but sampled with the deterministic DDIM (denoising diffusion implicit model) scheme for efficiency: 4 DDIM steps during training and 20 at inference. The DF input conditions the U-Net via a gradient embedding module concatenated to the initial features. 
+
+7.3 Training Strategy 
+
+All models are trained for 400 epochs with the combined loss (Eq. (20)) active throughout. The base optimizer is Adam ( β1=0 .9, β2=0 .999 , ϵ=10 −8) with an initial learning rate of 3 × 10 −3. The weight λ is treated as a hyperparameter and systematically varied across {0, 0.1, 0.3, 0.5, 0.7, 1.0}
+
+in the ablation study; λ = 0 reduces the model to a purely data-driven mean absolute error (MAE) baseline, while λ = 1 .0 (pure CoFINN loss) caused training divergence in all configurations. To disentangle the effect of the CoFINN from optimization improvements, we evaluate several train-ing configurations combining standard optimization and regularization techniques (learning-rate scheduling, EMA, SWA, lookahead, early stopping), summarized in Table 3. Each configuration is trained across the λ values above and 3 random seeds; per (model, range, λ) cell we report the best configuration. Table 3: Training configurations used in the ablation study.              
+
+> Configuration Description Baseline Adam optimizer, fixed learning rate Scheduler Cosine annealing (20 warmup epochs, min LR 10 −7)EMA Exponential moving average of weights (decay = 0 .999 )Sched+EMA Cosine scheduler + EMA Lookahead (LA) Lookahead Zhang et al. [2019] wrapper ( k=5 ,α=0 .5)Sched+LA Cosine scheduler + Lookahead Sched+EStop Cosine scheduler + early stopping (patience = 40 )Aug (v-flip) Vertical flip (reflects about chord line) Aug (h-flip) Horizontal flip (reverses flow direction) Aug (both) Combined horizontal and vertical flip
+
+7.4 Evaluation Metrics 
+
+The CoFINN error defined in (17) is a vector, since F is a vector. Therefore, it is possible to involve each flux loss in our calculations. We have targeted to a better prediction of forces, therefore we decided to use a momentum-based evaluation for our tests. The force estimations are evaluated with the Drag ( CD ) and Lift CL coefficients. We employ the force-calculation method described in Supplementary Text. 13 We report both relative and absolute force coefficient errors. The relative errors are: 
+
+ϵCD = |CD, CFD − CD, pred ||CD, CFD | × 100% , ϵCL = |CL, CFD − CL, pred ||CL, CFD | × 100% (24) The absolute errors are: 
+
+|∆CD | = |CD, CFD − CD, pred |, |∆CL| = |CL, CFD − CL, pred | (25) Since CL passes through zero near α = 0 ◦, ϵCL becomes unbounded despite small absolute discrep-ancies. We report both metrics and note where ϵCL is dominated by near-zero denominators. Field accuracy is measured by the normalized MAE on standardized fields (Eq. (18)), and conservation compliance by Lflux (Eq. (19)). All results are reported as the best across 6 training improvements (schedule/EMA/stochastic weight averaging (SWA)/lookahead combinations) × 3 random seeds, selected independently per (model, AOA range, loss) cell. The hyperparameter λ scales the rectangular control-volume force-supervision term built on Eq. S17 on supplementary document; λ = 0 denotes MAE-only baseline. The per-configuration ablation is in Supplementary Table S6. 
+
+7.5 Effect of Physics Loss Weight λ
+
+Table 4 shows how force prediction accuracy varies with λ at the Full AOA range (31 evaluation angles), reporting the best configuration (improvement × seed) per (model , λ ) cell. Table 4: Drag and lift coefficient error (% mean ±std across 3 seeds) vs. λ, eval partition, Full AOA range. Each cell picks the best improvement (of 6 for CNNFoil/FNO/ViT, 3 for Diffusion) by mean and reports that improvement’s seed-wise std (averaged over 31 angles × 10 test airfoils, 
+
+|CD, true |>0.01 , |CL, true |>0.05 filters). Best λ per model in bold. Validation-partition counterpart is Table S1 in Supplementary Information. 
+
+Model λ ⟨ϵCD ⟩ (%) ⟨ϵCL ⟩ (%) CNNFoil 0 53.8 ±4.7 22.6 ±0.3 
+
+CNNFoil 0.1 14.8 ±0.8 20.0 ±0.5 
+
+CNNFoil 0.3 16.4 ±1.8 20.1 ±0.7 
+
+CNNFoil 0.5 17.8 ±6.4 19.6 ±0.4 
+
+CNNFoil 0.7 19.5 ±1.6 19.0 ±1.0 
+
+FNO 0 31.7 ±0.2 19.0 ±0.2 
+
+FNO 0.1 13.6 ±1.4 22.8 ±0.1 
+
+FNO 0.3 13.7 ±1.8 23.0 ±0.7 
+
+FNO 0.5 14.3 ±2.1 22.8 ±1.0 
+
+FNO 0.7 15.5 ±2.8 22.5 ±0.3 
+
+ViT 0 29.0 ±0.6 17.7 ±0.2 
+
+ViT 0.1 17.6 ±1.9 20.5 ±0.6 
+
+ViT 0.3 16.8 ±0.8 20.6 ±1.2 
+
+ViT 0.5 17.6 ±1.4 21.0 ±0.2 
+
+ViT 0.7 18.1 ±4.0 19.7 ±0.7 
+
+Diffusion 0 52.6 ±1.9 49.0 ±2.8 
+
+Diffusion 0.1 77.7 ±7.5 64.0 ±4.9 
+
+Diffusion 0.3 87.8 ±24.0 58.1 ±4.4 
+
+Diffusion 0.5 80.1 ±12.1 61.0 ±4.1 
+
+Diffusion 0.7 101.6 ±14.4 57.4 ±5.0 
+
+CNNFoil achieves the largest reduction in drag coefficient error, ϵCD , decreasing from 53 .8% to 
+
+14 .8% at λ = 0 .1, corresponding to a 3.6× improvement. Similarly, FNO reduces ϵCD from 31 .7% 
+
+to 13 .6% at λ = 0 .1 (2.3× improvement), while ViT decreases it from 29 .0% to 16 .8% at λ = 0 .3
+
+(1.7× improvement). For the lift coefficient error, ϵCL , CNNFoil shows a modest improvement, reaching 19 .0% at λ = 0 .7 compared to the 22 .6% baseline. In contrast, both FNO and ViT exhibit degraded performance on the Full dataset: FNO increases from 19 .0% to 22 .5% at λ = 0 .7, while 14 ViT increases from 17 .7% to 19 .7% at the same λ value. For the diffusion model trained on the Full dataset, the lowest ϵCD is obtained at the baseline configuration ( 52 .6% ), whereas all λ > 0
+
+settings yield substantially higher errors in the range of 77 –102% . Likewise, the minimum ϵCL is also achieved at the baseline ( 49 .0% ). However, under narrower training ranges (Table 5), CoFINN consistently reduces both ϵCD and ϵCL for the diffusion model. 
+
+7.6 Improvement Across Training Data Regimes 
+
+Table 5 reports the best-of-best configuration per (model , range , loss ) cell: each cell independently selects the (improvement, seed, λ) with lowest drag error under the indicated loss ( λ = 0 for MAE-only, λ > 0 for CoFINN). Values are mean absolute percentage error on the 10 test airfoils, averaged over the evaluation angles of the training range. Table 5: Drag and lift coefficient error (% mean ±std across 3 seeds) by training AOA range, MAE-only ( λ=0 ) vs. CoFINN (best λ> 0). Each cell picks the best (improvement) by mean over seeds and reports that improvement’s seed-wise std (averaged over training-range AOAs and 10 test airfoils, with |CD, true |>0.01 and |CL, true |>0.05 to avoid divergence from near-zero denominators). Paren-thesized ( λ) is the winning weight for CoFINN. ∆: relative reduction in mean ( + is better). 
+
+ϵCD (%) ϵCL (%) Model Range MAE-only CoFINN ( λ) ∆CD MAE-only CoFINN ( λ) ∆CL
+
+CNNFoil Single 95.0 ±69.8 13.8 ±4.4 (0.3) +85% 31.5 ±5.7 15.2 ±3.8 (0.5) +52% 
+
+CNNFoil Narrow 107.7 ±15.1 18.9 ±5.4 (0.7) +82% 34.7 ±2.7 23.2 ±2.0 (0.1) +33% 
+
+CNNFoil Medium 82.8 ±15.2 18.8 ±6.2 (0.3) +77% 30.3 ±0.9 19.5 ±1.8 (0.3) +36% 
+
+CNNFoil Broad 53.5 ±2.3 15.3 ±1.3 (0.1) +71% 21.5 ±0.3 18.4 ±0.5 (0.7) +14% 
+
+CNNFoil Full 53.8 ±4.7 14.8 ±0.8 (0.1) +73% 22.6 ±0.3 19.0 ±1.0 (0.7) +16% 
+
+FNO Single 33.6 ±16.1 12.5 ±0.7 (0.5) +63% 16.3 ±1.2 12.9 ±4.1 (0.5) +21% 
+
+FNO Narrow 37.6 ±4.4 22.5 ±4.4 (0.5) +40% 18.4 ±0.5 23.6 ±1.2 (0.7) −28% FNO Medium 26.9 ±3.9 18.5 ±1.0 (0.7) +31% 18.0 ±0.7 26.0 ±0.7 (0.1) −44% FNO Broad 31.7 ±0.6 12.3 ±0.4 (0.1) +61% 17.1 ±0.2 20.5 ±0.6 (0.7) −20% FNO Full 31.7 ±0.2 13.6 ±1.4 (0.1) +57% 19.0 ±0.2 22.5 ±0.3 (0.7) −19% ViT Single 24.6 ±16.7 12.1 ±4.6 (0.7) +51% 13.1 ±1.4 18.8 ±8.3 (0.7) −44% ViT Narrow 47.4 ±6.7 31.2 ±3.0 (0.3) +34% 59.8 ±3.0 38.8 ±7.9 (0.5) +35% 
+
+ViT Medium 35.2 ±5.2 25.9 ±3.1 (0.7) +26% 35.8 ±3.6 35.3 ±3.4 (0.1) +1% ViT Broad 27.1 ±0.4 16.6 ±1.2 (0.3) +39% 16.1 ±0.3 19.3 ±1.2 (0.1) −20% ViT Full 29.0 ±0.6 16.8 ±0.8 (0.3) +42% 17.7 ±0.2 19.7 ±0.7 (0.7) −12% Diffusion Single 199.3 ±28.3 78.8 ±41.8 (0.1) +60% 59.9 ±10.4 48.1 ±1.6 (0.3) +20% 
+
+Diffusion Narrow 140.2 ±27.5 109.1 ±18.7 (0.1) +22% 87.3 ±4.2 73.7 ±16.4 (0.3) +16% 
+
+Diffusion Medium 133.1 ±9.0 87.7 ±31.5 (0.5) +34% 93.0 ±1.7 78.4 ±10.5 (0.1) +16% 
+
+Diffusion Broad 65.5 ±4.8 81.3 ±6.3 (0.1) −24% 54.3 ±6.2 57.3 ±4.0 (0.3) −6% Diffusion Full 52.6 ±1.9 77.7 ±7.5 (0.1) −48% 49.0 ±2.8 57.4 ±5.0 (0.7) −17% 
+
+CNNFoil achieves the most substantial drag coefficient error reduction across all five training ranges, with ϵCD decreasing by approximately 71 –85% : from 95 .0% to 13 .8% on Single, 107 .7% to 18 .9% 
+
+on Narrow, 82 .8% to 18 .8% on Medium, 53 .5% to 15 .3% on Broad, and 53 .8% to 14 .8% on Full. The lift coefficient error, ϵCL , is also consistently reduced, with improvements ranging from 14 –52% 
+
+across the same training regimes. FNO likewise shows consistent improvements in drag prediction accuracy, reducing ϵCD by approximately 31 –63% : 33 .6% → 12 .5% (Single), 37 .6% → 22 .5% 
+
+(Narrow), 26 .9% → 18 .5% (Medium), 31 .7% → 12 .3% (Broad), and 31 .7% → 13 .6% (Full). However, the behavior for lift prediction is mixed. While ϵCL improves by 21% on the Single range, it deteriorates by approximately 19 –44% for the Narrow, Medium, Broad, and Full ranges. ViT reduces drag coefficient error by approximately 26 –51% across all ranges, with ϵCD decreasing from 24 .6% to 12 .1% (Single), 47 .4% to 31 .2% (Narrow), 35 .2% to 25 .9% (Medium), 27 .1% to 
+
+16 .6% (Broad), and 29 .0% to 16 .8% (Full). For lift prediction, ViT improves performance on the Narrow and Medium ranges ( 59 .8% → 38 .8% and 35 .8% → 35 .3% , respectively), but exhibits degradation of approximately 12 –44% on the Single, Broad, and Full configurations. The diffusion 15 model demonstrates more variable behavior. Drag coefficient error decreases by approximately 22 –
+
+60% for the Single, Narrow, and Medium ranges ( 199 .3% → 78 .8% , 140 .2% → 109 .1% , and 
+
+133 .1% → 87 .7% , respectively), but worsens by approximately 24 –48% on the Broad and Full ranges ( 65 .5% → 81 .3% and 52 .6% → 77 .7% ). A similar trend is observed for lift prediction: 
+
+ϵCL improves by approximately 16 –20% for Single, Narrow, and Medium, while degrading by approximately 6–17% for Broad and Full. 
+
+7.7 Per-Angle Force Error Analysis 
+
+Tables 6 (and S2 in supplementary text) break down drag and lift errors at six representative angles for the full training range. Table 6: Drag coefficient error ϵCD (% mean ±std across 3 seeds, eval partition, Full range = 31 eval-uation angles). Each cell picks the best improvement (of 6) by mean and reports that improvement’s seed-wise std (with |CD, true |>0.01 filter). ⟨all ⟩ is the best improvement’s per-AOA mean averaged over all 31 angles. Best λ per column in bold. 
+
+Model λ −10 ◦ −4◦ 0◦ 8◦ 12 ◦ 20 ◦ ⟨all ⟩
+
+CNNFoil 0 36.4 ±4.9 93.9 ±6.9 100.5 ±24.1 18.0 ±3.1 24.5 ±2.2 73.4 ±2.1 57.0 CNNFoil 0.1 20.4 ±1.0 15.3 25.4 ±3.5 3.3 5.0 ±0.3 22.5 ±0.6 15.5 
+
+CNNFoil 0.3 17.2 23.9 ±2.0 19.8 ±10.3 7.1 3.8 ±1.2 17.4 ±1.4 15.8 CNNFoil 0.5 18.8 ±2.1 9.1 47.3 ±30.6 7.8 ±0.3 3.9 15.1 ±8.1 19.4 CNNFoil 0.7 21.0 ±1.5 28.5 21.7 8.2 ±0.2 4.9 ±1.2 29.2 ±4.2 21.1 FNO 0 27.8 ±5.8 28.4 ±6.6 30.8 ±8.8 9.7 ±0.4 22.0 ±3.0 72.3 ±3.2 32.1 FNO 0.1 11.9 ±2.0 22.4 ±3.0 14.4 ±3.7 5.9 ±0.5 7.4 ±1.1 15.6 ±9.7 14.1 
+
+FNO 0.3 15.4 ±0.8 18.1 ±1.5 21.1 ±6.9 7.3 ±0.9 7.1 ±0.6 15.1 ±6.0 14.4 FNO 0.5 17.5 ±0.9 18.6 ±4.6 25.9 ±4.9 7.5 ±1.1 7.0 ±1.0 20.1 ±13.2 15.3 FNO 0.7 16.9 ±3.1 23.6 ±10.1 22.6 ±3.6 7.7 ±2.0 5.8 ±0.3 27.5 ±14.5 16.7 ViT 0 20.3 ±6.4 14.7 ±2.4 20.3 ±1.4 7.1 ±0.1 20.8 ±5.5 73.7 ±3.0 29.2 ViT 0.1 16.5 ±1.8 35.4 ±17.7 16.6 ±5.8 8.0 ±1.2 5.5 ±0.9 23.6 ±3.8 17.7 ViT 0.3 18.5 ±0.4 29.3 ±3.3 17.7 ±2.7 9.0 ±3.2 6.1 ±0.1 24.8 ±1.5 17.0 
+
+ViT 0.5 17.9 ±3.1 34.9 ±10.1 20.1 ±8.1 7.1 ±0.3 5.8 ±0.9 10.6 ±3.4 17.9 ViT 0.7 18.9 ±3.9 28.2 ±7.4 21.5 ±1.4 8.9 ±1.9 5.6 ±1.0 17.6 ±8.3 18.3 
+
+Diffusion Full-range results are reported in the Supplementary Information. 
+
+CoFINN consistently drops CNNFoil’s drag coefficient error, ϵCD at every AOA (e.g. −10 ◦:
+
+36 .4% → 17 .2% ; 0◦: 100 .5% → 19 .8% ; 20 ◦: 73 .4% → 15 .1% ). The largest gains occur near 
+
+α=0 ◦, where CD is small and the baseline underpredicts it most severely (often to near-zero or negative). FNO exhibits a similar pattern but with a smaller starting error. ViT’s per-AOA response is more uneven, reflecting its sensitivity to training range discussed above. The optimal λ varies by AOA: larger values ( 0.5–0.7) perform best at negative or high-positive angles, while moderate values ( 0.1–0.3) achieve the lowest average error. 
+
+7.8 Absolute Force Coefficient Predictions 
+
+Tables 7 (and S4 in supplementary text) present predicted CD and CL values alongside CFD ground truth. This complements Tables 6 and S2: relative errors can be misleading when denominators are small, so absolute values show physical magnitudes directly. Each cell is the best-of-best run (6 improvements × 3 seeds) per (model, λ, AOA); bold marks the λ closest to GT per column. CNNFoil is the most physics-consistent model: the baseline ( λ=0 ) collapses drag near zero at 
+
+α=−4◦ and 0◦ (0.002 and 0.003 vs GT 0.032 and 0.021), while λ=0 .3 recovers these to 0.032 and 0.020—matching GT to three decimal places at α=−4◦. At α=20 ◦, λ=0 .5 achieves the closest drag prediction (0.366 vs GT 0.392, 6.7% error). FNO and ViT both undershoot at α=20 ◦ un-der the baseline (0.119 and 0.285 vs GT 0.392), with λ=0 .3 closest for FNO (0.396) and λ=0 .1
+
+for ViT (0.386). For CL, CNNFoil overshoots at α=20 ◦ across all λ (≈1.3–1.4 vs GT 0.990); FNO and ViT similarly overshoot ( ≈1.0–1.4), with ViT λ=0 .5 achieving the closest result (1.022). 16 Table 7: Predicted vs. CFD drag coefficient CD at representative angles, eval partition, Full range, GT averaged over 10 fixed test airfoils. Best of all improvements × 3 seeds per cell, picked by closeness to GT. Bold: λ closest to GT per column. Validation-partition counterpart is Table S3 in Supplementary Information.                                                                                                                                                           
+
+> Model λ−10 ◦−4◦0◦8◦12 ◦20 ◦
+> CFD (GT) —0.123 0.032 0.021 0.113 0.188 0.392 CNNFoil 00.083 0.002 0.003 0.107 0.151 0.127 CNNFoil 0.10.100 0.024 0.014 0.103 0.183 0.478 CNNFoil 0.30.103 0.032 0.020 0.105 0.192 0.457 CNNFoil 0.50.101 0.024 0.015 0.104 0.183 0.366
+> CNNFoil 0.70.099 0.029 0.016 0.103 0.183 0.487 FNO 00.096 0.027 0.014 0.112 0.148 0.119 FNO 0.10.110 0.024 0.018 0.108 0.175 0.377 FNO 0.30.104 0.025 0.018 0.107 0.177 0.396
+> FNO 0.50.102 0.024 0.016 0.105 0.179 0.434 FNO 0.70.102 0.024 0.019 0.105 0.182 0.457 ViT 00.113 0.025 0.017 0.115 0.160 0.285 ViT 0.10.107 0.026 0.018 0.105 0.183 0.386
+> ViT 0.30.100 0.025 0.018 0.105 0.180 0.399 ViT 0.50.105 0.025 0.018 0.106 0.181 0.383 ViT 0.70.105 0.022 0.015 0.105 0.187 0.358 Diffusion 00.060 0.024 0.016 0.103 0.123 0.105 Diffusion 0.10.049 0.010 0.016 0.127 0.144 0.325
+> Diffusion 0.30.029 0.031 0.010 0.040 0.040 0.059 Diffusion 0.50.070 0.009 0.008 0.054 0.242 0.278 Diffusion 0.70.063 0.028 0.029 0.057 0.296 0.278
+
+Diffusion predictions remain noisier: CD at α=−10 ◦ ranges from 0.029 to 0.070 vs GT 0.123, and CL at α=−10 ◦ is positive for λ=0 (0.070) where GT is −0.265 ; λ=0 .7 partially corrects the sign ( −0.233 ). CoFINN supervision systematically pulls the predicted force coefficients toward the CFD values—correcting the baselines’ tendency to under-predict or mis-sign CD and CL—with the largest corrections at low-drag angles near α=0 ◦, where the unconstrained models are least accurate. 
+
+7.9 Generalization to Unseen Angles 
+
+To test generalization, we train on the Medium AOA range (5 even-degree angles −8, −4, 0, 4, 8◦)and evaluate on all 15 odd-degree angles that the model never saw during training. Tables 8 (and S5 in supplementary text) show drag and lift errors at six representative unseen angles and the mean across all 15. Each cell picks the best improvement (of 6) by mean and reports that improvement’s seed-wise std; bold marks the best λ per column. CoFINN substantially improves drag generalization on unseen angles across all three architectures. CNNFoil’s best drag result at λ=0 .7 (15 .6% mean) is 5.6× better than the baseline ( 88 .1% ), with 
+
+ϵCD reduced from 114 .2% to 10 .8% at α=19 ◦ and from 58 .2% to 11 .0% at α=−9◦. FNO improves from 37 .9% (baseline) to 33 .1% at λ=0 .1, and ViT from 57 .7% to 29 .0% at λ=0 .7. Lift general-ization is mixed: CNNFoil benefits from λ=0 .1 (29 .7% vs 34 .5% baseline), while FNO retains the baseline’s advantage ( 24 .3% ) and ViT shows a narrow win for λ=0 .7 (40 .6% , tied with baseline but with a much flatter per-angle profile). The gains are largest at boundary angles ( α=−9◦, 19 ◦) where extrapolation beyond the Medium training envelope is most severe. The full breakdown across all 15 unseen angles is in Supplementary text Tables S10 and S11. 
+
+7.10 Generalization to Held-Out Samples 
+
+To verify that improvement extends beyond the fixed test airfoils, we evaluate on the validation split: 10% of training samples randomly held out as (airfoil, angle) pairs. Unlike the test set (10 17 Table 8: Drag error ϵCD (% mean ±std across 3 seeds, eval partition, Medium range training, odd-degree test angles). Each cell picks the best improvement (of 6) by mean and reports that improve-ment’s seed-wise std. ⟨all ⟩ is the best improvement’s per-AOA mean averaged over all 15 unseen angles. Best λ per column in bold. 
+
+Model λ −9◦ −3◦ −1◦ 5◦ 9◦ 19 ◦ ⟨all ⟩
+
+CNNFoil 0 58.2 ±5.8 132.1 ±15.0 161.9 ±34.8 39.0 ±14.2 26.2 ±1.3 114.2 ±10.9 88.1 CNNFoil 0.1 20.6 ±6.5 23.6 ±12.2 28.6 ±9.6 13.0 ±2.6 7.0 ±1.8 59.9 ±10.5 27.3 CNNFoil 0.3 19.2 ±2.1 19.2 25.3 ±9.9 9.7 ±0.2 6.9 ±2.7 71.8 ±14.7 31.9 CNNFoil 0.5 26.0 24.5 ±4.0 37.1 ±18.1 7.8 10.2 49.3 28.8 CNNFoil 0.7 11.0 25.4 ±11.1 27.7 8.6 ±3.1 5.7 ±0.1 10.8 15.6 
+
+FNO 0 43.5 ±3.1 41.8 ±10.6 26.9 ±6.3 29.3 ±5.7 31.0 ±9.8 71.8 ±23.6 37.9 FNO 0.1 18.0 ±0.8 40.2 ±22.6 27.1 ±13.1 11.9 ±2.3 12.9 ±2.9 74.0 ±1.1 33.1 
+
+FNO 0.3 23.3 ±3.8 31.5 ±9.5 30.4 ±2.4 12.1 ±1.9 18.4 ±5.6 88.5 ±21.4 38.9 FNO 0.5 28.5 ±7.0 33.9 ±6.6 36.4 ±1.4 12.4 ±0.6 17.8 ±4.3 61.3 ±53.5 37.1 FNO 0.7 28.8 ±2.1 32.9 ±6.9 26.9 ±5.8 12.8 ±0.8 16.5 ±5.4 75.0 ±18.5 36.6 ViT 0 45.6 ±5.4 42.9 ±5.9 24.2 ±11.6 10.1 ±1.3 22.9 ±5.8 104.5 ±6.5 57.7 ViT 0.1 32.3 ±7.8 29.9 ±6.6 30.3 ±11.1 18.9 ±8.3 10.5 ±2.1 54.4 ±28.2 33.2 ViT 0.3 32.4 ±8.5 31.1 ±13.8 38.7 ±12.9 14.3 ±1.8 8.7 ±2.7 24.2 34.4 ViT 0.5 37.9 ±6.3 35.4 ±9.1 33.8 ±2.2 20.4 ±1.9 11.9 ±1.8 18.1 ±1.6 36.1 ViT 0.7 27.8 ±12.2 23.0 ±0.6 25.3 ±8.8 19.7 ±5.8 7.9 ±6.0 33.2 ±3.5 29.0 
+
+fixed airfoil families at every AOA), val samples are drawn from the training airfoil pool and are not uniformly distributed across angles—the same airfoil may appear at one angle in training and a different angle in validation. Table 9 compares the best baseline ( λ=0 ) against the best CoFINN (λ> 0) on val samples, with each entry picked as the best-of-best run (6 improvements × 3 seeds) averaged across all val AOAs for that range. Table 9: Val-split force prediction errors (% mean ±std across 3 seeds, averaged over training-range AOAs and val airfoils with |CD, true |>0.01 and |CL, true |>0.05 to avoid divergence from near-zero denominators). Best of all improvements × 3 seeds per cell (6 improvements for CNNFoil/FNO/ViT, 3 for Diffusion), selected by mean. Parenthesized number for λ> 0 rows is the winning λ value ( CD
+
+and CL selected independently). Bold: better of the two loss rows per column. 
+
+Narrow Medium Broad Model Loss ϵCD ϵCL ϵCD ϵCL ϵCD ϵCL
+
+CNNFoil λ=0 57.3 ±8.8 22.7 ±4.0 40.6 ±5.5 18.8 ±2.9 31.9 ±3.1 16.2 ±1.1 
+
+λ> 0 13.9 ±2.1 (0.3) 11.0 (0.5) 10.2 ±1.8 (0.1) 14.4 (0.3) 11.8 ±0.4 (0.1) 16.4 ±0.9 (0.5) 
+
+FNO λ=0 24.5 ±2.0 17.2 ±3.8 14.9 ±3.5 14.0 ±2.4 24.4 ±4.2 14.4 ±0.9 
+
+λ> 0 10.9 ±2.5 (0.1) 18.3 ±2.8 (0.5) 9.0 ±2.2 (0.1) 15.4 ±2.3 (0.5) 7.8 ±1.2 (0.1) 16.0 ±1.0 (0.3) 
+
+ViT λ=0 21.0 ±3.4 18.6 ±4.2 14.9 ±2.2 13.6 ±3.5 23.8 ±2.3 14.0 ±1.6 
+
+λ> 0 18.8 ±2.3 (0.3) 17.4 ±0.5 (0.7) 14.0 ±2.2 (0.1) 17.0 ±4.8 (0.5) 14.7 ±0.6 (0.3) 15.9 ±1.2 (0.3) 
+
+Diffusion λ=0 154.4 ±16.4 91.2 ±4.2 145.2 ±25.4 99.0 ±5.0 50.7 ±4.1 51.1 ±3.4 
+
+λ> 0 108.5 ±19.0 (0.1) 78.1 ±4.0 (0.1) 89.6 ±9.1 (0.7) 70.5 ±7.4 (0.1) 80.6 ±6.4 (0.1) 61.5 ±8.9 (0.3) 
+
+On val, CoFINN reduces the error on drag coefficient in 11 /12 (model, range) cells; the only re-gression is diffusion on Broad. CNNFoil drops 57 .3% → 13 .9% Narrow ( 4.1×), 40 .6% → 10 .2% 
+
+Medium ( 4.0×), 31 .9% → 11 .8% Broad ( 2.7×). FNO drops 24 .4% → 7.8% Broad ( 3.1×). ViT drops 21 .0% → 18 .8% Narrow, 14 .9% → 14 .0% Medium, 23 .8% → 14 .7% Broad. Diffusion drops 154 .4% → 108 .5% Narrow, 145 .2% → 89 .6% Medium ( CD ) and 91 .2% → 78 .1% Narrow, 
+
+99 .0% → 70 .5% Medium ( CL); regresses to 80 .6% Broad ( CD ) and 61 .5% Broad ( CL). Lift on val: CNNFoil drops 22 .7% → 11 .0% Narrow, 18 .8% → 14 .4% Medium, 16 .2% → 16 .4% Broad; FNO and ViT regress within ±2% across all three ranges. 18 7.11 Flow Field Visualizations 
+
+Figures 4 and 5 compare predicted flow fields against CFD ground truth for the NACA 2421 test air-foil at α = 0 ◦ and α = 12 ◦, showing all four primitive variables ( p, u, v, T ). Each figure is a 4-row 
+
+× 5-column grid: rows are pressure ( p), u-velocity, v-velocity, temperature ( T ); columns are ground truth, MAE-only prediction, MAE-only error, MAE+CoFINN prediction, MAE+CoFINN error. All predictions shown in these figures are prepared by the CNNFoil architecture. The MAE-only column reports the lowest-field-MAE checkpoint, and the MAE+CoFINN column the prediction obtained when conservation-flux supervision is added to the same architecture at the same training regime. 
+
+Figure 4: Flow-field comparison for NACA 2421 at α = 0 ◦ (CNNFoil, Single training range). Columns: ground truth, MAE-only prediction, MAE-only error (signed), MAE+CoFINN prediction, MAE+CoFINN error (signed). Rows: pressure, u-velocity, v-velocity, temperature. Error colorbars are symmetric and shared between the two methods to enable direct visual comparison. At α = 0 ◦, both models successfully predicts general macroscopic flow features, including the attached velocity field and the pressure and temperature distributions associated with the shock waves. However, several key distinctions emerge: First, the CoFINN method significantly improves the prediction of shock wave location and strength. For this specific airfoil, shocks form on both the suction (upper) and pressure (lower) surfaces. While the baseline MAE model adequately captures the suction-side shock—likely due to a higher prevalence of such features in the training dataset—it struggles significantly on the pressure side. By incorporating physical conservation laws, the CoFINN framework effectively overcomes this data bias, accurately resolving the pressure-side shock. Second, the error distributions confirm an improvement in resolving shock sharpness. In purely data-driven approaches, shock locations act as a primary source of high-magnitude local error. The enhanced shock-capturing capability in the CoFINN predictions can be attributed to the integration of the HLLC flux calculation within the physics-informed loss function, which naturally accommo-dates flow discontinuities. 19 Third, the MAE-only error contours (particularly for pressure) exhibit a non-physical, wavy artifact downstream of the pressure-side shock, indicative of numerical smearing as the data-driven model attempts to reconstruct the field. In contrast, CoFINN effectively suppresses these non-physical local oscillations. Finally, pure CNN-based architectures traditionally struggle with thin, viscous boundary layers due to steep gradients and limited spatial resolution near the wall. While CoFINN yields marginal vi-sual improvements in this region, the near-wall data remains fundamentally insufficient for reliable surface integration. Recognizing this inherent limitation, our methodology deliberately bypasses the near-wall inaccuracies by employing a large, rectangular far-field control volume. 
+
+Figure 5: Flow-field comparison for NACA 2421 at α = 12 ◦ (CNNFoil, Full training range). Same layout as Fig. 4. At α = 12 ◦, a strong shock forms on the suction side, followed by a region of massive flow sep-aration. While both the MAE-only and CoFINN predictions successfully capture the macroscopic shock location and post-shock pressure recovery, the MAE-only error panels reveal that dominant residuals are heavily concentrated around the shock front and throughout the separated wake region. CoFINN substantially mitigates these residuals, particularly within the wake. In this region, satisfy-ing the x-momentum flux balance is critical for the physical fidelity of both the streamwise velocity (u) and pressure fields. This local improvement translates directly into highly accurate drag predic-tions, as demonstrated in the per-angle drag breakdown (Table 6). Specifically, CoFINN reduces the baseline CD error ( ϵCD ) at α = 12 ◦ from 24 .5% down to 3.8% (λ = 0 .3), confirming that enforcing the control-volume momentum integral effectively concentrates field improvements precisely where complex flow behaviors dictate aerodynamic forces. A spatially resolved comparison reveals why: the CoFINN loss acts non-uniformly across the flow domain. In the wake region behind the airfoil, where momentum flux gradients are largest, CoFINN-trained models reduce pressure error by 30 –45% relative to the baseline, with over 75% of wake pixels showing improvement. In contrast, the near-body and far-field regions show 15 –45% in-creased error. The improvement concentrates on the momentum-carrying variables ( p, u) rather than temperature or crossflow velocity ( v), consistent with the HLLC flux calculation (Eq. (11)) in 20 which pressure and normal velocity dominate the momentum terms while temperature enters only indirectly through density and sound speed estimation. This spatial selectivity explains the MAE– CD tradeoff observed throughout: the CoFINN loss redi-rects model capacity from uniformly minimizing pixel-wise error toward satisfying flux conservation in the wake—precisely the region whose momentum integral determines drag (Eq. (S17) ). The far-field pixels, which dominate the pixel count but contribute little to force integration, lose accuracy in this re-balancing. Beyond the shock structures and separated wakes, a critical aerodynamic distinction between the models emerges at the leading-edge stagnation point. In both the α = 0 ◦ and α = 12 ◦ config-urations, the MAE-only error contours for pressure and temperature exhibit concentrated, highly localized artifacts precisely where the flow stagnates against the airfoil. In contrast, the CoFINN framework noticeably suppresses these stagnation artifacts. Even as the stagnation point migrates to the lower surface at α = 12 ◦, CoFINN maintains higher fidelity at this critical flow impact zone. From an aerodynamic perspective, the stagnation point anchors the total pressure and total enthalpy for the entire flow field. By enforcing conservation laws across the domain, the CoFINN loss func-tion inherently respects these maximum state variables. 
+
+7.12 Assessment of aerodynamic performance predictions 
+
+Figure 6 illustrates the predicted drag coefficient ( CD ) across the full range of angles of attack for the NACA 2421 airfoil. The ground truth data demonstrates the expected parabolic drag polar, with a sharp increase in drag at higher angles ( α > 10 ◦) due to the onset of flow separation and massive wake formation.The baseline MAE-only model ( λ = 0 ) struggles significantly across the domain. Most notably, it completely fails to capture the physical rise in drag at high angles of attack, severely underpredicting CD in the separated flow regimes. In contrast, the CoFINN model ( λ = 0 .1) yields a substantial improvement. The physics-informed loss function enables the network to accurately track the steep increase in drag well into the high angle-of-attack regime. While there is a slight overprediction at the most extreme angles ( α > 14 ◦), CoFINN successfully captures the macroscopic drag trends. This aligns with our earlier spatially resolved observations: by enforcing x-momentum conservation, CoFINN correctly resolves the mo-mentum deficit in the wake, directly translating to vastly improved drag integration at the far-field control volume. 
+
+Figure 6: CD vs. angle of attack for NACA 2421 (eval partition, Full range, CNNFoil). Black: CFD ground truth, blue: MAE-only baseline ( λ=0 ), red: CoFINN (best λ> 0). The baseline misses negative-angle behavior while CoFINN tracks the CFD curve more closely. Following the pronounced improvements observed in the drag polar, Figure 7 shows predicted CL
+
+across all 31 angles for the NACA 2421 test airfoil on the Full training range, comparing the best MAE-only baseline ( λ=0 ) and best CoFINN ( λ> 0) experiment. At the attached and mildly sepa-21 rated flow regimes between −10 ◦ ≤ α ≤ 10 ◦, the physics-informed loss successfully improves the drag predictions compared to CNNFoil. However, a contrast to the drag predictions emerges in the deep post-stall regime ( α > 12 ◦). While CoFINN successfully captured the sharp drag rise associated with massive separation, both the base-line and CoFINN models fail to predict the corresponding stall drop-off in lift. Instead, the networks extrapolate a nearly linear, non-physical increase in CL.This discrepancy can be attributed to a gradient scaling pathology within the unweighted, multi-objective loss formulation. Aerodynamically, the streamwise velocity ( u) and its associated gra-dients are intrinsically larger in magnitude than the crossflow velocity ( v). Because the current loss function aggregates all physical residuals into a single, equally-weighted metric, the massive 
+
+x-momentum errors generated in the wake completely dominate the total loss metric. As a result, the gradient descent optimizer preferentially dedicates the network’s learning capac-ity to minimizing these dominant x-momentum (drag-governing) errors. The numerically smaller 
+
+y-momentum (lift-governing) residuals are overshadowed and optimized far less aggressively. Con-sequently, while CoFINN successfully enforces local momentum conservation in the drag direction, it lacks the gradient leverage required to overcome the base network’s linear bias and force the transition to a globally stalled flow topology. 
+
+Figure 7: CL vs. angle of attack for NACA 2421 (eval partition, Full range, CNNFoil). Black: CFD ground truth, blue: MAE-only baseline ( λ=0 ), red: CoFINN (best λ> 0). The baseline misses negative-angle behavior while CoFINN tracks the CFD curve more closely. We additionally evaluate a conditional diffusion model based on the Bastek et al. Bastek et al. [2025] U-Net architecture. The implementation details and brief discussion of results are given in the supplementary text. 
+
+# 8 Discussion 
+
+We introduced CoFINN, a conservation-flux-informed training framework that embeds finite-volume conservation principles directly into neural-network training by interpreting CNN outputs as structured control-volume grids and penalizing flux imbalance through an HLLC Riemann solver. Unlike conventional data-driven surrogate models that optimize only field similarity, CoFINN ex-plicitly guides the network toward physically admissible solutions consistent with the governing conservation laws of compressible flow. Across transonic airfoil test cases ( M∞ = 0 .7, Re = 6 × 10 6), the proposed framework consis-tently improved aerodynamic force prediction accuracy, particularly under physically challenging flow conditions involving strong shocks and high-angle-of-attack effects. Drag prediction error was reduced by up to 34% at extreme angles of attack and by approximately 15% on average across the full test set. Lift predictions exhibited even more consistent improvement across all training regimes. These results suggest that enforcing conservation behavior during training improves not only local 22 field consistency but also the accuracy of integrated physical quantities derived from the predicted flow fields. An important observation is that the benefits of CoFINN become more pronounced as the amount of training data decreases. In the single-angle-of-attack training regime, the CoFINN training improved drag prediction accuracy by more than 34%, indicating that the conservation loss acts as an effective physical regularizer. Rather than merely memorizing spatial correlations present in the training data, the network is encouraged to learn flow structures that satisfy physically meaningful transport behavior. This observation supports the broader hypothesis that embedding numerical physics into learning architectures can improve generalization capability in data-limited regimes. The proposed methodology differs fundamentally from traditional Physics-Informed Neural Net-works (PINNs). Classical PINNs typically enforce differential-equation residuals at collocation points through automatic differentiation, which can become computationally expensive for high-resolution flow-field prediction problems. In contrast, CoFINN adopts a finite-volume perspective consistent with modern CFD methodology. By evaluating numerical fluxes between neighboring cells using a Riemann solver, conservation is enforced in a discretized integral sense rather than through pointwise PDE residual minimization. This provides a direct connection between neural-network training and established CFD discretization principles. Another important contribution of the present framework is the use of far-field control-volume in-tegration for aerodynamic force estimation. CNN-based flow predictors often struggle near solid boundaries because geometric representation and near-wall gradients are difficult to resolve accu-rately on image-like grids. By computing forces from conservation balances over larger control vol-umes, the proposed method reduces sensitivity to near-wall prediction inaccuracies while remaining physically consistent with momentum conservation principles. The computational overhead introduced by the conservation loss remains modest. While HLLC flux evaluation increases training cost by approximately 20%, inference cost is unchanged relative to baseline CNN models. Prediction times remain on the order of 50 ms per sample on an NVIDIA RTX 3090 GPU, corresponding to nearly three orders of magnitude acceleration compared to high-fidelity CFD simulations requiring several CPU-hours per case. This demonstrates that physically informed training can significantly improve physical fidelity without compromising the practical efficiency advantages of neural-network surrogates. Despite these improvements, several important limitations remain. The 256 × 256 structured rep-resentation does not adequately resolve the thin viscous boundary layer near the airfoil surface. Consequently, the Euler-based HLLC flux primarily constrains inviscid momentum transport and has limited influence on near-wall viscous phenomena such as skin friction and boundary-layer sep-aration. This explains why improvements are strongest at extreme angles of attack dominated by large-scale inviscid transport and shock physics, whereas gains are more modest in flow regimes where viscous effects are comparatively important. The conservation loss also cannot function as a standalone training objective. Training with the CoFINN loss alone ( λ = 1 .0) leads to unstable optimization and divergence, indicating that data supervision remains necessary to anchor the solution manifold. In the present formulation, the CoFINN loss therefore acts as a physically motivated regularizer rather than a replacement for super-vised learning. Furthermore, the optimal weighting between data loss and conservation loss varies across flow conditions, suggesting that adaptive or dynamically weighted strategies may further im-prove robustness. The current study also remains limited to two-dimensional compressible flow at a single Mach and Reynolds number combination. Although the framework itself is architecture-agnostic and compatible with CNNs, FNOs, Vision Transformers, and diffusion-based models, addi-tional validation across broader aerodynamic regimes and three-dimensional geometries is required before conclusions can be generalized. Nevertheless, the proposed framework establishes a broader conceptual direction for physics-informed machine learning. The key idea of interpreting neural-network outputs as finite-volume discretizations is not restricted to airfoil aerodynamics or to the HLLC solver specifically. Any conservation-law-governed physical system defined on structured grids may potentially benefit from similar conservation-flux supervision using appropriate numeri-cal flux formulations. Several extensions of the present work appear especially promising. First, the framework is not restricted to Godunov-type Riemann solvers; central schemes such as JST or alternative flux for-23 mulations may provide improved stability or computational efficiency. Second, higher-order spatial reconstruction methods and slope limiters could be incorporated into the conservation-loss calcu-lation to improve consistency with higher-order CFD discretizations. Third, explicit inclusion of viscous flux terms would extend the method beyond primarily inviscid conservation enforcement. The inclusion of viscous physics, however, presents additional challenges. Turbulent viscous fluxes require estimation of quantities such as turbulent viscosity and potentially the inclusion of auxil-iary turbulence-model transport equations. Moreover, accurate representation of near-wall viscous physics requires substantially finer geometric resolution near solid boundaries than conventional CNN image grids can provide. Future extensions using graph neural networks or mesh-aware archi-tectures may therefore provide a more suitable framework for accurately resolving complex near-wall flow behavior while retaining the conservation-flux-informed training philosophy introduced in this work. 
+
+# References 
+
+Jan-Hendrik Bastek, WaiChing Sun, and Dennis M. Kochmann. Physics-informed diffusion models. International Conference on Learning Representations (ICLR) , 2025. URL https: //openreview.net/forum?id=tpYeermigp .Saakaar Bhatnagar, Yaser Afshar, Shaowu Pan, Karthik Duraisamy, and Shailendra Kaushik. Pre-diction of aerodynamic flow fields using convolutional neural networks. Computational Mechan-ics , 64(2):525–545, June 2019. ISSN 1432-0924. doi: 10.1007/s00466-019-01740-0. URL 
+
+http://dx.doi.org/10.1007/s00466-019-01740-0 .Ran Bi, Weibing Deng, and Yameng Zhu. Extended Interface Physics-Informed Neural Networks Method for Moving Interface Problems. arXiv preprint arXiv:2508.01463 , August 2025. URL 
+
+https://arxiv.org/abs/2508.01463v1 .Giovanni Catalani, Daniel Costero, Michael Bauerheim, Luca Zampieri, Vincent Chapin, Nicolas Gourdain, and Pierre Baqué. A comparative study of learning techniques for the compressible aerodynamics over a transonic RAE2822 airfoil. Comput. Fluids , 251:105759, January 2023. doi: 10.1016/j.compfluid.2022.105759. Giovanni Catalani, Siddhant Agarwal, Xavier Bertrand, Frederic Tost, Michael Bauerheim, and Joseph Morlier. Neural fields for rapid aircraft aerodynamics simulations. Scientific Reports , 14: 25496, 2024. doi: 10.1038/s41598-024-76983-w. Junfeng Chen, Jonathan Viquerat, and Elie Hachem. U-net architectures for fast prediction of in-compressible laminar flows. arXiv preprint arXiv:1910.13532 , 2019. Li-Wei Chen and Nils Thuerey. Towards high-accuracy deep learning inference of compress-ible flows over aerofoils. Computers & Fluids , 250:105707, January 2023. ISSN 0045-7930. doi: 10.1016/j.compfluid.2022.105707. URL https://www.sciencedirect.com/science/ article/pii/S0045793022003000 .Li-Wei Chen and Nils Thuerey. Deep learning-based predictive modeling of transonic flow over an airfoil. Physics of Fluids , 36(12):127106, 2024. doi: 10.1063/5.0238413. Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner, Mostafa Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly, Jakob Uszko-reit, and Neil Houlsby. An image is worth 16x16 words: Transformers for image recognition at scale. International Conference on Learning Representations (ICLR) , 2021. Mark Drela. Xfoil: An analysis and design system for low reynolds number airfoils. In Low Reynolds Number Aerodynamics , pages 1–12. Springer, Berlin, Heidelberg, 1989. doi: 10.1007/ 978-3-642-84010-4_1. Cihat Duru, Hande Alemdar, and Özgür U˘ gra¸ s Baran. Cnnfoil: convolutional encoder decoder modeling for pressure fields around airfoils. Neural Computing and Applications , 33(12):6835– 6849, November 2020. ISSN 1433-3058. doi: 10.1007/s00521-020-05461-x. URL http://dx. doi.org/10.1007/s00521-020-05461-x .24 Cihat Duru, Hande Alemdar, and Ozgur Ugras Baran. A deep learning approach for the transonic flow field predictions around airfoils. Computers & Fluids , 236:105312, March 2022. ISSN 0045-7930. doi: 10.1016/j.compfluid.2022.105312. URL https://www.sciencedirect.com/ science/article/pii/S0045793022000068 .William E. Faller and Scott J. Schreck. Neural networks: Applications and opportunities in aeronautics. Progress in Aerospace Sciences , 32:433–456, 1996. URL https://api. semanticscholar.org/CorpusID:109807789 .Kai Fukami, Koji Fukagata, and Kunihiko Taira. Super-resolution reconstruction of turbulent flows with machine learning. Journal of Fluid Mechanics , 870:106–120, 2019. doi: 10.1017/jfm.2019. 238. Xiaoxiao Guo, Wei Li, and Francesco Iorio. Convolutional neural networks for steady flow ap-proximation. Proceedings of the 22nd ACM SIGKDD International Conference on Knowledge Discovery and Data Mining , pages 481–490, 2016. doi: 10.1145/2939672.2939738. Reza Hassanian, Ásdís Helgadóttir, and Morris Riedel. Deep Learning Forecasts a Strained Tur-bulent Flow Velocity Field in Temporal Lagrangian Framework: Comparison of LSTM and GRU. Fluids , 7(11):344, November 2022. ISSN 2311-5521. doi: 10.3390/fluids7110344. URL https://www.mdpi.com/2311-5521/7/11/344 . Publisher: Multidisciplinary Digital Publishing Institute. Jiajun Hu, Zhen Lu, and Yue Yang. Generative prediction of flow fields around an obstacle using the diffusion model. arXiv.org , June 2024. URL https://arxiv.org/abs/2407.00735v1 .Hongyu Huang, Yiyang Ye, Bohan Zhang, Zhijiang Xie, Fei Xu, and Chao Chen. Physics-informed neural network compression mechanism for airfoil flow field prediction. Physics of Fluids , 37(3): 036115, March 2025. ISSN 1070-6631. doi: 10.1063/5.0255692. URL https://doi.org/10. 1063/5.0255692 .Xinyu Hui, Junqiang Bai, Hui Wang, and Yang Zhang. Fast pressure distribution prediction of airfoils using deep learning. Aerospace Science and Technology , 105:105949, October 2020. ISSN 1270-9638. doi: 10.1016/j.ast.2020.105949. URL https://www.sciencedirect.com/ science/article/pii/S1270963820306313 .Xiaowei Jin, Peng Cheng, Wen-Li Chen, and Hui Li. Prediction model of velocity field around circular cylinder over various reynolds numbers by fusion convolutional neural networks based on pressure on the cylinder. Physics of Fluids , 30(4), 2018. doi: 10.1063/1.5024595. Sangseung Lee and Donghyun You. Data-driven prediction of unsteady flow over a circular cylinder using deep learning. Journal of Fluid Mechanics , 879:217–254, 2019. Jiawei Li, Wei Wu, and Xinlong Feng. Improved Physics-Informed Neural Networks Combined with Small Sample Learning to Solve Two-Dimensional Stefan Problem. Entropy , 25(4):675, April 2023. ISSN 1099-4300. doi: 10.3390/e25040675. URL https://www.mdpi.com/1099-4300/ 25/4/675 . Publisher: Multidisciplinary Digital Publishing Institute. Jiazhe Li, Yunjia Yang, and Yufei Zhang. Airfoil Pressure Prediction Based on Physics-Informed Deep Learning Approach. Unpublished manuscript, 2024. Zongyi Li, Nikola Kovachki, Kamyar Azizzadenesheli, Burigede Liu, Kaushik Bhatt, Andrew Stu-art, and Anima Anandkumar. Fourier neural operator for parametric partial differential equations. 
+
+International Conference on Learning Representations (ICLR) , 2021. Haocheng Lu, Qian Wang, Wenhao Tang, and Hua Liu. Physics-informed neural networks for fully non-linear free surface wave propagation. Physics of Fluids , 36(6):062106, June 2024. ISSN 1070-6631. doi: 10.1063/5.0210591. URL https://doi.org/10.1063/5.0210591 .Nathaniel E. Michek, Piyush Mehta, and Wade W. Huebsch. Flight Dynamic Uncertainty Quan-tification Modeling Using Physics-Informed Neural Networks. AIAA Journal , 62(11):4234– 4246, 2024. ISSN 0001-1452. doi: 10.2514/1.J063992. URL https://doi.org/10. 2514/1.J063992 . Publisher: American Institute of Aeronautics and Astronautics _eprint: https://doi.org/10.2514/1.J063992. 25 Mathieu Mullins, Hamza Kamil, Adil Fahsi, and Azzeddine Soulaimani. Physics-informed neural networks for solving moving interface flow problems using the level set approach. Physics of Fluids , 37(10), February 2025. URL https://arxiv.org/abs/2502.02440v2 .Mohammad Amin Nabian, Chang Liu, Rishikesh Ranade, and Sanjay Choudhry. X-MeshGraphNet: Scalable Multi-Scale Graph Neural Networks for Physics Simulation. arXiv preprint arXiv:2411.17164 , November 2024. URL https://arxiv.org/abs/2411.17164v2 .Anantram Patel, Nikhil Mogre, Jayavardhan Reddy Enumula, Mandar Mane, and Vijay Kumar Su-trakar. Accelerated airfoil design using neural network approaches. In International Mechanical Engineering Congress and Exposition-India , volume 89176, page V005T10A053. American So-ciety of Mechanical Engineers, 2025. Dimitrios G. Patsatzis, Mario di Bernardo, Lucia Russo, and Constantinos I. Siettos. GoRINNs: Godunov-Riemann informed neural networks for learning hyperbolic conservation laws. Journal of Computational Physics , 534:114002, 2025. doi: 10.1016/j.jcp.2025.114002. Shaoxiang Qin, Fuyuan Lyu, Wenhui Peng, Dingyang Geng, Ju Wang, Naiping Gao, Xue Liu, and Liangzhu Leon Wang. Toward a Better Understanding of Fourier Neural Operators: Analysis and Improvement from a Spectral Perspective. arXiv preprint arXiv:2404.07200 , April 2024. URL 
+
+https://arxiv.org/abs/2404.07200v1 .Man Mohan Rai and Nateri K. Madavan. Aerodynamic design using neural networks. AIAA Journal ,38(1):173–182, January 2000. ISSN 1533-385X. doi: 10.2514/2.938. URL http://dx.doi. org/10.2514/2.938 .Fei Ren, Pei-Zhi Zhuang, Xiaohui Chen, Hai-Sui Yu, and He Yang. Physics-Informed Extreme Learning Machine (PIELM) for Stefan problems. Computer Methods in Applied Mechanics and Engineering , 441:118015, June 2025. ISSN 0045-7825. doi: 10.1016/j.cma.2025.118015. URL 
+
+https://www.sciencedirect.com/science/article/pii/S0045782525002877 .Sumanta Roy, Chandrasekhar Annavarapu, Pratanu Roy, and Antareep Kumar Sarma. Adaptive Interface-PINNs (AdaI-PINNs): An Efficient Physics-informed Neural Networks Framework for Interface Problems. Communications in Computational Physics , June 2025. doi: 10.4208/cicp. OA-2024-0131. URL https://arxiv.org/abs/2406.04626v2 .Vinothkumar Sekar, Qinghua Jiang, Chang Shu, and Boo Cheong Khoo. Fast flow field prediction over airfoils using deep learning approach. Physics of Fluids , 31(5), May 2019. ISSN 1089-7666. doi: 10.1063/1.5094943. URL http://dx.doi.org/10.1063/1.5094943 .Pushan Sharma, Wai Tong Chung, Bassem Akoush, and Matthias Ihme. A review of physics-informed machine learning in fluid mechanics. Energies , 16(5):2343, February 2023. doi: 10. 3390/en16052343. URL https://www.mdpi.com/1996-1073/16/5/2343 .Peter Sharpe and R. John Hansman. NeuralFoil: An Airfoil Aerodynamics Analysis Tool Us-ing Physics-Informed Machine Learning. arXiv preprint arXiv:2503.16323 , March 2025. URL 
+
+https://arxiv.org/abs/2503.16323v1 .Anand Pratap Singh, Shivaji Medida, and Karthik Duraisamy. Machine-learning-augmented predic-tive modeling of turbulent separated flows over airfoils. AIAA Journal , 55(7):2215–2227, 2017. doi: 10.2514/1.J055595. Philippe R Spalart and Steven R Allmaras. A one-equation turbulence model for aerodynamic flows. 
+
+30th Aerospace Sciences Meeting and Exhibit , page 439, 1992. doi: 10.2514/6.1992-439. Di Sun, Zirui Wang, Feng Qu, and Junqiang Bai. A deep learning based prediction approach for the supercritical airfoil at transonic speeds. Physics of Fluids , 33(8):086109, August 2021. ISSN 1070-6631. doi: 10.1063/5.0060604. URL https://doi.org/10.1063/5.0060604 .Sundaram Suresh, S. N. Omkar, V. Mani, and T. N. Guru Prakash. Lift coefficient prediction at high angle of attack using recurrent neural network. Aerospace Science and Technology , 7:595–602, 2003. URL https://api.semanticscholar.org/CorpusID:109827465 .26 Amir Teimourian, Daniel Rohacs, Kamil Dimililer, Hanifa Teimourian, Melih Yildiz, and Utku Kale. Airfoil aerodynamic performance prediction using machine learning and surrogate model-ing. Heliyon , 10(8):e29377, April 2024. ISSN 2405-8440. doi: 10.1016/j.heliyon.2024.e29377. URL https://www.sciencedirect.com/science/article/pii/S2405844024054082 .Rajkumar Thirumalainambi and Jorge Bardina. Training data requirement for a neural network to predict aerodynamic coefficients. Independent Component Analyses, Wavelets, and Neural Networks , 5102:92–103, 2003. Nils Thuerey, Konstantin Weißenow, Lukas Prantl, and Xiangyu Hu. Deep learning methods for reynolds-averaged Navier–Stokes simulations of airfoil flows. AIAA Journal , 58(1):25–36, Jan-uary 2020. ISSN 1533-385X. doi: 10.2514/1.j058291. URL http://dx.doi.org/10.2514/ 1.J058291 .Eleuterio F. Toro and A. Chakraborty. The development of a riemann solver for the steady supersonic euler equations. The Aeronautical Journal (1968) , 98:325 – 339, 1994. URL https://api. semanticscholar.org/CorpusID:113428854 .Jonathan Viquerat and Elie Hachem. A supervised neural network for drag prediction of arbitrary 2d shapes in laminar flows at low reynolds number. Computers & Fluids , 210:104645, 2020. ISSN 0045-7930. doi: https://doi.org/10.1016/j.compfluid.2020.104645. URL https://www. sciencedirect.com/science/article/pii/S0045793020302164 .Jing Wang, Cheng He, Runze Li, Haixin Chen, Chen Zhai, and Miao Zhang. Flow field prediction of supercritical airfoils via variational autoencoder based deep learning framework. Physics of Fluids , 33(8), August 2021. ISSN 1089-7666. doi: 10.1063/5.0053979. URL http://dx.doi. org/10.1063/5.0053979 .Sifan Wang and Paris Perdikaris. Deep learning of free boundary and Stefan problems. Jour-nal of Computational Physics , 428:109914, March 2021. ISSN 0021-9991. doi: 10. 1016/j.jcp.2020.109914. URL https://www.sciencedirect.com/science/article/pii/ S0021999120306884 .Zhipeng Wang, Xuejun Liu, Jian Yu, Haizhou Wu, and Hongqiang Lyu. A general deep transfer learning framework for predicting the flow field of airfoils with small data. Computers & Fluids ,251:105738, January 2023. ISSN 0045-7930. doi: 10.1016/j.compfluid.2022.105738. URL 
+
+https://www.sciencedirect.com/science/article/pii/S0045793022003309 .Simon Wassing, Stefan Langer, and Philipp Bekemeyer. Physics-informed neural networks for inviscid transonic flows around an airfoil. Physics of Fluids , 37(8):086169, 2025. doi: 10.1063/ 5.0276518. Gege Wen, Zongyi Li, Kamyar Azizzadenesheli, Anima Anandkumar, and Sally M. Benson. U-FNO – An enhanced Fourier neural operator-based deep-learning model for multiphase flow. 
+
+arXiv , 2022. doi: 10.48550/arXiv.2109.03697. URL http://arxiv.org/abs/2109.03697 .arXiv:2109.03697 [physics]. Haizhou WU, Xuejun LIU, Wei AN, and Hongqiang LYU. A generative deep learning framework for airfoil flow field prediction with sparse data. Chinese Journal of Aeronautics , 35(1):470–484, January 2022. ISSN 1000-9361. doi: 10.1016/j.cja.2021.02.012. URL http://dx.doi.org/ 10.1016/j.cja.2021.02.012 .Ming-Yu Wu, Yan Wu, Xin-Yi Yuan, Zhi-Hua Chen, Wei-Tao Wu, and Nadine Aubry. Fast Prediction of Flow Field around Airfoils Based on Deep Convolutional Neural Network. Ap-plied Sciences , 12(23):12075, January 2022. ISSN 2076-3417. doi: 10.3390/app122312075. URL https://www.mdpi.com/2076-3417/12/23/12075 . Publisher: Multidisciplinary Digi-tal Publishing Institute. Li Xiao, Mingjie Zhang, and Xinghua Chang. Learning Airfoil Flow Field Representation via Geo-metric Attention Neural Field. Applied Sciences , 14(22):10685, January 2024. ISSN 2076-3417. doi: 10.3390/app142210685. URL https://www.mdpi.com/2076-3417/14/22/10685 . Pub-lisher: Multidisciplinary Digital Publishing Institute. 27 Ruiling Xie, Jie Xu, Jianping Chen, and Peizhi Tan. Deep Learning Method for Air-foil Flow Field Simulation Based on Unet++. International Journal for Numeri-cal Methods in Fluids , 97(5):783–794, 2025. ISSN 1097-0363. doi: 10.1002/fld. 5375. URL https://onlinelibrary.wiley.com/doi/abs/10.1002/fld.5375 . _eprint: https://onlinelibrary.wiley.com/doi/pdf/10.1002/fld.5375. Emre Yilmaz and Brian J. German. A convolutional neural network approach to training predictors for airfoil performance. 18th AIAA/ISSMO Multidisciplinary Analysis and Optimization Confer-ence , 2017. doi: 10.2514/6.2017-3660. Michael R Zhang, James Lucas, Geoffrey Hinton, and Jimmy Ba. Lookahead optimizer: k steps forward, 1 step back. Advances in Neural Information Processing Systems , 32, 2019. Xingwen Zhu, Xiaozhe Hu, and Pengtao Sun. Physics-Informed Neural Networks for Solv-ing Dynamic Two-Phase Interface Problems. SIAM Journal on Scientific Computing , 45(6): A2912–A2944, December 2023. ISSN 1064-8275. doi: 10.1137/22M1517081. URL https: //epubs.siam.org/doi/10.1137/22M1517081 . Publisher: Society for Industrial and Applied Mathematics. Yongzheng Zhu, Weizhen Kong, Jian Deng, and Xin Bian. Physics-informed neural networks for incompressible flows with moving boundaries. Physics of Fluids , 36(1):013617, January 2024. ISSN 1070-6631. doi: 10.1063/5.0186809. URL https://doi.org/10.1063/5.0186809 .Kuijun Zuo, Shuhui Bu, Weiwei Zhang, Jiawei Hu, Zhengyin Ye, and Xianxu Yuan. Fast sparse flow field prediction around airfoils via multi-head perceptron based deep learning architecture. 
+
+Aerosp. Sci. Technol. , 130(107942):107942, November 2022. Kuijun Zuo, Zhengyin Ye, Weiwei Zhang, Xianxu Yuan, and Linyang Zhu. Prediction of flow field over airfoils based on transformer neural network. International Journal of Computational Fluid Dynamics , 37(2):167–182, 2023a. doi: 10.1080/10618562.2023.2259806. Kuijun Zuo, Zhengyin Ye, Weiwei Zhang, Xianxu Yuan, and Linyang Zhu. Fast aerodynamics prediction of laminar airfoils based on deep attention network. Physics of Fluids , 35(3):037127, March 2023b. ISSN 1070-6631. doi: 10.1063/5.0140545. URL https://doi.org/10.1063/ 5.0140545 .28

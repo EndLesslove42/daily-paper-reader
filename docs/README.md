@@ -6,38 +6,52 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-08
-- 运行时间：2026-07-08 21:41:25 UTC
+- 最新运行日期：2026-07-09
+- 运行时间：2026-07-09 21:56:26 UTC
 - 运行状态：成功
-- 本次总论文数：6
-- 精读区：1
-- 速读区：5
+- 本次总论文数：10
+- 精读区：3
+- 速读区：7
 
 ### 今日简报（AI）
-今日共收录6篇论文，精读《Time-Invariant Neural Operators》评分9.0，速读涵盖GPU加速城市风建模与物理约束神经网络新方法。最值得关注时间不变性神经算子求解时间相关PDE的突破，以及近实时3D风场模拟技术。建议优先精读该高分文章，并跟进速读中质量守恒PINN等实用进展。
-- 详情：[/202607/08/README](/202607/08/README)
+今日精读两篇物理信息神经网络（PINN）应用论文，速读三篇聚焦湍流模拟、偏微分方程优化及高效天气预报方法。  
+两篇精读均获8.0分，值得关注：一篇提出基于PINN的PDE解族嵌入，另一篇引入守恒通量约束强化物理一致性。  
+建议普通读者优先了解PINN在复杂物理系统（如湍流、守恒律问题）中的建模思路，后续可尝试将该框架迁移至自身工程或科学计算场景。
+- 详情：[/202607/09/README](/202607/09/README)
 
 ### 精读区论文标签
-1. [Time-Invariant Neural Operators with Applications in Solving Time-Dependent PDEs](/202607/08/2607.06188v1-time-invariant-neural-operators-with-applications-in-solving-time-dependent-pdes)  
-   标签：评分：9.0/10、query:aqac
-   evidence：提出时间不变神经算子TINO，用于求解时间依赖偏微分方程，是代理建模的关键技术
+1. [Physics-Informed Neural Embeddings of PDE Solution Families](/202607/09/2607.06348v1-physics-informed-neural-embeddings-of-pde-solution-families)  
+   标签：评分：8.0/10、query:aqac
+   evidence：物理信息神经嵌入用于PDE解族，强方法匹配环境建模
+2. [CoFINN: Conservation Flux Informed Neural Networks for Physics Problems Governed by Conservation Laws](/202607/09/2607.06587v1-cofinn-conservation-flux-informed-neural-networks-for-physics-problems-governed-by-conservation-laws)  
+   标签：评分：8.0/10、query:aqac
+   evidence：具有守恒通量的物理信息神经网络，直接针对守恒律和有限体积方法，与大气传输相关
+3. [Nowcasting PM2.5 in Beijing Using Synchronous Covariates and Lagged Features: Model Comparison and Variable Selection Stability](/202607/09/2607.07279v1-nowcasting-pm25-in-beijing-using-synchronous-covariates-and-lagged-features-model-comparison-and-variable-selection-stability)  
+   标签：评分：8.0/10、query:aqac
+   evidence：利用深度学习同步协变量和滞后特征进行PM2.5现报
 
 ### 速读区论文标签
-1. [Near-real-time, meter-scale 3D urban wind modeling for low-altitude micrometeorology: numerical verification of a GPU-accelerated lattice Boltzmann framework](/202607/08/2607.04516v1-near-real-time-meter-scale-3d-urban-wind-modeling-for-low-altitude-micrometeorology-numerical-verification-of-a-gpu-accelerated-lattice-boltzmann-framework)  
+1. [Learning Turbulence Closures with Physics-Informed Neural Networks for the Rayleigh-Taylor Transition to Turbulence](/202607/09/2607.07020v1-learning-turbulence-closures-with-physics-informed-neural-networks-for-the-rayleigh-taylor-transition-to-turbulence)  
    标签：评分：7.0/10、query:aqac
-   evidence：GPU加速的城市风场模型用于微气象
-2. [Mass-Conserving Physics-Informed Neural Networks For The One-Dimensional Advection-Diffusion Equation](/202607/08/2607.06091v1-mass-conserving-physics-informed-neural-networks-for-the-one-dimensional-advection-diffusion-equation)  
+   evidence：使用物理信息神经网络学习湍流闭合模型可应用于环境建模
+2. [Neural Operator-enabled Topology-informed Evolutionary Strategy for PDE-Constrained Optimization](/202607/09/2607.07682v1-neural-operator-enabled-topology-informed-evolutionary-strategy-for-pde-constrained-optimization)  
    标签：评分：7.0/10、query:aqac
-   evidence：针对平流扩散方程的质量守恒PINN
-3. [Enhancing a high resolution data-driven weather prediction model with surface descriptors](/202607/08/2607.02824v1-enhancing-a-high-resolution-data-driven-weather-prediction-model-with-surface-descriptors)  
+   evidence：神经算子在PDE优化中的代理应用，可迁移至空气质量模型仿真
+3. [Less Tokens, Better Forecasts: Sparse Residual Routing for Efficient Weather Prediction](/202607/09/2607.02829v1-less-tokens-better-forecasts-sparse-residual-routing-for-efficient-weather-prediction)  
    标签：评分：6.0/10、query:aqac
-   evidence：数据驱动天气预报结合地表描述符改善近地面变量
-4. [AIFS-SUBS: Extending Data-Driven Forecasting to Sub-Seasonal Timescales](/202607/08/2607.05100v1-aifs-subs-extending-data-driven-forecasting-to-sub-seasonal-timescales)  
+   evidence：高效天气预测模型可加速WRF-CMAQ模拟
+4. [LRX-PINN: A Layer-Resolving XNet Physics-Informed Neural Network with Integrated Cauchy Activations for Convection-Dominated Problems](/202607/09/2607.03682v1-lrx-pinn-a-layer-resolving-xnet-physics-informed-neural-network-with-integrated-cauchy-activations-for-convection-dominated-problems)  
    标签：评分：6.0/10、query:aqac
-   evidence：将数据驱动预报扩展到次季节尺度，处理误差累积和偏差，与空气质量预报偏差校正相关
-5. [Adaptive and Neural Operator Control of Nonlinear Volterra Hyperbolic PDEs](/202607/08/2607.06425v1-adaptive-and-neural-operator-control-of-nonlinear-volterra-hyperbolic-pdes)  
+   evidence：提出针对对流主导问题的层分辨物理信息神经网络，可直接应用于空气质量模型中的对流扩散传输。
+5. [PIEFS: Physics-Informed Eigenfunction Features with Learnable Scaling](/202607/09/2607.03692v2-piefs-physics-informed-eigenfunction-features-with-learnable-scaling)  
    标签：评分：6.0/10、query:aqac
-   evidence：用于控制具有输运动力学的双曲型偏微分方程的神经算子
+   evidence：物理信息驱动的神经表示学习框架，可应用于环境建模
+6. [A Partially Functional Dynamic Structural Equation Model for Multi-Resolution Environmental Data](/202607/09/2607.04641v1-a-partially-functional-dynamic-structural-equation-model-for-multi-resolution-environmental-data)  
+   标签：评分：6.0/10、query:aqac
+   evidence：对大气污染物排放与多分辨率（气象、经济）因素进行建模
+7. [Physics-guided spatiotemporal neural models for fuel density prediction](/202607/09/2607.06999v1-physics-guided-spatiotemporal-neural-models-for-fuel-density-prediction)  
+   标签：评分：6.0/10、query:aqac
+   evidence：使用自适应傅里叶神经算子作为燃料密度传输的代理模型
 
 
 <div class="dpr-home-promo-card">
