@@ -6,52 +6,49 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-09
-- 运行时间：2026-07-09 21:56:26 UTC
+- 最新运行日期：2026-07-10
+- 运行时间：2026-07-10 21:24:21 UTC
 - 运行状态：成功
-- 本次总论文数：10
-- 精读区：3
-- 速读区：7
+- 本次总论文数：9
+- 精读区：4
+- 速读区：5
 
 ### 今日简报（AI）
-今日精读两篇物理信息神经网络（PINN）应用论文，速读三篇聚焦湍流模拟、偏微分方程优化及高效天气预报方法。  
-两篇精读均获8.0分，值得关注：一篇提出基于PINN的PDE解族嵌入，另一篇引入守恒通量约束强化物理一致性。  
-建议普通读者优先了解PINN在复杂物理系统（如湍流、守恒律问题）中的建模思路，后续可尝试将该框架迁移至自身工程或科学计算场景。
-- 详情：[/202607/09/README](/202607/09/README)
+今日阅读9篇论文，精读4篇，重点聚焦极端环境事件的基础模型泛化性与三维百万级物理模拟的神经算子方法。  
+最值得关注的是：加州野火PM2.5的基础模型泛化性评估（9.0分）与基于预计算几何分解的3D物理仿真神经算子PGD-NO（9.0分）。  
+建议优先精读这两篇高分论文，并速读环境驱动呼吸疾病分析及局部线性Transformer算子学习等关联工作。
+- 详情：[/202607/10/README](/202607/10/README)
 
 ### 精读区论文标签
-1. [Physics-Informed Neural Embeddings of PDE Solution Families](/202607/09/2607.06348v1-physics-informed-neural-embeddings-of-pde-solution-families)  
+1. [Evaluating the Generalizability of Foundation Models for Extreme Environmental Events: Case Study of California Wildfire PM2.5](/202607/10/2607.07951v1-evaluating-the-generalizability-of-foundation-models-for-extreme-environmental-events-case-study-of-california-wildfire-pm25)  
+   标签：评分：9.0/10、query:aqac
+   evidence：评估基础模型在极端PM2.5预报中的表现，与PM2.5空气质量预报直接相关
+2. [PGD-NO: A Neural Operator with Precomputed Geometry Decomposition for 3D Million-scale Physics Simulations](/202607/10/2607.08025v1-pgd-no-a-neural-operator-with-precomputed-geometry-decomposition-for-3d-million-scale-physics-simulations)  
+   标签：评分：9.0/10、query:aqac
+   evidence：具有几何分解的神经算子用于大规模3D物理模拟，适合代理建模与加速
+3. [Kernel-based Operator Learning: Error Analysis, Budget Allocation, and a Physics-Informed Extension](/202607/10/2607.06287v1-kernel-based-operator-learning-error-analysis-budget-allocation-and-a-physics-informed-extension)  
    标签：评分：8.0/10、query:aqac
-   evidence：物理信息神经嵌入用于PDE解族，强方法匹配环境建模
-2. [CoFINN: Conservation Flux Informed Neural Networks for Physics Problems Governed by Conservation Laws](/202607/09/2607.06587v1-cofinn-conservation-flux-informed-neural-networks-for-physics-problems-governed-by-conservation-laws)  
+   evidence：物理信息算子学习框架
+4. [Reliable mechanistic operator recovery with biologically-informed neural networks: principles for architecture and optimisation design](/202607/10/2607.07425v1-reliable-mechanistic-operator-recovery-with-biologically-informed-neural-networks-principles-for-architecture-and-optimisation-design)  
    标签：评分：8.0/10、query:aqac
-   evidence：具有守恒通量的物理信息神经网络，直接针对守恒律和有限体积方法，与大气传输相关
-3. [Nowcasting PM2.5 in Beijing Using Synchronous Covariates and Lagged Features: Model Comparison and Variable Selection Stability](/202607/09/2607.07279v1-nowcasting-pm25-in-beijing-using-synchronous-covariates-and-lagged-features-model-comparison-and-variable-selection-stability)  
-   标签：评分：8.0/10、query:aqac
-   evidence：利用深度学习同步协变量和滞后特征进行PM2.5现报
+   evidence：利用生物启发神经网络从平流-扩散中恢复算子
 
 ### 速读区论文标签
-1. [Learning Turbulence Closures with Physics-Informed Neural Networks for the Rayleigh-Taylor Transition to Turbulence](/202607/09/2607.07020v1-learning-turbulence-closures-with-physics-informed-neural-networks-for-the-rayleigh-taylor-transition-to-turbulence)  
+1. [Environmental Drivers of Respiratory Disease: A District Level Analysis](/202607/10/2607.04416v2-environmental-drivers-of-respiratory-disease-a-district-level-analysis)  
    标签：评分：7.0/10、query:aqac
-   evidence：使用物理信息神经网络学习湍流闭合模型可应用于环境建模
-2. [Neural Operator-enabled Topology-informed Evolutionary Strategy for PDE-Constrained Optimization](/202607/09/2607.07682v1-neural-operator-enabled-topology-informed-evolutionary-strategy-for-pde-constrained-optimization)  
+   evidence：基于机器学习的PM2.5浓度预测模型
+2. [LLT: Local Linear Transformer for PDE Operator Learning](/202607/10/2607.07718v1-llt-local-linear-transformer-for-pde-operator-learning)  
    标签：评分：7.0/10、query:aqac
-   evidence：神经算子在PDE优化中的代理应用，可迁移至空气质量模型仿真
-3. [Less Tokens, Better Forecasts: Sparse Residual Routing for Efficient Weather Prediction](/202607/09/2607.02829v1-less-tokens-better-forecasts-sparse-residual-routing-for-efficient-weather-prediction)  
+   evidence：用于PDE算子学习的局部线性Transformer，该神经算子架构可直接作为空气质量PDE的替代模型
+3. [A continuous data assimilation method for a variant of Oberbeck-Boussinesq system with randomly perturbed data](/202607/10/2607.04458v1-a-continuous-data-assimilation-method-for-a-variant-of-oberbeck-boussinesq-system-with-randomly-perturbed-data)  
    标签：评分：6.0/10、query:aqac
-   evidence：高效天气预测模型可加速WRF-CMAQ模拟
-4. [LRX-PINN: A Layer-Resolving XNet Physics-Informed Neural Network with Integrated Cauchy Activations for Convection-Dominated Problems](/202607/09/2607.03682v1-lrx-pinn-a-layer-resolving-xnet-physics-informed-neural-network-with-integrated-cauchy-activations-for-convection-dominated-problems)  
+   evidence：连续数据同化方法用于流体动力学，可应用于空气质量数据同化
+4. [Cluster-Weighted Training of Deep Surrogate Models for Subgrid Turbulent Transport](/202607/10/2607.07925v1-cluster-weighted-training-of-deep-surrogate-models-for-subgrid-turbulent-transport)  
    标签：评分：6.0/10、query:aqac
-   evidence：提出针对对流主导问题的层分辨物理信息神经网络，可直接应用于空气质量模型中的对流扩散传输。
-5. [PIEFS: Physics-Informed Eigenfunction Features with Learnable Scaling](/202607/09/2607.03692v2-piefs-physics-informed-eigenfunction-features-with-learnable-scaling)  
+   evidence：通过聚类加权的深度代理模型训练方法，可应用于空气质量代理建模
+5. [Neural and Spectral Operator Surrogates on Gaussian Spaces](/202607/10/2607.08492v1-neural-and-spectral-operator-surrogates-on-gaussian-spaces)  
    标签：评分：6.0/10、query:aqac
-   evidence：物理信息驱动的神经表示学习框架，可应用于环境建模
-6. [A Partially Functional Dynamic Structural Equation Model for Multi-Resolution Environmental Data](/202607/09/2607.04641v1-a-partially-functional-dynamic-structural-equation-model-for-multi-resolution-environmental-data)  
-   标签：评分：6.0/10、query:aqac
-   evidence：对大气污染物排放与多分辨率（气象、经济）因素进行建模
-7. [Physics-guided spatiotemporal neural models for fuel density prediction](/202607/09/2607.06999v1-physics-guided-spatiotemporal-neural-models-for-fuel-density-prediction)  
-   标签：评分：6.0/10、query:aqac
-   evidence：使用自适应傅里叶神经算子作为燃料密度传输的代理模型
+   evidence：神经算子代理的理论框架
 
 
 <div class="dpr-home-promo-card">

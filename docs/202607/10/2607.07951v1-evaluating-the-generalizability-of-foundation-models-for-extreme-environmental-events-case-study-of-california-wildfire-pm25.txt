@@ -1,0 +1,634 @@
+Title: Evaluating the Generalizability of Foundation Models for Extreme Environmental Events: Case Study of California Wildfire PM2.5
+
+URL Source: https://arxiv.org/pdf/2607.07951v1
+
+Published Time: Fri, 10 Jul 2026 00:15:09 GMT
+
+Number of Pages: 23
+
+Markdown Content:
+# Evaluating the Generalizability of Foundation Models for Extreme Environmental Events: Case Study of California Wildfire PM2.5 
+
+Yongcan Huang 1, Li Jiang 2,* , and Ze Yu Liu 31College of Engineering, University of Georgia, Athens, Georgia, USA; Information System Department, UMBC, Baltimore, Maryland, USA ; yhuang11@umbc.edu 
+
+> 2
+
+College of Graduate and Professional Studies, Trine University, Angola, Indiana, USA; ljiang231@my.trine.edu 
+
+> 3
+
+School of Professional Studies, Columbia University, New York, New York, USA; zl3432@columbia.edu 
+
+> *
+
+Correspondence: ljiang231@my.trine.edu 
+
+July 10, 2026 
+
+Abstract 
+
+Wildfire smoke events produce extreme PM 2.5 concentrations that pose severe public health risks, yet accurately forecasting rare, hazardous-level spikes remains a fundamental challenge. Time series foundation models (TSFMs), large pretrained models offering zero-shot inference and parameter-efficient adaptation, have shown strong performance on general time-series benchmarks, but their behavior under extreme out-of-distribution conditions is poorly understood. We present the first systematic benchmark comparing six TSFM configurations (zero-shot TimesFM, Chronos-2, Moirai-2, and Time-MoE, plus LoRA fine-tuned variants of Chronos-2 and Time-MoE) against fully-trained deep learning baselines (LSTM, BiLSTM, Transformer) and a na¨ ıve persistence reference on a 12-year (2013–2025) hourly PM 2.5
+
+dataset covering 1,375 wildfire incidents across 79 California monitoring sites. We design a leave-one-incident-out (LOIO) cross-validation protocol that evaluates true generalization to unseen fire events, and assess models using MAE, RMSE, and exceedance F1 at the U.S. Environmental Protection Agency (EPA) AQI severity thresholds across forecast horizons of 6, 12, and 24 hours. Our results reveal a clear and consistent hierarchy. The fully-trained BiLSTM achieves the lowest MAE (5 .16 μg/m 3) and the highest exceedance F1 at every AQI threshold, including the Hazardous band ( > 225 .5 μg/m 3), where it reaches 0.63 against at most 0.54 for any foundation model. Zero-shot TSFMs improve on na¨ ıve persistence in aggregate error, but the margin is modest, and zero-shot Chronos-2 exhibits a severe RMSE tail instability (23 .4 μg/m 3, negative R2) driven by sporadic large-magnitude errors. LoRA fine-tuning on each fold’s training incidents substantially improves both adapted families and largely repairs the Chronos-2 instability, but no foundation model, zero-shot or fine-tuned, surpasses the trained recurrent baselines on any metric. These findings challenge the assumption that larger pretrained models universally dominate in environmental forecasting, and provide actionable deployment guidance for wildfire air quality prediction. 
+
+Keywords: PM 2.5 forecasting; wildfire smoke; time series foundation models; leave-one-incident-out; exceedance prediction; LoRA fine-tuning; deep learning; air quality. 
+
+# 1 Introduction 
+
+Air pollution represents one of the most pressing environmental and public health challenges of the 21st century. Among atmospheric pollutants, particulate matter with an aerodynamic diameter of 2.5 micrometers or less (PM 2.5) poses particularly serious health risks due to its 1arXiv:2607.07951v1 [cs.LG] 8 Jul 2026 ability to penetrate deeply into the respiratory system and enter the bloodstream [ 42 ]. Wildfires have emerged as an increasingly significant source of PM 2.5, particularly under the prolonged drought and rising temperatures associated with climate change [ 8, 34 ]. Unlike urban and industrial sources, wildfire smoke produces episodic but extreme concentration spikes that persist for days and affect communities far downwind [ 18 ]: in our dataset, hourly readings reach 1,249 μg/m 3, roughly 35 times the Environmental Protection Agency (EPA) 24-hour standard of 35 μg/m 3. Accurate advance warning of hazardous concentrations is critical for public health decisions including evacuation orders, school closures, and hospital surge preparation, where the cost of a missed warning far outweighs the cost of a false alarm. Physics-based chemical transport models such as CMAQ and WRF-Chem provide mechanistic representations of smoke transport but require substantial computation, emission inventories, and meteorological inputs, limiting real-time use [ 9 , 15 , 48 ]. Data-driven forecasting has therefore become the dominant alternative: LSTM networks and their variants deliver strong gains over statistical methods [ 16 , 23 , 13 ], and hybrid architectures combining convolution, recurrence, and attention now anchor the PM 2.5 literature [ 39 , 46 , 30 , 7]. For wildfire-specific PM 2.5, ensemble deep learning achieves strong spatial prediction [ 2 ], yet concentrations during wildfires differ so sharply from routine urban emissions that models trained on ambient data systematically underestimate maximum exposures [ 43 ]. Despite this progress, existing studies share a critical limitation: evaluations rely on chronological train–test splits or single-site settings, neither of which assesses generalization to an unseen wildfire incident. A more recent paradigm shift comes from time series foundation models (TSFMs), which are pretrained on large heterogeneous corpora and forecast unseen series zero-shot, without task-specific training [ 11 , 4 , 33 ]. Architecturally, TSFMs span decoder-only attention (TimesFM), tokenization-based language-model backbones (Chronos), masked-encoder universal forecast-ers (Moirai), and sparse mixture-of-experts routing (Time-MoE, Moirai-MoE) in which dis-tinct experts can specialize to different temporal regimes; several families additionally support parameter-efficient fine-tuning when limited target data are available. Because pretraining promises to address the cold-start problem that arises when a new fire ignites at a location with no incident-specific history, TSFMs are conceptually attractive for wildfire air quality. Yet despite their success in language and weather forecasting [ 12 , 21 ], TSFMs remain largely untested on air quality, and whether their general forecasting ability extends to the extreme, non-stationary dynamics of wildfire PM 2.5, and whether lightweight fine-tuning meaningfully closes any gap, remains an open question. The present study addresses these gaps through a controlled benchmark of trained deep learning baselines and TSFMs for wildfire PM 2.5 forecasting, evaluated under a leave-one-incident-out protocol that holds out entire fire events. Our design examines three factors: (1) modeling paradigm : fully trained baselines ( BiLSTM , LSTM , encoder-only Transformer) versus pretrained TSFMs, four zero-shot (TimesFM, Chronos-2, Moirai-2, Time-MoE) and two LoRA fine-tuned (Chronos-2, Time-MoE) configurations; (2) AQI severity stratum :performance is evaluated across five EPA 2024 exceedance thresholds (9.1,35.5, 55.5, 125.5, and 225.5 μg/m 3) to distinguish behavior under moderate versus extreme concentrations; and (3) forecast horizon : 6, 12, and 24 hours ahead, spanning near-term warning through next-day public health planning, since accuracy typically degrades with lead time [ 48 , 20 ]. All experiments share identical preprocessing, training procedures, and evaluation metrics. We make the following contributions: 1. Benchmark and protocol. We release a 12-year, 79-site California wildfire PM 2.5
+
+benchmark (1,375 incidents; 1.73M hourly records) together with a leave-one-incident-out (LOIO) evaluation protocol that prevents temporal leakage across fire events and directly simulates the operationally critical scenario of predicting PM 2.5 for a newly ignited fire with no prior incident-specific data. 22. First TSFM benchmark for extreme wildfire PM 2.5. To our knowledge, this is the first systematic evaluation of time series foundation models, across four zero-shot and two LoRA fine-tuned configurations, against fully trained deep-learning baselines, specifically targeting extreme, episodic wildfire PM 2.5 rather than routine urban pollution or LLM-based air quality pipelines. All models are evaluated on the same univariate PM 2.5
+
+input to ensure a controlled and architecturally fair comparison across paradigms. 3. A counter-intuitive empirical finding. A fully trained BiLSTM consistently outper-forms every TSFM configuration on both aggregate error and extreme-event exceedance F1 across all forecast horizons. Specifically: (i) zero-shot TSFMs improve on the na¨ ıve persistence reference in aggregate MAE, but only modestly (5.56–5.92 versus 6.44 μg/m 3), and none approaches the trained recurrent baselines, indicating that large-scale pretraining on general corpora transfers only weakly to the heavy-tailed, non-stationary dynamics of wildfire smoke; (ii) at the Hazardous threshold ( > 225 .5 μg/m 3), BiLSTM attains an exceedance F1 of 0.63 while zero-shot TSFMs reach only 0.47–0.54, and zero-shot Chronos-2 additionally exhibits a severe RMSE tail instability (23 .4 μg/m 3 with a negative R2) that is invisible to absolute-error metrics; (iii) LoRA fine-tuning on each fold’s training incidents substantially improves both adapted families and largely repairs the Chronos-2 instability, yet the fine-tuned variants still do not surpass BiLSTM or LSTM on any metric, suggesting that lightweight in-domain adaptation recalibrates magnitude scale but does not instill the fine-grained temporal dynamics that govern extreme-event exceedance. 4. Deployment guidance. We provide practical recommendations calibrated to data availability and the target severity threshold, clarifying when and whether zero-shot or LoRA fine-tuned TSFMs are operationally justified, and identifying the conditions under which domain-specific supervised training remains essential. The remainder of this paper is organized as follows. Section 2 reviews related work on PM 2.5
+
+forecasting, wildfire smoke modeling, and time series foundation models. Section 3 describes the dataset, preprocessing, and the leave-one-incident-out protocol. Section 4 presents the models, adaptation procedures, and evaluation metrics. Section 5 reports the results, and Section 6 discusses the findings and future directions. 
+
+# 2 Related Work 
+
+2.1 PM 2.5 Forecasting with Deep Learning 
+
+Recurrent and attention-based architectures now anchor data-driven air quality forecasting. Long Short-Term Memory (LSTM) networks and their gated and bidirectional variants remain strong baselines for pollutant concentration prediction, and hybrid designs that pair convolutional or autoencoder front-ends with recurrent or Transformer back-ends report further gains by jointly modeling spatial structure and temporal dependence. Recent examples span autoencoder and sparse-autoencoder classifiers for next-hour NO 2, PM 10 and SO 2 in an industrial bay [ 35 ]; Bayesian-optimized CNN–LSTM–Transformer frameworks that fuse spatial autocorrelation features for province-scale prediction in Sichuan [ 47 ]; systematic comparisons of LSTM, CNN– LSTM, Transformer and Transformer–LSTM across forecasting horizons [ 46 ]; and Transformer– LSTM hybrids tuned by metaheuristic search for regional PM 2.5 prediction [ 30 ]. A consistent finding is that attention and frequency-aware mechanisms improve aggregate error metrics (MAE, RMSE, R2) and that explicit spectral or spatial encoding mitigates the smoothing of sharp transitions characteristic of recurrent models [22]. Despite this architectural diversity, the evaluation protocol in the literature is remarkably uniform and conceals a gap directly relevant to extreme-event forecasting. Models are almost 3always trained and assessed on a chronological partition of a fixed set of monitoring sites: the test segment is a temporal continuation of the same stations seen in training, drawn from the same period and critically often overlapping the same pollution episodes [ 35 , 47 , 46 , 30 ]. Even benchmarks that test spatial transfer do so within a single climatic region or province, and even multi-site forecasting studies that apply formal significance testing partition the data by time rather than by event [ 22 ]. The wildfire-specific literature is no exception: graph-based forecasters of fire-influenced PM 2.5 hold out whole years (e.g., training on two seasons and testing on a third, while excluding an anomalous low-activity year) [ 26 ], and LSTM-based fire early-warning systems train on one block of years and test on the next [ 6 ]. These designs measure interpolation within a known regime; they do not measure whether a model generalizes to an unseen high-impact event whose dynamics were absent from training. This distinction matters most precisely where forecasting is hardest. Wildfire smoke episodes are heavy-tailed, comparatively rare, and mutually distinct in source location, transport, and intensity, so a chronological split can leak information from a given fire’s onset into the training window used to predict its peak. To isolate genuine event-level generalization, we adopt a leave-one-incident-out cross-validation protocol in which each fold withholds the complete set of records associated with one fire incident and evaluates transfer to that held-out event. To our knowledge, this incident-holdout evaluation has not been applied in prior PM 2.5 forecasting benchmarks, and it is the basis on which we compare time-series foundation models against trained recurrent and Transformer baselines in the remainder of this work. 
+
+2.2 Wildfire Smoke and PM 2.5 Modeling 
+
+Wildfire-specific PM2.5 forecasting has been dominated by process-based models. These include coupled fire–atmosphere–chemistry systems such as WRF-Chem and WRF-SFIRE-CHEM, as well as operational smoke-forecasting systems such as NOAA’s HRRR-Smoke [ 3] and the HYSPLIT-based Smoke Forecasting System [ 38 ], which produce 24–48 h forecasts from satellite fire detections, biomass-burning emission inventories, and meteorological fields [ 19 ]. Such systems are mechanistically interpretable and operationally entrenched, yet they are computationally expensive, sensitive to uncertain emission and plume-rise assumptions, and tend to underestimate surface concentrations during the most severe episodes. Ensemble runs for the 2018 Camp Fire spanned nearly 1000 μg/m 3 across emission and plume-rise configurations [24 ], while a multi-system intercomparison for the 2019 Williams Flats fire revealed large inter-model spread and systematic bias [44 ]. Tellingly, these assessments remain episodic case studies of individual named fires, underscoring both the difficulty of resolving extreme PM2.5 with process-based models and the absence of evaluation across many incidents under a common protocol. Data-driven wildfire-smoke forecasting is comparatively recent and sparse. Spatiotemporal deep learning has only begun to appear in this setting: a spatiotemporal Transformer for hourly PM 2.5 in fire-prone regions [ 45 ], a graph neural network for fire-influenced PM 2.5 across California that outperforms LSTM and MLP baselines [ 26 ], and a U-shaped LSTM early-warning system anchored on the Camp Fire [ 6 ]. These studies show that learned models can rival or exceed numerical guidance at short horizons without explicit emission inventories. However, each is developed and validated on a single region or a small number of named fires and partitions data chronologically or by year rather than by event. Crucially, neither paradigm has produced a standardized multi-incident benchmark. Physics-based evaluations are typically episodic case studies of one fire (e.g., the Camp, Williams Flats, or Caldor fires), and even multi-model efforts are intercomparisons on a single event rather than one model assessed across many events under a common protocol. Data-driven studies inherit the same limitation, training and testing within a fixed region or season. As a consequence, the field lacks a controlled assessment of how forecasters, either numerical or learned, generalize across heterogeneous fire incidents that differ in ignition, fuel load, terrain, and smoke transport. We address this gap with a leave-one-incident-out benchmark spanning 1,375 California wildfire 4incidents over 2013–2025, in which every held-out event is evaluated under a common metric and horizon protocol. 
+
+2.3 Time Series Foundation Models 
+
+Transformer architectures entered time series analysis through models such as Informer and Autoformer, whose self-attention handled long-range dependencies and multivariate interactions more flexibly than recurrent or convolutional predecessors [ 36 ]. These models, however, were still trained from scratch per dataset. The foundation model era began in late 2023 with Lag-Llama [33 ], a decoder-only Transformer for univariate probabilistic forecasting, and TimesFM [ 11 ], a patch-based decoder-only model pre-trained on a large heterogeneous corpus. The 2024 wave broadened the design space: Chronos [ 4] tokenized series via scaling and quantization to treat forecasting as language modeling; Moirai [ 41 ] introduced any-variate attention for universal multivariate forecasting; and Timer [ 28 ], MOMENT [ 14 ], and ChatTime [ 40 ] added autoregressive, encoder-based, and multimodal variants, respectively. Broader taxonomies and systematic reviews trace this rapid expansion across hundreds of studies [1][25][31][32]. The 2025 frontier advanced along two axes: scale and second-generation refinement. Time-MoE [ 37 ] reached 2.4 billion parameters via a sparse Mixture-of-Experts architecture, empirically confirming that scaling laws hold for temporal data, while Sundial [ 29 ] enabled native probabilistic pre-training through a flow-matching TimeFlow Loss. The two most widely deployed families also advanced to second-generation releases: Chronos-2 [ 5], a 120M-parameter encoder-only model whose group-attention mechanism extends zero-shot forecasting to multivariate and covariate-informed tasks, and Moirai-2 [ 27 ], which replaces the masked encoder with a decoder-only backbone trained via quantile forecasting and multi-token prediction. In parallel, domain-focused work has begun to question the generality of these models: [ 10 ] show with the BOOM benchmark that general-purpose TSFMs underperform on heavy-tailed, nonstationary observability metrics, motivating domain-specialized evaluation. 
+
+# 3 Dataset and Preprocessing 
+
+3.1 Data Sources 
+
+We compiled an event-aligned air-quality panel of hourly PM2.5 measurements drawn from 79 EPA-certified monitoring stations across California, spanning February 2013 through November 2025. Wildfire incident metadata including ignition location, creation and containment dates, and final burned area, were obtained from the CAL FIRE incident archive, and the corresponding PM2.5 observations were retrieved from the California Air Resources Board (CARB) AQMIS interface. To align fire activity with the downwind air-quality response, each incident was paired with its nearest monitoring station, defined as the EPA-certified site that minimizes the geodesic (great-circle) distance between the station coordinates and the incident location. Incidents whose nearest station exceeded 100 km were excluded, as measurements beyond this range are unlikely to capture the fire’s smoke signal. A single station may serve as the nearest site for multiple incidents, since fires recurring in the same region share the same downwind monitor. Together with each incident’s creation and containment dates, these wildfire–station pairs defined the retrieval keys for data collection. Rather than downloading a single static archive, we assembled the panel with an incident-aware crawler that queried each wildfire–station pair over its corresponding incident window. Multi-year windows were decomposed into calendar-year requests, and downloads ran asynchronously under bounded concurrency, with retry logic and file-level deduplication to accommodate the length of the historical record and the query limits of the remote interface. Figure 1 shows the spatial distribution of the 79 monitoring stations and the associated wildfire events, illustrating both the statewide coverage of the sensor network and the geographic spread of the incidents analyzed in this study. 5Figure 1: Spatial distribution of the 79 EPA-certified PM 2.5 monitoring stations (green triangles) and the 1,375 wildfire incidents (red points) included in the study, overlaid on shaded-relief terrain. Each station is paired with the wildfire incidents for which it is the nearest monitor; the size of each station symbol is scaled by the number of incidents it serves. The inset illustrates one representative station that serves 84 incidents, highlighting the one-to-many wildfire–station pairing. 63.2 Preprocessing 
+
+The raw CARB exports required cleaning and harmonization before modeling. Non-tabular metadata blocks were removed, and the cleaned records were consolidated into an hourly panel indexed by monitoring site, timestamp, and wildfire incident. Because a single monitor is frequently the nearest station for several nearby fires, a given site–hour measurement can be associated with more than one incident window; the underlying observations were therefore de-duplicated to 650,091 unique site–hour PM 2.5 measurements, which expand to 1,726,019 incident-aligned records. As hourly monitoring records contain gaps from sensor downtime and transmission loss, we deliberately avoided interpolation, which would inject artificial dynamics into a series whose extreme events are the object of study. Instead, each site’s record was partitioned into internally continuous segments at temporal breaks exceeding two hours, and all subsequent windowing was confined within these segments so that no input or forecast window spans a gap. Negative readings (2.80% of unique measurements), attributable to instrument noise near the low-concentration detection limit, were clipped to zero. Predictors were standardized using per-site z-score normalization, which preserves each station’s physical baseline while rendering heterogeneous series comparable, whereas forecast targets were retained in native μg/m 3 units to keep evaluation metrics interpretable against regulatory AQI thresholds. Modeling used the univariate PM 2.5 series. Supervised examples were then constructed with a sliding window comprising a 48-hour input context and three forecast horizons of 6, 12, and 24 hours, advanced with a stride of 6 hours; the three horizons share a common set of input windows so that their results are directly comparable. Incident sequences shorter than 72 hours which is the minimum span required to form a single input–target pair at the longest horizon were excluded, retaining 891 of the 1,375 sequences and yielding 277,866 windowed examples. To probe performance under the conditions of greatest operational concern rather than on routine background air quality, evaluation was conducted on held-out continuous weeks containing elevated-concentration episodes. Table 1 and Figure 2 summarize the resulting distribution, which is severely right-skewed (skewness ≈ 12). The median hourly concentration is only 9 μg/m 3, and 93.8% of measurements fall within the Good-to-Moderate range (below 35.5 μg/m 3), yet the upper tail extends to a maximum of 1,249 μg/m 3, with 0.28% of observations reaching Hazardous levels (above 225.5 μg/m 3). This pronounced imbalance— abundant background hours against sparse but consequential extremes—directly motivates the extreme-event evaluation protocol adopted in this study. 
+
+3.3 Leave-One-Incident-Out Protocol 
+
+Standard temporal splits are poorly suited to wildfire forecasting because a single fire can persist for days or months, producing many overlapping windows with shared meteorology, source emissions, and site-specific background conditions. A naive chronological split can therefore place early windows from one fire in training and later windows from the same fire in testing, yielding optimistic performance estimates through incident-level leakage. To avoid this failure mode, we adopt a grouped leave-one-incident-out ( loio ) cross-validation protocol. The panel first defines one hourly sequence for each usable ( incident id , site id )pair. Sequences shorter than the minimum length required for the full forecasting task are excluded: with an input window of Lin = 48 hours and a maximum forecast horizon of Hmax = 24 hours, each retained sequence must contain at least Lin + Hmax = 72 consecutive hourly records. This filtering reduces the 1,375 incident–site sequences to 891 usable sequences spanning 79 monitoring sites, each with no internal hourly gaps. For a retained sequence of length L, the 7Table 1: Dataset summary statistics. Attribute Value Time span February 2013 – November 2025 (hourly) Unique site–hour measurements 650,091 Incident-aligned records 1,726,019 Retained sequences 891 of 1,375 ( ≥72 h) Windowed examples 277,866 Monitoring sites 79 EPA sites across California Input / forecast horizons 48 h input; 6, 12, 24 h ahead (stride 6 h) PM 2.5 range 0 – 1,249 μg/m 3 (negatives clipped to 0) Median / Mean PM 2.5 9 / 14 μg/m 3
+
+Good/Moderate ( <35.5) 93.8% Hazardous ( >225.5) 1,832 (0.28%) Negative readings (clipped) 2.80% Missing values None 0 20 40 60 80 100         
+
+> PM 2.5 (μg/m³)
+> 0
+> 10000
+> 20000
+> 30000
+> 40000
+> Count (site-hours)
+> median 9
+> (a) Distribution, 0–100 μg/m³ range
+> EPA AQI breakpoints (μg/m³)
+> 35.5 — Good/Moderate
+> 55.5 — Unhealthy (Sensitive)
+> 125.5 — Unhealthy
+> 225.5 — Very Unhealthy/Hazardous
+> 0200 400 600 800 1000 1200
+> PM 2.5 (μg/m³)
+> 10 0
+> 10 1
+> 10 2
+> 10 3
+> 10 4
+> 10 5
+> Count (log scale)
+> 35.5
+> 55.5
+> 125.5
+> 225.5
+> Hazardous zone
+> 0.28% of obs
+> max 1249
+> (b) Full range, log-frequency (heavy right tail)
+
+Figure 2: Distribution of hourly PM 2.5 concentrations across the 79 California monitoring sites (650,091 unique site–hour measurements). (a) The 0–100 μg/m 3 range (median 9 μg/m 3); dashed lines mark the EPA AQI breakpoints at 35.5, 55.5, 125.5, and 225.5 μg/m 3, separating the Good/Moderate, Unhealthy for Sensitive Groups, Unhealthy, and Very Unhealthy/Hazardous categories, respectively. (b) The full range on a logarithmic frequency scale, revealing the heavy right tail: extreme concentrations extend to 1,249 μg/m 3, with only 0.28% of observations reaching Hazardous levels ( >225.5 μg/m 3). number of sliding windows generated at stride s = 6 hours is 
+
+Nw(L) = 
+
+ L − (Lin + Hmax )
+
+s
+
+
+
++ 1 , (1) and the three horizons (6, 12, and 24 hours) share this common set of input windows so that their results are directly comparable. Crucially, sliding windows are generated only after fold assignment, so all windows derived from the same sequence inherit the same fold label and never straddle the train–test boundary. The fold construction is severity-stratified. For each retained sequence i we compute its peak concentration pi = max t PM (i)2.5(t) and assign it to a severity quintile Q(i) ∈ { 1, . . . , 5} based on the empirical quintiles of {pi}. Within each quintile the sequences are shuffled with a fixed 8random seed and distributed round-robin across the K = 5 folds: fold( i) = πQ(i)(i) mod K, (2) where πQ(i) denotes the seeded permutation of sequences within quintile Q(i). This yields folds balanced not only in sequence count, but also in the long-tailed smoke-severity distribution that dominates wildfire forecasting difficulty. In each evaluation run, all windows from the held-out fold are excluded from training, ensuring that no test window has a training counterpart from the same wildfire–site episode. The resulting benchmark contains 277,866 windows, each using 48 hours of PM 2.5 history to predict PM 2.5 over 6-, 12-, and 24-hour horizons. Table 2 reports the resulting fold composition. The mean peak PM 2.5 values remain comparable across folds despite extreme events reaching nearly 1,250 μg/m 3, and the 24-hour exceedance rates fall within a narrow range. This balance matters because rare high-smoke episodes drive much of the operational forecasting challenge, yet are precisely the cases most easily misrepresented by ungrouped temporal or random splits. Table 2: Five-fold loio cross-validation statistics.                              
+
+> Fold Incidents Windows Mean max PM 2.5(μg/m 3)Exceedance rate ( >35.5)
+> 0180 61,277 146.9 21.3% 1180 56,420 138.3 21.0% 2179 56,204 131.7 22.7% 3176 50,854 128.5 18.0% 4176 53,111 144.7 19.3%
+> Total 891 277,866 138.0 20.5%
+
+# 4 Methods 
+
+We frame wildfire-driven PM 2.5 forecasting as a univariate multi-horizon regression problem and benchmark a non-learning persistence reference together with three families of learned models under the identical leave-one-incident-out protocol of Section 3.3: a set of trained neural baselines, a set of pretrained time-series foundation models (TSFMs) evaluated zero-shot, and LoRA-adapted variants of two of these foundation models. This section defines the forecasting task, then details each model and how its inputs and outputs are handled. 
+
+4.1 Input Representation 
+
+All models receive the same underlying supervised examples: a 48-hour history of hourly PM 2.5
+
+used to forecast the subsequent 6, 12, and 24 hours, but the numerical form in which that history is presented differs between the trained baselines and the pretrained foundation models, reflecting how each class of model expects its inputs to be scaled. 
+
+Common windowed tensor. Preprocessing produces a single tensor X ∈ RN ×Lin ×F with 
+
+N = 277 ,866 windows, input length Lin = 48, and F stored channels, together with horizon-specific targets y(h) ∈ RN ×h for h ∈ { 6, 12 , 24 } retained in native μg/m 3. The input for window 
+
+i is the scalar sequence xi = ( xi, 1, . . . , x i, 48 ). 
+
+Per-site standardization. The stored history is standardized per monitoring site. For a window belonging to site s, each value is transformed as ˜xi,t = xi,t − μs
+
+σs
+
+, (3) 9(a) Naive chronological split: incident-level leakage    
+
+> Fire A (one long-lived incident)
+> same fire split across train / test shared emissions and background leak
+> Fire A
+> train
+> Fire B
+> train
+> Fire C
+> held-out (test)
+> Fire D
+> train
+> Fire E
+> train
+> (b) Leave-one-incident-out: grouped by fire, severity-stratified
+> All windows from one fire stay in a single fold; a held-out fire has no counterpart in training.
+> Training window Test window Leakage point
+
+Figure 3: Comparison of data-splitting strategies. (a) A naive chronological split places early windows of a long-lived fire in training and later windows of the same fire in testing, leaking shared emissions, meteorology, and site background across the train–test boundary. (b) The proposed leave-one-incident-out protocol groups all windows from a given wildfire–site episode into a single fold, so that a held-out fire has no counterpart in training. Folds are additionally stratified by smoke severity. where μs and σs are the mean and standard deviation of PM 2.5 at site s, estimated on training data. This standardized form ˜xi is the representation consumed directly by the trained baselines; the site statistics ( μs, σ s) are retained so that any prediction can be mapped back to physical units. 
+
+Trained baselines (LSTM, BiLSTM, Transformer). These models ingest the standardized sequence ˜xi ∈ R48 as a length-48, single-channel input. To decouple learning from each site’s baseline level, targets are expressed as residuals relative to the last observed (standardized) value ˜xi, 48 ; the model predicts ∆ (h) 
+
+> i
+
+such that the standardized forecast is ˜xi, 48 + ∆ (h) 
+
+> i
+
+, which is then de-standardized for evaluation. This residual parameterization provides a strong persistence-anchored starting point and stabilizes training under the heavy-tailed concentration distribution. 
+
+Pretrained foundation models (Chronos-2, Moirai-2, TimesFM, Time-MoE). Zero-shot time-series foundation models apply their own internal instance normalization and therefore expect inputs on the native measurement scale. Accordingly, the standardized history is inverted back to μg/m 3 via xi,t = σs ˜xi,t +μs before being supplied as the context sequence. Each backbone then tokenizes this context according to its own scheme: TimesFM applies continuous-value quantile forecasting with input normalization enabled, Chronos-2 uses learned value tokenization, Moirai-2 relies on patch-based encoding, and Time-MoE performs autoregressive point generation. All models are queried through their public pretrained interfaces without any gradient updates. Time-MoE is the exception among the foundation models: it is operated on the standardized sequence ˜xi, consistent with its pretraining convention, and its outputs are de-standardized for evaluation. In every case the point forecast is taken as the predictive median, and all metrics are computed in native μg/m 3 so that results are directly comparable across model classes and 10 Table 3: Input representation across model classes. All models are univariate (PM 2.5 only) and share the 48-hour context and 6/12/24-hour horizons; they differ in input scale, target parameterization, and forecasting mechanism. Enc. = encoder-only; dec. = decoder-only; MoE = mixture-of-experts.                                                       
+
+> Model Type Input scale Target Mechanism
+> Na¨ ıve Persistence Reference Native μg/m 3Last-value carry-forward None LSTM Trained Per-site z-score Residual from last value Recurrent BiLSTM Trained Per-site z-score Residual from last value Bidirectional recurrent Transformer Trained Per-site z-score Residual from last value Self-attention Chronos-2 Zero-shot Native μg/m 3Direct (median quantile) Patch; enc., quantile head Moirai-2 Zero-shot Native μg/m 3Direct (median quantile) Patch; dec., multi-token quantile TimesFM Zero-shot Native μg/m 3Direct (median quantile) Patch; dec., quantile head Time-MoE Zero-shot Per-site z-score Direct (autoregressive) Point-wise; dec., MoE Chronos-2 LoRA-FT Native μg/m 3Direct (median quantile) Patch; enc., quantile head Time-MoE LoRA-FT Per-site z-score Direct (autoregressive) Point-wise; dec., MoE
+
+against regulatory AQI thresholds. Table 3 summarizes how the input representation differs across the model classes. 
+
+4.2 Problem Formulation 
+
+For a window i let xi = ( xi, 1, . . . , x i,L in ) denote the observed hourly PM 2.5 history with Lin = 48, and let y(h) 
+
+> i
+
+= ( yi, 1, . . . , y i,h ) denote the subsequent h hourly values for horizon h ∈ H =
+
+{6, 12 , 24 }. A forecaster is a function 
+
+fθ : RLin → Rh, ˆy(h) 
+
+> i
+
+= fθ(xi; h) , (4) producing a point forecast for each horizon. All targets are evaluated in native μg/m 3. The three horizons are produced from a common 48-hour context so that results are directly comparable across horizons and models. 
+
+4.3 Na¨ ıve Persistence Reference 
+
+As a non-learning lower bound we include a na¨ ıve persistence forecaster, which propagates the last observed concentration across the entire horizon, ˆy(h) 
+
+> i,τ
+
+= yi,L in , τ = 1 , . . . , h. (5) Persistence carries no trainable parameters and is applied directly in native μg/m 3. Because hourly PM 2.5 is strongly autocorrelated, it is a deliberately demanding reference at short horizons and defines the skill floor that any learned model must exceed to demonstrate genuine predictive value. It is also the implicit anchor of the trained baselines, whose residual parameterization (Eq. 6) predicts departures from exactly this last-value forecast; reporting persistence explicitly therefore isolates the contribution of the learned residual from the autocorrelation the models inherit for free. 
+
+4.4 Trained Neural Baselines 
+
+The trained baselines consume the per-site standardized history ˜xi (Eq. 3) and predict a residual relative to the last observed standardized value ˜xi,L in . Writing the standardized target as ˜y(h) 
+
+> i,τ
+
+= ( y(h) 
+
+> i,τ
+
+− μs)/σ s, each model is trained to output ∆(h) 
+
+> i,τ
+
+= ˜y(h) 
+
+> i,τ
+
+− ˜xi,L in , (6) 11 and predictions are reconstructed to physical units by inverting the standardization and clipping at zero, ˆy(h) 
+
+> i,τ
+
+= max 
+
+
+
+0,   ˆ∆(h) 
+
+> i,τ
+
++ ˜ xi,L in 
+
+ σs + μs
+
+
+
+. (7) This residual parameterization anchors each forecast to persistence and stabilizes learning under the heavy-tailed concentration distribution. All three baselines share a common backbone width of d = 64, two layers, dropout 0 .1, and a separate linear head per horizon; they are trained by minimizing mean squared error on ∆ (h) with early stopping. 
+
+LSTM. A two-layer unidirectional LSTM [ 16 ] encodes the sequence. At each step the standard recurrence updates the hidden and cell states, (ht, ct) = LSTM(˜ xi,t , ht−1, ct−1), ht ∈ Rd, (8) and the final hidden state hLin is mapped to each horizon by a linear head, ˆ∆(h) 
+
+> i
+
+= WhhLin + bh.
+
+BiLSTM. A bidirectional variant runs two LSTMs over the context in forward and backward directions, yielding hidden states −→
+
+h t and ←−
+
+h t. The final representation concatenates the two terminal states, 
+
+hbi =  −→
+
+h Lin ; ←−
+
+h 1
+
+ ∈ R2d, (9) which is passed to per-horizon linear heads. Bidirectional context lets the encoder summarize the full 48-hour window symmetrically, at the cost of doubling the representation width. 
+
+Transformer. The Transformer baseline [ 39 ] projects each scalar input to width d, adds sinusoidal positional encodings, and applies a two-layer encoder with 4 attention heads and a feed-forward width of 4 d. For a projected, position-encoded sequence Z ∈ RLin ×d, each layer computes multi-head self-attention, Attn( Q, K, V) = softmax 
+
+ QK ⊤
+
+√dk
+
+
+
+V, (10) with Q, K, V linear projections of Z and dk = d/ 4. The pooled encoder output feeds per-horizon linear heads. Self-attention provides direct access to all lags in the window without recurrence. 
+
+4.5 Pretrained Foundation Models 
+
+The foundation models are evaluated zero-shot: their pretrained weights are frozen and queried through their public forecasting interfaces, with no gradient updates on wildfire data. Except where noted, each model applies its own internal instance normalization and therefore receives the history on the native μg/m 3 scale, obtained by inverting Eq. (3) . The probabilistic backbones (Chronos-2, Moirai-2, and TimesFM) map a context sequence to a predictive distribution over the horizon, 
+
+pϕ
+
+
+
+y(h) | x
+
+
+
+, ˆy(h) = median pϕ(· | x), (11) from which the point forecast is taken as the predictive median ( q = 0 .5); Time-MoE instead emits point forecasts directly through autoregressive generation. The models differ in how the context is tokenized and how the forecast is parameterized, as detailed below. 
+
+Chronos-2. Chronos-2 [ 5 ] is a 120M-parameter, encoder-only Transformer that generalizes its predecessor’s language-modeling formulation: rather than autoregressively generating tokens from a discrete value vocabulary, it embeds the scaled context as patches, attends over them with a group-attention mechanism that also enables multivariate and covariate-informed forecasting, and emits multi-step quantile forecasts for the horizon in a single forward pass. We use its univariate interface and take the median quantile ( q = 0 .5) as the point prediction. 12 Moirai-2. Moirai-2 [ 27 ] is a patch-based encoder. The context is divided into temporal patches that are embedded as tokens; a Transformer encoder attends over these patch tokens and emits a quantile forecast over the horizon. We use a context length of 48, a single target dimension, and the median quantile as the point prediction. 
+
+TimesFM. TimesFM [ 11 ] segments the context into non-overlapping patches, each embedded through a residual MLP into a token, and a decoder-only Transformer predicts subsequent patches. We enable input normalization and a continuous quantile head with positivity and quantile-crossing constraints, using the median as the point forecast. 
+
+Time-MoE. Time-MoE [ 37 ] is a decoder-only, point-wise mixture-of-experts forecaster that generates the horizon autoregressively, one step at a time. Consistent with its pretraining convention, it is the one foundation model operated on the per-site standardized sequence ˜xi; its autoregressive outputs are de-standardized through the inverse of Eq. (3) for evaluation. 
+
+4.6 LoRA Fine-Tuning 
+
+To quantify how much a small amount of in-domain adaptation narrows the gap between zero-shot foundation models and the trained baselines, we additionally evaluate parameter-efficient fine-tuned variants of two foundation models, Chronos-2 and Time-MoE. Rather than updating the full backbone, we attach low-rank adaptation (LoRA) modules [ 17 ] to the pretrained weights, so that only a small set of adapter parameters is trained while the original weights remain frozen. For a frozen weight matrix W0 ∈ Rdout ×din , LoRA reparameterizes the update as a low-rank product, 
+
+W = W0 + αr BA , B ∈ Rdout ×r, A ∈ Rr×din , r ≪ d, (12) where r is the adapter rank and α a scaling factor. Crucially, adaptation respects the leave-one-incident-out protocol: for each fold, adapters are trained only on the four training folds and evaluated on the held-out fold, so no test incident is seen during fine-tuning. A separate adapter is fit per fold, and adaptation uses the same univariate PM 2.5 context and the same per-model input scaling as the corresponding zero-shot variant. 
+
+Chronos-2 (LoRA). LoRA adapters are fine-tuned for 500 steps at learning rate 10 −5 with batch size 256. Each training example is the concatenation of a window’s 48-hour context and its subsequent 24-hour target on the native μg/m 3 scale, and the model is optimized with its native forecasting objective. At inference the adapted model is queried exactly as in the zero-shot case, taking the median quantile as the point forecast. 
+
+Time-MoE (LoRA). LoRA adapters of rank r = 8 (scaling α = 16, dropout 0 .05) are injected into the query and value projections of every attention block. The adapter is trained by next-step prediction with teacher forcing on the per-site standardized histories—mapping steps 1 : Lin −1 to steps 2 : Lin —consistent with Time-MoE’s autoregressive pretraining objective. As in the zero-shot case, the horizon is generated autoregressively and outputs are de-standardized for evaluation. 
+
+4.7 Evaluation Metrics 
+
+Forecast accuracy is measured in native units by the mean absolute error and root-mean-square error over all windows and lead times, MAE = 1
+
+N h 
+
+> N
+
+X
+
+> i=1
+> h
+
+X 
+
+> τ=1
+
+ˆy(h) 
+
+> i,τ
+
+− y(h) 
+
+> i,τ
+
+, RMSE = 
+
+vuut 1
+
+N h 
+
+> N
+
+X
+
+> i=1
+> h
+
+X 
+
+> τ=1
+
+ ˆy(h) 
+
+> i,τ
+
+− y(h)
+
+> i,τ
+
+2. (13) 13 To complement these absolute-error metrics, we also report the coefficient of determination, 
+
+R2 = 1 −
+
+PNi=1 
+
+Phτ =1 
+
+ y(h) 
+
+> i,τ
+
+− ˆy(h)
+
+> i,τ
+
+2
+
+PNi=1 
+
+Phτ =1 
+
+ y(h) 
+
+> i,τ
+
+− ¯y2 , (14) where ¯y is the mean of the observed values over all windows and lead times in the evaluation set. R2 measures the fraction of observed variance explained by the forecasts: it equals one for a perfect forecast, zero for a forecaster no better than predicting the evaluation-set mean, and becomes negative when sporadic large-magnitude errors dominate the squared-error sum, a diagnostic that proves informative for the tail instability analyzed in Section 5. Because operational value lies in anticipating unhealthy smoke, we additionally frame each window as an early-warning problem: a window is labeled positive if its true horizon ever crosses an AQI threshold t, and likewise for the prediction, using the per-window maxima 
+
+btrue  
+
+> i
+
+= ⊮
+
+h
+
+max  
+
+> τ
+
+y(h) 
+
+> i,τ
+
+> t 
+
+i
+
+, bpred  
+
+> i
+
+= ⊮
+
+h
+
+max  
+
+> τ
+
+ˆy(h) 
+
+> i,τ
+
+> t 
+
+i
+
+. (15) From these binary labels we report the exceedance F1-score at the 35.5 μg/m 3 Unhealthy-for-Sensitive-Groups boundary and the higher AQI breakpoints (Unhealthy, 55.5; Very Unhealthy, 125.5; Hazardous, 225.5), which together assess whether a model recovers the rare but conse-quential extreme events that dominate the forecasting challenge. All metrics are computed per fold and averaged across the five leave-one-incident-out folds. 
+
+# 5 Results 
+
+We evaluate all models under the leave-one-incident-out (LOIO) protocol, reporting each metric as the mean over five folds and three forecast horizons (6, 12, and 24 hours). Table 4 summarizes overall accuracy and exceedance-detection performance; Figures 4–6 disaggregate these results by horizon and by air-quality category. 
+
+5.1 Overall Forecasting Accuracy 
+
+The trained bidirectional recurrent baseline attains the best point-forecast accuracy across every metric. BiLSTM achieves the lowest mean absolute error (MAE = 5 .16 μg m −3) and root mean squared error (RMSE = 12 .58 μg m −3) and the highest coefficient of determination ( R2 = 0 .75), followed by the unidirectional LSTM (MAE = 5 .28, R2 = 0 .72). No zero-shot foundation model matches either recurrent baseline: the strongest foundation configuration, Chronos-2 adapted with LoRA fine-tuning, reaches MAE = 5 .43 μg m −3, still above both BiLSTM and LSTM. This ordering is stable across folds, as reflected in the fold-level standard deviations reported in Table 4 and visualized in Figure 4. Two patterns run counter to the common assumption that large pre-trained transformers dominate sequence tasks. First, the trained Transformer baseline (MAE = 5 .76, R2 = 0 .70) underperforms both recurrent baselines, indicating that on a single-site, event-partitioned PM 2.5
+
+signal the inductive bias of recurrent encoders is better matched to the task than a from-scratch attention model. Second, among the foundation models the sparse mixture-of-experts Time-MoE (MAE = 5 .92 zero-shot) is the weakest, trailing even the na¨ ıve persistence floor on the longer horizons, whereas the dense patch-based TimesFM (MAE = 5 .56) and the universal Moirai-2 (MAE = 5 .60) are more competitive. 
+
+5.2 Error Growth With Forecast Horizon 
+
+All models degrade monotonically as the horizon extends from 6 to 24 hours (Figure 5). The gap between trained baselines and foundation models is narrowest at the 6-hour horizon, where 14 Table 4: Leave-one-incident-out forecasting performance, averaged over five folds and forecast horizons of 6, 12, and 24 hours. MAE and RMSE are in μg m −3 (mean ± SD across folds); exceedance-detection F1 is reported at the 24-hour PM 2.5 AQI thresholds for the Unhealthy for Sensitive Groups (35.5), Unhealthy (55.5), Very Unhealthy (125.5), and Hazardous (225.5) categories. Zero-shot foundation models are queried through their public pretrained interfaces without gradient updates; LoRA fine-tuned variants are adapted on each fold’s training incidents only, preserving the leave-one-incident-out protocol. Best value per column in bold .Model MAE ↓ RMSE ↓ R2 ↑ F1 35 .5 ↑ F1 55 .5 ↑ F1 125 .5 ↑ F1 225 .5 ↑
+
+Trained baselines 
+
+Na¨ ıve Persistence 6.44 ±0.83 16.23 ±2.67 0.575 0.580 0.624 0.613 0.489 LSTM 5.28 ±0.59 13.22 ±2.17 0.722 0.643 0.697 0.692 0.565 BiLSTM 5.16 ±0.58 12.58 ±2.22 0.746 0.648 0.708 0.714 0.626 
+
+Transformer 5.76 ±0.72 13.70 ±2.08 0.700 0.643 0.679 0.651 0.537 
+
+Foundation models, zero-shot (no gradient updates) 
+
+TimesFM 5.56 ±0.62 14.37 ±2.14 0.668 0.607 0.657 0.634 0.478 Chronos-2 5.61 ±0.69 23.45 ±15.34 -0.075 0.640 0.688 0.666 0.537 Moirai-2 5.60 ±0.63 14.42 ±2.14 0.665 0.619 0.668 0.638 0.525 Time-MoE 5.92 ±0.75 14.95 ±2.48 0.645 0.618 0.651 0.588 0.468 
+
+Foundation models, LoRA fine-tuned (per fold) 
+
+Chronos-2 (LoRA-FT) 5.43 ±0.61 15.67 ±4.27 0.601 0.623 0.677 0.648 0.511 Time-MoE (LoRA-FT) 5.49 ±0.62 14.07 ±2.23 0.684 0.619 0.663 0.618 0.486 Naïve Persistence    
+
+> LSTM
+> BiLSTM
+> Transformer
+> TimesFM (0-shot)
+> Chronos-2 (0-shot)
+> Moirai-2 (0-shot)
+> Time-MoE (0-shot)
+> Chronos-2 (LoRA-FT)
+> Time-MoE (LoRA-FT)
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> 7
+> MAE (  g m  3)
+> trained baselines zero-shot FMs LoRA-FT
+> Overall MAE (error bars: ±1 SD across folds)
+
+Figure 4: Overall mean absolute error by model, averaged over five folds and the 6-, 12-, and 24-hour horizons. Error bars denote ±1 standard deviation across folds; hatched bars mark LoRA fine-tuned foundation-model variants. The dotted line marks the best (BiLSTM) MAE. No foundation model matches either recurrent baseline. several zero-shot models (TimesFM and Chronos-2 both at MAE = 4 .84) approach BiLSTM (MAE = 4 .53) and widens with horizon, consistent with foundation models being most useful at short lead times. The RMSE panel of Figure 5 reveals a pronounced tail instability for zero-shot Chronos-2. While its MAE remains competitive (5 .61 μg m −3), its RMSE inflates to 23 .45 μg m −3 with a large inter-fold standard deviation ( ±15 .34), and its R2 turns negative ( −0.08 overall, falling to 
+
+−0.98 at the 24-hour horizon). The coexistence of a moderate MAE with an explosive RMSE 15 6 12 24   
+
+> Forecast horizon (h)
+> 4.5
+> 5.0
+> 5.5
+> 6.0
+> 6.5
+> 7.0
+> MAE (  g m  3)
+> (a) Mean Absolute Error
+> 612 24
+> Forecast horizon (h)
+> 10
+> 15
+> 20
+> 25
+> 30
+> RMSE (  g m  3)
+> Chronos-2 (0-shot)
+> tail instability
+> (b) Root Mean Squared Error
+> Naïve Persistence
+> LSTM
+> BiLSTM
+> Transformer
+> TimesFM (0-shot)
+> Chronos-2 (0-shot)
+> Moirai-2 (0-shot)
+> Time-MoE (0-shot)
+> Chronos-2 (LoRA-FT)
+> Time-MoE (LoRA-FT)
+
+Figure 5: (a) MAE and (b) RMSE as a function of forecast horizon, averaged over five folds. Solid lines denote zero-shot foundation models and trained baselines; dashed lines denote LoRA fine-tuned foundation-model variants and the na¨ ıve persistence floor. Zero-shot Chronos-2 exhibits a severe RMSE tail instability that grows with horizon, despite a competitive MAE. indicates that the model produces occasional large-magnitude errors on a minority of forecasts rather than a uniform loss of skill, a failure mode that a squared-error criterion penalizes sharply. No other model exhibits this behavior; the remaining foundation models and all trained baselines maintain stable RMSE across folds and horizons. 
+
+5.3 Exceedance Detection Across AQI Categories 
+
+As the operational value of wildfire forecasting lies in flagging hazardous air, we evaluate binary exceedance detection at the 24-hour PM 2.5 AQI category thresholds (Figure 6). Detection F1 declines for every model as the threshold rises, reflecting the growing rarity and burstiness of extreme concentrations. BiLSTM again leads at all thresholds, including the Hazardous boundary (F1 225 .5 = 0 .63), where the best foundation model reaches only 0 .54 and the na¨ ıve baseline falls to 0 .49. The relative ranking at the high-concentration thresholds mirrors the point-forecast ranking, indicating that models with lower regression error also transfer better to the extreme-event regime that matters most for public-health warnings. 
+
+5.4 Effect of LoRA Fine-tuning 
+
+Parameter-efficient LoRA fine-tuning, applied per fold on the training incidents only (Section 4.6), improves both foundation families but to markedly different degrees. For Chronos-2, adaptation reduces RMSE by 7 .78 μg m −3 and raises R2 from −0.08 to 0 .60, largely resolving the tail instability described in Section 5.2 while also lowering MAE by 0 .19 μg m −3. For Time-MoE the gains are smaller but consistent (MAE −0.43, RMSE −0.88, R2 +0 .04), moving it from the weakest to a mid-ranked foundation model. In both cases, however, the LoRA-adapted variant remains inferior to the trained BiLSTM on every metric, reinforcing the central finding that lightweight in-domain adaptation narrows but does not close the gap to a compact model trained on the target distribution. 16 Moderate   
+
+> (9.1)
+> USG
+> (35.5)
+> Unhealthy
+> (55.5)
+> Very Unh.
+> (125.5)
+> Hazardous
+> (225.5)
+> AQI exceedance threshold ( g m 3)
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> Exceedance-detection F1
+> Exceedance detection across AQI categories
+> Naïve Persistence
+> LSTM
+> BiLSTM
+> Transformer
+> TimesFM (0-shot)
+> Chronos-2 (0-shot)
+> Moirai-2 (0-shot)
+> Time-MoE (0-shot)
+> Chronos-2 (LoRA-FT)
+> Time-MoE (LoRA-FT)
+
+Figure 6: Exceedance-detection F1 across the 24-hour PM 2.5 AQI category thresholds (9.1, 35.5, 55.5, 125.5, and 225.5 μg m −3), averaged over five folds and three horizons. All models degrade toward the rarer, higher-concentration categories; BiLSTM leads at every threshold, including the Hazardous boundary. 
+
+5.5 Forecast Visualization On A Held-out Incident 
+
+Figure 7 visualizes forecasts on one held-out test incident (incident 1d1bb813, site 3132), a prolonged severe episode in which hourly PM 2.5 repeatedly surged into the Hazardous range, peaking near 956 μg m −3. For each forecast horizon h ∈ { 6, 12 , 24 }, we plot the h-hour-ahead prediction issued at every hour of the incident against the corresponding observation, split into the main surge (10–120 h) and decay phase (120–200 h); PM 2.5 remains near baseline for the remainder of the incident window, which is omitted for clarity. The visual comparison mirrors the quantitative results in Table 4. At the 6-hour lead, all models track both the timing and, approximately, the amplitude of the concentration surges. Skill degrades systematically with lead time: at 24 hours the models increasingly under-predict the sharpest peaks and misalign their timing, and inter-model divergence widens. Across all horizons, errors concentrate in the excursions into the Very Unhealthy and Hazardous categories, whereas in the decay phase, once concentrations recede, trained baselines, zero-shot foundation models, and LoRA fine-tuned variants become nearly indistinguishable. 
+
+# 6 Discussion and Conclusion 
+
+We conducted a systematic benchmark of time series foundation models against trained deep learning baselines for wildfire PM 2.5 forecasting under a leave-one-incident-out evaluation span-ning 79 monitoring stations, more than a decade of hourly observations, ten model configurations, three forecast horizons, and five AQI severity thresholds. The central result is consistent across every metric: a compact, fully-trained BiLSTM achieves the lowest aggregate error and the highest exceedance F 1 at hazardous concentration levels, and no foundation model, whether zero-shot or LoRA fine-tuned, matches either recurrent baseline. Zero-shot TSFM s do improve on na¨ ıve persistence in aggregate error, but the margin is modest, and the gap to trained models widens precisely where it matters most: at longer lead times and in the extreme concentration regime above the Very Unhealthy and Hazardous thresholds. Two mechanisms plausibly explain this ordering. First, the trained baselines learn exclusively from wildfire-era PM 2.5 sequences and therefore internalize the distributional signature of fire 17 0
+
+> 200
+> 400
+> 600
+> 800
+> 1000
+> 6h-ahead
+> PM 2.5  ( g m  3)
+
+Main surge Decay phase      
+
+> 0
+> 200
+> 400
+> 600
+> 800
+> 1000
+> 12h-ahead
+> PM 2.5  ( g m  3)
+> 20 40 60 80 100 120
+
+Hours from forecast start         
+
+> 0
+> 200
+> 400
+> 600
+> 800
+> 1000
+> 24h-ahead
+> PM 2.5  ( g m  3)
+> 120 130 140 150 160 170 180 190 200
+
+Hours from forecast start 
+
+PM 2.5 forecasts at 6-, 12-, and 24-hour lead times | incident 1d1bb813-5955-43 | site 3132 | peak 956 g m 3
+
+> Ground truth
+> Naive-Persistence
+> LSTM
+> BiLSTM
+> Transformer
+> TimesFM-ZeroShot
+> Chronos-2
+> Moirai-2
+> Chronos-2-LoRA-FT
+> TimeMoE-ZeroShot
+> TimeMoE-LoRA-FT
+> Unhealthy (55 125)
+> Very Unhealthy (125 225)
+> Hazardous (>225)
+
+Figure 7: PM 2.5 forecasts on a held-out severe incident (incident 1d1bb813, site 3132) at 6-, 12-, and 24-hour lead times (top to bottom), issued at every hour and split into the main surge (10–120 h) and decay phase (120–200 h). Shaded bands mark the Unhealthy, Very Unhealthy, and Hazardous AQI categories; the near-baseline tail beyond 200 h is omitted for clarity. Peak under-prediction and timing misalignment grow with lead time. 18 smoke, including sharp onsets, multi-day persistence, and repeated extreme peaks, whereas 
+
+TSFM pre-training corpora contain vanishingly few series in which values exceed 500 μg/m 3.Faced with such out-of-distribution magnitudes, foundation models regress toward typical scales, which simultaneously inflates their error at the peaks and suppresses the high predictions needed to trigger exceedance alarms. Second, generic pre-training does not automatically confer stability in heavy-tailed regimes: zero-shot Chronos-2 pairs a competitive MAE with an explosive, fold-dependent RMSE and a negative R2, a failure mode that is invisible to absolute-error metrics and is revealed only by squared-error and event-level evaluation. This underscores the value of the loio protocol itself, since chronological splits that leak within-incident information would have painted a materially more optimistic picture of TSFM readiness. Parameter-efficient adaptation narrows but does not close the gap. LoRA fine-tuning on each fold’s training incidents repairs the Chronos-2 tail instability and lifts Time-MoE from the weakest to a mid-ranked foundation model, yet both adapted variants remain inferior to BiLSTM 
+
+on every metric. The pattern of improvement suggests that lightweight adaptation primarily recalibrates the magnitude scale of wildfire PM 2.5 rather than instilling the fine-grained temporal dynamics that govern exceedance timing. For practitioners, the implication is direct: where a monitoring site has accumulated multi-year fire history, a small trained recurrent model remains the strongest and cheapest choice for exceedance-critical forecasting; where no site-specific data exist, a LoRA fine-tuned TSFM offers a credible rapid-deployment path, while unadapted zero-shot use should be avoided when hazardous-level alarms are the objective. More broadly, our results indicate that architectural scale and large-scale pre-training do not substitute for domain-specific training data when the target includes rare, extreme events. Several limitations qualify these conclusions and chart the path forward. All models here receive only the univariate PM 2.5 channel. A natural next step is multivariate forecasting that incorporates meteorological covariates such as wind speed and direction, humidity, and temperature inversions, together with fire-side drivers such as burned area and fire radiative power, which recent covariate-capable TSFM interfaces (e.g., Chronos-2 ) now support natively. Equally promising is the integration of spatial information: our evaluation treats each station independently, whereas smoke transport couples neighboring monitors, and graph-based or spatiotemporal architectures that propagate information across the sensor network, or TSFM saugmented with spatial context, could improve onset prediction at stations downwind of an igniting fire. Our protocol also tests incident-level but not cross-regional generalization; evaluating transfer from California to other fire-prone regions, and to other extreme air-quality events such as dust storms, would test whether the conclusions extend beyond a single airshed. Finally, the adaptation study used a fixed budget of 500 LoRA steps on 200M-parameter checkpoints, leaving systematic data-efficiency curves, larger backbones, and physics-informed fine-tuning that embeds transport or mass-conservation constraints as open directions. As foundation models continue to scale, the leave-one-incident-out benchmark introduced here provides a reusable yardstick for measuring whether that progress translates into reliable warnings for the extreme events that matter most. 
+
+# CRediT authorship contribution statement 
+
+Yongcan Huang: Conceptualization, Formal analysis, Investigation, Writing – original draft. Li Jiang: Formal analysis, Investigation, Writing – original draft. Ze Yu Liu: Conceptualization, Writing – review & editing. 
+
+# Data availability 
+
+The hourly PM 2.5 observations used in this study are publicly available from the California Air Resources Board Air Quality and Meteorological Information System (AQMIS) at https:// 
+
+19 www.arb.ca.gov/aqmis2/aqmis2.php . Wildfire incident metadata, including ignition locations, incident dates, and burned areas, are publicly available from the CAL FIRE incident archive at 
+
+https://www.fire.ca.gov/incidents .
+
+# References 
+
+[1] Shamsu Abdullahi, Kamaluddeen Usman Danyaro, Abubakar Zakari, Izzatdin Abdul Aziz, Noor Amila Wan Abdullah Zawawi, and Shamsuddeen Adamu. Time-series large language models: A systematic review of state-of-the-art. IEEE Access , 13:30235–30261, 2025. doi: 10.1109/ACCESS.2025.3535782. [2] Rosana Aguilera, Thomas Corringham, Alexander Gershunov, and Tarik Benmarhnia. Ensemble-based deep learning for estimating PM2.5 over California with multisource big data including wildfire smoke. Environment International , 155:106721, 2021. doi: 10.1016/j.envint.2021.106721. [3] Ravan Ahmadov, Georg Grell, Eric James, Ivan Csiszar, Marina Tsidulko, Brad Pierce, Stuart McKeen, Stan Benjamin, Curtis Alexander, Gabriel Pereira, et al. Using VIIRS fire radiative power data to simulate biomass burning emissions, plume rise and smoke transport in a real-time air quality modeling system. In 2017 IEEE International Geoscience and Remote Sensing Symposium (IGARSS) , pages 2806–2808. IEEE, 2017. [4] Abdul Fatir Ansari, Lorenzo Stella, Caner Turkmen, Xiyuan Zhang, Pedro Mercado, Huibin Shen, Oleksandr Shchur, Syama Sundar Rangapuram, Sebastian Pineda Arango, Shubham Kapoor, Jasper Zschiegner, Danielle C. Maddix, Michael W. Mahoney, Kari Torkkola, Andrew Gordon Wilson, Michael Bohlke-Schneider, and Yuyang Wang. Chronos: Learning the language of time series. Transactions on Machine Learning Research , 2024. arXiv:2403.07815. [5] Abdul Fatir Ansari, Oleksandr Shchur, Jaris K¨ uken, Andreas Auer, Boran Han, Pedro Mer-cado, Syama Sundar Rangapuram, Huibin Shen, Lorenzo Stella, Xiyuan Zhang, Mononito Goswami, Shubham Kapoor, et al. Chronos-2: From univariate to universal forecasting. 
+
+arXiv preprint arXiv:2510.15821 , 2025. [6] Rohan T. Bhowmik, Youn Soo Jung, Juan A. Aguilera, Mary Prunicki, and Kari Nadeau. A multi-modal wildfire prediction and early-warning system based on a novel machine learning framework. Journal of Environmental Management , 341:117908, 2023. [7] Adam Booth, Philip James, Stephen McGough, and Ellis Solaiman. Cross-regional deep learning for air quality forecasting: A comparative study of co, no2, o3, pm2. 5, and pm10. 
+
+Forecasting , 7(4):66, 2025. [8] Marshall Burke, Anne Driscoll, Sam Heft-Neal, et al. The changing risk and burden of wildfire in the United States. Proceedings of the National Academy of Sciences , 118(2), 2021. [9] Daewon Byun and Kenneth L. Schere. Review of the governing equations, computational algorithms, and other components of the models-3 community multiscale air quality (CMAQ) modeling system. Applied Mechanics Reviews , 59(2):51–77, 2006. [10] Ben Cohen, Emaad Khwaja, Youssef Doubli, Salahidine Lemaachi, Chris Lettieri, Charles Masson, Hugo Miccinilli, Elise Ram´ e, Qiqi Ren, Afshin Rostamizadeh, et al. This time is different: An observability perspective on time series foundation models. Advances in neural information processing systems , 38:50907–50951, 2026. 20 [11] Abhimanyu Das, Weihao Kong, Rajat Sen, and Yichen Zhou. A decoder-only foundation model for time-series forecasting. In Proceedings of the 41st International Conference on Machine Learning (ICML) , volume 235 of Proceedings of Machine Learning Research , pages 10148–10167. PMLR, 2024. [12] William Fedus, Barret Zoph, and Noam Shazeer. Switch transformers: Scaling to trillion parameter models with simple and efficient sparsity. Journal of Machine Learning Research ,23(120):1–39, 2022. [13] Brian S. Freeman, Graham Taylor, Bahram Gharabaghi, and Jesse Th´ e. Forecasting air quality time series using deep learning. Journal of the Air & Waste Management Association ,68(8):866–886, 2018. [14] Mononito Goswami, Konrad Szafer, Arjun Choudhry, Yifu Cai, Shuo Li, and Artur Dubrawski. MOMENT: A family of open time-series foundation models. In Proceed-ings of the 41st International Conference on Machine Learning (ICML) , 2024. [15] Georg A. Grell, Steven E. Peckham, Rainer Schmitz, et al. Fully coupled online chemistry within the WRF model. Atmospheric Environment , 39(37):6957–6975, 2005. [16] Sepp Hochreiter and J¨ urgen Schmidhuber. Long short-term memory. Neural Computation ,9(8):1735–1780, 1997. [17] Edward J. Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and Weizhu Chen. LoRA: Low-rank adaptation of large language models. In 
+
+International Conference on Learning Representations (ICLR) , 2022. [18] Daniel A. Jaffe, Susan M. O’Neill, Narasimhan K. Larkin, Amara L. Holder, David L. Peterson, Jessica E. Halofsky, and Ana G. Rappold. Wildfire and prescribed burning impacts on air quality in the United States. Journal of the Air & Waste Management Association , 70(6):583–615, 2020. [19] A. K. Kochanski, M. A. Jenkins, J. Mandel, J. D. Beezley, and S. K. Krueger. Toward an integrated system for fire, smoke and air quality simulations. Geoscientific Model Development , 6(4):1071–1084, 2013. doi: 10.5194/gmd-6-1071-2013. [20] Krishan Kumar and B. P. Pande. Air pollution prediction with machine learning: A case study of Indian cities. International Journal of Environmental Science and Technology , 20: 5333–5348, 2023. doi: 10.1007/s13762-022-04241-5. [21] Remi Lam, Alvaro Sanchez-Gonzalez, Matthew Willson, Peter Wirnsberger, Meire Fortunato, Ferran Alet, Suman Ravuri, Timo Ewalds, Zach Eaton-Rosen, Weihua Hu, et al. Learning skillful medium-range global weather forecasting. Science , 382(6677):1473–1479, 2023. doi: 10.1126/science.adi2336. [22] Eder Arley Leon-Gomez, V´ ıctor Elvira, Jorge Iv´ an Montes-Monsalve, Andr´ es Marino ´Alvarez-Meza, Alvaro Orozco-Gutierrez, and German Castellanos-Dominguez. Multi-scale spectral recurrent network based on random fourier features for wind speed forecasting. 
+
+Technologies , 14(4):238, 2026. [23] Xiang Li, Ling Peng, Xiaojing Yao, et al. Long short-term memory neural network for air pollutant concentration predictions: Method development and evaluation. Environmental Pollution , 231:997–1004, 2017. 21 [24] Y. Li, D. Q. Tong, F. Ngan, M. D. Cohen, A. F. Stein, S. Kondragunta, X. Zhang, C. Ichoku, E. J. Hyer, and R. A. Kahn. Ensemble PM2.5 forecasting during the 2018 Camp Fire event using the HYSPLIT transport and dispersion model. Journal of Geophysical Research: Atmospheres , 125(15):e2020JD032768, 2020. [25] Yuxuan Liang, Haomin Wen, Yuqi Nie, Yushan Jiang, Ming Jin, Dongjin Song, Shirui Pan, and Qingsong Wen. Foundation models for time series analysis: A tutorial and survey. In Proceedings of the 30th ACM SIGKDD Conference on Knowledge Discovery and Data Mining (KDD) , pages 6555–6565, 2024. doi: 10.1145/3637528.3671451. [26] Kyleen Liao, Jatan Buch, Kara D. Lamb, and Pierre Gentine. Simulating the air quality impact of prescribed fires using graph neural network-based PM2.5 forecasts. Environmental Data Science , 4:e10, 2025. doi: 10.1017/eds.2025.4. [27] Chenghao Liu, Taha Aksu, Juncheng Liu, Xu Liu, Hanshu Yan, Quang Pham, Silvio Savarese, Doyen Sahoo, Caiming Xiong, and Junnan Li. Moirai 2.0: When less is more for time series forecasting. arXiv preprint arXiv:2511.11698 , 2025. [28] Yong Liu, Haoran Zhang, Chenyu Li, Xiangdong Huang, Jianmin Wang, and Mingsheng Long. Timer: Generative pre-trained transformers are large time series models. In Proceed-ings of the 41st International Conference on Machine Learning (ICML) , 2024. [29] Yong Liu, Guo Qin, Zhiyuan Shi, Zhi Chen, Caiyin Yang, Xiangdong Huang, Jianmin Wang, and Mingsheng Long. Sundial: A family of highly capable time series foundation models, 2025. [30] Z. Liu, Z. Fang, and Y. Hu. A deep learning-based hybrid method for PM2.5 prediction in cen-tral and western China. Scientific Reports , 15:10080, 2025. doi: 10.1038/s41598-025-95460-6. [31] Zhen Liu, Boyuan Li, Hao Huang, Yanru Sun, Yucheng Wang, Min Wu, and Qianli Ma. From pre-training to post-training: A survey on time series foundation models. TechRxiv ,2026. doi: 10.36227/techrxiv.176978429.90235801. [32] Qianli Ma, Zhen Liu, Zhenjing Zheng, Ziyang Huang, Siying Zhu, Zhongzhong Yu, and James T. Kwok. A survey on time-series pre-trained models. IEEE Transactions on Knowledge and Data Engineering , 36(12):7536–7555, 2024. doi: 10.1109/TKDE.2024. 3475809. [33] Kashif Rasul, Arjun Ashok, Andrew Robert Williams, Hena Ghonia, Rishika Bhagwatkar, Arian Khorasani, Mohammad Javad Darvishi Bayazi, George Adamopoulos, Roland Riachi, Nadhir Hassen, Marin Biloˇ s, Sahil Garg, Anderson Schneider, Nicolas Chapados, Alexandre Drouin, Valentina Zantedeschi, Yuriy Nevmyvaka, and Irina Rish. Lag-Llama: Towards foundation models for probabilistic time series forecasting, 2023. [34] Colleen E. Reid, Michael Brauer, Fay H. Johnston, et al. Critical review of health impacts of wildfire smoke exposure. Environmental Health Perspectives , 124(9):1334–1343, 2016. [35] Mar´ ıa Inmaculada Rodr´ ıguez-Garc´ ıa, Mar´ ıa Gema Carrasco-Garc´ ıa, Paloma Roc´ ıo Cu-billas Fern´ andez, Maria da Concei¸ c˜ ao Rodrigues Ribeiro, Pedro J. S. Cardoso, and Ig-nacio J. Turias. Air pollution forecasting using autoencoders: A classification-based prediction of NO2, PM10, and SO2 concentrations. Nitrogen , 6(4):101, 2025. doi: 10.3390/nitrogen6040101. [36] M. K. Saravana, M. S. Roopa, J. S. Arunalatha, and K. R. Venugopal. Transform-ers for multivariate time series forecasting: Comprehensive analysis, challenges, re-search opportunities and future prospects. IEEE Access , 14:11424–11457, 2026. doi: 10.1109/ACCESS.2026.3654408. 22 [37] Xiaoming Shi, Shiyu Wang, Yuqi Nie, Dianqi Li, Zhou Ye, Qingsong Wen, and Ming Jin. Time-MoE: Billion-scale time series foundation models with mixture of experts. In The Thirteenth International Conference on Learning Representations (ICLR) , 2025. [38] A. F. Stein, R. R. Draxler, G. D. Rolph, B. J. B. Stunder, M. D. Cohen, and F. Ngan. NOAA’s HYSPLIT atmospheric transport and dispersion modeling system. Bulletin of the American Meteorological Society , 96(12):2059–2077, 2015. doi: 10.1175/BAMS-D-14-00110.1. [39] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. Gomez, Lukasz Kaiser, and Illia Polosukhin. Attention is all you need. In Advances in Neural Information Processing Systems (NeurIPS) , volume 30, 2017. [40] Chengsen Wang, Qi Qi, Jingyu Wang, Haifeng Sun, Zirui Zhuang, Jinming Wu, Lei Zhang, and Jianxin Liao. ChatTime: A unified multimodal time series foundation model bridging numerical and textual data. In Proceedings of the AAAI Conference on Artificial Intelligence ,volume 39, pages 12694–12702, 2025. [41] Gerald Woo, Chenghao Liu, Akshat Kumar, Caiming Xiong, Silvio Savarese, and Doyen Sahoo. Unified training of universal time series forecasting transformers. In Proceedings of the 41st International Conference on Machine Learning (ICML) , volume 235 of Proceedings of Machine Learning Research . PMLR, 2024. Oral presentation. [42] World Health Organization. WHO Global Air Quality Guidelines: Particulate Matter (PM2.5 and PM10), Ozone, Nitrogen Dioxide, Sulfur Dioxide and Carbon Monoxide . World Health Organization, Geneva, 2021. [43] Yue Wu et al. Spatial deep learning for PM2.5 estimation during extreme pollution events: Quantifying uncertainty and training with sparse datasets. Environmental Research: Atmospheres , 2026. doi: 10.1088/3049-4753/ae3c12. [44] X. Ye, P. Arab, R. Ahmadov, E. James, G. A. Grell, B. Pierce, et al. Evaluation and intercomparison of wildfire smoke forecasts from multiple modeling systems for the 2019 Williams Flats fire. Atmospheric Chemistry and Physics , 21(18):14427–14469, 2021. doi: 10.5194/acp-21-14427-2021. [45] Manzhu Yu, Arif Masrur, and Christopher Blaszczak-Boxe. Predicting hourly PM2.5 concentrations in wildfire-prone areas using a spatiotemporal transformer model. Science of The Total Environment , 860:160446, 2023. [46] Ling Zeng, Runan Dong, Meng Yuan, Linhai Jing, and Shoutao Jiao. Evaluating deep learning time series models for PM2.5 forecasting across diverse horizons. iScience , 29(2): 114770, 2026. doi: 10.1016/j.isci.2026.114770. [47] Fengfan Zhang, Jiabei Hu, and Ming Zeng. A spatiotemporal multimodal framework for air pollution prediction based on bayesian optimization: Evidence from Sichuan, China. 
+
+Atmosphere , 16(8):958, 2025. doi: 10.3390/atmos16080958. [48] Yang Zhang, Marc Bocquet, Vivien Mallet, et al. Real-time air quality forecasting, part I: History, techniques, and current status. Atmospheric Environment , 60:632–655, 2012. 23
