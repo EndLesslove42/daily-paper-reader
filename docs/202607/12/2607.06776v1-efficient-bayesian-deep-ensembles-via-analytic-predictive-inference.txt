@@ -1,0 +1,873 @@
+Title: Efficient Bayesian Deep Ensembles via Analytic Predictive Inference
+
+URL Source: https://arxiv.org/pdf/2607.06776v1
+
+Published Time: Thu, 09 Jul 2026 00:10:40 GMT
+
+Number of Pages: 19
+
+Markdown Content:
+# Efficient Bayesian Deep Ensembles via Analytic Predictive Inference 
+
+Sina Aghaee Dabaghan Fard 1 Marie Maros 1 Jaesung Lee 1∗
+
+> 1
+
+Wm Michael Barnes ’64 Department of Industrial and Systems Engineering Texas A&M University College Station, TX, USA 
+
+## Abstract 
+
+We introduce an efficient Bayesian deep ensemble method for predictive regression designed to enhance interpretability while maintaining competitive predictive per-formance and computational efficiency. Our method combines the statistical rigor of Bayesian inference with the scalability of deep ensembles, providing calibrated uncertainty estimates that enable its use not only for standalone prediction but also as a component within broader learning systems. To achieve these goals, our work relies on three key design components: (i) low-dimensional ensemble representation: predictions are expressed as a combination of a small number of trained neural predictors, enabling scalable inference whose cost depends on ensemble size rather than dataset size; (ii) closed-form Bayesian aggregation: 
+
+ensemble predictions are combined using Bayesian linear regression, yielding interpretable posterior weights and calibrated uncertainty without approximate inference; and (iii) Independent ensemble training: multiple neural networks are trained separately, producing diverse predictive representations that improve robustness and uncertainty calibration. Empirical results on standard regression benchmarks demonstrate that the proposed approach achieves competitive predic-tive performance while maintaining reliable uncertainty estimates across settings. β1        
+
+> β2
+> β3
+> β4
+> β5
+> 𝜙 1(x𝑖 )
+> 𝜙 2(x𝒊 )
+> 𝜙 3(x𝑖 )
+> 𝜙 4(x𝒊 )
+> 𝜙 5(x𝒊 )
+> Feature space representation
+> by ensemble members
+> 𝝓 x𝒊 ;𝜽
+> 𝜙 1(x𝑖 )
+> 𝜙 2(x𝒊 )
+> 𝜙 3(x𝑖 )
+> 𝜙 4(x𝒊 )
+> 𝜙 5(x𝒊 )
+> Bayesian linear
+> regression
+> 𝑝 𝒚 𝚽 )
+> Posterior predictive
+> distribution
+> 𝒚 =𝚽 𝜷 +𝜀
+
+Figure 1: Proposed framework. An ensemble of neural networks induces a feature space representa-tion {ϕh(xi; θh)}Hh=1 . A Bayesian linear model is placed on top of these ensemble-induced features, and the linear weights β and noise variance σ2 
+
+> ε
+
+are integrated out with respect to their posteriors, yielding a closed-form posterior predictive distribution over targets y.
+
+## 1 Introduction 
+
+We consider predictive regression models in settings where reliable uncertainty estimates are required alongside (i) computational efficiency, (ii) strong predictive performance, and (iii) interpretability. 
+
+> ∗
+
+Corresponding author: j.lee@tamu.edu 
+
+Preprint. arXiv:2607.06776v1 [cs.LG] 7 Jul 2026 This requirement is particularly important in safety-critical and risk-sensitive applications [Filos et al., 2019], where deep neural networks (NNs) are known to produce poorly calibrated predictions that can be overconfident [Guo et al., 2017, Lakshminarayanan et al., 2017, Watson et al., 2021], especially under distribution shift. Moreover, regression models with quantified uncertainty serve as core components in broader learning systems, including reinforcement learning Sutton et al. [1998], Arulkumaran et al. [2017], Levine et al. [2020], Deisenroth and Rasmussen [2011] and physics-informed neural networks Raissi et al. [2019]. Goals (i) –(iii) are inherently in tension. In what follows, we examine several widely used paradigms that address these requirements to varying degrees while exposing important trade-offs. In terms of predictive performance and principled uncertainty estimation, Gaussian Processes (GPs) provide a canonical Bayesian framework for nonlinear regression with exact posterior inference [Williams and Rasmussen, 2006]. However, their cubic computational complexity and sensitivity to kernel choice fundamentally limit scalability, particularly in high-dimensional settings where distance-based kernels suffer from the curse of dimensionality. Deep Kernel Learning (DKL) partially mitigates this limitation by learning data-dependent covariance functions using neural networks, but exact inference remains computationally intensive, and scalable implementations typically rely on approximations [Wilson et al., 2016]. Fully Bayesian neural networks (BNNs) represent a different point in the performance–computation trade-off by placing probability distributions over network parameters [Neal, 2012, Wilson and Izmailov, 2020]. While they provide a flexible probabilistic framework for modeling uncertainty, exact inference is generally intractable, and practical implementations rely on approximate inference methods such as mean-field variational inference [Graves, 2011]. These approximations can impose restrictive assumptions on the posterior distribution, which may lead to miscalibrated uncertainty estimates [Foong et al., 2020, Wenzel et al., 2020]. Bayesian last-layer (BLL) methods address the computational limitations of fully Bayesian neural networks by restricting Bayesian inference to the final linear layer of a neural network. This design en-ables efficient inference while retaining a probabilistic interpretation of predictions [Lázaro-Gredilla and Figueiras-Vidal, 2010]. However, because uncertainty is placed only on a single learned repre-sentation, the representation itself is treated as fixed. As a result, uncertainty estimates can become overconfident when the learned representation fails to capture variability in the data, particularly outside the training distribution [Watson et al., 2021]. Extensions such as functional regularization have been proposed to mitigate this limitation, but they introduce additional computational overhead without fundamentally addressing the reliance on a single representation [Watson et al., 2021]. Deep ensembles (DE) provide a simple and scalable approach to uncertainty quantification by training multiple neural networks independently and uniformly averaging their predictive distributions [Lakshminarayanan et al., 2017]. These methods typically yield strong empirical performance while keeping computational costs moderate. However, they lack an explicit probabilistic interpretation, as uncertainty is quantified implicitly through model diversity rather than through a well-defined probability measure over functions. Moreover, uniform averaging is non-diagnostic: it does not provide probabilistic evidence for which ensemble members are supported by the data or how individual members contribute to predictions. As a result, performance can degrade when member quality varies, increasing the risk of overconfident predictions. Taken together, these approaches illustrate a recurring pattern: methods that provide principled uncer-tainty estimation often incur substantial computational cost or restrict model flexibility, while scalable approaches typically rely on heuristic aggregation rules that offer limited interpretability. Designing models that simultaneously achieve computational efficiency, strong predictive performance, and interpretable uncertainty estimation, therefore, remains an open challenge. 
+
+1.1 Main contributions 
+
+In this work, we propose Bayesian Deep Kernel Networks , a regression framework that combines independently trained neural networks with closed-form Bayesian aggregation. The method trains H
+
+neural networks on a dataset D = {(xi, y i)}Ni=1 , producing multiple learned feature representations that serve as basis functions. A Bayesian linear regression layer is then applied to these ensemble outputs, yielding an analytic posterior over aggregation weights and a closed-form posterior predictive 2distribution (Figure 1). This design enables principled uncertainty estimation while retaining the computational efficiency and predictive performance of standard deep ensembles. The framework leverages the scalability of deep ensembles while replacing uniform averaging with Bayesian aggregation. By performing exact inference at the aggregation stage, the method produces interpretable posterior weights and calibrated uncertainty estimates without relying on approximate inference. Taken together, this design addresses the competing requirements (i) –(iii) . We summarize the resulting contributions below. 
+
+Scalable Bayesian aggregation with learned neural predictors and finite-rank GP interpretation. 
+
+We aggregate independently trained neural networks using closed-form Bayesian linear regression, yielding an analytic posterior predictive distribution with computational cost comparable to standard deep ensembles. The resulting model can be interpreted as a finite-rank Gaussian Process whose basis functions are learned directly through ensemble training, enabling principled Bayesian aggregation without kernel design or cubic-cost GP inference. 
+
+Separation of representation learning and probabilistic inference. Our framework maintains the standard deep-ensemble training pipeline and performs Bayesian inference only at the aggre-gation stage. Unlike Bayesian last-layer (BLL) methods that place uncertainty on a single latent representation, our method defines uncertainty directly over ensemble-member contributions. This separation maintains implementation simplicity while providing interpretable probabilistic weights for individual predictors. 
+
+Posterior-driven aggregation robust to heterogeneous ensemble member quality. Instead of uniform averaging, the aggregation weights are inferred from the posterior distribution. Ensemble members weakly supported by the data are automatically downweighted, improving robustness when model quality varies due to optimization variability or training conditions. This robustness is achieved without manual model selection or additional tuning heuristics. To evaluate the practical implications of these design choices and their impact on computational efficiency, predictive performance, and interpretability, we conduct experiments on standard UCI regression benchmarks across a range of architectural and optimization settings. 
+
+## 2 Bayesian deep kernel networks 
+
+In this section, we introduce our framework while highlighting each improvement in comparison to existing methods. We start by introducing BLL and proceed to build upon it. 
+
+2.1 Learning the feature space representation by ensemble members 
+
+Let D = {(xi, y i)}Ni=1 denote the dataset, where xi ∈ RP are input vectors and yi ∈ R are scalar responses. We consider scalar responses throughout this work for simplicity and without loss of generality. Denote by ϕ(·; θ) : RP → RH a feature map with parameter θ. In BLLs the latent function f is modeled as 
+
+yi = f (xi; θ) = ϕ(xi; θ)⊤β + εi, εi ∼ N (0 , σ 2 
+
+> ε
+
+) (1) where β ∼ N (μβ , Σβ ) denotes the feature weights. Stacking the responses in the vector RN yields the compact representation 
+
+y = Φ(x; θ)β + ε, (2) where Φ(x; θ) = [ ϕ(x1; θ), . . . , ϕ(xN ; θ)]⊤ ∈ RN ×H . Then, training is performed by finding 
+
+θ, σ 2 
+
+> ε
+
+, and Σβ which requires maximizing an exact or approximate marginal likelihood and β is obtained through its posterior p(β | D , θ ) in closed form Watson et al. [2021]. Observe that the feature map ϕ(x; θ) is learned once, and then treated as fixed during Bayesian inference. This implies that the variability employed to capture uncertainty stems only from the posterior over the weights 
+
+β with the representation itself remaining deterministic. Therefore, uncertainty is restricted only to linear combinations within a single learned feature space. In order to improve uncertainty behavior in out-of-distribution regions, we combine ideas from DE-style representation with a BLL to obtain better calibrated uncertainty. Unlike standard BLL, 3which trains a single neural network to construct Φ. Thus, we define a collection of feature maps 
+
+{ϕh(·; θh)}Hh=1 , where each element is an individual map parameterized by its own θh, yielding 
+
+Φ(x; θ) = [ ϕ1(x1; θ1), . . . , ϕ h(xh; θh)] ⊤
+
+in (2) . Each feature map of the H feature maps is implemented by an independently trained neural network. Training is performed by maximizing the Gaussian likelihood of yi ∼N (ϕh(xi; θh), σ 2
+
+> h
+
+(xi; θh)) where both the mean function ϕh(·) and the variance function σ2
+
+> h
+
+(·) are outputs of the network. Note that σ2
+
+> h
+
+(·) is used only during training to induce a heteroscedastic objective with the goal of preventing all networks from fitting the data with the same smoothness profile. It reweights the contribution of each training point to the loss: points with larger predicted variance incur a smaller penalty, while those with smaller variance are fitted more tightly. This sample-dependent reweighting leads to heterogeneous learned feature maps across independently trained ensemble members. The independent training yields the following benefits for our model. First, feature maps can be trained fully in parallel, allowing the ensemble size to scale without increasing training time beyond that of a single neural network. Second, each feature map represents a complete predictive model of the data, rather than a latent basis. In this way, the collection of independently learned feature maps captures multiple distinct functional representations of the data, which is particularly relevant when data are scarce compared to model size. 
+
+2.2 Bayesian inference in the induced function space 
+
+Once Φ has been obtained, the posterior distribution over β ∈ RH is inferred via Bayesian linear regression in the function space (2). We place a conjugate prior over the linear coefficients β and the observation-noise variance σ2 
+
+> ε
+
+. We adopt Jeffreys’ prior for the noise variance to improve generalizability and uncertainty quantification, 
+
+p(σ2 
+
+> ε
+
+) ∝ 1
+
+σ2
+
+> ε
+
+, (3) which is invariant under reparameterization and introduces no additional scale hyperparameters (See Appendix A.1 for derivation). Conditioned on σ2 
+
+> ε
+
+, the regression coefficients are assigned a Gaussian prior, 
+
+β | σ2 
+
+> ε
+
+∼ N  μ0, σ 2 
+
+> ε
+
+Λ−10
+
+, (4) where Λ0 ∈ RH×H is positive definite. This prior specification can be viewed as a special case of the Normal-Inverse-Gamma prior, where 
+
+σ2 
+
+> ε
+
+∼ Inv -Gamma( a0, b 0), obtained in the limit a0 → 0 and b0 → 0. Jeffreys’ prior is a common choice when no prior information on variance is provided [Jeffreys, 1946, Gelman et al., 1995], while maintaining analytical tractability and eliminating the need to estimate additional hyperparameters for the variance. 
+
+Posterior updates. Given the design matrix Φ and targets y, conjugacy is maintained and the posterior factorizes as p(β, σ 2 
+
+> ε
+
+| y, Φ) = p(β | σ2 
+
+> ε
+
+, y, Φ) p(σ2 
+
+> ε
+
+| y, Φ). The conditional posterior over coefficients is Gaussian, β | σ2 
+
+> ε
+
+, y, Φ ∼ N  μn, σ 2 
+
+> ε
+
+Λ−1
+
+> n
+
+, with μn = Λ−1
+
+> n
+
+ Λ0μ0 + Φ⊤y and 
+
+Λn = Λ0 + Φ⊤Φ. Under the Jeffreys prior on σ2 
+
+> ε
+
+, the marginal posterior over σ2 
+
+> ε
+
+is σ2 
+
+> ε
+
+| y, Φ ∼
+
+Inv -Gamma( an, b n), where an = N 
+
+> 2
+
+and bn = 12
+
+ y⊤y + μ⊤ 
+
+> 0
+
+Λ0μ0 − μ⊤ 
+
+> n
+
+Λnμn
+
+ .
+
+Posterior predictive. For a new input with feature vector ϕ∗ = ϕ(x⋆), the predictive distribution integrates out both β and σ2 
+
+> ε
+
+, yielding a Student-t distribution, 
+
+p(y∗ | ϕ∗, y, Φ) = St 
+
+
+
+y∗; ν = 2 an, m = ϕ⊤∗ μn, s 2 = bn
+
+an
+
+ 1 + ϕ⊤∗ Λ−1 
+
+> n
+
+ϕ∗
+
+
+
+. (5) In (5) , μ0 and Λ0 denote hyperparameters that must be specified. In the Bayesian linear regression and BLL literature, these are commonly set to μ0 = 0 and Λ0 = σ2 
+
+> β
+
+I, where σ2 
+
+> β
+
+is estimated via empirical Bayes, which we also adopt [Watson et al., 2021]. Specifically, σ2 
+
+> β
+
+is obtained by maximizing the closed-form marginal likelihood. See Appendix A.3 and Appendix A.4 for more details. Algorithm 1 in Appendix A.4 outlines the main steps of BDKN. 42.3 Connection to Bayesian model 
+
+Our method has a direct interpretation in terms of Gaussian Processes. Since f (x) is an affine transformation of a Gaussian random vector, it follows that, conditional on σ2 
+
+> ε
+
+, f (x) is a Gaussian Process, 
+
+f (·) | σ2 
+
+> ε
+
+∼ GP  m(·), k (·, · | σ2 
+
+> ε
+
+).
+
+where the mean function is 
+
+m(x) = E[f (x)] = ϕ(x)⊤μ0,
+
+and the covariance function follows as 
+
+k(x, x′ | σ2 
+
+> ε
+
+) = Cov  f (x), f (x′) | σ2
+
+> ε
+
+ = σ2 
+
+> ε
+
+ϕ(x)⊤Λ−10 ϕ(x′).
+
+With Λ0 = σ−2 
+
+> β
+
+I, the kernel reduces to k(x, x′ | σ2 
+
+> ε
+
+) = σ2 
+
+> ε
+
+σ2
+
+> β
+
+PHh=1 ϕh(x)ϕh(x′), which corresponds to an isotropic Gaussian prior over the coefficients. See Appendix A.2 and Appendix A.3 for more details and derivations. Conditioned on the learned feature maps {ϕh}Hh=1 , the hypothesis space of the induced Gaussian process is the finite-dimensional linear span HH = span {ϕ1, . . . , ϕ H }.
+
+Marginalizing the noise variance σ2 
+
+> ε
+
+under the Jeffreys prior yields a Student-t process [Shah et al., 2014] with the same finite-dimensional support HH , which is consistent with the closed-form Student-t posterior predictive distribution presented in (5). 
+
+2.4 Computational complexity 
+
+Computationally, BDKN has nearly the same practical cost as a standard deep ensemble. A DE trains H independent neural networks and aggregates their predictions by uniform averaging, so its dominant cost is the cost of training the H ensemble members. BDKN uses the same ensemble training stage, but replaces uniform averaging with a Bayesian aggregation layer over the ensemble-member outputs. Given the ensemble-induced design matrix Φ ∈ RN ×H , this aggregation requires forming an H × H matrix and solving a small H-dimensional Bayesian linear regression problem, giving an additional cost of O(N H 2 + H3) time and O(H2) memory. The O(N H 2) term comes from forming Φ⊤Φ, which sums pairwise interactions between ensemble members over all N
+
+training points, while the O(H3) term comes from solving the resulting H × H linear system. Since H is small and fixed in our proposed method, this additional cost is negligible relative to neural network training and remains linear in N .
+
+## 3 Experiments 
+
+We evaluate the performance of the proposed model, namely BDKN, on a set of standard UCI regression benchmarks [Kelly et al.] and compare it against a diverse set of baseline methods, including Gaussian Processes (GP) [Williams and Rasmussen, 2006], Deep Ensembles (DE) [Laksh-minarayanan et al., 2017], Deep Kernel Learning (DKL) [Wilson et al., 2016], Bayesian Last-Layer (BLL), Latent Derivative Bayesian Last-Layer (LD-BLL), and Mean-Field Variational Inference Bayesian Neural Networks (MFVI-BNN) [Watson et al., 2021], and Variational Bayesian Last-Layer (VBLL) [Harrison et al., 2024]. The UCI datasets are widely used benchmarks [Lakshminarayanan et al., 2017, Watson et al., 2021, Harrison et al., 2024] for probabilistic nonlinear regression, covering a range of regression problems with varying input dimensionalities and sample sizes. We report the root mean squared error (RMSE) to evaluate predictive accuracy and the neg-ative log-likelihood (NLL) to assess uncertainty calibration. RMSE is defined as RMSE =q 1
+
+> N
+
+PNi=1 (yi − ˆyi)2, where ˆyi = E[yi | xi] denotes the predictive mean. NLL is computed as NLL = − 1
+
+> N
+
+PNi=1 log p(yi | xi), where p(yi | xi) denotes the predictive distribution of the model. Experiments are conducted following Lakshminarayanan et al. [2017], using 20 repeated random training/test splits. For each split, 90% of the data are used for training, and the remaining 10% for testing. We report the mean and standard deviation of the evaluation metrics over the 20 splits; for the Protein dataset, which is substantially larger, 5 repeated splits are used, and for the Song dataset, a single split is used. More details about the datasets are provided in Appendix A.5.1. All methods are evaluated on the benchmark under two experimental settings: an aggressive optimization 5Table 1: Experimental setting 1 (high learning rate): performance on standard regression benchmarks. (a) RMSE and (b) NLL reported as mean ± standard deviation across splits. Lower values are better for both metrics. Bold indicates the best performance, and underlined indicates the second-best performance. GP could not be evaluated on the Protein, Sarcos, and Song datasets, and LDBLL on the Song dataset, due to their high memory requirements, which exceeded the available GPU memory. 
+
+(a) RMSE (mean ± std).                                                                                                                                                                                                                                                                         
+
+> Dataset BDKN DE LDBLL GP DKL BLL MFVI VBLL Boston 3.03 ±0.78 3.60 ±1.76 7.80 ±3.90 2.83 ±0.76 3.45 ±0.81 4.04 ±1.67 5.45 ±0.99 3.68 ±1.05 Concrete 5.90 ±0.48 7.18 ±3.46 13.71 ±6.76 5.64 ±0.66 7.18 ±0.67 8.84 ±3.20 12.97 ±2.41 6.62 ±1.19 Energy 1.38 ±0.33 2.54 ±1.11 6.67 ±6.10 0.65 ±0.06 2.65 ±0.42 5.77 ±4.82 5.64 ±1.78 1.64 ±0.37 Kin8nm 0.15 ±0.04 0.22 ±0.04 0.72 ±1.01 0.07 ±0.00 0.10 ±0.02 0.10 ±0.00 0.23 ±0.03 0.19 ±0.03 Naval 0.01 ±0.00 3.17 ±7.88 0.03 ±0.06 0.00 ±0.00 0.01 ±0.00 0.00 ±0.01 0.01 ±0.00 0.33 ±0.33 Power 4.79 ±1.02 3424.99 ±6918.44 14.93 ±10.67 3.95 ±0.16 4.44 ±0.19 6.33 ±3.26 9.46 ±1.86 8.38 ±3.16 Protein 4.94 ±0.09 5.31 ±0.25 12.85 ±7.03 N/A 5.03 ±0.10 4.42 ±0.16 5.58 ±0.16 4.94 ±0.09 Sarcos 3.94 ±0.18 53.62 ±157.00 12.11 ±1.36 N/A 5.61 ±1.06 3.68 ±0.06 15.44 ±3.32 5.47 ±1.24 Song 10.85 ±0.00 10.86 ±0.00 N/A N/A 8.98 ±0.00 8.91 ±0.00 11.60 ±0.00 10.85 ±0.00 Wine 0.64 ±0.04 1.97 ±3.03 0.78 ±0.09 0.56 ±0.04 0.65 ±0.04 0.80 ±0.05 0.73 ±0.06 0.71 ±0.04 Yacht 0.82 ±0.38 1.68 ±1.06 4.16 ±4.20 1.88 ±0.43 1.22 ±0.64 4.72 ±1.06 9.42 ±2.99 1.70 ±0.57
+
+(b) NLL (mean ± std).                                                                                                                                                                                                                                                                         
+
+> Dataset BDKN DE LDBLL GP DKL BLL MFVI VBLL Boston 2.61 ±0.42 3.03 ±0.79 4.73 ±0.31 2.42 ±0.28 4.45 ±1.60 3.32 ±0.14 3.24 ±0.16 2.83 ±0.49 Concrete 3.22 ±0.10 3.67 ±0.67 4.81 ±0.25 3.53 ±0.04 13.16 ±2.07 3.94 ±0.15 4.03 ±0.20 3.37 ±0.28 Energy 1.73 ±0.24 2.79 ±0.60 3.39 ±1.31 1.40 ±0.02 3.42 ±0.66 3.44 ±0.23 3.27 ±0.20 1.96 ±0.30 Kin8nm -0.48 ±0.22 -0.02 ±0.30 1.29 ±1.12 -0.68 ±0.00 393.44 ±953.78 -0.34 ±0.00 0.01 ±0.15 -0.21 ±0.24 Naval -2.80 ±0.01 -0.07 ±2.83 -2.05 ±0.88 -5.11 ±0.01 -1.14 ±0.00 -3.20 ±0.22 -3.03 ±0.18 -0.51 ±1.50 Power 2.97 ±0.17 6.89 ±2.06 5.46 ±2.89 2.83 ±0.03 6.91 ±0.62 3.85 ±0.11 3.88 ±0.22 3.97 ±1.57 Protein 3.00 ±0.02 3.12 ±0.11 4.21 ±0.08 N/A 6.11 ±0.15 2.99 ±0.02 3.17 ±0.04 3.03 ±0.03 Sarcos 2.80 ±0.04 4.02 ±1.52 5.23 ±0.44 N/A 9.71 ±2.74 3.95 ±0.00 4.16 ±0.18 3.11 ±0.23 Song 3.49 ±0.00 3.81 ±0.00 N/A N/A 3.61 ±0.00 3.65 ±0.00 4.05 ±0.00 3.81 ±0.00 Wine 0.98 ±0.06 1.59 ±1.08 2.07 ±0.23 0.86 ±0.05 0.98 ±0.07 1.19 ±0.06 1.12 ±0.10 1.08 ±0.06 Yacht 1.23 ±0.55 2.10 ±0.73 2.79 ±0.47 2.07 ±0.08 1.74 ±0.71 3.77 ±0.09 3.75 ±0.25 1.89 ±0.45
+
+configuration and a more conservative configuration. In both settings, all neural-network-based approaches use two fully connected hidden layers with 50 neurons each and are trained with a batch size of 32. The only exception is the low-learning-rate setting on Sarcos, where BLL, LDBLL, and MFVI-BNN use three hidden layers with widths 50 , 200 , and 200 , respectively. Our proposed model uses H = 5 feature maps (ensemble members). Additional details for each experimental setting and method, including activation functions, are provided in Appendix A.5.2. In the first setting, we use a learning rate of 0.1 and train all models for 40 epochs, following Lakshminarayanan et al. [2017], corresponding to a commonly used lightweight configuration in deep-ensemble studies and is widely adopted in practice. Results for this setting are reported in Table 1. BDKN achieves competitive performance across datasets in both RMSE and NLL, and consistently outperforms DE. While DE exhibits large variance and unstable behavior on several datasets (e.g., Power, Sarcos), BDKN remains stable, demonstrating robustness to variability in optimization quality. GP remains a strong baseline on several datasets. However, due to its cubic computational scaling and prohibitive memory requirements, we could not evaluate GP on large datasets such as Protein, Sarcos, and Song. Compared to other BLL-based methods (BLL, LDBLL) and variational baselines (MFVI, VBLL), BDKN generally provides a better balance between predictive accuracy and uncertainty calibration. To also consider scenarios in which more conservative optimization is used, we introduce a second experimental setting with lower learning rates. In this setting, we follow the benchmark configu-rations proposed by [Watson et al., 2021], which use dataset-specific learning rates and training schedules. This setting allows us to demonstrate the benefits of our method even when optimization is less aggressive, and to assess robustness to changes in optimization hyperparameters. The exact configurations, including learning rates, numbers of epochs, and training procedures for each dataset, are provided in Appendix A.5.2. 6Table 2: Experimental setting 2 (low learning rate): performance on standard regression benchmarks. (a) RMSE and (b) NLL reported as mean ± standard deviation across splits. Lower values indicate better performance. Bold indicates the best performance, and underlined indicates the second-best performance. GP could not be evaluated on the Protein, Sarcos, and Song datasets, and LDBLL on the Song dataset, due to their high memory requirements, which exceeded the available GPU memory. 
+
+(a) RMSE (mean ± std).                                                                                                                                                                                                                                                                         
+
+> Dataset BDKN DE LDBLL GP DKL BLL MFVI VBLL Boston 3.01 ±0.78 2.99 ±0.85 4.41 ±1.20 2.83 ±0.73 4.11 ±1.18 3.20 ±0.73 2.89 ±0.68 2.92 ±0.77 Concrete 5.22 ±0.58 5.23 ±0.59 7.03 ±0.58 5.63 ±0.62 5.83 ±0.93 5.24 ±0.69 4.55 ±0.60 5.11 ±0.62 Energy 0.76 ±0.21 1.42 ±0.29 0.91 ±0.71 0.47 ±0.06 1.02 ±0.50 0.47 ±0.07 0.43 ±0.07 0.48 ±0.06 Kin8nm 0.07 ±0.00 0.07 ±0.00 0.10 ±0.03 0.07 ±0.00 0.09 ±0.01 0.10 ±0.00 0.07 ±0.00 0.07 ±0.00
+> Naval 0.00 ±0.00 0.00 ±0.00 0.00 ±0.00 0.00 ±0.00 0.01 ±0.00 0.00 ±0.00 0.00 ±0.00 0.00 ±0.00
+> Power 3.93 ±0.16 3.98 ±0.16 3.87 ±0.18 3.72 ±0.17 4.36 ±0.51 4.05 ±0.17 3.87 ±0.15 4.22 ±0.20 Protein 4.05 ±0.02 4.06 ±0.03 4.17 ±0.14 N/A 4.22 ±0.06 4.09 ±0.05 3.87 ±0.01 3.95 ±0.04 Sarcos 2.13 ±0.03 2.14 ±0.03 9.25 ±1.13 N/A 3.46 ±0.90 1.61 ±0.06 2.09 ±0.07 2.21 ±0.05 Song 8.71 ±0.00 8.69 ±0.00 N/A N/A 9.08 ±0.00 9.05 ±0.00 9.61 ±0.00 9.14 ±0.00 Wine 0.65 ±0.06 0.63 ±0.05 0.65 ±0.03 0.56 ±0.04 0.76 ±0.06 0.64 ±0.04 0.63 ±0.04 0.72 ±0.06 Yacht 0.85 ±0.38 1.17 ±0.44 3.25 ±5.68 0.40 ±0.13 2.12 ±1.89 2.36 ±0.52 0.86 ±0.42 0.63 ±0.29
+
+(b) NLL (mean ± std).                                                                                                                                                                                                                                                                         
+
+> Dataset BDKN DE LDBLL GP DKL BLL MFVI VBLL Boston 2.81 ±0.62 2.52 ±0.37 3.30 ±0.05 2.41 ±0.28 13.05 ±7.29 3.21 ±0.03 3.27 ±0.95 3.25 ±1.16 Concrete 3.23 ±0.22 3.01 ±0.18 3.83 ±0.02 3.42 ±0.04 23.59 ±7.38 3.79 ±0.01 3.80 ±0.69 3.24 ±0.26 Energy 1.17 ±0.30 1.71 ±1.74 1.56 ±0.49 0.66 ±0.16 1.62 ±1.23 3.23 ±0.00 3.25 ±1.32 0.88 ±0.27 Kin8nm -1.18 ±0.07 -1.35 ±0.03 -0.68 ±0.21 -0.58 ±0.05 0.55 ±0.00 -0.34 ±0.01 -1.13 ±0.04 -0.97 ±0.07 Naval -4.76 ±0.03 -5.33 ±0.18 -4.59 ±0.76 -4.70 ±0.01 0.54 ±0.00 -3.30 ±0.00 -8.10 ±0.19 -3.70 ±0.01 Power 2.79 ±0.05 2.79 ±0.04 2.78 ±0.05 3.19 ±0.01 12.11 ±3.06 3.78 ±0.00 2.78 ±0.04 2.86 ±0.05 Protein 2.80 ±0.01 2.74 ±0.23 2.86 ±0.03 N/A 10.68 ±0.25 2.95 ±0.01 2.81 ±0.01 2.80 ±0.01 Sarcos 2.19 ±0.02 1.83 ±0.01 4.14 ±0.43 N/A 9.04 ±5.00 3.94 ±0.00 2.17 ±0.03 2.21 ±0.02 Song 3.30 ±0.00 3.33 ±0.00 N/A N/A 3.63 ±0.00 3.66 ±0.00 3.99 ±0.00 3.65 ±0.00 Wine 1.64 ±0.36 1.11 ±0.24 1.03 ±0.03 0.86 ±0.06 1.16 ±0.11 1.02 ±0.03 0.94 ±0.06 3.32 ±0.67 Yacht 1.48 ±0.84 -0.20 ±0.26 1.79 ±0.39 0.17 ±0.12 6.12 ±13.77 3.66 ±0.01 1.41 ±1.20 2.22 ±2.63
+
+The empirical performance of all methods under this second experimental setting is summarized in Table 2, where methods exhibit increased stability under this more conservative optimization regime. BDKN remains competitive in both RMSE and NLL and continues to provide well-calibrated uncer-tainty across datasets. DE performs strongly in this setting, with reduced variations in optimization quality, while GP again achieves strong performance on several benchmarks. In contrast, BLL-based and variational methods exhibit dataset-dependent behavior. The results obtained for LDBLL and VBLL are consistent with those reported in Harrison et al. [2024]. MFVI also shows strong and stable performance as well, but at a substantially higher computational cost. Runtime comparisons for both experimental settings are reported in Appendix A.5.3. Comparing the two experimental settings, BDKN exhibits robust behavior across both high and low learning-rate regimes. Figure 2 compares test RMSE and NLL over training epochs on the Boston dataset under the two settings. In the high learning-rate setting, all models exhibit stable training dynamics and rapid convergence, except for LDBLL, which degrades after a few epochs (Figure 2a). Moreover, MFVI continues to converge slowly despite the aggressive learning rate. Under the low learning-rate setting, optimization is more stable across methods, with smoother convergence and reduced variance. Figure 2b shows the test-data evaluation over the first 500 training epochs for all methods. GP demonstrates good performance, although with slower convergence. BLL exhibits limited improvement, converging quickly but to higher RMSE and NLL values. LDBLL initially degrades after the first few epochs and then begins to converge very slowly. DKL also shows degradation after a few epochs. In contrast, BDKN and DE maintain fast and stable convergence throughout training. Across both settings, BDKN maintains stable training dynamics and consistent performance in RMSE and NLL, further supporting its robustness. 7(a) high learning rate (b) low learning rate 
+
+Figure 2: Boston dataset - Benchmarks test data performance over training epochs under two experimental settings. (a) Setting 1 (high learning rate). (b) Setting 2 (low learning rate). We show quartile plots of test RMSE (left) and test NLL (right) as functions of training epochs. Solid lines denote the median across 20 splits, while shaded regions indicate the interquartile range (25th–75th percentiles). Lower values are better for both RMSE and NLL.  
+
+> (a) (b)
+
+Figure 3: Yacht (Setting 1): effect of BDKN ensemble size on the test data performance. (a) 
+
+Quartile plots of test RMSE (left) and test NLL (right) as functions of training epochs for ensembles with 5, 10, 30, and 50 feature maps. Solid lines denote the median across splits and shaded regions indicate the interquartile range (25th–75th percentiles). (b) Boxplots of test RMSE (left) and test NLL (right) across splits at the final training epoch. Boxes show the interquartile range with the median marked; whiskers denote the full range excluding outliers. Lower values are better for both RMSE and NLL. A key advantage of BDKN is that its feature maps can be trained fully in parallel as ensemble members. Although we use five ensemble members following Lakshminarayanan et al. [2017] for simplicity and scalability, the ensemble size can be increased with parallel computing without substantially increasing training time. Figure 3 illustrates the effect of ensemble size on performance for the Yacht dataset under Setting 1 with 50 training epochs. As the number of ensemble members increases, both RMSE and NLL improve consistently, and larger ensembles exhibit faster convergence across splits. This behavior is evident throughout training (Figure 3a) and at the final epoch, where the median RMSE and NLL decrease monotonically with ensemble size (Figure 3b). At the final epoch, Figure 3b shows a clear decrease in the median RMSE and NLL as the ensemble size increases. These results indicate that increasing the ensemble size yields a richer and more expressive feature space, improving predictive accuracy and uncertainty calibration without a significant increase in training time when sufficient computational resources are available. 
+
+## 4 Related work 
+
+Gaussian process. Gaussian Processes (GPs) provide a nonparametric Bayesian framework for regression by placing a prior directly over functions Williams and Rasmussen [2006]. However, their practical use is often limited by computational complexity and dependence on kernel choice [Quinonero-Candela and Rasmussen, 2005, Wilson and Adams, 2013], motivating a large body of approximation methods such as sparse and inducing-point approaches [Snelson and Ghahramani, 2005, Titsias, 2009]. Beyond scalability, numerous extensions have been proposed to improve expressiveness, including neural-network-based kernels and deep GP variants [Cho and Saul, 2009, Calandra et al., 2016, Wilson et al., 2016, Bui et al., 2016]. Related theoretical work has also established connections between infinitely wide neural networks and GPs, characterizing the function-8space priors induced by neural architectures [Lee et al., 2017, Rudner et al., 2018, Khan et al., 2019]. 
+
+Bayesian neural networks. BNNs place prior distributions over network parameters and perform posterior inference to capture predictive uncertainty [Neal, 2012]. While fully Bayesian inference via Monte Carlo sampling methods Andrieu et al. [2003], Hoffman et al. [2014], Chen et al. [2014] provides a principled treatment of uncertainty, such approaches are typically computationally ex-pensive and difficult to scale to modern architectures [Welling and Teh, 2011]. As a result, much of the recent work on BNNs has focused on scalable approximate inference techniques, most notably variational inference methods, including mean-field approximations, which trade posterior fidelity for computational tractability [Shridhar et al., 2019, Coker et al., 2022, Sun et al., 2019, Cinquin and Bamler, 2025]. 
+
+Bayesian last layer networks. BLLs restrict Bayesian inference to a linear head on top of learned deterministic features, offering a practical trade-off between scalability and uncertainty estimation. Building on this formulation, several extensions refine training and uncertainty behavior. In particular, an efficient reformulation of BLL enables backpropagation-based marginal likelihood training and improves extrapolative uncertainty quantification Fiedler and Lucia [2023]. To address overconfident predictions and improve uncertainty estimation outside the training distribution, LD-BLL networks introduce functional priors over network derivatives with respect to the inputs to encourage more expressive and calibrated uncertainty Watson et al. [2021]. More recently, VBLL has been proposed to further improve scalability and uncertainty estimation through a sampling-free, single-pass training objective Harrison et al. [2024]. 
+
+Deep ensembles. DE combines independently trained neural networks, typically via uniform averaging, and is widely used in practice, including reinforcement learning [Osband et al., 2018, An et al., 2020, Wu and Li, 2020, Lee et al., 2021, Abe et al., 2022, Seligmann et al., 2023]. Several studies have provided theoretical and analytical perspectives on standard deep ensembles and their uncertainty behavior [Fort et al., 2019, Pearce et al., 2020, D’Angelo and Fortuin, 2021]. Prior work has shown that promoting ensemble diversity can improve uncertainty estimation in DE [Reeve and Brown, 2018, Nam et al., 2021, Rame and Cord, 2021]. For instance, ensemble diversity can be encouraged by augmenting the loss function with an auxiliary regularization term that maximizes ensemble predictive variance on inputs sampled uniformly from the input space, improving uncertainty behavior away from the training data [Jain et al., 2020]. Diversity can also be induced structurally through architectural heterogeneity across ensemble members, such as by randomizing activation functions across networks [Zaidi et al., 2021, Stoyanova et al., 2023]. 
+
+## 5 Discussion 
+
+We introduced BDKN, a scalable framework that bridges the gap between the empirical success of DE and the statistical rigor of GPs. By interpreting independently trained neural networks as induced basis functions, BDKN constructs a finite-rank deep kernel model that enables exact Bayesian inference without the cubic computational costs associated with traditional GPs. Since the ensemble members in BDKN are trained independently, the feature maps can be learned in parallel. This allows the number of feature maps to be scaled to increase model expressivity without a significant increase in training time, which we empirically show leads to improved performance. Our approach offers a clear advantage over standard weight-space BNNs and variational approximations: it yields closed-form posterior predictive distributions together with an interpretable posterior over ensemble members. BDKN also addresses a key limitation of DE, namely their non-diagnostic uniform averaging, by replacing it with a Bayesian aggregation layer that automatically downweights ensemble members weakly supported by the data. This aggregation mechanism improves robustness by reducing the impact of poorly optimized or low-quality ensemble members, which can otherwise degrade performance under aggressive training regimes. While baselines such as DE and LD-BLL show sensitivity to learning-rate selection and can become unstable in high learning-rate regimes, BDKN consistently maintains competitive predictive accuracy and well-calibrated uncertainty across both conservative and aggressive training configurations. This study focuses on regression; extending the BDKN framework to classification tasks is a natural next step. A key open challenge is maintaining analytic tractability of the posterior predictive distri-bution under non-Gaussian likelihoods while retaining the robustness and interpretability observed 9in the regression setting. Further improvements in uncertainty calibration may be achieved by en-hancing variability in the learned feature maps or by incorporating principles from latent-derivative modeling. Finally, extending BDKN to other domains, such as deep reinforcement learning and physics-informed machine learning, represents a promising direction for future work. 
+
+## References 
+
+Taiga Abe, Estefany Kelly Buchanan, Geoff Pleiss, Richard Zemel, and John P Cunningham. Deep ensembles work, but are they necessary? Advances in Neural Information Processing Systems , 35: 33646–33660, 2022. Ning An, Huitong Ding, Jiaoyun Yang, Rhoda Au, and Ting FA Ang. Deep ensemble learning for alzheimer’s disease classification. Journal of biomedical informatics , 105:103411, 2020. Christophe Andrieu, Nando De Freitas, Arnaud Doucet, and Michael I Jordan. An introduction to mcmc for machine learning. Machine learning , 50(1):5–43, 2003. Kai Arulkumaran, Marc Peter Deisenroth, Miles Brundage, and Anil Anthony Bharath. Deep reinforcement learning: A brief survey. IEEE signal processing magazine , 34(6):26–38, 2017. Thang Bui, Daniel Hernández-Lobato, Jose Hernandez-Lobato, Yingzhen Li, and Richard Turner. Deep gaussian processes for regression using approximate expectation propagation. In International conference on machine learning , pages 1472–1481. PMLR, 2016. Roberto Calandra, Jan Peters, Carl Edward Rasmussen, and Marc Peter Deisenroth. Manifold gaussian processes for regression. In 2016 International joint conference on neural networks (IJCNN) , pages 3338–3345. IEEE, 2016. Tianqi Chen, Emily Fox, and Carlos Guestrin. Stochastic gradient hamiltonian monte carlo. In 
+
+International conference on machine learning , pages 1683–1691. PMLR, 2014. Youngmin Cho and Lawrence Saul. Kernel methods for deep learning. Advances in neural information processing systems , 22, 2009. Tristan Cinquin and Robert Bamler. Well-defined function-space variational inference in bayesian neural networks via regularized kl-divergence. In Silvia Chiappa and Sara Magliacane, editors, 
+
+Proceedings of the Forty-first Conference on Uncertainty in Artificial Intelligence , volume 286 of 
+
+Proceedings of Machine Learning Research , pages 752–776. PMLR, 21–25 Jul 2025. Beau Coker, Wessel P Bruinsma, David R Burt, Weiwei Pan, and Finale Doshi-Velez. Wide mean-field bayesian neural networks ignore the data. In International Conference on Artificial Intelligence and Statistics , pages 5276–5333. PMLR, 2022. Francesco D’Angelo and Vincent Fortuin. Repulsive deep ensembles are bayesian. Advances in Neural Information Processing Systems , 34:3451–3465, 2021. Marc Deisenroth and Carl E Rasmussen. Pilco: A model-based and data-efficient approach to policy search. In Proceedings of the 28th International Conference on machine learning (ICML-11) ,pages 465–472, 2011. Felix Fiedler and Sergio Lucia. Improved uncertainty quantification for neural networks with bayesian last layer. IEEE Access , 11:123149–123160, 2023. Angelos Filos, Sebastian Farquhar, Aidan N Gomez, Tim GJ Rudner, Zachary Kenton, Lewis Smith, Milad Alizadeh, Arnoud De Kroon, and Yarin Gal. A systematic comparison of bayesian deep learning robustness in diabetic retinopathy tasks. arXiv preprint arXiv:1912.10481 , 2019. Andrew Foong, David Burt, Yingzhen Li, and Richard Turner. On the expressiveness of approximate inference in bayesian neural networks. Advances in Neural Information Processing Systems , 33: 15897–15908, 2020. Stanislav Fort, Huiyi Hu, and Balaji Lakshminarayanan. Deep ensembles: A loss landscape perspec-tive. arXiv preprint arXiv:1912.02757 , 2019. 10 Andrew Gelman, John B Carlin, Hal S Stern, and Donald B Rubin. Bayesian data analysis . Chapman and Hall/CRC, 1995. Alex Graves. Practical variational inference for neural networks. Advances in neural information processing systems , 24, 2011. Chuan Guo, Geoff Pleiss, Yu Sun, and Kilian Q Weinberger. On calibration of modern neural networks. In International conference on machine learning , pages 1321–1330. PMLR, 2017. James Harrison, John Willes, and Jasper Snoek. Variational bayesian last layers. arXiv preprint arXiv:2404.11599 , 2024. Matthew D Hoffman, Andrew Gelman, et al. The no-u-turn sampler: adaptively setting path lengths in hamiltonian monte carlo. J. Mach. Learn. Res. , 15(1):1593–1623, 2014. Siddhartha Jain, Ge Liu, Jonas Mueller, and David Gifford. Maximizing overall diversity for improved uncertainty estimates in deep ensembles. In Proceedings of the AAAI conference on artificial intelligence , volume 34, pages 4264–4271, 2020. Harold Jeffreys. An invariant form for the prior probability in estimation problems. Proceedings of the Royal Society of London. Series A. Mathematical and Physical Sciences , 186(1007):453–461, 1946. Markelle Kelly, Rachel Longjohn, and Kolby Nottingham. The UCI Machine Learning Repository. 
+
+https://archive.ics.uci.edu . University of California, Irvine. Mohammad Emtiyaz Khan, Alexander Immer, Ehsan Abedi, and Maciej Korzepa. Approximate inference turns deep networks into gaussian processes. Advances in neural information processing systems , 32, 2019. Balaji Lakshminarayanan, Alexander Pritzel, and Charles Blundell. Simple and scalable predictive uncertainty estimation using deep ensembles. Advances in neural information processing systems ,30, 2017. Miguel Lázaro-Gredilla and Aníbal R Figueiras-Vidal. Marginalized neural network mixtures for large-scale regression. IEEE transactions on neural networks , 21(8):1345–1351, 2010. Jaehoon Lee, Yasaman Bahri, Roman Novak, Samuel S Schoenholz, Jeffrey Pennington, and Jascha Sohl-Dickstein. Deep neural networks as gaussian processes. arXiv preprint arXiv:1711.00165 ,2017. Kimin Lee, Michael Laskin, Aravind Srinivas, and Pieter Abbeel. Sunrise: A simple unified framework for ensemble learning in deep reinforcement learning. In International conference on machine learning , pages 6131–6141. PMLR, 2021. Sergey Levine, Aviral Kumar, George Tucker, and Justin Fu. Offline reinforcement learning: Tutorial, review, and perspectives on open problems. arXiv preprint arXiv:2005.01643 , 2020. Giung Nam, Jongmin Yoon, Yoonho Lee, and Juho Lee. Diversity matters when learning from ensembles. Advances in neural information processing systems , 34:8367–8377, 2021. Radford M Neal. Bayesian learning for neural networks , volume 118. Springer Science & Business Media, 2012. Ian Osband, John Aslanides, and Albin Cassirer. Randomized prior functions for deep reinforcement learning. Advances in neural information processing systems , 31, 2018. Tim Pearce, Felix Leibfried, and Alexandra Brintrup. Uncertainty in neural networks: Approximately bayesian ensembling. In International conference on artificial intelligence and statistics , pages 234–244. PMLR, 2020. Joaquin Quinonero-Candela and Carl Edward Rasmussen. A unifying view of sparse approximate gaussian process regression. Journal of machine learning research , 6(Dec):1939–1959, 2005. 11 Maziar Raissi, Paris Perdikaris, and George E Karniadakis. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational physics , 378:686–707, 2019. Alexandre Rame and Matthieu Cord. Dice: Diversity in deep ensembles via conditional redundancy adversarial estimation. arXiv preprint arXiv:2101.05544 , 2021. Henry WJ Reeve and Gavin Brown. Diversity and degrees of freedom in regression ensembles. 
+
+Neurocomputing , 298:55–68, 2018. Tim GJ Rudner, Vincent Fortuin, Yee Whye Teh, and Yarin Gal. On the connection between neural processes and gaussian processes with deep kernels. In Workshop on Bayesian Deep Learning, NeurIPS , page 14, 2018. Florian Seligmann, Philipp Becker, Michael Volpp, and Gerhard Neumann. Beyond deep ensembles: A large-scale evaluation of bayesian deep learning under distribution shift. Advances in Neural Information Processing Systems , 36:29372–29405, 2023. Amar Shah, Andrew Wilson, and Zoubin Ghahramani. Student-t processes as alternatives to gaussian processes. In Artificial intelligence and statistics , pages 877–885. PMLR, 2014. Kumar Shridhar, Felix Laumann, and Marcus Liwicki. A comprehensive guide to bayesian convolu-tional neural network with variational inference. arXiv preprint arXiv:1901.02731 , 2019. Edward Snelson and Zoubin Ghahramani. Sparse gaussian processes using pseudo-inputs. Advances in neural information processing systems , 18, 2005. Yana Stoyanova, Soroush Ghandi, and Maryam Tavakol. Toward robust uncertainty estimation with random activation functions. In Proceedings of the AAAI Conference on Artificial Intelligence ,volume 37, pages 15152–15160, 2023. Shengyang Sun, Guodong Zhang, Jiaxin Shi, and Roger Grosse. Functional variational bayesian neural networks. arXiv preprint arXiv:1903.05779 , 2019. Richard S Sutton, Andrew G Barto, et al. Reinforcement learning: An introduction , volume 1. MIT press Cambridge, 1998. Michalis Titsias. Variational learning of inducing variables in sparse gaussian processes. In Artificial intelligence and statistics , pages 567–574. PMLR, 2009. Joe Watson, Jihao Andreas Lin, Pascal Klink, Joni Pajarinen, and Jan Peters. Latent derivative bayesian last layer networks. In International Conference on Artificial Intelligence and Statistics ,pages 1198–1206. PMLR, 2021. Max Welling and Yee W Teh. Bayesian learning via stochastic gradient langevin dynamics. In 
+
+Proceedings of the 28th international conference on machine learning (ICML-11) , pages 681–688, 2011. Florian Wenzel, Kevin Roth, Bastiaan S Veeling, Jakub ´ Swi ˛ atkowski, Linh Tran, Stephan Mandt, Jasper Snoek, Tim Salimans, Rodolphe Jenatton, and Sebastian Nowozin. How good is the bayes posterior in deep neural networks really? arXiv preprint arXiv:2002.02405 , 2020. Christopher KI Williams and Carl Edward Rasmussen. Gaussian processes for machine learning ,volume 2. MIT press Cambridge, MA, 2006. Andrew Wilson and Ryan Adams. Gaussian process kernels for pattern discovery and extrapolation. In International conference on machine learning , pages 1067–1075. PMLR, 2013. Andrew G Wilson and Pavel Izmailov. Bayesian deep learning and a probabilistic perspective of generalization. Advances in neural information processing systems , 33:4697–4708, 2020. Andrew Gordon Wilson, Zhiting Hu, Ruslan Salakhutdinov, and Eric P Xing. Deep kernel learning. In Artificial intelligence and statistics , pages 370–378. PMLR, 2016. 12 Junta Wu and Huiyun Li. Deep ensemble reinforcement learning with multiple deep deterministic policy gradient algorithm. Mathematical Problems in Engineering , 2020(1):4275623, 2020. Sheheryar Zaidi, Arber Zela, Thomas Elsken, Chris C Holmes, Frank Hutter, and Yee Teh. Neural ensemble search for uncertainty estimation and dataset shift. Advances in Neural Information Processing Systems , 34:7898–7911, 2021. 13 A Appendix 
+
+A.1 Jeffreys prior for the noise variance 
+
+We derive the Jeffreys prior for the Gaussian noise variance σ2 
+
+> ε
+
+in the Bayesian linear model used in Step 2. Consider the observation model 
+
+y | β, σ 2 
+
+> ε
+
+∼ N  Φβ, σ 2 
+
+> ε
+
+IN
+
+,
+
+where Φ ∈ RN ×H is the ensemble-induced design matrix. The log-likelihood of σ2 
+
+> ε
+
+is 
+
+ℓ(σ2 
+
+> ε
+
+) = − N
+
+2 log σ2 
+
+> ε
+
+− 12σ2
+
+> ε
+
+∥y − Φβ∥2 + C, 
+
+where C denotes a constant independent of σ2 
+
+> ε
+
+. Differentiating twice with respect to σ2 
+
+> ε
+
+yields 
+
+∂2ℓ∂(σ2 
+
+> ε
+
+)2 = N
+
+21(σ2 
+
+> ε
+
+)2 − ∥y − Φβ∥2
+
+(σ2 
+
+> ε
+
+)3 .
+
+Taking the negative expectation under y ∼ N (Φβ, σ 2 
+
+> ε
+
+IN ) gives the Fisher information 
+
+I(σ2 
+
+> ε
+
+) = N
+
+21(σ2 
+
+> ε
+
+)2 .
+
+By definition, the Jeffreys prior is proportional to the square root of the Fisher information, yielding 
+
+p(σ2 
+
+> ε
+
+) ∝ pI(σ2 
+
+> ε
+
+) = 1
+
+σ2
+
+> ε
+
+.
+
+A.2 GP connection 
+
+Recall 
+
+f (x) = ϕ(x)⊤β, β | σ2 
+
+> ε
+
+∼ N  μ0, σ 2 
+
+> ε
+
+Λ−10
+
+.
+
+The conditional mean function is 
+
+m(x) = Ef (x) | σ2
+
+> ε
+
+
+
+= Eϕ(x)⊤β | σ2
+
+> ε
+
+
+
+= ϕ(x)⊤μ0.
+
+The conditional covariance (kernel) is given by 
+
+k(x, x ′ | σ2 
+
+> ε
+
+) = Cov  f (x), f (x′) | σ2
+
+> ε
+
+
+
+= E
+
+h f (x) − m(x)  f (x′) − m(x′) σ2
+
+> ε
+
+i
+
+= E
+
+h ϕ(x)⊤β − ϕ(x)⊤μ0
+
+  ϕ(x′)⊤β − ϕ(x′)⊤μ0
+
+ σ2
+
+> ε
+
+i
+
+= E
+
+h
+
+ϕ(x)⊤(β − μ0)( β − μ0)⊤ϕ(x′) σ2
+
+> ε
+
+i
+
+= ϕ(x)⊤E
+
+h
+
+(β − μ0)( β − μ0)⊤ σ2
+
+> ε
+
+i
+
+ϕ(x′)= ϕ(x)⊤Cov( β | σ2 
+
+> ε
+
+)ϕ(x′)= ϕ(x)⊤ σ2 
+
+> ε
+
+Λ−10
+
+ϕ(x′)= σ2 
+
+> ε
+
+ϕ(x)⊤Λ−10 ϕ(x′).
+
+Writing ϕ(x) = [ f1(x), . . . , f H (x)] ⊤ and Λ−10 = (Λ−10 )hh ′
+
+Hh,h ′=1 , the kernel can be expressed as 
+
+k(x, x ′ | σ2 
+
+> ε
+
+) = σ2
+
+> εH
+
+X
+
+> h=1
+> H
+
+X
+
+> h′=1
+
+(Λ−10 )hh ′ fh(x) fh′ (x′).
+
+14 Inner-product (finite-rank) form. Let Λ−1/20 denote any symmetric square root of Λ−10 and define the transformed feature map ˜ϕ(x) ≜ Λ−1/20 ϕ(x). With this notation, the kernel has the inner-product representation 
+
+k(x, x ′ | σ2 
+
+> ε
+
+) = σ2 
+
+> ε
+
+˜ϕ(x)⊤ ˜ϕ(x′).
+
+Consequently, for any collection of inputs {xi}Ni=1 , the associated kernel matrix can be written as 
+
+K = σ2 
+
+> ε
+
+˜Φ ˜Φ⊤ with ˜Φ ∈ RN ×H , implying that rank( K) ≤ H independently of N . The induced Gaussian Process is therefore finite-rank, with sample paths that are almost surely confined to the H-dimensional linear subspace span {f1, . . . , f H }. In contrast to nondegenerate (full-rank) kernels such as the squared-exponential or Matern kernels Williams and Rasmussen [2006], the function-space complexity of the proposed model is explicitly controlled by the ensemble size H.
+
+A.3 Isotropic prior over ensemble coefficients 
+
+In our experiments, we adopt an isotropic Gaussian prior over the ensemble coefficients by setting 
+
+Λ0 = σ−2 
+
+> β
+
+IH ,
+
+which corresponds to β | σ2 
+
+> ε
+
+∼ N (μ0, σ 2 
+
+> ε
+
+σ2 
+
+> β
+
+IH ). Under this choice, all ensemble-induced basis functions are a priori treated symmetrically and assigned the same variance, reflecting the absence of additional structural assumptions about the relative importance of individual ensemble members. Substituting Λ−10 = σ2 
+
+> β
+
+IH into the kernel expression derived in the previous section yields 
+
+k(x, x ′ | σ2 
+
+> ε
+
+) = σ2 
+
+> ε
+
+ϕ(x)⊤Λ−10 ϕ(x′)= σ2 
+
+> ε
+
+σ2 
+
+> β
+
+ϕ(x)⊤ϕ(x′)= σ2 
+
+> ε
+
+σ2
+
+> βH
+
+X
+
+> h=1
+
+fh(x) fh(x′).
+
+This isotropic prior offers several practical and conceptual advantages. First, it avoids introducing additional biases that would favor specific ensemble members, allowing uncertainty to be driven primarily by the diversity of the learned functions themselves. Second, the single scale parameter σ2
+
+> β
+
+controls the overall strength of the prior in the ensemble-induced function space, enabling efficient empirical Bayes tuning via the marginal likelihood without increasing model complexity. Finally, because the dimensionality of the induced feature space is small (equal to the ensemble size H), inference remains computationally inexpensive while retaining a principled Bayesian interpretation equivalent to finite-rank Gaussian Process regression. 
+
+A.4 BDKN inference 
+
+This section discuss the posterior updates, marginal likelihood optimization, and inference algorithm used in the Bayesian inference procedure of BDKN. 
+
+Posterior updates 
+
+Given the design matrix Φ and targets y, conjugacy is maintained and the posterior factorizes as 
+
+p(β, σ 2 
+
+> ε
+
+| y, Φ) = p(β | σ2 
+
+> ε
+
+, y, Φ) p(σ2 
+
+> ε
+
+| y, Φ). The conditional posterior over coefficients is Gaussian, β | σ2 
+
+> ε
+
+, y, Φ ∼ N  μn, σ 2 
+
+> ε
+
+Λ−1
+
+> n
+
+, with 
+
+μn = Λ−1
+
+> n
+
+ Λ0μ0 + Φ⊤y, (6) 
+
+Λn = Λ0 + Φ⊤Φ. (7) Under the Jeffreys prior on σ2 
+
+> ε
+
+, the marginal posterior over σ2 
+
+> ε
+
+is σ2 
+
+> ε
+
+| y, Φ ∼ Inv -Gamma( an, b n),
+
+where 
+
+an = N
+
+2 , (8) 
+
+bn = 12
+
+ y⊤y + μ⊤ 
+
+> 0
+
+Λ0μ0 − μ⊤ 
+
+> n
+
+Λnμn
+
+ . (9) 15 Marginal likelihood 
+
+The hyperparameter Λ0, specifically σ2 
+
+> β
+
+, is optimized by an empirical Bayes estimate, maximizing the marginal likelihood in a closed form. Specifically, one maximizes the log marginal likelihood, written as 
+
+log p(y | Φ) = −an log bn + 12 log |Λ0| − 12 log |Λn| + C, (10) where C denotes a constant independent of the hyperparameters. Algorithm 1 outlines the main steps of BDKN. 
+
+Algorithm 1 Bayesian Deep Kernel Networks (BDKN)  
+
+> 1:
+
+Inputs: training set Dtr = {(xi, y i)}Ni=1 , ensemble size H, initial prior variance σ2 
+
+> β
+
+= 1  
+
+> 2:
+
+Outputs: feature maps {ϕh}Hh=1 and posterior predictive distribution p(y∗ | x∗, Dtr , {ϕh}) 
+
+> 3:
+
+Step 1: Learn feature maps via independent training.  
+
+> 4:
+
+Train H neural networks independently on Dtr to obtain {ϕh(·; θh)}Hh=1 . 
+
+> 5:
+
+Step 2: Bayesian inference over learned features.  
+
+> 6:
+
+Construct the design matrix Φ using {ϕh}Hh=1 . 
+
+> 7:
+
+Optimize σ2 
+
+> β
+
+by maximizing the log marginal likelihood in (10).  
+
+> 8:
+
+Compute posterior parameters (μn, Λn, a n, b n) using (6)-(8)  
+
+> 9:
+
+Obtain the posterior predictive distribution using (5). 
+
+A.5 Experiments details A.5.1 Data 
+
+We evaluated all methods on standard UCI regression benchmarks. Table 3 summarizes the key characteristics of each dataset, including the total number of samples, input dimensionality, number of random splits, and the corresponding train-test sizes. Except for Song, experiments use a 90%/10% train-test split repeated across multiple random splits as reported in the table; Song uses the fixed train-test split shown in the table. In all experiments, input features are standardized using statistics computed on the training data, resulting in zero-mean and unit-variance inputs. Table 3: Dataset statistics for standard regression benchmarks. Dataset Total Samples # Features # Splits Train size Test size Boston 506 13 20 455 51 Concrete 1030 8 20 927 103 Energy 768 8 20 691 77 Kin8nm 8192 8 20 7373 819 Naval 11934 16 20 10741 1193 Power 9568 4 20 8611 957 Protein 45730 9 5 41157 4573 Sarcos 39449 21 20 35000 4449 Song 515345 90 1 463715 51630 Wine 1599 11 20 1439 160 Yacht 308 6 20 277 31 
+
+A.5.2 Settings 
+
+Table 4 summarizes the optimization hyperparameters used in the first experimental setting, which corresponds to a high learning-rate configuration. Following the lightweight training regime com-monly adopted in DE benchmarks, all models are trained with a learning rate of 0.1 for the full budget of 40 epochs on all datasets. Activation functions follow standard choices for each model class (ReLU for BDKN, DE, and VBLL; Leaky ReLU for BLL, LD-BLL, and MFVI-BNN), GP uses 16 an RBF kernel, and DKL uses a ReLU feature extractor with an RBF GP layer. Results corresponding to this configuration are referred to as Setting 1 throughout the paper. Table 4: Learning rates and maximum number of epochs for regression tasks (Setting 1 high learning rate). All neural-network models use hidden dimensions 50 , 50 .
+
+Method BDKN DE BLL LDBLL MFVI-BNN GP DKL VBLL Activation/Kernel ReLU ReLU LReLU LReLU LReLU RBF ReLU/RBF ReLU Boston 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 Concrete 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 Energy 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 Kin8nm 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 Naval 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 Power 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 Protein 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 N/A 1e-1, 40 1e-1, 40 Sarcos 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 N/A 1e-1, 40 1e-1, 40 Song 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 N/A 1e-1, 40 1e-1, 40 Wine 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 Yacht 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 1e-1, 40 
+
+Table 5 summarizes the optimization hyperparameters used in the second experimental setting, which corresponds to a lower learning-rate configuration. This setting follows the benchmark protocols proposed by Watson et al. Watson et al. [2021], using dataset- and method-specific learning rates and training budgets as reported in the table. For BDKN, DE, DKL, and VBLL, models are trained for the full budget of 500 epochs on all datasets. For BLL, LD-BLL, and MFVI-BNN, the effective number of training epochs is selected via validation: for each split, 80% of the training data are used for optimization and the remaining 20% are used as a validation set to determine the epoch with the best validation performance. The model is then retrained on the full training set using this selected number of epochs. For GP regression, validation-based early stopping is computationally expensive; therefore, we employ a marginal-likelihood–based stopping criterion and terminate optimization when the relative decrease in the average marginal likelihood over the most recent κ iterations, compared to the average over the preceding κ iterations, falls below a threshold ρ, following a procedure similar to that used in prior work Watson et al. [2021]. For all datasets, we set κ = 11 and ρ = 10 −4. Apart from the learning rates and maximum epochs specified in Table 5, all other experimental details are unchanged. Results obtained under this configuration are referred to as Setting 2 throughout the paper. Table 5: Learning rates and maximum number of epochs for regression tasks (Setting 2 low learning rate). All neural-network models use hidden dimensions 50 , 50 , except on Sarcos where BLL, LDBLL, and MFVI-BNN use hidden dimensions 50 , 200 , 200 .                                                                                                        
+
+> Method BDKN DE BLL LDBLL MFVI-BNN GP DKL VBLL Activation/Kernel ReLU ReLU LReLU LReLU LReLU RBF ReLU/RBF ReLU Boston 1e-3, 500 1e-3, 500 1e-3, 3000 1e-3, 4000 1e-3, 10000 1e-2, 1000 1e-3, 500 1e-3, 500 Concrete 1e-3, 500 1e-3, 500 1e-3, 3000 1e-3, 4000 1e-3, 15000 1e-2, 1000 1e-3, 500 1e-3, 500 Energy 1e-3, 500 1e-3, 500 1e-3, 8000 1e-3, 10000 1e-3, 30000 1e-2, 2000 1e-3, 500 1e-3, 500 Kin8nm 1e-3, 500 1e-3, 500 1e-3, 3000 1e-3, 5000 1e-3, 20000 1e-2, 1000 1e-3, 500 1e-3, 500 Naval 1e-3, 500 1e-3, 500 1e-3, 8000 1e-3, 10000 1e-3, 100000 1e-3, 3000 1e-3, 500 1e-3, 500 Power 1e-3, 500 1e-3, 500 1e-3, 5000 1e-3, 5000 1e-3, 20000 1e-2, 1000 1e-3, 500 1e-3, 500 Protein 1e-3, 500 1e-3, 500 1e-3, 2000 1e-3, 5000 1e-3, 30000 N/A 1e-3, 500 1e-3, 500 Sarcos 1e-3, 500 1e-3, 500 2e-4, 30000 2e-4, 30000 5e-3, 10000 N/A 1e-3, 500 1e-3, 500 Song 1e-3, 500 1e-3, 500 1e-3, 500 N/A 1e-3, 500 N/A 1e-3, 500 1e-3, 500 Wine 1e-3, 500 1e-3, 500 1e-4, 1000 1e-4, 1000 1e-4, 20000 1e-2, 1000 1e-3, 500 1e-3, 500 Yacht 1e-3, 500 1e-3, 500 1e-3, 8000 1e-3, 10000 1e-3, 20000 1e-2, 2000 1e-3, 500 1e-3, 500
+
+For both experimental settings, all neural network-based methods use architectures with two fully connected hidden layers of width 50 and are trained with a batch size of 32 using the Adam optimizer, except for BLL, LD-BLL, and MFVI-BNN on Sarcos in the low-learning-rate setting, which use 17 hidden dimensions 50 , 200 , 200 . DKL uses the same ReLU feature extractor architecture as the other neural-network baselines, with a two-dimensional output representation following Wilson et al. Wilson et al. [2016], and places an RBF GP layer on top of the learned representation. For MFVI-BNN, we follow the priors and inference procedure described in Watson et al. [2021], using independent N (0 , ω/ √nin ) priors for all network weights, where nin denotes the number of input features to the corresponding layer and ω = 4 , and independent N (0 , 1) priors for bias terms. Variational inference is implemented in Pyro using diagonal Gaussian variational distributions, optimized via stochastic variational inference (SVI) with the Trace_ELBO objective. For validation and evaluation, predictive distributions are estimated using 100 Monte Carlo samples from the variational posterior. VBLL is implemented using the official Python library ( VBLL ) provided in Harrison et al. [2024] with the default settings reported in the paper, and GP regression is implemented using GPyTorch .For both experimental settings, we initialize the prior variance to σ2 
+
+> β
+
+= 1 and perform a small number of marginal-likelihood optimization steps (5 iterations) using the Adam optimizer with a learning rate of 0.1, following Algorithm 1. We adopt a zero-mean isotropic Gaussian prior over the linear coefficients, i.e., β ∼ N (0 , σ 2 
+
+> β
+
+I), which is a standard and commonly used choice in Bayesian last-layer models Watson et al. [2021]. 
+
+A.5.3 Runtime 
+
+All experiments were conducted on a workstation running Windows 10 Enterprise (64-bit), equipped with a 12th-generation Intel Core i7-12700 CPU (12 cores, 20 logical processors), 32 GB of RAM, and an NVIDIA RTX A2000 GPU with 12 GB of dedicated memory. The system uses NVMe SSD storage. GPU computations were performed using CUDA 12.8 with NVIDIA driver version 573.44. Tables 6 and 7 report the training time (in minutes) for all methods under the two experimental settings. The runtimes correspond to end-to-end training on standard regression benchmarks using the same hardware and implementation framework. Under Setting 1 (high learning rate), BDKN exhibits runtime comparable to standard DE, reflecting that its additional Bayesian aggregation step incurs negligible overhead relative to training the ensemble members. In contrast, fully Bayesian or variational approaches, such as MFVI-BNN and VBLL, incur substantially higher computational costs on larger datasets due to sampling-based inference or variational optimization. GP is efficient on smaller datasets but becomes expensive or infeasible on larger datasets, such as Protein, Sarcos , and 
+
+Song . Under Setting 2 (low learning rate), overall runtimes increase across all neural network-based methods due to longer training schedules, with MFVI-BNN showing particularly large increases on high-dimensional or large-scale datasets. Despite this, BDKN continues to scale comparably to DE and remains significantly more efficient than fully Bayesian baselines. Entries marked as N/A 
+
+indicate cases where a method could not be evaluated due to GPU memory constraints. Table 6: Runtime (minutes) on standard regression benchmarks (Setting 1). Dataset BDKN DE LDBLL GP DKL BLL MFVI VBLL Boston 0.76 0.66 0.36 0.10 0.67 0.06 2.06 1.43 Concrete 0.75 0.66 1.40 0.59 0.30 0.23 3.59 2.19 Energy 0.54 0.46 0.15 0.45 0.52 0.09 3.36 1.79 Kin8nm 6.08 5.99 1.64 2.55 0.72 0.19 5.14 17.61 Naval 7.30 7.21 0.46 4.90 1.91 0.05 10.43 18.90 Power 6.40 6.32 0.24 3.91 1.29 0.02 8.17 17.68 Protein 8.47 8.45 0.44 N/A 0.27 0.13 16.24 25.56 Sarcos 30.04 29.95 2.52 N/A 2.29 0.47 63.65 80.45 Song 17.51 17.50 N/A N/A 15.04 0.39 37.28 99.67 Wine 2.08 1.94 0.19 1.31 1.19 0.04 5.45 6.83 Yacht 0.61 0.45 0.32 0.16 0.89 0.15 5.86 1.33 18 Table 7: Runtime (minutes) on standard regression benchmarks (Setting 2). Dataset BDKN DE LDBLL GP DKL BLL MFVI VBLL Boston 4.07 4.07 14.68 33.42 8.93 20.07 902.33 13.27 Concrete 8.31 8.26 11.36 30.79 14.86 10.59 829.53 28.13 Energy 6.73 6.72 113.53 14.79 11.75 29.54 3176.77 20.19 Kin8nm 68.56 68.54 122.19 55.82 35.90 0.94 2357.65 234.30 Naval 91.10 91.09 241.29 336.05 22.15 127.35 14625.90 302.48 Power 80.87 80.87 22.39 81.07 11.58 85.03 1960.26 421.37 Protein 111.35 111.35 106.79 N/A 2.70 14.54 6099.07 358.99 Sarcos 362.98 362.98 8494.25 N/A 19.62 669.92 7993.33 1256.18 Song 229.29 229.28 N/A N/A 78.31 5.62 488.23 765.11 Wine 12.18 12.17 4.81 19.03 7.99 34.93 2267.03 47.35 Yacht 3.20 3.19 117.50 11.15 8.34 37.28 2031.11 8.49 
+
+A.6 Impact Statement 
+
+This paper presents work whose goal is to advance the field of Machine Learning by developing a scalable and analytically tractable Bayesian framework for uncertainty quantification in regression. The proposed Bayesian Deep Kernel Networks (BDKN) are intended to improve the reliability and interpretability of predictive uncertainty relative to commonly used baselines (e.g., Gaussian Processes, Bayesian last-layer models, and deep ensembles), which can be beneficial for downstream decision-making in risk-sensitive settings. Potential positive societal impacts include enabling more trustworthy model deployment by reducing overconfident predictions, supporting better uncertainty-aware decisions in applications such as scientific modeling, engineering design, and other domains where regression is a core component. By providing a transparent posterior over ensemble-member contributions and closed-form predictive uncertainty, this work may also facilitate diagnostic analyses that help practitioners detect brittle predictors and improve model accountability. To the best of our knowledge, this work does not introduce direct negative societal impacts or high-risk misuse concerns. 19

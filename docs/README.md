@@ -6,29 +6,24 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-11
-- 运行时间：2026-07-11 21:01:32 UTC
+- 最新运行日期：2026-07-12
+- 运行时间：2026-07-12 19:55:33 UTC
 - 运行状态：成功
-- 本次总论文数：2
+- 本次总论文数：1
 - 精读区：0
-- 速读区：2
+- 速读区：1
 
 ### 今日简报（AI）
-1）今日速读两篇7分论文，聚焦机器学习天气预报方法与流形监督学习。  
-2）值得关注方向：通过逆PDE实现流形上的监督学习，以及算法家族演化在天气预报中的应用。  
-3）普通读者可进一步探索物理约束如何提升模型在复杂数据上的泛化能力。
-- 详情：[/202607/11/README](/202607/11/README)
+今日速读1篇贝叶斯深度集成论文，评分7.0。核心是用解析预测推理替代蒙特卡洛采样，显著提升集成效率。建议重点评估该方法在资源受限场景下的部署可行性。
+- 详情：[/202607/12/README](/202607/12/README)
 
 ### 精读区论文标签
 - 本次无精读推荐。
 
 ### 速读区论文标签
-1. [On the Genealogy of Machine Learning Weather Prediction](/202607/11/2607.05045v1-on-the-genealogy-of-machine-learning-weather-prediction)  
+1. [Efficient Bayesian Deep Ensembles via Analytic Predictive Inference](/202607/12/2607.06776v1-efficient-bayesian-deep-ensembles-via-analytic-predictive-inference)  
    标签：评分：7.0/10、query:aqac
-   evidence：讨论用于大气动力学的科学代理建模
-2. [Intrinsic Green's Learning: Supervised Learning on Manifolds via Inverse PDE](/202607/11/2607.07034v1-intrinsic-greens-learning-supervised-learning-on-manifolds-via-inverse-pde)  
-   标签：评分：7.0/10、query:aqac
-   evidence：逆PDE学习格林函数用于流形学习
+   evidence：贝叶斯深度集成方法用于带校准不确定性的预测回归，可用于空气质量预报和偏差校正
 
 
 <div class="dpr-home-promo-card">

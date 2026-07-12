@@ -1,6 +1,9 @@
 * <a class="dpr-sidebar-root-link" href="#/">首页</a>
 * <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/tutorial/README">使用教程</a>
 * Daily Papers
+  * 2026-07-12 <!--dpr-date:20260712-->
+    * 速读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202607/12/2607.06776v1-efficient-bayesian-deep-ensembles-via-analytic-predictive-inference" data-sidebar-item="{&quot;title&quot;: &quot;Efficient Bayesian Deep Ensembles via Analytic Predictive Inference&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2607.06776v1-efficient-bayesian-deep-ensembles-via-analytic-predictive-inference&quot;, &quot;score&quot;: &quot;7.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;aqac&quot;}], &quot;evidence&quot;: &quot;贝叶斯深度集成方法用于带校准不确定性的预测回归，可用于空气质量预报和偏差校正&quot;}">Efficient Bayesian Deep Ensembles via Analytic Predictive Inference</a>
   * 2026-07-11 <!--dpr-date:20260711-->
     * 速读区
       * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202607/11/2607.05045v1-on-the-genealogy-of-machine-learning-weather-prediction" data-sidebar-item="{&quot;title&quot;: &quot;On the Genealogy of Machine Learning Weather Prediction&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2607.05045v1-on-the-genealogy-of-machine-learning-weather-prediction&quot;, &quot;score&quot;: &quot;7.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;aqac&quot;}], &quot;evidence&quot;: &quot;讨论用于大气动力学的科学代理建模&quot;}">On the Genealogy of Machine Learning Weather Prediction</a>
