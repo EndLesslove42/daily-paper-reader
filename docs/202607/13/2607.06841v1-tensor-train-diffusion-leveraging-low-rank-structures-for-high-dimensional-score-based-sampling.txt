@@ -1,0 +1,3126 @@
+Title: Tensor Train Diffusion: Leveraging Low-Rank Structures for High-Dimensional Score-Based Sampling
+
+URL Source: https://arxiv.org/pdf/2607.06841v1
+
+Published Time: Thu, 09 Jul 2026 00:20:54 GMT
+
+Number of Pages: 37
+
+Markdown Content:
+# Tensor Train Diffusion: Leveraging Low-Rank Structures for High-Dimensional Score-Based Sampling 
+
+Robert Gruhlke * 1 Julius Berner 2 David Sommer 3 Lorenz Richter * 4 5 
+
+## Abstract 
+
+Diffusion models offer a powerful framework for sampling from complex probability densities by learning to reverse a noising process. A common approach involves solving for the time-reversed stochastic differential equation (SDE), which re-quires the score function of the evolving sam-ple distribution. The logarithm of this distribu-tion’s density is governed by a Hamilton-Jacobi-Bellman (HJB) type partial differential equation (PDE). However, current methods for solving this PDE, such as PINNs or trajectory-based tech-niques, often suffer from long training times and significant sensitivity to hyperparameter tuning. In this work, we introduce a novel and efficient solver for the underlying HJB equation based on the functional tensor train (FTT) format. The FTT representation leverages latent low-rank struc-tures to efficiently approximate high-dimensional functions, enabling both model compression and rapid computation. By integrating this efficient representation with a backward-in-time iterative scheme derived from backward stochastic differ-ential equations (BSDEs), we develop a fast, ro-bust and accurate sampling method. Our approach overcomes primary bottlenecks of existing tech-niques, enabling high-fidelity sampling from chal-lenging target distributions with improved effi-ciency. 
+
+## 1 Introduction 
+
+Sampling from a complex, high-dimensional probability density 
+
+ptarget = ρtarget 
+
+Z , (1) 
+
+> *
+
+Equal contribution 1Freie Universit ¨at Berlin 2NVIDIA 3WIAS 
+
+> 4
+
+dida 5Zuse Institute Berlin. Correspondence to: Robert Gruhlke 
+
+<r.gruhlke@fu-berlin.de >, Lorenz Richter <richter@zib.de >.
+
+Proceedings of the 43 rd International Conference on Machine Learning , Seoul, South Korea. PMLR 306, 2026. Copyright 2026 by the author(s). 
+
+where the unnormalized density ρtarget can be evaluated pointwise but the normalizing constant Z is intractable and no samples from ptarget are available, constitutes a cen-tral challenge in modern machine learning, statistics, and the physical sciences. An especially versatile and powerful class of methods for this task is based on dynamical measure transport, which generates samples from the target distri-bution by evolving initial samples from a simple reference distribution – such as a standard Gaussian – along trajecto-ries defined by stochastic or ordinary differential equations. One of the most successful paradigms within this framework is the time reversal of a noising SDE, forming the founda-tion of diffusion models (Ho et al., 2020; Song et al., 2021). In this approach, a forward SDE – typically chosen as an 
+
+Ornstein-Uhlenbeck process – progressively transforms the target distribution into a simple prior by injecting noise over time. The central insight is that reversing this nois-ing process yields a generative SDE that transports samples from the prior back to the target distribution. A classical result (Nelson, 1967; Anderson, 1982) establishes that the drift of this time-reversed SDE is determined by the score function , ∇ log p(x, t ), where p(·, t ) denotes the density of the forward process at time t. Thus, the sampling problem reduces to accurately approximating this time-dependent score function. While diffusion models were originally de-veloped for the generative-modeling setting, in which the score is learned from samples via denoising score matching, here we adopt only the time-reversal mechanism: the score must instead be obtained without samples, directly from the unnormalized density ρtarget .Since the densities of SDEs are governed by the Fokker-Planck equation , one can employ the Hopf-Cole transform to relate the evolution of the log-density to a Hamilton-Jacobi-Bellman (HJB) equation (Berner et al., 2024). How-ever, solving this PDE is notoriously challenging, particu-larly in the high-dimensional settings typical in practical ap-plications, which are intractable for traditional mesh-based approaches. In the context of diffusion models, there exist at-tempts to approximate solutions to such HJB equations with neural networks, for example via physics-informed neural networks (PINNs) (Sun et al., 2024; Shi et al., 2024b). How-ever, the optimization of neural networks with stochastic gra-dient descent (SGD) requires a large number of (potentially 1arXiv:2607.06841v1 [stat.ML] 7 Jul 2026 Tensor Train Diffusion: Leveraging Low-Rank Structures for High-Dimensional Score-Based Sampling 
+
+costly) evaluations of ρtarget and relies on automatic differ-entiation to compute the higher-order derivatives appearing in the PDE. This leads to long training times, sensitivity to hyperparameters, and convergence to local minima (Krish-napriyan et al., 2021; Shi et al., 2024a; Xu et al., 2025). In this work, we depart from neural network-based PDE solvers and propose a novel approach based on functional tensor train (FTT) representations. Tensor trains are par-ticularly well-suited for this setting, as they can efficiently represent high-dimensional functions by exploiting latent low-rank structures, enabling both substantial model com-pression and fast computation. Moreover, the tensor train format is naturally compatible with backward-in-time re-gression schemes, which can be derived from the connection between HJB equations and backward stochastic differential equations (BSDEs). This yields an efficient implementation that circumvents the instabilities and complexities associ-ated with SGD-based optimization. Our main contributions can be summarized as follows: • We introduce Tensor Train Diffusion (TTD) 1, a novel solver for HJB equations that leverages connections between diffusion-based sampling, HJB equations, and BSDEs to achieve a favorable trade-off between com-putational cost and accuracy. • We demonstrate the flexibility of TTD by incorporating different basis functions – including Legendre polyno-mials, B-splines, and Fourier bases – and substantially improve robustness compared to previous tensor-train-based PDE solvers, effectively handling sampling tra-jectories outside the primary training domain. • We show that TTD can be used to sample from com-plex, multimodal target distributions of varying dimen-sionality, outperforming existing diffusion-based sam-plers in both speed and accuracy. 
+
+1.1 Related work Sampling from unnormalized densities. Drawing sam-ples from a density, specified up to the normalizing constant, is a crucial task in a wide range of computational sciences, ranging from molecular dynamics, to lattice field theory, to Bayesian statistics (Gelman et al., 2013; Zhang et al., 2023). Due to the great interest, a large amount of literature focused on developing corresponding sampling methods, often based on variants of Markov chain Monte Carlo (MCMC) and 
+
+Langevin dynamics (Neal, 2001; Chopin, 2002; Del Moral et al., 2006). However, such algorithms typically require substantial tuning and long runtimes to sample from high-dimensional distributions with well-separated modes (La-tuszy´ nski et al., 2025; Brooks et al., 2011).           
+
+> 1The code is available at https://github.com/ robertgruhlke/TTD .Annealed Langevin Learned diffusion, iteration 1 Learned diffusion, iteration 2
+> Figure 1. Overview of the proposed TTD method. From left to right: Annealed Langevin dynamics serve as an initialization for our approach. By learning the score function along relevant trajectories, TTD iteratively refines the sampling process. As a result, new modes are discovered and the quality of samples improves. The histograms illustrate the terminal samples of the trajectories in comparison to the target density.
+
+Diffusion-based samplers. To combat these issues, varia-tional inference methods propose to turn the sampling prob-lem into an optimization problem over a tractable family of distributions. Translating the success of diffusion mod-els to sampling problems, recent works proposed to use parametrized SDEs for these families (Richter & Berner, 2024; Berner et al., 2024; 2026; Vargas et al., 2024; Bless-ing et al., 2025; 2026a;b). Since the drifts of the SDEs are typically parametrized by neural networks that incorporate the gradient of the target density, such approaches can be viewed as a learnable corrections to Langevin dynamics, aiming to converge after finite trajectory lengths. However, this also leads to a significant amount of (potentially costly) density evaluations during SDE simulations, which are typ-ically also needed for training. While such methods can outperform classical methods in terms of inference perfor-mance and efficiency, they suffer from a high upfront cost for optimizing the parameters of the SDE. 
+
+Neural PDE solver. Since the dynamics of SDEs are governed by Fokker-Planck equations, we can equivalently solve the corresponding PDE in order to optimize the vari-ational family of SDEs. However, such high-dimensional PDEs are out of scope for traditional mesh-based methods, such as finite differences or finite elements, which suffer from the curse of dimensionality . There is a series of works proposing variants of physics-informed neural networks for this problem (Shi et al., 2024b; Albergo & Vanden-Eijnden, 2025; Sun et al., 2024). While they can scale to higher dimensions, they do not address the high training costs due to their reliance on evaluations of the target density and higher-order derivatives as well as high sensitivity to hyper-parameters. Methods that are based on iterative diffusion optimization additionally suffer from large computational costs to repeatedly simulate diffusion trajectories (N ¨usken & Richter, 2021; 2023). 
+
+Tensor trains. Many target densities of interest exhibit an inherent low-rank structure. To exploit this, we propose to approximate the drift using functional tensor trains (FTT, Os-2Tensor Train Diffusion: Leveraging Low-Rank Structures for High-Dimensional Score-Based Sampling 
+
+eledets (2013)) in their numerical realization, the extended (functional) tensor train format (Eigel et al., 2022; Str ¨ossner et al., 2024) is sometimes referred to as spectral tensor trains (Bigoni et al., 2016). The effectiveness of such repre-sentations has already been demonstrated in related contexts, for example in sampling problems connected to HJB equa-tions (Gruhlke et al., 2026), as well as for the Fokker-Planck and HJB equations in Dolgov et al. (2012). Low-rank ten-sor formats enable efficient regression-based solvers with broad applicability; see Bachmayr (2023) for an overview. Moreover, they constitute a rigorous nonlinear approxima-tion class, with detailed analyses provided in Kazeev & Schwab (2018); Ali & Nouy (2020a;b; 2021); Bachmayr et al. (2021); Griebel et al. (2023); Bachmayr (2023). In this work, we build on the ideas developed in Richter et al. (2021; 2024) and extend them to the sampling setting. Inspired by Bouchard & Touzi (2004); Gobet et al. (2005); Hur ´eet al. (2020), we notice that the Fokker-Planck equation is the linearization of a Hamilton-Jacobi-Bellman equation under the Hopf-Cole transform, such that the optimal drift can be written in terms of backward SDEs (BSDEs) that lead to simple regression problems. Together with the TT parametrization, we show that this reformulation of the PDE leads to an efficient and scalable sampler. 
+
+Notation. We define time-inversion as ⃗ f (t) := f (T − t).For other notation, including our tensor notation, we refer to Table 1 in the appendix. 
+
+## 2 Diffusion-based sampling 
+
+In this section, we demonstrate how learned stochastic pro-cesses can be employed to sample from the target distribu-tion and introduce a stochastic algorithm that formalizes the associated learning task. 
+
+2.1 Time-reversal and the related Hamilton-Jacobi-Bellman PDE 
+
+Our sampling algorithm for ptarget builds on the idea of reversing a noising process that approximately evolves to-wards an easy-to-sample distribution pprior at terminal time 
+
+T (Song et al., 2021; Berner et al., 2024). To this end, we consider the process 
+
+dYs = −⃗f (Ys, s ) d s +⃗ σ(s) d Ws, Y0 ∼ ptarget , (2) Unlike classical diffusion models with access to samples from ptarget , the noising process cannot be simulated. The process Y therefore serves only as an auxiliary analytical construct and is not part of the algorithm. The corresponding sampling dynamics, which can be simulated, is given by 
+
+dXus =  f + σu (Xus , s )d s + σ(s)d Ws, Xu 
+
+> 0
+
+∼ pYT , (3) where the objective is to learn a function u that reverses the dynamics of (2) , ensuring that Xu∗ 
+
+> T
+
+∼ ptarget . It is well known that the optimal solution is given by the (scaled) 
+
+score function u∗ = σ⊤∇ log ⃗ pY (Nelson, 1967; Anderson, 1982). Moreover, as shown in Berner et al. (2024), this function can be equivalently characterized via the following Hamilton-Jacobi-Bellman (HJB) PDE. 
+
+Lemma 2.1 (HJB PDE for the log-density) . Let V := 
+
+− log ⃗ pY . Then, V (·, T ) = − log ptarget and 
+
+∂tV = − 12 Tr( σσ ⊤∇2V ) − f · ∇ V
+
++ div( f ) + 12 σ⊤∇V 2. (4) It is important to note that the boundary term may be re-placed by its unnormalized version − log ρtarget . This sub-stitution merely shifts the PDE solution by an additive con-stant, which is irrelevant for the optimal control since only the gradient of the solution enters. While equation (4) formally provides a recipe for approxi-mating the log-density and, consequently, the score function, it is well known that solving PDEs in high dimensions is notoriously challenging. In the following, we therefore in-troduce a procedure that combines Monte Carlo estimation with suitable function approximation to efficiently handle high-dimensional settings. 
+
+2.2 BSDE representations and backward iterations 
+
+One approach to approximate certain nonlinear high-dimensional PDEs relies on backward stochastic differential equations (Pardoux, 1998). Their main idea relies on It ˆo’s formula, which, for a stochastic process Xu as defined in (3), states that 
+
+V (XuT , T ) − V (Xu 
+
+> 0
+
+, 0) = 
+
+Z T
+
+> 0
+
+σ⊤∇V (Xus , s ) · dWs +
+
+Z T
+
+> 0
+
+ ∂tV + 12 Tr( σσ ⊤∇2V ) + ( f + σu ) · ∇ V (Xus , s )d s. 
+
+(5) Now, assuming that V solves the HJB PDE (4) , we may equivalently write BSDE( V ) = 0 with 
+
+BSDE( V ) := V (Xu 
+
+> 0
+
+, 0) − V (XuT , T )+
+
+Z T
+
+> 0
+
+h(u, ∇V )( Xus , s ) d s +
+
+Z T
+
+> 0
+
+σ⊤∇V (Xus , s ) · dWs,
+
+where for convenience we defined the nonlinear term 
+
+h(u, ∇V ) := div( f ) + 12 σ⊤∇V 2 + u · σ⊤∇V. (6) Conversely, when replacing V by an approximation eV ,
+
+BSDE( eV ) = 0 can only hold if V = eV almost surely, by uniqueness of the PDE. This motivates to consider loss functionals of the form 
+
+L( eV ) := E
+
+h  BSDE( eV )2i
+
+, (7) 3Tensor Train Diffusion: Leveraging Low-Rank Structures for High-Dimensional Score-Based Sampling 
+
+where the expectation is over different realizations of the process Xu, cf. E et al. (2017). In principle, V can now be learned by minimizing the loss (7) w.r.t. V . However, since solving the minimization problem in its entirety is difficult, it is natural to decompose it into a sequence of smaller sub-problems. Following the dynamic programming principle from optimal control theory (Fleming & Rishel, 2012), we thus partition the time horizon into disjoint intervals accord-ing to the grid 0 = t0 < t 1 < · · · < t N = T , and aim to compute V on each interval separately. Our envisioned al-gorithm proceeds backward in time, beginning with the final interval [tN −1, t N ] and employing the terminal condition 
+
+V (·, T ) = − log ptarget . Next, for each preceding interval, the terminal condition is given by the solution obtained at the right endpoint of the subsequent interval. In practice, this means that V (·, t n) is replaced by its previously com-puted approximation eV (·, t n) for n = 1 , . . . , N − 1. For further details we refer to Algorithm 1 and Richter et al. (2021; 2024). In practice, we need to discretize both the process (3) and the (stochastic) integrals appearing in the loss (7) . Using the same time grid as before, we approximate the solution only at the grid points, i.e., we seek functions bVn such that 
+
+bVn ≈ V (·, t n) for n = 0 , . . . , N − 1. To this end, we employ the Euler-Maruyama scheme 
+
+bXun+1 = bXun + f +σu ( bXun , t n)∆ t+σ(tn)ξn+1 
+
+√∆t, (8) where ∆t = tn+1 −tn is the time step and ξn+1 ∼ N (0 , Id) 
+
+are independent standard normal random variables. We then define for each n = 0 , . . . , N − 1 the discrete loss 
+
+bLn( bVn) = E
+
+h bVn( bXun ) + σ(tn)⊤∇ bVn( bXun ) · ξn+1 
+
+√∆t
+
++ hun+1 ∆t − bVn+1 ( bXun+1 )
+
+2i
+
+,
+
+(9) where hun+1 := h(u, bVn+1 )( bXun+1 , t n+1 ). The loss (9) is obtained by discretizing its continuous version (7) by choos-ing the right endpoint of the deterministic integral and the left endpoint of the stochastic integral. As a next step, the expectation in (9) is discretized by K ∈ N sam-ple sequences ( bXu, (k) 
+
+> n
+
+)n for k = 1, . . . , K , generated from (8) . Defining Σ(k) 
+
+> n
+
+= σ(tn)ξ(k)
+
+> n+1
+
+√∆t ∈ Rd and 
+
+y(k) 
+
+> n+1
+
+= bVn+1 ( bXu, (k) 
+
+> n+1
+
+) − hu, (k) 
+
+> n+1
+
+∆t, the loss in (9) can be approximated using the empirical loss 
+
+bLKn ( bVn) := 1
+
+K
+
+> K
+
+X
+
+> k=1
+
+Id + Σ (k) 
+
+> n
+
+· ∇  bVn( bXu, (k) 
+
+> n
+
+) − y(k)
+
+> n+1
+
+2
+
+.
+
+(10) Note the affine dependence in bVn, making it well-suited for regression-based methods. Moreover, up to discretization error, the loss has the convenient property that it is almost 
+
+Algorithm 1 Approx. of HJB PDE and optimal control 
+
+Input: Initial parametric choice for the functions bV (0) 
+
+> n
+
+and educated guess for bu(0)  
+
+> n
+
+for n ∈ { 0, . . . , N − 1}.Number of outer iterations I.
+
+Output: Approximation of V (·, t n) ≈ bV (I) 
+
+> n
+
+and 
+
+u∗(·, t n) ≈ bu(I) 
+
+> n
+
+for n ∈ { 0, . . . , N − 1}.
+
+for i = 1 to I do 
+
+Simulate K samples of the discretized SDE bXu(i−1) 
+
+according to (8). Choose bV (i) 
+
+> N
+
+= − log ρtarget .
+
+for n = N − 1 to 0 do 
+
+Discretize bLn( bV (i) 
+
+> n
+
+) as in (9) using Monte Carlo. Minimize the resulting bLKn ( bVn) from (10) and set 
+
+bV (i) 
+
+> n
+
+to be the minimizer. Set bu(i) 
+
+> n
+
+:= −σ⊤(tn)∇ bV (i) 
+
+> n
+
+.
+
+end for end for 
+
+surely zero at the solution, additionally implying vanishing variance at the optimum. For further analysis we refer to Richter et al. (2024). 
+
+Remark 2.2 (Gradient approximation) . A key feature of the loss (9) is its explicit dependence on both the function bVn
+
+and its gradient ∇ bVn. Because the loss penalizes errors in both terms, minimizing it provides a direct incentive to accurately approximate both the function and its derivative. This is particularly advantageous, as the optimal control relies directly on this gradient. 
+
+Remark 2.3 (Error propagation) . When decomposing the problem into subproblems, one must take into account the possible propagation of approximation errors. These arise because, in practice, the approximation bVn+1 (·) ≈
+
+V (·, t n+1 ), which serves as a “terminal condition” for com-puting the individual losses, is generally not exact (see Sec-tion 8.3.3 in Gobet (2016)). 
+
+Remark 2.4 (Solving the PDE along a random grid) . Un-like traditional numerical methods for PDEs, BSDE-based approaches can be interpreted as operating on dynami-cally adaptive random grids, provided by the grid points 
+
+( bXu, (k) 
+
+> n
+
+)k,n . This perspective highlights their potential to achieve dimension-free Monte Carlo convergence rates. 
+
+Remark 2.5 (Fewer target evaluations) . A strategy we adopt later is to first approximate the (unnormalized) log-target 
+
+ρtarget via a simple regression task. The resulting surrogate model can then be employed both for potential Langevin initialization runs and within the outer loop of Algorithm 1. This approach has the advantage that only a potentially small number of target evaluations are required initially; see also Theorem 3.2. Theorem 2.4 highlights an additional challenge in sampling applications: we only need to approximate V , and hence 4Tensor Train Diffusion: Leveraging Low-Rank Structures for High-Dimensional Score-Based Sampling 
+
+the control u, accurately along the trajectories of Xu. How-ever, during training we learn Xu along one set of sampled trajectories, while the actual evaluation later takes place along potentially different trajectories. To address this mis-match, we propose an iterative learning scheme with an outer loop that begins from an informed initial guess u(0) 
+
+(typically corresponding to Langevin dynamics) and, at each step, updates the control using the solution u(i) obtained in the i-th iteration. This iterative refinement is expected to gradually align the training and evaluation distributions, so that the trajectories used for learning become sufficiently close to those relevant for sampling. In this way, the pro-cedure concentrates on the regions of the state space that are most important for the optimal sampling process; see Algorithm 1 and Figure 1 for an illustration. We note that in our numerical experiments in Section 4 the algorithm typically converges in less than 3 iterations. Furthermore, we refer to Section A.4.4 for strategies to extend the learned control in a principled way beyond the data domain. 
+
+## 3 Tensor trains as approximating functions 
+
+This section introduces low-rank tensor formats for approx-imating the functions bVn. We focus on functional tensor trains (FTTs, Oseledets (2013)); for related work on low-rank function approximation, see Ali & Nouy (2020a;b; 2021); Bachmayr et al. (2021); Griebel et al. (2023); Bach-mayr (2023). The FTT format is a nonlinear approximation class that exploits separability in the coupling of input vari-ables. Its numerical realization via tensor trains yields a Riemannian manifold structure, enabling efficient and sta-ble algorithms, including optimization (Oseledets, 2011). When such separability is present, FTTs provide accurate and efficiently evaluable representations. Let D = ×di=1 [ai, b i] ⊂ Rd with ai < b i for i = 1 , . . . , d .A function f : D → R is said to have FTT rank r =(r1, . . . , r d−1) ∈ Nd−1, if it can be written as 
+
+f (x) = f (x1, . . . , x d) = F1(x1)F2(x2) · · · Fd(xd) (11) with matrix valued functions Fi(xi) ∈ Rri−1,r i for i =1, . . . , d with the convention r0 = rd = 1 . Note that in the case d = 2 , the FTT format (11) can be interpreted as a singular value decomposition (SVD) in function space, since 
+
+f (x1, x 2) = F1(x1)F2(x2) = Pr1
+
+> k=1
+
+[F1(x1)] k[F2(x2)] k.Thus, the FTT format can be viewed as a generalization of the SVD to high-dimensional functions, while retaining important properties such as closedness (Holtz et al., 2012b). In order to make this format accessible for approximation, a discretization in each direction xi will be introduced. To this end, let H = Ndi=1 Hi(ai, b i) be a product Hilbert space on D, where each Hi(ai, b i) is equipped with a scalar product (·, ·)Hi . For m = ( m1, . . . , m d) ∈ Nd, using the notation in Table 1 in the appendix, define the discrete set of H-orthonormal tensor basis functions Bm := {ϕα := 
+
+Ndi=1 ϕiαi | α ∈ [m]}, with univariate Hi-orthonormal basis functions ϕiαi : [ ai, b i] → R. For f with FTT rank r,we may then approximate 
+
+f (x) ≈ C[Φ( x)] := X
+
+> α∈[m]
+
+C[α]ϕα(x1, . . . , x d), (12) for Φ( x) = ( ϕ1 
+
+> j
+
+(x1)) m1 
+
+> j=1
+
+⊗ · · · ⊗ (ϕdj (xd)) md 
+
+> j=1
+
+∈ Rm and a tensor array C ∈ Rm with (algebraic) tensor train (TT) rank r = ( r1, . . . , r d−1)⊤ ∈ Nd−1 bounded by the FTT rank r. In particular, we have the decomposition into a tensor train (or matrix product state) format as 
+
+C[α] = C1[α1]C2[α2] · · · Cd[αd], (13) with order three tensors Ci ∈ Rri−1,m i,r i defining matrices 
+
+Ci[αi] = Ci[: , α i, :] ∈ Rri−1,r i with the convention that 
+
+r0 = rd = 1 . The set of TTs of fixed rank r is denoted as 
+
+Mmr . In particular, there exists a maximal possible TT rank 
+
+r ∈ Nd−1 such that Mmr = Rm.In what follows, we refer to a function in the form of the right hand side (12) as extended tensor train (xTT). The xTT format is a special case of the FTT format with a spe-cific choice of univariate basis functions. The set of xTTs building on Mmr is denoted as 
+
+X mr := 
+
+n bVC = C[Φ( ·)] | C ∈ M mr ⊂ Rmo
+
+. (14) Note that, by construction, we have X mr ⊂ H for any rank 
+
+r ≤ r, and for any bVC ∈ X mr it holds that ∥ bVC ∥H =
+
+∥C∥F. Key properties of the considered nonlinear low-rank model class include storage complexity, multi-linearity and related efficient evaluation. Provided that the ranks can be bounded, the TT format exhibits a storage complexity based on the shape of each component tensor Ci with upper bound 
+
+O(max( m1, . . . , m d)d max( r1, . . . , r d−1)2), which scales only linearly in the dimension d. Moreover, a function in xTT format can be evaluated fast and numerically stably, including possible access to gradients or Hessians, see Sec-tion A.4 for details. To this end, originated by (10) , we are interested in solving a sequence of optimization tasks for 
+
+n = 1 , . . . , N − 1 given by 
+
+min   
+
+> bVC∈X mr
+
+n bLKn ( bVC ) + τn∥ bVC ∥2
+
+> H
+
+o
+
+=min 
+
+> C∈M mr
+
+n bLKn ( bVC ) + τn∥C∥2F
+
+o (15) for some regularization magnitude τn > 0. Note that the reg-ularization term involves the H norm, see Appendix A.3.1. Recall that we are interested in approximating the true value function V (x, t), which is expected to have varying H norm over time snapshots t = t0, . . . , t N . Consequently, to relate 5Tensor Train Diffusion: Leveraging Low-Rank Structures for High-Dimensional Score-Based Sampling 
+
+the regularized loss from (15) to the original loss from (10) ,the regularization magnitude needs to be chosen suitably and adaptively, which we explain in detail in Section A.6.1. Further, it is crucial to choose the TT rank r and the num-bers of degrees of freedom m appropriately, and we provide a corresponding adaptive strategy in Section A.6.2 and Sec-tion A.6.3. Moreover, a detailed discussion of choices for tensor basis functions, along with their associated advan-tages and challenges, is given in Section A.3. Finally, a discussion of the FTT rank analysis for certain classes of functions is provided in Section A.7. 
+
+3.1 Optimization via alternating least squares 
+
+The set Mr defines a Riemannian manifold (Holtz et al., 2012b), rendering the option for Riemannian optimization. Here, we consider an alternative approach for minimization based on alternating least squares (ALS), cf. Holtz et al. (2012a). In particular, instead of solving (15) via iterates of the whole TT C, we split the minimization into iterations of so-called sweeps consisting of several micro steps . In each micro step we update the i-th component of the TT only, while fixing all other components. For this, we compactly write (see Section A.1) 
+
+C = C1C2 · · · Cd = U1 · · · Ui−1C Ui+1 · · · Ud
+
+with orthogonal order three tensors Uj ∈ Rrj−1,m j ,r j for 
+
+j = 1 , . . . , i − 1, i + 1 , . . . d and a so-called core C ∈
+
+Rri−1,m i,r i , see Section A.2 for more details. Then, at each micro step, the loss from (15) reduces to the problem 
+
+min  
+
+> C
+
+∥Aui,n vec( C) − yn+1 ∥22 + τn∥C∥2 
+
+> F
+
+, (16) with a matrix Aui,n ∈ RK,r i−1miri and yn+1 = ( y(k)
+
+> n+1
+
+)k ∈
+
+RK , see Section A.5 for a derivation. After solving the minimization task stated in (15) , which yields a TT Cn ∈ M mr , we then obtain an approximation of our value function V (·, t n) at time t = tn, denoted by 
+
+bVCn ∈ X mr , in xTT format, i.e. 
+
+V (x, t n) ≈ bVn(x) ≈ bVCn = Cn[Φ( x)] , ∀x ∈ D. (17) 
+
+Remark 3.1 (Extension strategies for the domain) . The ap-proximation of the value function V is only defined locally on a domain D ⋐ Rd. In practice, this domain is given by D = Dun, which depends on both the time step and the current policy u. If, during the sampling dynamics in (3) , the required policy evaluation u∗ = −σ⊤∇V in-volves points outside of D, suitable extension strategies must be employed. We discuss these strategies in detail in Section A.4.4. 
+
+Remark 3.2 (Initialization of xTTs) . The minimization re-quires initial xTTs. At the final time t = tN , we initialize via an L2 regression of the log-target density using samples from the initial sampling dynamics. Given an approximate xTT at tn+1 , the initialization at tn is obtained by a gener-alized Galerkin-type projection of this xTT, accounting for the domain change; see Section A.4.5. 
+
+Remark 3.3 (Stabilization of backward regressions) . While the backward iteration in Algorithm 1 combined with FTTs offers clear advantages over iterative loss minimization with neural networks, it also poses stability challenges. Address-ing these issues is a key contribution of this work; the corre-sponding stabilization strategies are detailed in the appendix. These include the choice of suitable basis functions (Sec-tion A.3), handling moving domains along sample trajecto-ries and evaluations outside these domains (Sections A.4.4 and A.4.5), adaptive regularization (Section A.6.1), adaptive rank selection (Section A.6.2), and adaptive basis degree selection (Section A.6.3). 
+
+## 4 Numerical experiments 
+
+In this section we evaluate our sampling algorithm on chal-lenging high-dimensional problems. We refer to an addi-tional problem from computational statistics in Section B.5. 
+
+4.1 Highdimensional Multiwell problems 
+
+We first consider a class of Multiwell problems, defined by 
+
+ρtarget (x) = exp −
+
+> m
+
+X
+
+> i=1
+
+(x2 
+
+> i
+
+− δ)2 − 12
+
+> d
+
+X
+
+> i=m+1
+
+x2
+
+> i
+
+!
+
+, (18) which are commonly used benchmarks (Berner et al., 2024; Richter & Berner, 2024; Wu et al., 2020; Midgley et al., 2022). These densities are chosen because they resemble physics and molecular dynamics problems, providing an indication of performance in practical applications. At the same time, they offer a controlled setting for systemati-cally studying the three key challenges in sampling: (1) the dimensionality d, (2) the mode separation δ, and (3) the number of modes 2m. In our experiments, we use a Fourier basis (see Section A.3.1) with 3 to 13 basis functions per dimension, treating this as a hyperparameter tuned accord-ing to the observed approximation quality. We employ an 
+
+H2mix orthonormalization as described in Section A.3.2. For the noising process (2) , we set f (x, t ) = x, σ(t) = √2,and consider a time horizon T = 2 . We apply Algorithm 1 to two Multiwell problems, with dimensions d = 10 and 
+
+d = 50 and 8 and 32 modes, respectively, with δ = 2 .As shown in Figure 3, increasing the number of time steps N
+
+(which also determines the number of functions bVn approxi-mated) steadily improves sampling performance, ultimately achieving remarkable quality. Importantly, the algorithm’s runtime is significantly faster than that of alternative, pre-dominantly neural network-based samplers. In d = 10 ,6Tensor Train Diffusion: Leveraging Low-Rank Structures for High-Dimensional Score-Based Sampling 2 1 0 1 2           
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8 1dmarginal
+> 21012
+> 2
+> 1
+> 0
+> 1
+> 2
+> 2dmarginal
+> 21012
+> 4
+> 2
+> 0
+> 2
+> 4
+> Control approximation
+> FTT approximation
+> Reference solutions
+
+Figure 2. We plot one- and two-dimensional marginals of our Mul-tiwell problem in d = 50 , showing very high sampling accuracy that aligns with the metrics in Figure 3. Notably, our algorithm does not exhibit mode collapse, a common challenge in diffusion-based sampling (cf. Figure 1). On the right-hand side, we compare the first component of the learned control with a reference solution (computed via finite differences on one-dimensional problems) at 
+
+t = 1 .9 for x-values varying along a single dimension. 
+
+training ranges roughly from 1 minute ( N = 2 8) to 20 min-utes ( N = 2 13 ), while in d = 50 it ranges from 10 to 300 
+
+minutes. Note that the runtime grows linearly with N . We refer to Figure 4 for a comparison with the time-reversed diffusion sampler (DIS) from (Berner et al., 2024), which considers the same noising SDE, however relies on neural network approximations and variational training. We re-fer to Figure 14 in Section B.4 for a comparison to further sampling methods, showing significantly improved perfor-mance. Finally, we refer to Figure 2 comparing marginals of the 50 dimensional problem with a reference solution. 
+
+Remark 4.1 (Approximation of log Z and the PDE solution) .
+
+We note that the Girsanov theorem relates the error in the log-normalizing constant log Z to the L2-approximation of the ground-truth score ∇ log p, i.e., the gradient of the solution to the HJB equation w.r.t. to the measure induced by ptarget (Berner et al., 2024). Under suitable assumptions, one can further leverage Poincar ´e inequalities to relate this error to the L2-approximation of the PDE solution itself, measuring the accuracy of our proposed PDE solver. 
+
+4.2 Investigation of optimal ranks 0 1 2    
+
+> 10 2
+> 10 1
+> 10 0
+> Singular value ratio
+> TT component 3
+> 012
+> time
+> 2
+> 3
+> 4
+> 5
+> Rank
+
+Figure 5. We display the singu-lar values of TT component 3 over time and reduce the rank whenever a corresponding value is below a prespecified threshold. 
+
+In this section, we study highly anisotropic Gaus-sian targets to analyze the rank structure of the induced transport prob-lems and to assess the adaptivity of our algo-rithm. We consider tar-get densities with po-tential log ρtarget (x) = 
+
+−x⊤M x, where M is a random full-rank matrix. For this class, the max-imal admissible rank is r = (3 , 4, . . . , 2 + 
+
+d/ 2, . . . , 4, 3) ∈ Nd−1
+
+for even d; see Theo-rem A.6 for the general case. As the target distribution converges toward the stan-dard normal, pYT ≈ pprior = N (0 , Id) , the ranks are ex-pected to approach the constant vector r = (2 , . . . , 2) . This behavior is confirmed in Figure 5, which shows the evolu-tion of singular values and the corresponding rank adaptiv-ity, resulting in a reduced runtime. The clear spectral gaps demonstrate that the algorithm reliably identifies and adapts to the appropriate ranks over time; see also Figure 11 in the appendix. 
+
+4.3 ϕ4 scalar field theory 
+
+Next, we evaluate our method on the discretized Ginzburg-Landau model (specifically, the ϕ4 scalar field theory), a canonical framework in statistical mechanics used to de-scribe continuous phase transitions and spontaneous sym-metry breaking (Ginzburg & Landau, 1950; Rosenstein & Li, 2021). The target density is defined by a Gibbs distri-bution over a lattice, characterized by a highly non-convex energy landscape resulting from the competing forces of local bistability and nearest-neighbor spatial coupling, 
+
+ρtarget (x) = exp − 12
+
+> d−1
+
+X
+
+> i=1
+
+(xi − xi+1 )2
+
+− 12
+
+> m
+
+X
+
+> i=1
+
+(x2 
+
+> i
+
+− δ)2 − 12
+
+> d
+
+X
+
+> i=m+1
+
+x2
+
+> i
+
+!
+
+.
+
+(19) This system is highly challenging for sampling algo-rithms, as the target distribution exhibits exponentially many metastable modes separated by high-energy barriers, lead-ing to severe mode collapse in standard MCMC methods. Nearest-neighbor interactions further induce strong depen-dencies between lattice sites, resulting in a highly con-strained and correlated high-dimensional geometry. For 
+
+δ = 2 , Figure 6 shows that the TTD method generates high-quality samples in two distinct multimodal regimes. 
+
+## 5 Conclusion & Discussion 
+
+In this work, we introduced Tensor Train Diffusion (TTD), an efficient PDE solver for high-dimensional HJB equations leading to a novel way of sampling from unnormalized densities. Our method solves the HJB equation underlying the diffusion process using a functional tensor train (FTT) representation. By integrating this with a backward-in-time iterative scheme derived from BSDEs, TTD provides a fast, accurate, and stable alternative to neural network techniques. In particular, TTD requires less target evaluations and does not rely on SGD-based optimization with long training times and hyperparameter sensitivity. In general, our TTD framework presents a solid foundation for the robust and efficient solution of HJB equations, that can readily be used for different sampling problems – we refer to potential limitations in Section B.1. While we pro-7Tensor Train Diffusion: Leveraging Low-Rank Structures for High-Dimensional Score-Based Sampling 28 29 210 211 212 213 
+
+> N
+> 0.5
+> 1.0
+
+ESS       
+
+> Iteration 1
+> Iteration 2
+> 2829210 211 212 213
+> N
+> 10 1
+> 10 0
+
+Log-variance      
+
+> 2829210 211 212 213
+> N
+> 7.30
+> 7.31
+> 7.32
+
+Estimated log Z        
+
+> 2829210 211 212 213
+> N
+> 10 5
+> 10 4
+> 10 3
+
+Relative error log Z
+
+Multiwell, d = 10, m = 3, = 2 28 29 210 211 212 213  
+
+> N
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+
+ESS       
+
+> 2829210 211 212 213
+> N
+> 10 1
+> 10 0
+
+Log-variance      
+
+> 2829210 211 212 213
+> N
+> 42.6
+> 42.7
+> 42.8
+
+Estimated log Z        
+
+> 2829210 211 212 213
+> N
+> 10 5
+> 10 4
+> 10 3
+
+Relative error log Z
+
+Multiwell, d = 50, m = 5, = 2 
+
+Figure 3. We consider two instances of the Multiwell problem defined in (18) and evaluate performance using the effective sample size (ESS), log-variance divergence, as well as the log-normalizing constant and its relative error; see Section B.2. As expected, increasing the number of steps N leads to improved performance and the outer loop can provide additional gains. Remarkably, both the ESS and relative error remain stable even in the more challenging d = 50 case. 10 0 10 1 10 2 10 3
+
+> time (in min)
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+
+ESS        
+
+> 10 010 110 210 3
+> time (in min)
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+
+error estimated log Z    
+
+> 10 110 210 3
+> time (in min)
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+
+ESS      
+
+> 10 110 210 3
+> time (in min)
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+> 10 1
+
+error estimated log Z                
+
+> Multiwell, d= 10, m= 3, = 2 Multiwell, d= 50, m= 5, = 2
+> TTD, iteration 1 TTD, iteration 2 DIS, N=50 DIS, N=200 DIS, N=400
+
+Figure 4. We compare the performance versus runtime of our TTD sampler with DIS (Berner et al., 2024). By design, our algorithm produces one result per chosen number of steps N (shown as blue and orange dots), whereas DIS can improve over training time. Accordingly, we evaluate DIS at equally spaced runtime intervals. In both experiments, our algorithm is not only significantly faster but also achieves better results, particularly in settings where DIS can exhibit instability. 210 211 212 213 
+
+N
+
+0.8 
+
+0.9 
+
+ESS 
+
+iteration 0 
+
+iteration 1 
+
+210 211 212 213 
+
+N
+
+10 1
+
+6 × 10 2
+
+Log-variance 
+
+d = 10, m = 3 
+
+210 211 212 213 
+
+N
+
+0.50 
+
+0.75 
+
+ESS 
+
+210 211 212 213 
+
+N
+
+10 1
+
+10 0
+
+Log-variance 
+
+d = 30, m = 5 
+
+Ginzburg-Landau model 
+
+Figure 6. We consider two instances of the Ginzburg-Landau model defined in (19) and assess performance using the effective sample size (ESS) and the log-variance divergence. In both settings, we obtain strong results, with performance improving as the number of steps 
+
+N and the number of outer iterations increase. 
+
+8Tensor Train Diffusion: Leveraging Low-Rank Structures for High-Dimensional Score-Based Sampling 
+
+vide a significantly accelerated tensor train implementation in PyTorch, we believe that further hardware-specific op-timization is possible. On the theoretical side, our work motivates further research to analyze latent low-rank struc-tures of different target densities for educated choices of basis functions and variable orderings. Future work could also combine the framework with neural network models or classical sampling methods, as well as extend TTD to broader classes of PDEs and applications. From a theoreti-cal perspective, an open question concerns the behavior of FTT ranks for solutions of the underlying HJB equation, which is only partially understood (Gruhlke et al., 2026). In the general case, the current state-of-the-art theory (Ali & Nouy, 2020a;b; 2021; Griebel et al., 2023; Bachmayr, 2023) does not directly apply and would need to be extended to weighted regularity classes, since solutions of HJB equa-tions are defined on Rd and are generally unbounded as 
+
+∥x∥ → ∞ . Consequently, on the computational side, one must rely on rank-adaptive approaches, i.e., determining the xTT ranks for the approximation in an adaptive manner. 9Tensor Train Diffusion: Leveraging Low-Rank Structures for High-Dimensional Score-Based Sampling 
+
+## Impact Statement 
+
+This paper presents work whose goal is to advance the field of Machine Learning. There are many potential societal consequences of our work, none which we feel must be specifically highlighted here. 
+
+## Acknowledgements 
+
+The authors thank Denis Blessing for many useful dis-cussions. The research of L.R. was partially funded by Deutsche Forschungsgemeinschaft (DFG) through the grant CRC 1114 “Scaling Cascades in Complex Systems” (project A05, project number 235221301 ). The research of R.G. was funded by the Deutsche Forschungsgemeinschaft (DFG, German Research Foundation) under Germany’s Excellence Strategy (EXC-2046/2, project ID 390685689). 
+
+## References 
+
+Albergo, M. S. and Vanden-Eijnden, E. NETS: A non-equilibrium transport sampler. arXiv preprint arXiv:2410.02711 , 2025. Ali, M. and Nouy, A. Approximation with tensor net-works. Part I: Approximation spaces. arXiv e-print , pp. arXiv:2007.00118, 2020a. Ali, M. and Nouy, A. Approximation with tensor networks. Part II: Approximation rates for smoothness classes. 
+
+arXiv e-print , pp. arXiv:2007.00128, 2020b. Ali, M. and Nouy, A. Approximation with tensor networks. Part III: Multivariate approximation. arXiv e-print , pp. arXiv:2101.11932, 2021. Anderson, B. D. Reverse-time diffusion equation models. 
+
+Stochastic Processes and their Applications , 12(3):313– 326, 1982. Arbel, M., Matthews, A., and Doucet, A. Annealed flow transport Monte Carlo. In International Conference on Machine Learning , pp. 318–330, 2021. Bachmayr, M. Low-rank tensor methods for partial differ-ential equations. Acta Numerica , 32:1–121, 2023. Bachmayr, M., Nouy, A., and Schneider, R. Approx-imation by tree tensor networks in high dimensions: Sobolev and compositional functions. arXiv preprint arXiv:2112.01474 , 2021. Berner, J., Richter, L., and Ullrich, K. An optimal con-trol perspective on diffusion-based generative modeling. 
+
+Transactions on Machine Learning Research , 2024. Berner, J., Richter, L., Sendera, M., Rector-Brooks, J., and Malkin, N. From discrete-time policies to continuous-time diffusion samplers: Asymptotic equivalences and faster training. Transactions on Machine Learning Re-search , 2026. Bigoni, D., Engsig-Karup, A. P., and Marzouk, Y. M. Spec-tral tensor-train decomposition. SIAM Journal on Scien-tific Computing , 38(4):A2405–A2439, 2016. Bishop, C. M. Pattern Recognition and Machine Learning (Information Science and Statistics) . Springer-Verlag, Berlin, Heidelberg, 2006. Blessing, D., Jia, X., Esslinger, J., Vargas, F., and Neumann, G. Beyond ELBOs: A large-scale evaluation of varia-tional methods for sampling. In Forty-first International Conference on Machine Learning , 2024. Blessing, D., Berner, J., Richter, L., and Neumann, G. Underdamped diffusion bridges with applications to sampling. In The Thirteenth International Conference on Learning Representations , 2025. URL https:// openreview.net/forum?id=Q1QTxFm0Is .Blessing, D., Berner, J., Richter, L., Domingo i Enrich, C., Du, Y., Vahdat, A., and Neumann, G. Trust region con-strained measure transport in path space for stochastic optimal control and inference. Advances in Neural Infor-mation Processing Systems , 38:165462–165510, 2026a. Blessing, D., Richter, L., Berner, J., Malitskiy, E., and Neu-mann, G. Bridge matching sampler: Scalable sampling via generalized fixed-point diffusion matching. arXiv preprint arXiv:2603.00530 , 2026b. Bouchard, B. and Touzi, N. Discrete-time approximation and Monte-Carlo simulation of backward stochastic dif-ferential equations. Stochastic Processes and their appli-cations , 111(2):175–206, 2004. Brooks, S., Gelman, A., Jones, G., and Meng, X.-L. Hand-book of Markov Chain Monte Carlo . CRC press, 2011. Chen, J., Richter, L., Berner, J., Blessing, D., Neumann, G., and Anandkumar, A. Sequential controlled Langevin diffusions. arXiv preprint arXiv:2412.07081 , 2024. Chopin, N. A sequential particle filter method for static models. Biometrika , 89(3):539–552, 2002. Cohen, A. and Migliorati, G. Optimal weighted least-squares methods. The SMAI journal of computational mathematics , 3:181–203, 2017. De Boor, C. and De Boor, C. A practical guide to splines ,volume 27. springer New York, 1978. 10 Tensor Train Diffusion: Leveraging Low-Rank Structures for High-Dimensional Score-Based Sampling 
+
+Del Moral, P., Doucet, A., and Jasra, A. Sequential Monte Carlo samplers. Journal of the Royal Statistical Society Series B: Statistical Methodology , 68(3):411–436, 2006. Dolgov, S. V., Khoromskij, B. N., and Oseledets, I. V. Fast solution of parabolic problems in the tensor train/quantized tensor train format with initial applica-tion to the Fokker-Planck equation. SIAM Journal on Scientific Computing , 34(6):A3016–A3038, 2012. Doucet, A., Grathwohl, W., Matthews, A. G. d. G., and Strathmann, H. Score-based diffusion meets annealed importance sampling. In Advances in Neural Information Processing Systems , 2022. E, W., Han, J., and Jentzen, A. Deep learning-based nu-merical methods for high-dimensional parabolic partial differential equations and backward stochastic differential equations. Communications in Mathematics and Statis-tics , 5(4):349–380, 2017. Eigel, M., Gruhlke, R., and Marschall, M. Low-rank tensor reconstruction of concentrated densities with application to Bayesian inversion. Statistics and computing , 32(2): 27, 2022. Fleming, W. H. and Rishel, R. W. Deterministic and stochas-tic optimal control , volume 1. Springer Science & Busi-ness Media, 2012. Gelman, A., Carlin, J., Stern, H., Dunson, D., Vehtari, A., and Rubin, D. Bayesian Data Analysis, Third Edition .Chapman & Hall/CRC Texts in Statistical Science. Taylor & Francis, 2013. Ginzburg, V. L. and Landau, L. D. On the theory of super-conductivity. 1950. Gobet, E. Monte-Carlo methods and stochastic processes: from linear to non-linear . CRC Press, 2016. Gobet, E., Lemor, J.-P., Warin, X., et al. A regression-based Monte Carlo method to solve backward stochastic differential equations. The Annals of Applied Probability ,15(3):2172–2202, 2005. Grasedyck, L. Hierarchical singular value decomposition of tensors. SIAM journal on matrix analysis and applica-tions , 31(4):2029–2054, 2010. Griebel, M., Harbrecht, H., and Schneider, R. Low-rank approximation of continuous functions in Sobolev spaces with dominating mixed smoothness. Mathematics of Com-putation , 92(342):1729–1746, 2023. Gruhlke, R., Sommer, D., Kirstein, M., Eigel, M., and Schillings, C. Reverse diffusion sampling with tensor train approximations of Hamilton-Jacobi-Bellman equa-tions. SIAM Journal on Scientific Computing , 48(1): C103–C135, 2026. Ho, J., Jain, A., and Abbeel, P. Denoising diffusion proba-bilistic models. Advances in neural information process-ing systems , 33:6840–6851, 2020. Holtz, S., Rohwedder, T., and Schneider, R. The alternating linear scheme for tensor optimization in the tensor train format. SIAM Journal on Scientific Computing , 34(2): A683–A713, 2012a. Holtz, S., Rohwedder, T., and Schneider, R. On manifolds of tensors of fixed TT-rank. Numerische Mathematik ,120(4):701–731, 2012b. Hur ´e, C., Pham, H., and Warin, X. Deep backward schemes for high-dimensional nonlinear PDEs. Mathematics of Computation , 89(324):1547–1579, 2020. Kazeev, V. and Schwab, C. Quantized tensor-structured finite elements for second-order elliptic PDEs in two dimensions. Numerische Mathematik , 138(1):133–190, 2018. Kitagawa, G. Monte Carlo filter and smoother for non-Gaussian nonlinear state space models. Journal of com-putational and graphical statistics , 5(1):1–25, 1996. Krishnapriyan, A., Gholami, A., Zhe, S., Kirby, R., and Mahoney, M. W. Characterizing possible failure modes in physics-informed neural networks. Advances in neural information processing systems , 34:26548–26560, 2021. Latuszy ´nski, K., Moores, M. T., and Stumpf-F ´etizon, T. MCMC for multi-modal distributions. arXiv preprint arXiv:2501.05908 , 2025. Matthews, A., Arbel, M., Rezende, D. J., and Doucet, A. Continual repeated annealed flow transport Monte Carlo. In International Conference on Machine Learning , pp. 15196–15219, 2022. Midgley, L. I., Stimper, V., Simm, G. N., Sch ¨olkopf, B., and Hern ´andez-Lobato, J. M. Flow annealed importance sampling bootstrap. arXiv preprint arXiv:2208.01893 ,2022. Neal, R. M. Annealed importance sampling. Statistics and computing , 11:125–139, 2001. Nelson, E. Dynamical theories of Brownian motion. Press, Princeton, NJ , 1967. N ¨usken, N. and Richter, L. Solving high-dimensional Hamilton-Jacobi-Bellman PDEs using neural networks: perspectives from the theory of controlled diffusions and measures on path space. Partial differential equations and applications , 2(4):48, 2021. 11 Tensor Train Diffusion: Leveraging Low-Rank Structures for High-Dimensional Score-Based Sampling 
+
+N ¨usken, N. and Richter, L. Interpolating between BSDEs and PINNs: Deep learning for elliptic and parabolic boundary value problems. Journal of Machine Learn-ing , 2(1):31–64, 2023. Oseledets, I. V. Tensor-train decomposition. SIAM Journal on Scientific Computing , 33(5):2295–2317, 2011. Oseledets, I. V. Constructive representation of functions in low-rank tensor formats. Constructive Approximation ,37:1–18, 2013. Pardoux, ´E. Backward stochastic differential equations and viscosity solutions of systems of semilinear parabolic and elliptic PDEs of second order. In Stochastic Analysis and Related Topics VI: Proceedings of the Sixth Oslo—Silivri Workshop Geilo 1996 , pp. 79–127. Springer, 1998. Richter, L. and Berner, J. Improved sampling via learned diffusions. In The Twelfth International Conference on Learning Representations , 2024. Richter, L., Boustati, A., N ¨usken, N., Ruiz, F., and Akyildiz, O. D. Vargrad: a low-variance gradient estimator for variational inference. Advances in Neural Information Processing Systems , 33:13481–13492, 2020. Richter, L., Sallandt, L., and N ¨usken, N. Solving high-dimensional parabolic PDEs using the tensor train format. In International Conference on Machine Learning , pp. 8998–9009. PMLR, 2021. Richter, L., Sallandt, L., and N ¨usken, N. From continuous-time formulations to discretization schemes: tensor trains and robust regression for BSDEs and parabolic PDEs. 
+
+Journal of Machine Learning Research , 25(248):1–40, 2024. Rosenstein, B. and Li, D. Ginzburg-Landau Theory of Condensates . Cambridge University Press, 2021. Schumaker, L. Spline functions: basic theory . Cambridge university press, 2007. Shi, Z., Hu, Z., Lin, M., and Kawaguchi, K. Stochastic taylor derivative estimator: Efficient amortization for ar-bitrary differential operators. Advances in Neural Infor-mation Processing Systems , 37:122316–122353, 2024a. Shi, Z., Yu, L., Xie, T., and Zhang, C. Diffusion-PINN sampler. arXiv preprint arXiv:2410.15336 , 2024b. Song, Y., Sohl-Dickstein, J., Kingma, D. P., Kumar, A., Er-mon, S., and Poole, B. Score-based generative modeling through stochastic differential equations. In International Conference on Learning Representations , 2021. Str ¨ossner, C., Sun, B., and Kressner, D. Approximation in the extended functional tensor train format. Advances in Computational Mathematics , 50(3):54, 2024. Sun, J., Berner, J., Richter, L., Zeinhofer, M., M ¨uller, J., Azizzadenesheli, K., and Anandkumar, A. Dynamical measure transport and neural PDE solvers for sampling. 
+
+arXiv preprint arXiv:2407.07873 , 2024. Trunschke, P. On the theory and practice of tensor recovery for high-dimensional partial differential equations . PhD thesis, Technische Universit¨ at Berlin, 2022. Uschmajew, A. and Vandereycken, B. The geometry of algorithms using hierarchical tensors. Linear Algebra and its Applications , 439(1):133–166, 2013. Vargas, F., Grathwohl, W. S., and Doucet, A. Denoising dif-fusion samplers. In International Conference on Learning Representations , 2023. Vargas, F., Padhy, S., Blessing, D., and N ¨usken, N. Trans-port meets variational inference: Controlled Monte Carlo diffusions. In The Twelfth International Conference on Learning Representations , 2024. Wu, H., K ¨ohler, J., and No ´e, F. Stochastic normalizing flows. 
+
+Advances in Neural Information Processing Systems , 33: 5933–5944, 2020. Xu, C., Liu, D., Nassereldine, A., and Xiong, J. FP64 is all you need: Rethinking failure modes in physics-informed neural networks. arXiv preprint arXiv:2505.10949 , 2025. Zhang, Q. and Chen, Y. Path integral sampler: A stochastic control approach for sampling. In International Confer-ence on Learning Representations , 2022. Zhang, X., Wang, L., Helwig, J., Luo, Y., Fu, C., Xie, Y., Liu, M., Lin, Y., Xu, Z., Yan, K., et al. Artificial intelli-gence for science in quantum, atomistic, and continuum systems. arXiv preprint arXiv:2307.08423 , 2023. 12 Tensor Train Diffusion: Leveraging Low-Rank Structures for High-Dimensional Score-Based Sampling 
+
+# Appendix 
+
+## Appendix Contents 
+
+A. Extended tensor trains . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 13 A.1 Contraction of tensors . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 13 A.2 Degrees of freedom, the core and remaining orthogonal components . . . . . . . . . . . . . . . . . 14 A.3 Tensor basis functions . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 15 A.3.1 Orthonormal univariate basis functions . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 16 A.3.2 Orthonormal tensor basis functions and choice of H . . . . . . . . . . . . . . . . . . . . . . . . . . . . 17 A.4 Evaluation, gradient and Hessian of extended tensor trains . . . . . . . . . . . . . . . . . . . . . . . . . . 18 A.4.1 Evaluation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 18 A.4.2 Gradient evaluation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 18 A.4.3 Hessian evaluation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 19 A.4.4 Moving approximation domain and approximate policy extensions . . . . . . . . . . . . . . . 20 A.4.5 Representation change on different domains . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 21 A.5 Empirical loss minimization via ALS . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 22 A.5.1 ALS for empirical L2 losses . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 22 A.5.2 ALS for BSDE losses with general basis functions . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 23 A.6 Adaptivity . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .25 A.6.1 Choice of regularization magnitude τn . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 25 A.6.2 Adaptivity for rank design . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 27 A.6.3 Adaptivity for basis degrees . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 28 A.7 Rank analysis . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 29 A.7.1 Explicit functional tensor train ranks . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 29 A.7.2 Low-rank and smoothness . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 31 B. Numerical details . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 33 B.1 Limitations . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 33 B.2 Evaluation metrics . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 33 B.3 Hyperparameter dependence . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 34 B.4 Comparison with alternative sampling methods . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 34 B.5 Additional experiment: Kitagawa nonlinear state space model . . . . . . . . . . . . . . . . . . . . . . . 35 
+
+## A Extended tensor trains 
+
+This section will give a deeper understanding in the concepts of tensor trains and extended tensor trains. We note that the concept of an extended tensor train in dimension d = 1 reduces to the approximation a linear vector space of basis functions. For d = 2 the concept of tensor trains coincides with singular value decomposition. Since singular value decomposition in higher dimension, i.e. the decomposition of a tensor into sums of rank-1 tensors is not a closed format, suitable for well-defined optimization tasks, we utilize the framework of tensor trains, which form a closed Riemannian manifold in Rm
+
+(Holtz et al., 2012b). 
+
+A.1 Contraction of tensors 
+
+Let m ∈ Nd be the mode sizes . For a tensor A ∈ Rm, we refer to the tensor slice in the k-th dimension as the k-th mode dimension. A tensor with only one mode dimension is a vector, a tensor with only two mode dimensions is a matrix, a tensor with three mode dimensions is an order three tensor, etc. First we will define the key concept of contraction between tensors. Let k, ℓ ∈ N with ℓ > k . For any tensor A ∈ Rm1,...,m k
+
+and B ∈ Rmk ,...,m ℓ , we define AB ∈ Rm1,...,m k−1,m k+1 ,...,m ℓ as the tensor resulting from the contracting of neighbored 13 Tensor Train Diffusion: Leveraging Low-Rank Structures for High-Dimensional Score-Based Sampling 
+
+m ∈ Nd dimension array m = ( m1, . . . , m d)
+
+km + l (km 1 + l, . . . , km d + l) for k, l ∈ N0
+
+[m] indexing [m] = ×di=1 {1, . . . , m i}
+
+m1 ≥ m2, m ≥ k component wise comparison m, m1, m2 ∈ Nd, k ∈ N
+
+α, β, γ multiindex in Nd
+
+Rm tensor space Rm1,...,m d
+
+A, B, C tensor elements in Rm
+
+r rank r = ( r1, . . . , r d−1) in Nd−1
+
+r1r2 multiplication r1r2 = ( r11 r21 , . . . , r 1
+
+> d−1
+
+r2
+
+> d−1
+
+) in Nd−1
+
+ki, l i rank enumeration indices in {1, . . . , r i}
+
+Ai, B i, C i component order 3 tensor in Rri−1,m i,r i with entries indexed by [ki−1, α i, k i]
+
+Ai[αi] matrix extraction Ai[αi] = Ai[ : , α i, : ] ∈ Rri−1,r i of component tensor Ai
+
+Ai[ki−1, : , k i] vector extraction in Rmi+1 for each rank enumeration ki−1, k i
+
+A[α] tensor indexing A[α1, . . . , α d] for A ∈ Rm, α ∈ [m], m ∈ Nd
+
+∥ · ∥ F Frobenius norm 
+
+Table 1. List of compact notations used in this work. 
+
+mode dimensions, i.e. the last mode dimension of A and the first of B:
+
+AB =
+
+> mk
+
+X 
+
+> ik=1
+
+A[. . . , i k]B[ik, . . . ],
+
+where we used Python type notation for easier understanding. More generally, for two tensors C ∈ Rm1
+
+and D ∈ Rm2
+
+for m1 ∈ Nd1 with m1 = ( m11, . . . , m 1 
+
+> d1
+
+) and m2 ∈ Nd2 with 
+
+m = ( m21, . . . , m 2 
+
+> d2
+
+) such that the k-th and the ℓ-th mode size m1 
+
+> k
+
+and m2 
+
+> ℓ
+
+coincide, i.e. m = m1 
+
+> k
+
+= m2 
+
+> ℓ
+
+, we define the contraction with respect to the k-th and ℓ-th mode direction as the tensor E ∈ Rm11,...,m 1 
+
+> k−1,m 1
+> k+1 m1
+> d1,m 21,...,m 2
+> ℓ−1,m 2
+> ℓ+1 ,m 2
+> d2
+
+with 
+
+E = C ◦kl D =
+
+> m
+
+X
+
+> i=1
+
+C[. . . , i, . . . ]
+
+| {z }
+
+> k-th slice
+
+D[. . . , i, . . . ]
+
+| {z }
+
+> ℓ-th slice
+
+.
+
+In particular, using this notation, it holds that 
+
+AB = A ◦k, 1 B.
+
+A.2 Degrees of freedom, the core and remaining orthogonal components 
+
+This section is devoted to representations of tensor trains (TTs) suitable for numerically stable usage, in particular for the high-dimensional case. Consider a TT with rank r = ( r1, . . . , r d−1) ∈ Nd−1 given as 
+
+C[α] = C1[α1]C2[α2] · · · Cd[αd], ∀α ∈ [m] (20) with Ci ∈ Rri−1,m i,r i with the convention of r0 = rd = 1 .Using the notation of contractions of tensors from Section A.1, we can compactly write 
+
+C = C1C2 · · · Cd. (21) 14 Tensor Train Diffusion: Leveraging Low-Rank Structures for High-Dimensional Score-Based Sampling 
+
+First, we note that for any i = 1 , . . . , d − 1 we can choose an arbitrary invertible matrix Gi ∈ GL( ri) ⊂ Rri,r i and insert it and its inverse between the i-th and (i + 1) -th component without changing the represented full tensor. In particular, let 
+
+bCi = CiGi, bCi+1 = G−1 
+
+> i
+
+Ci+1 . (22) Then, 
+
+C = C1C2 · · · Cd = C1 · · · bCi bCi+1 · · · Cd. (23) The space GL( ri) is of dimension r2 
+
+> i
+
+and, consequently, the degrees of freedoms in a TT are given by 
+
+#d .o.f.(TT) = 
+
+> d
+
+X
+
+> i=1
+
+ri−1miri
+
+| {z }
+
+> raw number of entries for each component
+
+−
+
+> d−1
+
+X
+
+> i=1
+
+r2
+
+> i
+
+| {z }  
+
+> dimensions of GL( ri)
+
+. (24) For further readings regarding the derivation of degrees of freedoms in terms of gauge conditions, we refer to Oseledets (2011); Holtz et al. (2012b); Uschmajew & Vandereycken (2013). Now, we can apply high-order singular value decomposition (HOSVD, see Grasedyck (2010); Oseledets (2011)) on C. Let us fix 1 ≤ k ≤ d as the so-called core position . Then for any i = 1 , . . . , k − 1, we iteratively reshape the i-th TT component 
+
+Ci ∈ Rri−1,m i,r i as a matrix Ci ∈ Rri−1,m iri apply a singular value decomposition 
+
+Ci = UiΣiV ⊤ 
+
+> i
+
+, (25) and contract the non-orthonormal part ΣiV ⊤ 
+
+> i
+
+from left to Ci+1 and redefine 
+
+Ci+1 ← ΣiV ⊤ 
+
+> i
+
+Ci+1 . (26) Analogously, for i = d, d − 1, . . . , k + 1 we iteratively perform SVDs Ci = UiΣiV ⊤ 
+
+> i
+
+and contract UiΣi from right to Ci−1.Finally, we can reshape each matrix Ui ∈ Rri−1,m iri to an order three tensor Ui ∈ Rri−1,m i,r i for i = 1 , . . . , k − 1 and matrix V ⊤ 
+
+> i
+
+∈ Rri−1,m iri to an order three tensor Ui ∈ Rri−1,m i,r i for i = d, d − 1, . . . , k + 1 . Then, it holds that 
+
+C = U1 · · · Uk−1CkUk+1 · · · Ud. (27) The resulting updated non-orthonormal component C = Ck is called the core at position k of C.The classical representation of a TT from (20) is prone to rounding errors, when trying to access C[α] with α = ( α1, . . . , α d).Instead, one first defines a core representation with core C, e.g. with a core position k. Then, the orthogonal components are contracted first and in the end contracted with the core, leading to a numerically more stable result. In particular, a left contraction computationally realized from left left to right given as 
+
+Lk[α1, . . . , α k−1] = U1[α1] · · · Uk−1[αk−1], Lk := 1 for k = 1 , (28) and a right contraction Rk computationally realized from right to left contractions is defined as 
+
+Rk[αk, . . . , α d] = Uk+1 [αk+1 ] · · · Ud[αd], Rk = 1 for k = d. (29) Finally, the contraction reads 
+
+C = LkCRk. (30) 
+
+A.3 Tensor basis functions 
+
+We emphasize that the basis functions are required to have local support . This requirement is motivated by two structural properties arising from the approximation of the value function. First, the value function is, up to an additive constant, a negative log-density with unbounded support on Rd. Functions of this type generally do not belong to classical smoothness spaces defined via global integrability, such as standard Sobolev spaces. Second, the associated density typically concentrates most of its mass in localized regions of the domain. These regions are precisely those relevant for accurate approximation, which naturally motivates a localized representation. In our algorithm, the value function is approximated along sample trajectories. In an idealized setting, for a value function V with density proportional to e−V , and assuming exact reverse sampling dynamics at time t, one would aim to approximate V (·, t ) in spaces such as L2 Rd, e −V (·,t ) dx, or more generally in weighted Sobolev spaces. From this perspective, restricting the approximation to compact subdomains K can be interpreted as a localization or truncation of these weighted function spaces. 15 Tensor Train Diffusion: Leveraging Low-Rank Structures for High-Dimensional Score-Based Sampling 
+
+A.3.1 ORTHONORMAL UNIVARIATE BASIS FUNCTIONS 
+
+Let ai < b i and let Hi(ai, b i) be a Hilbert space with inner product (·, ·)Hi . We introduce the corresponding basis functions and discuss the limitations and challenges arising from approximation accuracy, localization capability, and robustness with respect to sampling. We then present the concept of orthonormalization. Note that sample robustness is independent of the particular representation of the basis, including whether it is orthonormalized, and depends only on the vector space spanned by the basis functions. 
+
+Legendre polynomials. As a classical basis, we consider the Legendre polynomials L0, L 1, L 2, . . . .• Approximation : Legendre polynomials exhibit asymptotic spectral convergence for analytic target functions. • Localization : Functions with localized features may require a high polynomial degree for accurate approximation; in practice, the pre-asymptotic constant dominates and slows convergence. • Sample robustness : For empirical L2 regression problems, a Legendre basis requires a number of samples that grows polynomially with the number of degrees of freedom in order to guarantee, with high probability, a unique least-squares solution; see Cohen & Migliorati (2017). This restricts the feasible number of basis functions when only limited samples are available. 
+
+Spline polynomials of smoothness s and order p. As a second ansatz, we consider spline functions with local smoothness 
+
+s and local polynomial degree p, defined on a grid ai = x0 < x 1 < . . . < x k = bi, with k + 1 knots and constructed via the Cox-de Boor recursion formulas; see De Boor & De Boor (1978). • Approximation : Spline functions achieve algebraic convergence rates in p, depending on the grid width; see Schumaker (2007). • Localization : Localized features can be captured much more effectively than with global polynomial bases. • Sample robustness : Empirical regression requires samples that adequately cover the domain. Due to the local support of the basis, if only few samples fall between neighboring knots, the reconstruction may fail even for simple target functions; see Section A.3.1. Note, that also rank regularization is not enough to correct for the stable regression using splines under various sample distributions. This drawback becomes in particular critical in cases of our algorithm, when the initial policy does not allow for proper mass distribution, e.g. for multimodal targets. 
+
+Fourier modes. Fourier modes of the form 1, sin( kωx ), and cos( kωx ) for k = 1 , 2, . . . constitute a classical basis class. • Approximation : Fourier modes exhibit spectral approximation rates for analytic functions that admit a periodic extension of all derivatives. For non-periodic functions, however, the convergence deteriorates to algebraic rates, typically of low order, depending on boundary regularity. • Localization : As with Legendre polynomials, localized features generally require a large number of Fourier modes for accurate representation. Moreover, non-periodic target functions may induce spurious oscillations (Gibbs-type phenomena) in the approximation. • Sample robustness : Fourier bases are known to exhibit favorable sample complexity and robustness properties, in particular compared to Legendre polynomials; see Trunschke (2022). This allows for the use of a large number of basis functions without a corresponding explosion in the required number of samples for stable regression. 
+
+Extended Fourier modes. This basis augments Fourier modes with low-order Legendre polynomials L0 ≡ 1, L 1, L 2, . . . 
+
+together with sin( kωx ) and cos( kωx ) for k = 1 , 2, . . . .• Approximation : The inclusion of polynomial modes up to degree p mitigates the loss of convergence caused by non-periodicity. In particular, for an enrichment up to degree p = 2 , the approximation of smooth non-periodic functions achieves algebraic convergence of order p + 1 = 3 .16 Tensor Train Diffusion: Leveraging Low-Rank Structures for High-Dimensional Score-Based Sampling 2 1 0 1 2
+
+> x
+> 0.0
+> 2.5
+> 5.0
+> 7.5
+> 10.0
+> 12.5
+> 15.0
+> 17.5
+> 20.0
+> f(x)
+> Function Approximation with Spline basis functions
+> True function
+> Approximation with splines
+> Training data
+
+Figure 7. Consider a spline basis with 3 knots, local polynomial degree 4, and smoothness parameter s = 1 , used to approximate a target function from a limited number of samples concentrated on the left side of the origin. Despite the weak coupling induced by the smoothness constraint s, the resulting regression based on these samples performs very poorly. 
+
+• Localization : The localization properties are comparable to those of the underlying Legendre and Fourier components. • Sample robustness : This construction combines advantages from both Legendre and Fourier bases. In particular, it is expected to improve sample complexity and stability relative to pure polynomial bases, thereby enabling a larger number of basis functions with controlled sample requirements. While a rigorous analysis is beyond the scope of this work, empirical results support this behavior. A.3.2 ORTHONORMAL TENSOR BASIS FUNCTIONS AND CHOICE OF H
+
+For i = 1 , . . . , d , let Φi, raw = ( ϕαi,raw )mi 
+
+> αi=1
+
+denote the stacked basis vector of mi ∈ N raw univariate basis functions, e.g. Legendre polynomials, Splines, extended Fourier modes. Then we define the associated Gramian matrix Gi ∈ GL( mi) with entries defined as 
+
+[Gi]k,ℓ = ( ϕαk ,raw , ϕ αℓ,raw )Hi(ai,b i), k, ℓ = 1 , . . . , m i. (31) Then 
+
+(ϕij )mi 
+
+> j=1
+
+:= G−1/2 
+
+> i
+
+Φi, raw (32) defines a vector of Hi(ai, b i) orthonormal basis functions. Then, tensorization of these, yields the basis set 
+
+Bm := 
+
+(
+
+ϕα := 
+
+> d
+
+O
+
+> i=1
+
+ϕiαi α ∈ [m], (ϕiαj , ϕ iαk )Hi = δjk , ∀i, j, k 
+
+)
+
+, (33) which forms an H-orthonormal basis for the product Hilbert space H = Ndi=1 Hi(ai, b i).In this work, we set Hi(ai, b i) = H2(ai, b i), the Sobolev space of order (smoothness) 2. It holds for K = ×[ai, b i] that 
+
+H = H2mix (K), (34) where Hs
+
+> mix
+
+(K) denotes the classical space of mixed regularity of smoothness s.This choice of Hilbert space is motivated by two considerations. First, the BSDE loss in (9) requires integrability of both zero- and first-order derivatives. Second, to mitigate potential oscillatory behavior arising in the approximation step, we 17 Tensor Train Diffusion: Leveraging Low-Rank Structures for High-Dimensional Score-Based Sampling 
+
+additionally regularize second-order derivatives. This provides control over oscillations in the first derivative and thereby yields a more stable approximate policy. The choice of orthonormalization is motivated by the use of the Parseval identity within the optimization scheme. Indeed, for bVC = C[Φ( ·)] ∈ span Bm, the identity ∥ bVC ∥H = ∥C∥F is preserved at the level of the micro-steps of the alternating minimization scheme. This provides a direct interpretation of the regularization term τn∥C∥F in (16) . In particular, for a tensor train (TT) coefficient tensor C with core representation as in (27), and corresponding core tensor C, it holds that 
+
+∥C∥F = ∥C∥F. (35) Consequently, we obtain ∥C∥F = ∥ bVC ∥H, i.e., the Frobenius norm of the core tensor coincides with the H-norm of the represented function bVC .
+
+A.4 Evaluation, gradient and Hessian of extended tensor trains 
+
+This section is devoted to illustrating the efficient and numerically stable evaluation of functions in xTT format, including their gradients and Hessians. To this end, let bVC ∈ X mr be an extended tensor train as defined in (14). Then, using k0 = kd = 1 , it holds 
+
+bVC (x) = C[Φ( x)] = X
+
+> α∈[m]
+
+C[α]ϕα(x1, . . . , x d) (36a) 
+
+=
+
+> r1
+
+X
+
+> k1=1
+
+· · · 
+
+> rd−1
+
+X
+
+> kd−1=1
+
+C1[k0, α 1, k 1] · · · C1[kd−1, α d, k d]
+
+> d
+
+Y
+
+> i=1
+
+ϕiαi (xi). (36b) A.4.1 EVALUATION 
+
+Now define the vector wi = wi(xi) as 
+
+[wi(xi)] j = ( ϕij (xi)) mi 
+
+> j=1
+
+∈ Rmi . (37) Then, 
+
+bVC (x) = C1 ◦2,1 w1(x1)
+
+| {z }
+
+> ∈Rr0,r 1
+
+· · · Cd ◦2,1 wd(xd)
+
+| {z }
+
+> ∈Rrd−1,r d
+
+. (38) Now, in order to utilize stable evaluations, we consider a core representation as discussed in Section A.2. To that end, we simplify the discussion and assume that the core position at evaluation is k = 0 . Consequently, we have 
+
+C = CU2 · · · Ud = CR1. (39) Then, by noting that r0 = rd = 1 , the evaluation is realized as 
+
+bVC (x) = C ◦2,1 w1(x1)
+
+| {z }
+
+> ∈R1,r 1
+
+U2 ◦2,1 w1(x2)
+
+| {z }
+
+> ∈Rr1,r 2
+
+· · · Cd ◦2,1 wd(xd)
+
+| {z }
+
+> ∈Rrd−1,1
+
+, (40) which, contracted from right to left, reduces to iterates of matrix-vector multiplications after each ◦2,1 contraction is performed first. A.4.2 GRADIENT EVALUATION 
+
+We define the derivative vector ˙wi = ˙ wi(xi) as 
+
+[ ˙ wi(xi)] j = ( ∂xi ϕij (xi)) mi 
+
+> j=1
+
+∈ Rmi , i = 1 , . . . , d. (41) Then it holds 
+
+∂xi
+
+bVC (x) = C1 ◦2,1 w1(x1) · · · Ci ◦2,1 ˙wi(xi) · · · Cd ◦2,1 wd(xd) (42a) 
+
+= C ◦2,1 w1(x1) · · · Ui ◦2,1 ˙wi(xi) · · · Cd ◦2,1 wd(xd). (42b) 18 Tensor Train Diffusion: Leveraging Low-Rank Structures for High-Dimensional Score-Based Sampling 
+
+A naive approach for evaluating gradients would require d separate matrix-vector contractions. However, this procedure can be accelerated by avoiding redundant computations through the use of intermediate stacks. First, motivated by (29) , the functional right vector stacks are defined for k = d, d − 1, . . . , 1 as 
+
+Rk(xk+1 , . . . , x d) = Uk+1 ◦2,1 wk+1 (xk+1 ) · · · Ud ◦2,1 wd(xd), Rk = 1 for k = d, (43) where the evaluation is performed from left to right based on matrix-vector multiplications. It holds that Rk(xk+1 , . . . , x d) ∈
+
+Rrk ,1 is a vector. Note that the recursive relation 
+
+Rk(xk+1 , . . . , x d) = Uk+1 ◦2,1 wk+1 (xk+1 )Rk+1 (xk+2 , . . . , x d), (44) holds, avoiding recomputation when building each Rk. Moreover, for each ℓ = 2 , . . . , d − 1 we define the intermediate matrix stacks Mℓ as 
+
+M2(x2) = U2 ◦2,1 w2(x2), Mℓ(x2, . . . , x ℓ) = Mℓ−1(x2, . . . , x ℓ−1)Uℓ ◦2,1 wℓ(xℓ), ℓ = 3 , . . . , d − 1. (45) Again, the recursive relation avoids redundant computations. Consequently, it holds that 
+
+∂x1
+
+bVC (x) = C ◦2,1 ˙w1(x1)R1(x2, . . . , x d), (46) 
+
+∂x2
+
+bVC (x) = C ◦2,1 w1(x1)U2 ◦2,1 ˙w2(xi)R2(x3, . . . , x d). (47) 
+
+∂xi
+
+bVC (x) = C ◦2,1 w1(x1)Mi−1(x2, . . . , x i−1)Ui ◦2,1 ˙wi(xi)Ri(xi+1 , . . . , x d), i = 3 , . . . , d. (48) For numerical stability, we first contract 
+
+Mi−1(x2, . . . , x i−1) Ui ◦2,1 ˙wi(xi) Ri(xi+1 , . . . , x d) (49) in (48) , referred to as the orthogonal block. Subsequently, a final contraction is performed with the non-orthogonal block involving the core C.This formulation improves the efficiency of gradient evaluation by up to a factor of d compared to naive gradient computa-tions. A.4.3 HESSIAN EVALUATION 
+
+We define the second derivative vector ¨wi = ¨ wi(xi) as 
+
+[ ¨ wi(xi)] j = ( ∂2 
+
+> xixi
+
+ϕij (xi)) mi 
+
+> j=1
+
+∈ Rmi , i = 1 , . . . , d. (50) Then it holds 
+
+∂2
+
+> xixi
+
+bVC (x) = C1 ◦2,1 w1(x1) · · · Ci ◦2,1 ¨wi(xi) · · · Cd ◦2,1 wd(xd) (51a) 
+
+= C ◦2,1 w1(x1) · · · Ui ◦2,1 ¨wi(xi) · · · Cd ◦2,1 wd(xd) (51b) and for i < j ∂2
+
+> xixj
+
+bVC (x) = C1 ◦2,1 w1(x1) · · · Ci ◦2,1 ˙wi(xi) · · · Cj ◦2,1 ˙wj (xj )Cd ◦2,1 wd(xd) (52a) 
+
+= C ◦2,1 w1(x1) · · · Ui ◦2,1 ˙wi(xi) · · · Uj ◦2,1 ˙wj (xj ) · · · Cd ◦2,1 wd(xd). (52b) A naive approach for hessian evaluations would require O(d2) matrix-vector contractions. The evaluation of diagonal hessian terms can be accelerated in a similar manner to the gradient computation by exploiting the right vector stacks Rk
+
+and the mid stack Mk−1. Moreover, many sub-contractions reappear for different pairs i < j in the remaining terms. Using the right vector stacks Rk, we can iteratively construct auxiliary stacks ˙Rjk of the form 
+
+˙Rji (xi+1 , . . . , x d) = Ui+1 ◦2,1 wi+1 (xi+1 ) · · · Uj ◦2,1 ˙wj (xj )Rj (xj+1 , . . . , x d), (53) which can be computed recursively for all i < j , while avoiding repeated evaluations of intermediate products of the form 
+
+Ui+1 ◦2,1 wi+1 (xi+1 ) · · · Uj ◦2,1 ˙wj (xj ). (54) 19 Tensor Train Diffusion: Leveraging Low-Rank Structures for High-Dimensional Score-Based Sampling 
+
+Then the final computation can be carried out as 
+
+∂2
+
+> x1xj
+
+bVC (x) = C ◦2,1 ˙w1(x1) ˙Rj
+
+> 1
+
+(x2, . . . , x d), j = 2 , . . . , d (55a) 
+
+∂2
+
+> xixj
+
+bVC (x) = C ◦2,1 w1(x1)Mi−1(x2, . . . , x i−1)Ui ◦2,1 ˙wi(xi) ˙Rji (xi+1 , . . . , x d), 1 < i < j. (55b) Again, the contraction in (55b) is performed from left to right, such that the non-orthonormal portion is evaluated in the final step. This formulation improves the efficiency of Hessian evaluation by up to a factor of O(d2) compared to naive Hessian computations. A.4.4 MOVING APPROXIMATION DOMAIN AND APPROXIMATE POLICY EXTENSIONS 
+
+At timestep t = tn, the empirical loss stated in (10) depends on samples ( bXu, (k) 
+
+> n
+
+)Kk=1 . Motivated by the idealistic situation that, up to approximation error, bXu, (k) 
+
+> n
+
+∼ e−V (·,t n), (56) we choose an approximation domain Dn time-step dependent, based on the location of samples. To this end, we define 
+
+bai,n := min 
+
+> k=1 ,...,K
+
+( bXu, (k) 
+
+> n
+
+)i, bbi,n := max 
+
+> k=1 ,...,K
+
+( bXu, (k) 
+
+> n
+
+)i, i = 1 , . . . , d. (57) For a domain extension factor 0 ≤ q < 1, we then define 
+
+ai,n := bai,n − q|bbi,n − bai,n |, bi,n := bbi,n + q|bbi,n − bai,n |, i = 1 , . . . , d. (58) In our experiments, we use q = 0 .1. Finally, we introduce the adapted tensor domain at time step t = tn as 
+
+Dn := 
+
+> d
+
+# ×
+
+> i=1
+
+[ai,n , b i,n ]. (59) Consequently, the tensor basis set Bm is time-step dependent, i.e. Bm = Bm(Dn).For the reverse sampling dynamics, trajectories may leave the prescribed evaluation domain Dn at time t = tn, rendering the evaluation of the gradient entering the policy ill-defined, since the value function is approximated using basis functions from Bm(Dn). To address this issue, we consider a simple affine linear extension strategy. Let 0 ≤ p < 1 denote a domain shrinkage factor and define the shrunken tensor domain 
+
+Dn,p =
+
+> d
+
+# ×
+
+> i=1
+
+[ai,n,p , b i,n,p ], (60) with 
+
+ai,n,p = ai,n + p|bi,n − ai,n |, bi,n,p = bi,n − p|bi,n − ai,n |. (61) In our numerical experiment, we used p = 0 .1 in accordance to q above. Let x ∈ Rd. We define the extended gradient evaluation of a function v ∈ span Bm(Dn) as follows. Let ΠDn,p x denote the projection of x onto Dn,p . Then 
+
+∇ext v(x, t n) := ∇v(Π Dn,p x) + Hv (x − ΠDn,p x), (62) with the well defined gradient ∇v and Hessian Hv for points within Dn. In practice, the computation of the Hessian will only be realized if x̸ = Π Dn,p x.
+
+Remark A.1 . We note that during the sampling stage, the vast majority of trajectories remain within the predefined moving domains Dn. As a result, only a small fraction of trajectories require evaluation of the Hessian, thereby limiting potential computational overhead. Moreover, as discussed above, the application of Hessians in the xTT format can in any case be carried out with high efficiency. 
+
+Remark A.2 . The choice of p > 0 together with the design of an affine-type extension is motivated as follows. First, the affine structure ensures that trajectories leaving the computational domain are mapped back in a controlled manner while still being guided in an approximately correct direction. Second, potential boundary-induced oscillations are absorbed in the exterior region parameterized by q > 0 and are subsequently damped by the shrinkage parameter p > 0.An illustration of our extension mechanism is provided in Figure 8. 20 Tensor Train Diffusion: Leveraging Low-Rank Structures for High-Dimensional Score-Based Sampling 2 0 2  
+
+> 0
+> 2
+> 4
+> 6
+> 8
+> 10
+> 202
+> 40
+> 20
+> 0
+> 20
+> 40
+
+Figure 8. Illustration of the linear extension procedure. Left: the log target density (gray), the approximated value function at time step 
+
+t = tN −1 (blue), and the training samples used for the approximation (orange). Right: the resulting approximate policy, where the shaded region indicates the domain in which the linear extension is activated. 
+
+A.4.5 REPRESENTATION CHANGE ON DIFFERENT DOMAINS 
+
+In view of the iterative structure in Algorithm 1, multiple instances of minimization problems associated with the explicit BSDE loss in (9) must be solved. Each optimization problem requires an initial guess. Motivated by the continuous evolution of the value function V in time, a natural choice for the initial guess at time step t = tn is the approximation of V obtained at the previous time step t = tn+1 . However, since we employ a sequence of adaptively moving domains (Dn)n, in general it holds that Dn+1 ̸ = Dn.Consequently, a direct copy-paste of the extended tensor train representation is not valid. In fact, the basis functions at time step t = tn change, and accordingly the coefficient tensor must be updated. Fortunately, the extended tensor train format admits an efficient change of representation between different domains, which we introduce next. Let D1 = ×di=1 [ai, 1, b i, 1] and D2 = ×di=1 [ai, 2, b i, 2] be two tensor domains with non-trivial overlap O = D1 ∩ D2. Then 
+
+O =
+
+> d
+
+# ×
+
+> i=1
+
+[max {ai, 1, a i, 2}, min {bi, 1, b i, 2}] := 
+
+> d
+
+# ×
+
+> i=1
+
+[ai, b i] (63) is a tensor domain as well. Moreover, for m1 = ( m11, . . . , m 1
+
+> d
+
+), m2 = ( m21, . . . , m 2
+
+> d
+
+) ∈ Nd consider two tensor basis sets with respect to D1 and D2:
+
+Bℓ 
+
+> mℓ
+
+:= 
+
+(
+
+ϕℓ 
+
+> α
+
+:= 
+
+> d
+
+O
+
+> i=1
+
+ϕi,ℓ αi α ∈ [mℓ]
+
+)
+
+, ℓ = 1 , 2. (64) We note that we omit the orthonormalization conditions at this point, as they are irrelevant for the subsequent discussion. We then adopt a Galerkin-type projection ansatz for the change of representation from basis functions defined on D1 to basis functions defined on D2. To this end, consider the tensor-product Hilbert space 
+
+H(O) = 
+
+> d
+
+O
+
+> i=1
+
+Hi(ai, b i), (65) with univariate inner products (·, ·)Hi(ai,b i) for i = 1 , . . . , d .Let i = 1 , . . . , d be fixed. We define the overlap Gramian matrix for basis functions from B2 
+
+> m2
+
+as 
+
+[G2 
+
+> i
+
+]jk = ( ϕi, 2 
+
+> j
+
+, ϕ i, 2 
+
+> k
+
+)Hi(ai,b i), j, k = 1 , . . . , m 2 
+
+> i
+
+, (66) 21 Tensor Train Diffusion: Leveraging Low-Rank Structures for High-Dimensional Score-Based Sampling 
+
+and the overlapping interaction matrix 
+
+[Mi]jk = ( ϕi, 2 
+
+> j
+
+, ϕ i, 1 
+
+> k
+
+)Hi(ai,b i), j, k = 1 , . . . , m 2 
+
+> i
+
+. (67) Then, assuming that G2 
+
+> i
+
+is invertible, we define the univariate representation change operator 
+
+Ti := [ G2 
+
+> i
+
+]−1Mi ∈ Rm2  
+
+> i,m 1
+> i
+
+. (68) 
+
+Application : Now, let bV 1 
+
+> C1
+
+(x) = C1[Φ 1(x)] be an xTT on D1 with basis functions from B1 
+
+> m1
+
+and a tensor train given as 
+
+C1 = C11 · · · C1 
+
+> d
+
+. (69) Then, we define a new xTT bV 2 
+
+> C2
+
+= C2[Φ 2(x)] (70) with 
+
+C2 = C21 · · · C2 
+
+> d
+
+, C2 
+
+> i
+
+:= Ti ◦2,2 C1 
+
+> i
+
+, (71) That is, Ti acts on the second mode of C1 
+
+> i
+
+, which corresponds to the basis discretization. In practice, we choose Hi(O) in accordance with the Hilbert space structures Hi(ai, 1, b i, 1) and Hi(ai, 2, b i, 2). For instance, if we set Hi(ai, 1, b i, 1) = H2(ai, 1, b i, 1), then we choose the corresponding univariate Hilbert spaces on the overlapping intervals [ai, b i] to be Sobolev spaces of order 2, i.e. H2(ai, b i). In this case, the resulting tensor-product space becomes 
+
+H(O) = H2mix (O). Furthermore, the scalar products in (66) and (67) can be computed via efficient one-dimensional numerical integration at negligible computational cost. 
+
+A.5 Empirical loss minimization via ALS 
+
+We are now ready to formulate the alternating least squares (ALS) scheme, originally introduced in Holtz et al. (2012a). As a first, more accessible objective, we consider the classical empirical L2 loss and subsequently extend the discussion to our BSDE loss. A.5.1 ALS FOR EMPIRICAL L2 LOSSES 
+
+Let D be a fixed tensor domain and assume we have samples X(k) ∈ D and values y(k). Furthermore, denote by X(k) 
+
+> i
+
+the 
+
+i-th component of X(k). Our goal is to fit a extended tensor train vC ∈ X mR to the data using a regularized empirical loss of the form 
+
+L(v) := 1
+
+K
+
+> K
+
+X
+
+> k=1
+
+|v(X(k)) − y(k)|2 + τ ∥v∥2
+
+> H
+
+. (72) In the spirit of Section A.4.1, we define the univariate feature matrices Wi ∈ RK,m i with 
+
+[Wi]kℓ = ϕiℓ(( X(k))i), k = 1 , . . . , K, ℓ = 1 , . . . , m i. (73) Now, assume that the tensor train C = U1 · · · Ui−1C Ui+1 · · · Ud has its core at position i. Using subsequent contractions 
+
+Ui ◦2,2 Wi ∈ Rri−1,K,r i and defining Y = ( y(k))k ∈ RK, 1, we can write 
+
+L(vC ) = 1
+
+K
+
+> K
+
+X
+
+> k=1
+
+|C[Φ( X(k))] − y(k)|2 + τ ∥C∥2F (74a) 
+
+= 1
+
+K ∥U1 ◦2,2 W1 · · · Ui−1 ◦2,2 Wi−1C ◦2,2 Wi · · · Ud ◦2,2 Wd − Y ∥22 + τ ∥C∥2F (74b) 
+
+= 1
+
+K ∥LiC ◦2,2 WiRi − Y ∥22 + τ ∥C∥2F, (74c) with order three tensors (in fact matrices) given as 
+
+Li := U1 ◦2,2 W1 · · · Ui−1 ◦2,2 Wi−1 ∈ R1,K,r i−1 , (75) 
+
+Ri := Ui+1 ◦2,2 Wi+1 · · · Ud ◦2,2 Wd ∈ Rri,K, 1. (76) 22 Tensor Train Diffusion: Leveraging Low-Rank Structures for High-Dimensional Score-Based Sampling 
+
+Now, the key observation is that Li, Ri, and Wi define a linear operator acting on C. To make this precise, let Li ∈ RK,r i−1
+
+and Ri ∈ Rri,K denote the matrix representations of the squeezed tensors Li and Ri, respectively, and let y ∈ RK denote the squeezed version of the matrix Y . Then, we can define the matrix 
+
+Ai := R⊤ 
+
+> i
+
+⊗ Wi ⊗ Li ∈ RK,r i−1mr i . (77) Let c := vec( C), then it holds for y = ( y(k))k ∈ RK
+
+L(vC ) = 1
+
+K ∥Aic − y∥22 + τ ∥c∥22. (78) Now, in a sweeping manner, moving forward and backward over each TT component, we shift the core to position i, solve the resulting least-squares problem (78) , and update the core by reshaping the corresponding solution. The basic principle is summarized in Algorithm 2. 
+
+Algorithm 2 ALS for tensor train minimization with orthogonal structure 
+
+1: Input: Initial components {C(0) 1 , . . . , C(0)  
+
+> d
+
+}, regularization magnitude τ > 0, maximal iterations I, error stop criteria 
+
+ε, data (X(k))k, y ∈ RK .
+
+2: Output: Optimized TT representation C = C1 · · · Cd for xTT vC ∈ X mr
+
+3: Evaluate feature matrices Wi from (73). 
+
+4: Set n = 0 
+
+5: repeat 
+
+6: Set n = n + 1 
+
+7: for i = 1 , 2, . . . , d, d − 1, . . . , 2 do 
+
+8: Set TT core to position i yielding C = U (n)1 · · · U (n)
+
+> i−1
+
+C U (n) 
+
+> i+1
+
+· · · U (n)
+
+> d
+
+9: Construct A(n) 
+
+> i
+
+from left and right orthogonal components L(n) 
+
+> i
+
+, R(n) 
+
+> i
+
+and Wi as in (77). 
+
+10: Solve micro-step problem: 
+
+11: c∗ = arg min c∈Rri−1miri ∥A(n) 
+
+> i
+
+c − y∥22 + τ ∥c∥2
+
+> F
+
+12: Reshape c∗ to C∗ ∈ Rri−1,m i,r i and update core at position i to C = C∗.
+
+13: end for 
+
+14: until error stop criteria is met or n ≥ N
+
+For the interested reader, we note that the subsequent shift of the core position within the for-loop of Algorithm 2 (the so-called forward-backward sweep ) requires only a single local singular value decomposition, as described in Section A.2. In particular, all components in the current representation remain unchanged except for two factors: the former core and the newly shifted core. This observation enables significant speedups of the algorithm, since the left component Li and the right component Ri can be constructed during the backward sweep ( i = d, d − 1, . . . , 2) and forward sweep ( i = 1 , . . . , d − 1)using the stack-based principle discussed in Section A.4. This avoids redundant contractions within a single sweep. As a stopping criterion, we choose ε > 0 such that the relative loss satisfies 
+
+1
+
+K
+
+PKk=1 v(X(k)) − y(k) 2
+
+∥y∥22
+
+≤ ε. (79) This quantity can be efficiently evaluated at each outer iteration n and micro step i as 
+
+1
+
+K
+
+> K
+
+X
+
+> k=1
+
+v(X(k)) − y(k) 2 = 1
+
+K A(n) 
+
+> i
+
+vec( C) − y 22. (80) A.5.2 ALS FOR BSDE LOSSES WITH GENERAL BASIS FUNCTIONS 
+
+We now extend the ALS approach to the BSDE loss function in the general setting where derivatives of the basis functions are not necessarily contained in the span of the original basis. This situation arises, for instance, for Cs spline spaces of polynomial degree p ≥ s + 2 .23 Tensor Train Diffusion: Leveraging Low-Rank Structures for High-Dimensional Score-Based Sampling 
+
+We begin with the BSDE loss 
+
+bLKn ( bVn) = 1
+
+K
+
+> K
+
+X
+
+> k=1
+
+
+
+(Id + Σ (k) 
+
+> n
+
+· ∇ ) bVn( bXu, (k) 
+
+> n
+
+) − y(k)
+
+> n+1
+
+2
+
+. (81) Let bVn be represented by an xTT vC ∈ X mr with tensor train with core position at j given as 
+
+C = U1 · · · Uj−1CUj+1 · · · Ud. (82) For each sample k = 1 , . . . , K , define the basis evaluations as 
+
+w(k) 
+
+> j
+
+[αj ] := ϕjαj (Xu, (k) 
+
+> n,j
+
+), (83) 
+
+˙w(k) 
+
+> j
+
+[αj ] := ∂xϕjαj (Xu, (k) 
+
+> n,j
+
+), ∀j = 1 , . . . , d, (84) where we omit the dependency on u and n for notational convenience. We introduce the feature matrices Wi, ˙Wi ∈ RK,m i
+
+as 
+
+[Wi]kℓ = w(k) 
+
+> i
+
+[ℓ], [ ˙Wi]kℓ = ∂xi ˙w(k) 
+
+> i
+
+[ℓ]. (85) Further, we introduce the weighted feature matrices for i = 0 , . . . , d and j = 1 , . . . , d as 
+
+Wij =
+
+(
+
+Wj if i̸ = j, 
+
+Σnj ∗ ˙Wj if i = j, (86) where the operator ∗ refers to pointwise multiplication in the sample direction slice for each k = 1 , . . . , K with the vector 
+
+Σni ∈ RK with 
+
+(Σ ni )k = [Σ n, (k)]i. (87) This allows us to define rank 1 tensors: 
+
+W0 = W0,1 ⊗ · · · ⊗ W0,d , (88) 
+
+˙Wi = Wi, 1 ⊗ · · · ⊗ Wi,d . (89) Now, with the core at position j, we define the left and right contractions for each i = 0 , . . . , d as 
+
+Li,j = U1 ◦2,2 Wi1 · · · Uj−1 ◦2,2 Wi,j −1 ∈ R1,K,r i−1 , (90) 
+
+Ri,j = Uj+1 ◦2,2 Wi,j +1 · · · Ud ◦2,2 Wi,d ∈ Rri,K, 1, (91) with the conventions Li, 1 = 1 and Ri,d = 1.The BSDE operator applied to the tensor train for (Xu, (k) 
+
+> n,j
+
+) ∈ RK,d becomes 
+
+(Id + Σ n, (k) · ∇ ) bV n(( Xu, (k))  
+
+> n,j
+
+) = L0,j (C ◦2,2 W0j )R0,j +
+
+> d
+
+X
+
+> i=1
+
+Li,j (C ◦2,2 Wij )Ri,j (92a) 
+
+=
+
+> d
+
+X
+
+> i=0
+
+Li,j (C ◦2,2 Wij )Ri,j . (92b) Analogously to the derivation in (74c) for the vector y = ( y(k)
+
+> n+1
+
+)k ∈ RK, 1 we obtain 
+
+bLKn (vC ) = 1
+
+K
+
+> d
+
+X
+
+> i=0
+
+Li,j (C ◦2,2 Wij )Ri,j − y
+
+> 22
+
++ τ ∥C∥2F. (93) 24 Tensor Train Diffusion: Leveraging Low-Rank Structures for High-Dimensional Score-Based Sampling 
+
+Recall at this point that Li,j , W i,j and Ri,j depend on u and n. We can define the matrix 
+
+Aj := 
+
+> d
+
+X
+
+> i=0
+
+R⊤ 
+
+> i,j
+
+⊗ Wi,j ⊗ Li,j ∈ RK,r i−1mr i , (94) where Ri,j and Li,j again denote the matrices obtained from squeezing the last mode dimension of Ri,j and the first mode dimension of Li,j .Then, in the spirit of (77), it holds that 
+
+bLKn (vC ) = 1
+
+K ∥Aj vec( C) − y∥22 + τ ∥ vec( C)∥22. (95) 
+
+Algorithm 3 ALS for BSDE with general basis functions 
+
+1: Input: Initial TT cores {U (0) 1 , . . . , U (0)  
+
+> d
+
+}, regularization τ > 0, maximal iterations I, tolerance ε, samples 
+
+( bXu, (k) 
+
+> n
+
+, Σ(k) 
+
+> n
+
+, y (k)
+
+> n+1
+
+)k
+
+2: Output: Optimized TT representation for bVn
+
+3: Precompute feature evaluation matrices Wj , ˙Wj from (85) and define Wij from (86). 
+
+4: Define the vector y = ( y(k)
+
+> n+1
+
+)k.
+
+5: Set ℓ = 0 .
+
+6: repeat 
+
+7: for j = 1 , 2, . . . , d, d − 1, . . . , 2 do 
+
+8: Set TT core to position j: C = U (ℓ)1 · · · U (ℓ)
+
+> j−1
+
+CU (ℓ) 
+
+> j+1
+
+· · · U (ℓ) 
+
+> d
+
+.
+
+9: Compute Li,j , Ri,j using a stack principle for each i = 0 , . . . , d .
+
+10: Build micro step system matrix Aj from (94). 
+
+11: Solve: c∗ = arg min c ∥Aj c − y∥22 + τ ∥c∥2 
+
+> F
+
+.
+
+12: Reshape c∗ to update core U (ℓ) 
+
+> j
+
+= C.
+
+13: end for 
+
+14: Set ℓ = ℓ + 1 , all TT components have been updated. 
+
+15: Compute loss: L(ℓ) = 1 
+
+> K
+
+∥Aj c − b∥22.
+
+16: until |L (ℓ) − L (ℓ−1) | < ε or ℓ ≥ I.The computational efficiency is maintained through the stack principle: during the forward sweep ( j = 1 , . . . , d ), the left contractions L(k) 
+
+> i,j
+
+can be updated incrementally, and during the backward sweep ( j = d, . . . , 2), the right contractions R(k)
+
+> i,j
+
+can be updated incrementally. 
+
+A.6 Adaptivity 
+
+Our algorithm features adaptivity with respect to the regularization parameter τn (see Section A.6.1), the underlying xTT ranks (see Section A.6.2), and the basis degrees (see Section A.6.3) used in the functional tensor train approximation. A.6.1 CHOICE OF REGULARIZATION MAGNITUDE τn
+
+Recall that our regularized loss in (15) is given as 
+
+bLKn ( bVC ) + τn∥ bVC ∥2 
+
+> H
+
+= 1
+
+K
+
+> K
+
+X
+
+> k=1
+
+
+
+C[Φ( bXu, (k) 
+
+> n
+
+)] + Σ (k) 
+
+> n
+
+· ∇ C[Φ( bXu, (k) 
+
+> n
+
+)] − y(k)
+
+> n+1
+
+2
+
++ τn∥C∥2F. (96) If the tensor train C is represented as 
+
+C = C1C2 · · · Cd = U1 · · · Ui−1C Ui+1 · · · Ud (97) with orthogonal order three tensors Uj ∈ Rrj−1,m j ,r j for j = 1 , . . . , i − 1, i + 1 , . . . d and a core C ∈ Rri−1,m i,r i at position 
+
+i, then, we have that bLKn ( bVC ) + τn∥ bVC ∥2 
+
+> H
+
+= ∥Aui,n vec( C) − yn+1 ∥22 + τn∥C∥2 
+
+> F
+
+, (98) 25 Tensor Train Diffusion: Leveraging Low-Rank Structures for High-Dimensional Score-Based Sampling 0 100 200 300 400                       
+
+> 10 14
+> 10 11
+> 10 8
+> 10 5
+> 10 2
+> 10 1
+> loss behaviour
+> sweep block
+> 0100 200 300 400
+> 10 9
+> 10 11
+> 10 13
+> 10 15
+> 10 17
+> 10 19
+> 10 21 reg behaviour
+> sweep block
+> 0100 200 300 400
+> 10 26
+> 10 23
+> 10 20
+> 10 17
+> 10 14
+> 10 11
+> 10 8reg magnitude history
+> sweep block
+
+Figure 9. Example of adaptively determining the regularization parameter τn for the Multiwell problem in dimension d = 10 . Left: the empirical loss value bLKn ( bVC ). Middle: the value ∥ bVC ∥2
+
+> H
+
+. Right: the adaptive evolution of τn.
+
+for a matrix Aui,n ∈ RK,r i−1miri . In particular, the original empirical BSDE loss can be efficiently evaluated at each micro step of the proposed ALS algorithm as 
+
+bLKn ( bVC ) = Aui,n vec( C) − yn+1 
+
+> 22
+
+. (99) Moreover, the regularization in the H-norm reduces, via the Parseval identity and the tensor train core representation, to a single Frobenius norm evaluation of the core tensor C.In our experiments, we observed that a naive choice of τn, e.g. τn ≡ 10 −8 independently of the dimension d, does not yield a convergent scheme. This can be understood through the behavior of the Hilbert norm ∥ bVC ∥2
+
+> H
+
+. Our objective is that, at each time step t = tn, the minimizer bVC approximates the true value function V (·, t n). However, the quantity 
+
+t 7 → ∥ V (·, t )∥2 
+
+> H
+
+(100) may vary significantly over time and dimension d, and in our experiments it appears to grow exponentially with d.Consequently, the parameter τn must compensate for the scaling of the ∥ · ∥ 2 
+
+> H
+
+term. In our implementation, we fix a relative weighting parameter γ = 0 .1 and determine τn adaptively as follows. At the final time step n = N , we initialize τN . Now assume that at time t = tn, during the k-th sweep and micro step i, we obtain an updated tensor train representation C, in particular updating the core at position i using the current value of τn. This allows us to compute both ∥Aui,n vec( C) − yn+1 ∥22 and ∥C∥2 
+
+> F
+
+. We then update 
+
+τn = γ ∥Aui,n vec( C) − yn+1 ∥22
+
+∥C∥2
+
+> F
+
+, (101) and proceed to the next micro step. This choice ensures that 
+
+τn∥C∥2 
+
+> F
+
+= γ∥Aui,n vec( C) − yn+1 ∥22, (102) i.e. the regularization term is of order γ relative to the data fidelity term. In all experiments, we use γ = 0 .1.Finally, when transitioning from time step t = tn+1 to t = tn, the previously obtained value τn+1 serves as a natural initialization for τn, since empirically ∥V (·, t n)∥2 
+
+> H
+
+≈ ∥ V (·, t n+1 )∥2
+
+> H
+
+.It is worth noting that choosing γ = 0 , and hence τn = 0 , does not yield a robust algorithm, since oscillations in the derivatives still need to be controlled. In our experiments, we found that non-negligible values of τn are necessary to stabilize the learning dynamics; see Figure 9. 
+
+Remark A.3 . An alternative approach would be to construct the tensor basis orthonormally with respect to the (empirical) weighted Hilbert spaces, which corresponds to orthonormalization using empirical Gram matrices. This is expected to provide better control over the magnitude of ∥ · ∥ 2
+
+> H
+
+, thereby reducing the sensitivity of the algorithm to the choice of τn. We leave this direction for future work. 26 Tensor Train Diffusion: Leveraging Low-Rank Structures for High-Dimensional Score-Based Sampling 
+
+A.6.2 ADAPTIVITY FOR RANK DESIGN 
+
+An important feature of our algorithm is the adaptive selection of TT ranks, i.e. determining suitable ranks required to achieve a prescribed approximation quality of the value function. Based on the structure of the HJB PDE (4) , we expect that the functional tensor train (FTT) rank of the value function V (·, t ) varies over time. Intuitively, the nonlinear term ∥σ⊤∇V ∥2
+
+may induce a temporary increase in rank, while the diffusion term acts over time to reduce the FTT rank r ∈ Nd−1 toward the TT rank of the log-density of the invariant distribution of the reversing process. For instance, if the reversing process is an Ornstein-Uhlenbeck (OU) process, then the invariant distribution is standard normal and the limiting FTT rank becomes 
+
+2 = (2 , . . . , 2) ∈ Nd−1, see Gruhlke et al. (2026). Recall the singular value decomposition of a tensor train component Ci after reshaping it into a matrix Ci, as described in Section A.2, namely 
+
+Ci = UiΣiV ⊤ 
+
+> i
+
+. (103) The decay pattern of the singular values in Σi, denoted by σi
+
+> 1
+
+, . . . , σ iri , provides valuable guidance for adapting the rank ri.In particular, if all singular values are of comparable and non-negligible magnitude, this indicates that a larger rank ri may be necessary. Conversely, if the tail singular values σik+1 , . . . , σ iri are close to zero, the effective rank can be safely reduced to ri = k. It is furthermore advisable to assess the singular values relative to the scale of the loss function, as this helps to avoid overfitting to sampling noise. We now apply a high-order singular value decomposition (HOSVD, see Grasedyck (2010); Oseledets (2011)) to C. To this end, fix an index 1 ≤ k ≤ d, referred to as the core position . For each i = 1 , . . . , k − 1, we proceed iteratively as follows. We reshape the i-th TT component Ci ∈ Rri−1,m i,r i into a matrix 
+
+Ci ∈ Rri−1, m iri , (104) compute its singular value decomposition 
+
+Ci = UiΣiV ⊤ 
+
+> i
+
+, (105) and absorb the non-orthonormal factor ΣiV ⊤ 
+
+> i
+
+into the next TT component by redefining 
+
+Ci+1 ← ΣiV ⊤ 
+
+> i
+
+Ci+1 . (106) Analogously, for i = d, d − 1, . . . , k + 1 , we iteratively compute the singular value decompositions 
+
+Ci = UiΣiV ⊤ 
+
+> i
+
+, (107) and absorb the factor UiΣi into the preceding TT component by contracting it from the right with Ci−1. Finally, we reshape each matrix Ui ∈ Rri−1,m iri into an order-three tensor 
+
+Ui ∈ Rri−1,m i,r i , for i = 1 , . . . , k − 1, (108) and each matrix V ⊤ 
+
+> i
+
+∈ Rri−1,m iri into an order-three tensor 
+
+Ui ∈ Rri−1,m i,r i , for i = d, d − 1, . . . , k + 1 . (109) Then, the TT representation satisfies 
+
+C = U1 · · · Uk−1 Ck Uk+1 · · · Ud. (110) We propose a simple adaptive rank design in Algorithm 4. Additionally, rank adjustments can be guided by target loss values, taking into account the level of sample noise. In our experiments, we did not employ this approach. Since the algorithm requires multiple optimization instances per time step, we introduce a rank update frequency to regulate the application of Algorithm 4. In our experiments, we typically set the rank update frequency to 10 or 20 and choose the relative singular value magnitude parameter as δ = 10 −4.27 Tensor Train Diffusion: Leveraging Low-Rank Structures for High-Dimensional Score-Based Sampling 
+
+Algorithm 4 Adaptive rank adjustment for tensor train learning  
+
+> 1:
+
+Input: Initial TT rank r(0) = ( r(0) 1 , . . . , r (0) 
+
+> d−1
+
+), threshold δ > 0, maximum iterations N 
+
+> 2:
+
+Output: Optimized TT representation with adapted ranks  
+
+> 3:
+
+Initialize ρi ← ∅ for i = 1 , . . . , d − 1 {Set of previously seen ranks } 
+
+> 4:
+
+fixed ← ∅ {Set of fixed rank indices } 
+
+> 5:
+
+repeat  
+
+> 6:
+
+Optimize loss with current fixed TT rank r {Using ALS or other method } 
+
+> 7:
+
+for i = 1 to d − 1 do  
+
+> 8:
+
+if i / ∈ fixed then  
+
+> 9:
+
+Perform HOSVD and get singular values σi 
+
+> 1
+
+≥ · · · ≥ σiri 
+
+> 10:
+
+ki ← min {ℓ | σiℓ < δσ i
+
+> 1
+
+} 
+
+> 11:
+
+if ki = ri then  
+
+> 12:
+
+rnew  
+
+> i
+
+← ri + 1 {Increase rank } 
+
+> 13:
+
+Add random orthonormal direction to Ui and Ui+1  
+
+> 14:
+
+else if ki < r i then  
+
+> 15:
+
+rnew  
+
+> i
+
+← ki {Decrease rank } 
+
+> 16:
+
+end if  
+
+> 17:
+
+if rnew  
+
+> i
+
+∈ ρi then  
+
+> 18:
+
+fixed ← fixed ∪ { i} {Fix this rank } 
+
+> 19:
+
+else  
+
+> 20:
+
+ρi ← ρi ∪ { rnew  
+
+> i
+
+} 
+
+> 21:
+
+ri ← rnew  
+
+> i
+> 22:
+
+end if  
+
+> 23:
+
+end if  
+
+> 24:
+
+end for  
+
+> 25:
+
+until fixed = {1, . . . , d − 1} or maximum iterations reached A.6.3 ADAPTIVITY FOR BASIS DEGREES 
+
+The third adaptivity component of our algorithm concerns the selection of basis degrees. Based on the structure of the HJB PDE (4) , the initial condition V (·, 0) and the terminal negative log-density V (·, T ) ≈ − log N (0 , I ) generally require different spatial discretization spaces. Moreover, for each t ∈ (0 , T ), the function V (·, t ) is expected to remain sufficiently smooth, suggesting that only moderately sized, time-adapted spatial discretizations are required. This adaptive choice of spatial discretization provides two main advantages: • Increased learning speed : Reducing the number of degrees of freedom in each xTT representation decreases the computational cost of the minimization step, e.g. in solving (15). • Improved stability : A reduced basis dimension lowers the sample complexity and improves the conditioning of the local least-squares problems. Moreover, numerical noise in unnecessary basis coefficients is suppressed, preventing spurious error propagation. The idea is based on a simple heuristic. Fix a sparsity-gap parameter s ∈ N (typically s = 1 , 2) and a loss tolerance 
+
+tol loss . At iteration step k, we first optimize the loss for a given xTT representation with rank r(0) and basis degree vector 
+
+m(0) = ( m(0) 1 , . . . , m (0)  
+
+> d
+
+).• Basis degree reduction: Assume that the optimized loss L(0) min , obtained by solving (15) , is below the tolerance tol loss .Then, we reduce m(0) as much as possible to obtain a new vector m(1) ≤ m(0) , such that the corresponding minimized loss L(1) min (computed using basis degrees m(1) ) remains below tol loss . We then set m(1) as the new basis degree and proceed to the next iteration k + 1 .• Basis degree increase: Fix a maximum number of refinement steps L ∈ N. If the optimized loss L(0) min , obtained from (15) , exceeds the tolerance tol loss , we increase m(0) component-wise, yielding a sequence m(ℓ+1) ≥ m(ℓ) for 28 Tensor Train Diffusion: Leveraging Low-Rank Structures for High-Dimensional Score-Based Sampling          
+
+> Figure 10. Illustration of basis-degree adaptivity for a one-dimensional example. Left: Trajectory transformation from the log-target distribution (log-multimodal) to the log-prior distribution (log-Gaussian). Middle: The selected polynomial degree decreases when moving from right ( t=T= 2 ) to left ( t= 0 ). In the limit t→0, the solution approaches a log-Gaussian, which requires only a degree of 2. Legendre polynomials are used as basis functions in this experiment. Right: Loss evolution and corresponding loss tolerance.
+
+ℓ = 0 , 1, . . . , L . This process is continued until either the minimized loss L(ℓ)min falls below the tolerance or no sufficient improvement in the loss reduction is observed over the last s steps. In the latter case, we trigger rank adaptivity as discussed in Theorem A.4. 
+
+Remark A.4 . The sparsity gap becomes relevant when the chosen basis contains components that do not contribute meaningfully to the representation of the target function. For example, consider the function f (x) = L2(x) + L4(x), where 
+
+Li denotes the Legendre polynomials orthonormal in L2(−1, 1) . Suppose we approximate f using the basis {L0, L 1, L 2}.In this case, enlarging the basis by adding L3 – and thereby increasing the polynomial degree – does not reduce the projection error, since L3 has no overlap with the nonzero components of f . More generally, when increasing the basis degree no longer yields a substantial reduction in the loss, it becomes preferable to increase the xTT rank, as described in Algorithm 4. To illustrate the principle underlying our degree-adaptivity strategy, we consider a one-dimensional example, i.e. the multi-modal setup from Section 4.1 with d = 1 . In this setting, there are no rank interactions, which allows us to isolate the effect of basis-degree adaptivity. Figure 10 illustrates this behavior in practice: for T = 2 , the algorithm selects a polynomial degree of 6 in the initial optimization step of the BSDE loss, after which the degree is gradually reduced as t → 0.
+
+A.7 Rank analysis 
+
+A.7.1 EXPLICIT FUNCTIONAL TENSOR TRAIN RANKS 
+
+This section is devoted to the analysis of explicit FTT ranks for solutions of the HJB equation. It is well known that the Ornstein-Uhlenbeck process with a standard Gaussian invariant distribution, when initialized with a general Gaussian distribution, remains Gaussian throughout its evolution. Consequently, the associated HJB equation (see Theorem 2.1) admits, for every t, a solution V (·, t ) that is a log-Gaussian potential. For this reason, let us consider general Gaussian potentials of the form 
+
+x 7 → x⊤M x, (111) where M is a symmetric and positive definite matrix. It turns out that we can explicitly state the FTT ranks of these potentials, summarized in Theorem A.5 and Theorem A.6. This discussion is inspired by Gruhlke et al. (2026). At the level of the potential, low-rank subdiagonal blocks have a very clear implication for the FTT ranks. We define the i-th subdiagonal block of M , for i ∈ { 1, . . . , d − 1}, as the matrix M1: i,i +1: d ∈ Ri, (d−i) in the following block decomposition: 
+
+M =
+
+ M1: i, 1: i Mi+1: d, 1: i
+
+M1: i,i +1: d Mi+1: d,i +1: d
+
+
+
+. (112) 29 Tensor Train Diffusion: Leveraging Low-Rank Structures for High-Dimensional Score-Based Sampling 
+
+As the following theorem shows, the ranks of the subdiagonal blocks of M fully determine the FTT rank of x⊤M x.
+
+Theorem A.5 (FTT rank bounds for Gaussians with low-rank subdiagonal blocks) . Let d ∈ N and Φ : Rd → R admit the form Φ( x) = x⊤M x for a symmetric invertible matrix M ∈ Rd,d . Furthermore, assume M has sub-diagonal blocks 
+
+M1: i,i +1: d, i = 1 , . . . , d − 1 with ranks given by ℓi ∈ N. Then f has finite FTT rank r ∈ Nd−1. For d ≥ 3,
+
+r = 2 + ( ℓ1, ℓ 2, . . . , ℓ d−1) (113) 
+
+and r = 2 ∈ N for d = 2 . In particular, in the case of an isotropic Gaussian, we have r ≡ 2.Proof. First, note that there is only something to prove if the rank bounds ℓi satisfy 
+
+ℓi ≤ i + 2 , if i ≤ ⌊ d 
+
+> 2
+
+⌋,ℓi ≤ d − i + 2 , if i > ⌊ d 
+
+> 2
+
+⌋, (114) as the TT rank bounds will be higher than the maximal ranks otherwise. So let i ∈ { 1, . . . , d − 1} and ℓi satisfying the respective condition be the rank of the subdiagonal block Mi+1: d, 1: i, which is defined by 
+
+Mi+1: d, 1: i =
+
+
+
+mi+1 ,1 . . . mi+1 ,i 
+
+... ...
+
+md, 1 . . . md,i 
+
+ . (115) We consider a singular value decomposition of Mi+1: d, 1: i into 
+
+Mi+1: d, 1: i = U|{z} 
+
+> ∈R∗,ℓ i
+
+Σ|{z} 
+
+> ∈Rℓi,ℓ i
+
+V ⊤
+
+|{z} 
+
+> ∈Rℓi,∗
+
+. (116) By construction, all terms in x⊤M x, including mixed interactions between variables indexed in {1, . . . , i } and those indexed in {i + 1 , . . . , d }, are given by 
+
+2  xi+1 . . . xd
+
+ U ΣV ⊤
+
+
+
+x1
+
+...
+
+xi
+
+ = 2 
+
+U ⊤
+
+
+
+xi+1 
+
+...
+
+xd
+
+
+
+> ⊤
+
+ΣV ⊤
+
+
+
+x1
+
+...
+
+xi
+
+ . (117) Hence, we have 
+
+f (x) =  1 2x⊤ 
+
+> 1: i
+
+x⊤ 
+
+> 1: i
+
+· M1: i, 1: i · x1: i
+
+x⊤ 
+
+> i+1: d
+
+· Mi+1: d,i +1: d · xi+1: d
+
+M1: i,i +1: d · xi+1: d
+
+1
+
+
+
+=  1 2x⊤ 
+
+> 1: i
+
+x⊤ 
+
+> 1: i
+
+· M1: i, 1: i · x1: i
+
+1 0 00 M1: i,i +1: d 00 0 1
+
+x⊤ 
+
+> i+1: d
+
+· Mi+1: d,i +1: d · xi+1: d
+
+xi+1: d
+
+1
+
+
+
+=  1 2x⊤ 
+
+> 1: i
+
+x⊤ 
+
+> 1: i
+
+· M1: i, 1: i · x1: i
+
+1 0 00 V ΣU ⊤ 00 0 1
+
+x⊤ 
+
+> i+1: d
+
+· Mi+1: d,i +1: d · xi+1: d
+
+xi+1: d
+
+1
+
+
+
+=  1 2x⊤ 
+
+> 1: i
+
+· V x⊤ 
+
+> 1: i
+
+· M1: i, 1: i · x1: i
+
+1 0 00 Σ 00 0 1
+
+x⊤ 
+
+> i+1: d
+
+· Mi+1: d,i +1: d · xi+1: d
+
+U ⊤ · xi+1: d
+
+1
+
+
+
+=  1 2x⊤ 
+
+> 1: i
+
+· V x⊤ 
+
+> 1: i
+
+· M1: i, 1: i · x1: i
+
+| {z }
+
+> ∈R1,(ℓi+2)
+
+x⊤ 
+
+> i+1: d
+
+· Mi+1: d,i +1: d · xi+1: d
+
+ΣU ⊤ · xi+1: d
+
+1
+
+| {z }
+
+> ∈R(ℓi+2) ,1
+
+.
+
+(118) 
+
+Since we have completely separated the first i variables from the last d − i, this proves that the i-th rank is bounded by 
+
+ℓi + 2 . Conversely, the rank cannot be lower than ℓi + 2 as that would be in violation to Mi+1: d, 1: i having rank ℓi.30 Tensor Train Diffusion: Leveraging Low-Rank Structures for High-Dimensional Score-Based Sampling 
+
+The above result yields a worst case estimate of the ranks in the case that no structure of the precision matrix M is known. 
+
+Corollary A.6 (FTT rank bound for Gaussian potentials: worst case) . Let d ∈ N and Φ : Rd → R admit the form 
+
+Φ( x) = x⊤M x for a symmetric invertible matrix M ∈ Rd,d . Then Φ has finite FTT rank r ∈ Nd−1. In particular for 
+
+d ≥ 3,
+
+r ≤ r := 2 + 
+
+(  1, 2, . . . , d 
+
+> 2
+
+, . . . , 2, 1 , d even ,
+
+ 1, 2, . . . , d−12 , d−12 , . . . , 2, 1 , d odd , (119) 
+
+and r = 2 ∈ N for d = 2 .Proof. Direct consequence of the sub-diagonal rank bounds ℓi of M by application of Theorem A.5. 0 1 2                    
+
+> 10 2
+> 10 1
+> 10 0
+> Singular value ratio
+> TT component 1
+> 012
+> TT component 2
+> 012
+> TT component 3
+> 012
+> TT component 4
+> 012
+> TT component 5
+> 012
+> time
+> 2
+> 3
+> 4
+> 5
+> Rank
+> 012
+> time
+> 012
+> time
+> 012
+> time
+> 012
+> time
+
+Figure 11. We display the singular values of all tensor train components for an example in dimension d = 6 over time and reduce the rank whenever a corresponding value is below a prespecified threshold. 
+
+A.7.2 LOW -RANK AND SMOOTHNESS 
+
+This section is devoted to building intuition for the relationship between rank behavior and smoothness (or regularity). To this end, we distinguish between two cases for the FTT representation of a function f :(1) f admits an ε-approximation by an FTT representation with finite rank r(ε),(2) f admits an exact FTT representation with finite rank r.In addition to the discussion in Appendix A.7.1, we refer, for the second case, to Oseledets (2013), where explicit FTT ranks are derived for various classes of functions. In the present section, we focus on the first case, namely the approximation of functions by finite-rank FTT representations. For simplicity, let f ∈ L2(D) with D = [0 , 1] d, where D serves as a prototype compact tensor domain and L2(D) denotes the classical Lebesgue space of square-integrable (equivalence classes of) Lebesgue-measurable functions. Let 
+
+{p0, p 1, . . . } ⊂ L2(0 , 1) (120) be an orthonormal polynomial basis of L2(0 , 1) . Its tensor-product construction then yields an orthonormal basis of L2(D).Expanding f in this basis gives 
+
+f (x) = X
+
+> ν∈Nd
+> 0
+
+cνdY
+
+> i=1
+
+pνi (xi). (121) Additional smoothness assumptions on f imply asymptotic decay properties of the coefficients cν . Such decay estimates can subsequently be used to derive bounds on the FTT rank 
+
+r = ( r1, . . . , r d−1), (122) 31 Tensor Train Diffusion: Leveraging Low-Rank Structures for High-Dimensional Score-Based Sampling 
+
+through the TT ranks of suitably truncated coefficient tensors cν,ε .We briefly summarize two smoothness classes that are particularly prominent in the theory of random PDEs: functions belonging to anisotropic mixed Sobolev spaces, following Griebel et al. (2023), and functions admitting holomorphic extensions. 
+
+Anisotropic mixed Sobolev smoothness. Assume that f ∈ Ndi=1 Hsi (0 , 1) with 0 < s 1 ≤ · · · ≤ sd. Then the expansion coefficients satisfy 
+
+|cν | ≲
+
+> d
+
+Y
+
+> i=1
+
+(1 + νi)−si . (123) Defining β1 := s1 + s2 and βi := si for i ≥ 2, there exists an FTT approximation fFTT such that 
+
+ri = ⌈ε−1/β i ⌉ and ∥f − fFTT ∥L2(D) ≲ √d ε. (124) In particular, increasing smoothness leads to smaller admissible ranks. More precisely, as si increases, the corresponding ranks ri may stabilize, in the sense that ri → 1 as βi → ∞ .
+
+Holomorphic extension. Assume that f admits a holomorphic extension with polyradii 1 < ρ 1 ≤ · · · ≤ ρd. In this case, one obtains the bound 
+
+|cν | ≲
+
+> d
+
+Y
+
+> i=1
+
+ρ−νi 
+
+> i
+
+. (125) Sparse approximation then suggests truncation at ri ∼ ln(1 /ε )ln ρi , yielding the truncated index set 
+
+Λ = {ν ∈ Nd 
+
+> 0
+
+| νi ≤ ri} (126) for the sparse polynomial approximation based on the truncated coefficient tensor [cν ]ν∈Λ.We consider the unfolding obtained by merging the first k dimensions and the last d−k dimensions, i.e. the k-th matricization of [cν ]ν∈Λ. Using the inequality 1 + t ≤ et, the matrix rank of this unfolding yields the coarse bound 
+
+rk ≤
+
+> k
+
+Y
+
+> i=1
+
+(ri + 1) ≲ exp ln(1 /ε )
+
+> k
+
+X
+
+> i=1
+
+1ln( ρi)
+
+!
+
+. (127) Hence, the rank growth is governed by the summability properties of the sequence (ln( ρi)−1)di=1 .Assume that ρi ∼ eai b
+
+for a, b > 0. Then ln( ρi) ∼ ai b, and therefore 
+
+> k
+
+X
+
+> i=1
+
+1ln( ρi) ∼ 1
+
+a
+
+> k
+
+X
+
+> i=1
+
+i−b. (128) This yields, for C = 1 /a ,
+
+rk ≲ exp C ln(1 /ε )
+
+> k
+
+X
+
+> i=1
+
+i−b
+
+!
+
+. (129) Summarizing, we obtain the following growth behaviour with respect to k:
+
+rk ≲
+
+
+
+exp( Ck 1−b), 0 < b < 1 sub-exponential growth ,kC ln(1 /ε ), b = 1 polynomial growth ,ε−C , b > 1 uniformly bounded ,
+
+(130) where in the case b > 1 we absorb the finite value of P∞ 
+
+> i=1
+
+i−b into the constant. 32 Tensor Train Diffusion: Leveraging Low-Rank Structures for High-Dimensional Score-Based Sampling 
+
+As a final remark, we point out that smoothness is not necessary in order to obtain low-rank structure. In fact, product functions of the form 
+
+f (x) = 
+
+> d
+
+Y
+
+> i=1
+
+fi(xi), (131) with each fi ∈ L2(0 , 1) , have minimal possible FTT rank 
+
+r = (1 , . . . , 1) ∈ Nd−1. (132) 
+
+## B Numerical details 
+
+B.1 Limitations 
+
+While the outer iterations of our algorithm encourage the discovery of new modes (see Figure 1), we note that there is no guarantee that all modes of the target distribution will be identified – although this limitation is shared by all existing sampling algorithms. A further restriction arises from the requirement that the value function V admits a sufficiently low-rank representation, which may not hold for all target distributions. Finally, although we have substantially improved the stability of a naive implementation of Algorithm 1 combined with FTTs (see Theorem 3.3 and our experimental results), certain target distributions may still pose additional challenges, particularly due to the expressive and numerical limitations of FTTs. 
+
+B.2 Evaluation metrics 
+
+In this section, we define the evaluation metrics used to measure sampling quality. Our metrics are based on path weights 
+
+w = dP⃗Y
+
+dPXu
+
+(Xu) ≈ ptarget ( bXuN ) QN −1 
+
+> n=0 ⃗
+
+pn|n+1 ( bXun bXun+1 )
+
+pprior ( bXu 
+
+> 0
+
+) QN −1
+
+> n=0
+
+⃗p n+1 |n( bXun+1 bXun ) , (133) where bXu is the discretized SDE, as defined in (8) (Richter & Berner, 2024; Blessing et al., 2024). Here, ⃗p n+1 |n and ⃗ pn|n+1 
+
+are the forward and backward transition densities of the discrete forward and backward process, respectively, given by ⃗pn|n+1 ( bXun bXun+1 ) = N
+
+ bXn| bXn+1 − f ( bXn+1 , (n + 1)∆ t)∆ t, σ 2(( n + 1)∆ t)∆ t
+
+
+
+(134) ⃗p n+1 |n( bXun+1 bXun ) = N
+
+ bXn+1 | bXn + ( f + σu )( bXn, n ∆t)∆ t, σ 2(n∆t)∆ t
+
+
+
+. (135) Since in practice we typically can only evaluate ptarget up to the normalizing constant Z, we can replace it by its unnormalized version ρtarget , bringing us unnormalized (discretized) importance weights, which we call bw. We can now define the (normalized) effective sampling size (ESS) as 
+
+ESS := 
+
+PKk=1 bw(k)
+
+2
+
+K PKk=1 
+
+  bw(k)2 , (136) which ranges from 0 to 1, with 1 being optimal. Here and in the sequel K denotes the sample size. Further, we can define the log-variance divergence as 
+
+DLV := Var(log w) ≈ 1
+
+K − 1
+
+> K
+
+X
+
+> k=1
+
+log bw(k) − 1
+
+K
+
+> K
+
+X
+
+> k=1
+
+log bw(k)
+
+!2
+
+, (137) whose optimal value is zero (Richter et al., 2020; N ¨usken & Richter, 2021). Finally, the normalizing constant Z can be computed via 
+
+Z = E [w] ≈ 1
+
+K
+
+> K
+
+X
+
+> k=1
+
+bw(k). (138) 33 Tensor Train Diffusion: Leveraging Low-Rank Structures for High-Dimensional Score-Based Sampling 
+
+B.3 Hyperparameter dependence 
+
+In this section, we empirically examine how selected hyperparameters influence the performance of our FTT training algorithm. We focus on the Multiwell problem introduced in Section 4 and consider the setting d = 10 , δ = 2 , with 
+
+m ∈ { 3, 10 }, corresponding to 23 and 210 modes, respectively. We investigate the effect of varying the batch size, the number of basis functions, and the domain shrinking factor p (see Section A.4.4), as illustrated in Figure 12 and Figure 13. Unless stated otherwise, we fix the number of basis functions to 10 , the batch size to K = 2 15 , and set p = 0 .1.210 211 212 213 214 215                                                                      
+
+> batch size
+> 0.85
+> 0.90
+> 0.95
+> ESS
+> iteration 0
+> iteration 1
+> 210 211 212 213 214 215
+> batch size
+> 10 1
+> 3 × 10 2
+> 4 × 10 2
+> 6 × 10 2
+> 2 × 10 1
+> Log-variance
+> 210 211 212 213 214 215
+> batch size
+> 0.000
+> 0.001
+> +7.312
+> estimated log Z
+> 210 211 212 213 214 215
+> batch size
+> 10 5
+> 10 4
+> 10 3
+> rel. error Z
+> 2610 14 18
+> number of basis functions
+> 0.0
+> 0.5
+> 1.0
+> ESS
+> iteration 0
+> iteration 1
+> 2610 14 18
+> number of basis functions
+> 10 1
+> 10 0
+> 10 1
+> Log-variance
+> 2610 14 18
+> number of basis functions
+> 7.310
+> 7.315
+> 7.320
+> 7.325
+> estimated log Z
+> 2610 14 18
+> number of basis functions
+> 10 4
+> 10 3
+> 10 2
+> rel. error Z
+> 0.04 0.12 0.20 0.28
+> p
+> 0.0
+> 0.5
+> 1.0 ESS
+> iteration 0
+> iteration 1
+> 0.04 0.12 0.20 0.28
+> p
+> 10 0
+> 10 2
+> Log-variance
+> 0.04 0.12 0.20 0.28
+> p
+> 7.305
+> 7.310
+> 7.315
+> estimated log Z
+> 0.04 0.12 0.20 0.28
+> p
+> 10 4
+> 10 2
+> 10 0
+> rel. error Z
+> Multiwell, d= 10, m= 3, = 2
+
+Figure 12. We assess the sensitivity of our algorithm by varying key hyperparameters and recording the effective sample size (ESS), the log-variance divergence, the log-normalizing constant, and the relative error in estimating the normalizing constant. Whenever a value is absent from a plot, the algorithm diverged for that configuration. The results indicate that performance improves with increasing batch size, but the gains tend to saturate beyond a certain threshold. A similar trend is observed for the number of basis functions. In contrast, the parameter p exhibits a clear optimal range: values that are too small or too large degrade performance. 
+
+B.4 Comparison with alternative sampling methods 
+
+In Figure 14, we compare the performance of our TTD sampler against various baselines, covering state-of-the-art neural samplers based on ODEs and SDEs and combinations with MCMC methods. For all baselines we leverage the public repository by Chen et al. (2024) (which is derived from the repository by Blessing et al. (2024)). We refer to these works for details on each baseline. In particular, we use the default hyperparameters and tune the scale of the prior and diffusion coefficient if applicable. We report the error in estimating log Z and the ESS (if available for the given baseline) and observe that our TTD sampler consistently achieves better performance for a given time budget as well as better final performance than all considered baselines. Further, adding to the experiments in Section 4.1, we additionally compare our TTD sampler with the PIS sampler in more detail (Zhang & Chen, 2022), a well-established diffusion-based sampling method. Note, however, that the underlying PDE is different from our HJB PDE stated in Theorem 2.1. Further, we want to highlight that PIS has a natural advantage when considering the Multiwell problem defined in (18) since its initialization samples from a Gaussian density. In Figure 15 we repeat the same plot as in Figure 4, now integrating PIS as well. 34 Tensor Train Diffusion: Leveraging Low-Rank Structures for High-Dimensional Score-Based Sampling 212 213 214 215 
+
+> batch size
+> 0.8
+> 0.9
+
+ESS     
+
+> iteration 0
+> iteration 1
+> 212 213 214 215
+> batch size
+> 10 1
+> 10 0
+
+Log-variance    
+
+> 212 213 214 215
+> batch size
+> 2.928
+> 2.929
+> 2.930
+> 2.931
+
+estimated log Z     
+
+> 212 213 214 215
+> batch size
+> 10 4
+> 10 3
+
+rel. error Z     
+
+> 2812 16 20
+> number of basis functions
+> 0.0
+> 0.5
+
+ESS      
+
+> iteration 0
+> iteration 1
+> 2812 16 20
+> number of basis functions
+> 10 1
+> 10 0
+
+Log-variance     
+
+> 2812 16 20
+> number of basis functions
+> 2.93
+> 2.94
+> 2.95
+
+estimated log Z      
+
+> 2812 16 20
+> number of basis functions
+> 10 3
+> 10 2
+
+rel. error Z    
+
+> 0.04 0.12 0.20 0.28
+> p
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+
+ESS     
+
+> iteration 0
+> iteration 1
+> 0.04 0.12 0.20 0.28
+> p
+> 10 1
+> 10 0
+> 10 1
+> 10 2
+
+Log-variance    
+
+> 0.04 0.12 0.20 0.28
+> p
+> 2.928
+> 2.930
+> 2.932
+
+estimated log Z       
+
+> 0.04 0.12 0.20 0.28
+> p
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+
+rel. error Z 
+
+Multiwell, d = 10, m = 10, = 2 
+
+Figure 13. As in Figure 12, we assess the sensitivity of our algorithm by varying key hyperparameters, now on a Multiwell problem with 
+
+210 modes. We observe the same qualitative trends as before; however, in this highly multimodal setting a larger batch size and a greater number of basis functions are required to stabilize the algorithm. 
+
+B.5 Additional experiment: Kitagawa nonlinear state space model 
+
+We evaluate our method using a modified version of the Kitagawa nonlinear state space model, designed to isolate high-dimensional geometric complexity while maintaining a unimodal posterior (Kitagawa, 1996). The latent state evolves according to nonlinear dynamics defined by 
+
+xn = 12 xn−1 + γ xn−1
+
+1 + x2
+
+> n−1
+
++ vn (139) where γ controls the nonlinearity strength and vn represents Gaussian process noise. Unlike the standard benchmark, we employ a linear observation model to break the symmetry inherent in the original formulation, namely 
+
+yn = xn + wn. (140) This modification eliminates multi-modality but preserves the challenging correlations in the joint posterior, providing a robust test for sampling efficiency on high-curvature manifolds. Given the fixed initial state x0 = 0 and the observed sequence y1: M , the joint log-posterior density log ρ(x1: M ) is given by 
+
+log ρtarget (x1: M | y1: M ) = −
+
+> M
+
+X
+
+> n=1
+
+ 12σ2
+
+> v
+
+(xn − f (xn−1)) 2 + 12σ2
+
+> w
+
+(yn − xn)2
+
+
+
+, (141) where f (xn−1) represents the nonlinear transition mean 
+
+f (xn−1) = 12 xn−1 + γ xn−1
+
+1 + x2
+
+> n−1
+
+. (142) In our experiments we choose σv = σw = 1 in d = 10 and vary the nonlinear strength γ, see Table 2. 35 Tensor Train Diffusion: Leveraging Low-Rank Structures for High-Dimensional Score-Based Sampling 10 0 10 1 10 2
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Multiwell,  d = 10,  m = 3
+
+ESS 
+
+10 0 10 1 10 2
+
+10 4
+
+10 3
+
+10 2
+
+10 1
+
+error estimated log Z 
+
+10 0 10 1 10 2
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Multiwell,  d = 50,  m = 5
+
+ESS 
+
+10 0 10 1 10 2
+
+10 3
+
+10 2
+
+10 1
+
+10 0
+
+error estimated log Z 
+
+TTD, iter 1 
+
+TTD, iter 2 
+
+PIS 
+
+CRAFT 
+
+CMCD 
+
+DDS 
+
+SCLD 
+
+DIS 
+
+GBS 
+
+MCD 
+
+MFVI 
+
+AFT 
+
+Figure 14. We compare the performance of our TTD sampler against several state-of-the-art baselines, including PIS (Zhang & Chen, 2022), DDS (Vargas et al., 2023), DIS (Richter & Berner, 2024), GBS (Blessing et al., 2024), CMCD (Vargas et al., 2024), SCLD (Chen et al., 2024), CRAFT (Matthews et al., 2022), AFT (Arbel et al., 2021), MFVI (Bishop, 2006), and MCD (Doucet et al., 2022). We see that TTD converges significantly faster and outperforms the baselines in terms of both estimation of normalizing constants as well as ESS (if available for the given baseline). We refer to Section B.4 for further details. 10 0 10 1 10 2 10 3
+
+> time (in min)
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+
+ESS        
+
+> 10 010 110 210 3
+> time (in min)
+> 10 4
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+
+error estimated log Z    
+
+> 10 110 210 3
+> time (in min)
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+
+ESS      
+
+> 10 110 210 3
+> time (in min)
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+> 10 1
+
+error estimated log Z                   
+
+> Multiwell, d= 10, m= 3, = 2 Multiwell, d= 50, m= 5, = 2
+> TTD, iteration 1 TTD, iteration 2 DIS, N=50 DIS, N=200 DIS, N=400 PIS, N=50 PIS, N=200 PIS, N=400
+
+Figure 15. We compare the performance versus runtime of our TTD sampler with DIS (Berner et al., 2024) and PIS (Zhang & Chen, 2022). By design, our algorithm produces one result per chosen number of steps N (shown as blue and orange dots), whereas DIS and PIS can improve over training time. Accordingly, we evaluate DIS and PIS at equally spaced runtime intervals. In both experiments, our algorithm is not only faster but also achieves better results, particularly in settings where DIS can exhibit instability. 
+
+36 Tensor Train Diffusion: Leveraging Low-Rank Structures for High-Dimensional Score-Based Sampling 
+
+Table 2. We display the effective sample size (ESS) and the log-variance divergence for the Kitagawa nonlinear state space model for varying nonlinear strength γ and different amounts of steps N .
+
+γ N ESS Log-variance 0.5 2048 0.925 0.076 4096 0.937 0.068 1.0 2048 0.897 0.237 4096 0.911 0.133 1.5 2048 0.885 0.280 4096 0.898 0.192 2.0 2048 0.858 0.970 4096 0.871 0.612 37
