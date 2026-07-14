@@ -6,36 +6,35 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-13
-- 运行时间：2026-07-13 20:41:10 UTC
+- 最新运行日期：2026-07-14
+- 运行时间：2026-07-14 20:17:14 UTC
 - 运行状态：成功
 - 本次总论文数：5
-- 精读区：0
-- 速读区：5
+- 精读区：2
+- 速读区：3
 
 ### 今日简报（AI）
-今日速读5篇论文，聚焦物理信息神经网络与低秩结构采样方法。重点关注《Learning Physics-Informed Surrogate Model of Linear Elastic Displacement Fields from Geometry》（7.0分）和《Target-Guided Selective Reweighting for Physics-Informed Neural Network Inverse Problems》（6.0分），前者用几何信息替代弹性位移场，后者通过目标引导重加权优化逆问题。建议普通读者优先精读这两篇高分文章，把握物理信息代理模型与迁移学习结合的最新思路。
-- 详情：[/202607/13/README](/202607/13/README)
+今日聚焦物理信息神经网络与数据驱动流体力学，精读两篇高分论文涵盖了不确定性量化与气溶胶诊断。最值得关注的是结构保持变分神经场在非线性守恒律中的约简建模，以及AeroMELD对气溶胶群体的线性嵌入方法。建议普通读者从速读中的物理信息传播路径加权框架入手，快速理解如何提升物理信息神经网络的训练效率。
+- 详情：[/202607/14/README](/202607/14/README)
 
 ### 精读区论文标签
-- 本次无精读推荐。
+1. [Structure-preserving variational neural fields: Uncertainty-quantified reduced-order modeling of nonlinear conservation laws](/202607/14/2607.10965v1-structure-preserving-variational-neural-fields-uncertainty-quantified-reduced-order-modeling-of-nonlinear-conservation-laws)  
+   标签：评分：8.0/10、query:aqac
+   evidence：结构保持神经场用于守恒定律及不确定性量化
+2. [AeroMELD: A Linear Embedding of Aerosol Populations for Diagnostics and Latent Dynamics](/202607/14/2607.11073v1-aeromeld-a-linear-embedding-of-aerosol-populations-for-diagnostics-and-latent-dynamics)  
+   标签：评分：8.0/10、query:aqac
+   evidence：气溶胶群体的线性嵌入用于大气建模
 
 ### 速读区论文标签
-1. [Learning Physics-Informed Surrogate Model of Linear Elastic Displacement Fields from Geometry](/202607/13/2607.09382v1-learning-physics-informed-surrogate-model-of-linear-elastic-displacement-fields-from-geometry)  
+1. [Multi-dimensional training-priority weighting based on physical information propagation paths: a unified residual-weighting framework for physics-informed neural networks](/202607/14/2607.11094v1-multi-dimensional-training-priority-weighting-based-on-physical-information-propagation-paths-a-unified-residual-weighting-framework-for-physics-informed-neural-networks)  
    标签：评分：7.0/10、query:aqac
-   evidence：物理信息DeepONet代理模型
-2. [Target-Guided Selective Reweighting for Physics-Informed Neural Network Inverse Problems: A Transfer Learning Approach](/202607/13/2607.05271v1-target-guided-selective-reweighting-for-physics-informed-neural-network-inverse-problems-a-transfer-learning-approach)  
+   evidence：物理信息神经网络训练优先级加权方法，可应用于环境建模
+2. [Developing Machine Learning Models of Subgrid Turbulent Transport for Quiet Sun 3D Radiative Hydrodynamic Simulations](/202607/14/2607.08969v1-developing-machine-learning-models-of-subgrid-turbulent-transport-for-quiet-sun-3d-radiative-hydrodynamic-simulations)  
    标签：评分：6.0/10、query:aqac
-   evidence：物理信息神经网络用于偏微分方程逆问题与迁移学习
-3. [Tensor Train Diffusion: Leveraging Low-Rank Structures for High-Dimensional Score-Based Sampling](/202607/13/2607.06841v1-tensor-train-diffusion-leveraging-low-rank-structures-for-high-dimensional-score-based-sampling)  
+   evidence：用于太阳流体模拟中次网格湍流输运的深度学习代理模型
+3. [A multi-scale feature enhanced graph neural network for fluid dynamics prediction in complex geometries](/202607/14/2607.11672v1-a-multi-scale-feature-enhanced-graph-neural-network-for-fluid-dynamics-prediction-in-complex-geometries)  
    标签：评分：6.0/10、query:aqac
-   evidence：物理信息神经网络求解PDE，可迁移至环境建模
-4. [Entropy-Constrained Machine Learning with Residual Data Augmentation for Modeling Chemical Kinetics](/202607/13/2607.09582v1-entropy-constrained-machine-learning-with-residual-data-augmentation-for-modeling-chemical-kinetics)  
-   标签：评分：6.0/10、query:aqac
-   evidence：物理约束的化学动力学代理模型用于湍流反应流
-5. [Inunda: A GPU-Native, Agent-enabled, Differentiable Solver for High-Resolution Flood Inundation Modeling](/202607/13/2607.09614v1-inunda-a-gpu-native-agent-enabled-differentiable-solver-for-high-resolution-flood-inundation-modeling)  
-   标签：评分：6.0/10、query:aqac
-   evidence：提出GPU原生可微分洪水求解器，其加速与可微特性可迁移至空气质量模型GPU加速（如CMAQ加速）
+   evidence：多尺度图神经网络代理流体动力学
 
 
 <div class="dpr-home-promo-card">

@@ -1,0 +1,3356 @@
+Title: AeroMELD: A Linear Embedding of Aerosol Populations for Diagnostics and Latent Dynamics
+
+URL Source: https://arxiv.org/pdf/2607.11073v1
+
+Published Time: Tue, 14 Jul 2026 01:57:49 GMT
+
+Number of Pages: 34
+
+Markdown Content:
+# AeroMELD: A Linear Embedding of Aerosol Populations for Diagnostics and Latent Dynamics 
+
+Ehsan Saleh ∗1,4 , Saba Ghaffari 1,4 , Wenhan Tang 3, Jeffrey H. Curtis 3, Lekha Patel 5,Peter A. Bosler 5, Nicole Riemer 3, and Matthew West 2
+
+> 1
+
+Department of Computer Science, University of Illinois Urbana-Champaign, Urbana, Illinois, USA 
+
+> 2
+
+Department of Mechanical Science and Engineering, University of Illinois Urbana-Champaign, Urbana, Illinois, USA 
+
+> 3
+
+Department of Climate, Meteorology and Atmospheric Sciences, University of Illinois Urbana-Champaign, Urbana, Illinois, USA 
+
+> 4
+
+National Center for Supercomputing Applications, University of Illinois Urbana-Champaign, Urbana, Illinois, USA 
+
+> 5
+
+Center for Computing Research, Sandia National Laboratories, Albuquerque, New Mexico, USA 
+
+Abstract 
+
+Accurately representing atmospheric aerosol populations is essential for simulating aerosol–cloud interactions, radiative forcing, and ice nucleation, yet existing reduced aerosol schemes impose structural assumptions that limit their ability to capture composition diversity and mixing state. Machine-learning approaches offer new opportunities for flexible representations, but standard autoencoders do not preserve the mathematical structure of aerosol populations and therefore cannot support physically meaningful process operators. In this paper, we introduce AeroMELD (Aerosol Measure Embedding for Latent Dynamics), a mathematically grounded framework for constructing low-dimensional latent variables that retain the intrinsic structure of aerosol populations. We show that any permutation-invariant and linear encoder must take a scale–shape decomposition, in which total number concentration is represented explicitly and the latent shape is a barycentric combination of per-particle embeddings. Taking this aggregated representation as the latent state does not reduce diagnostic expressiveness relative to a Deep Sets model; it moves the nonlinear post-aggregation stage into the learned diagnostic map while preserving latent linearity. Using particle-resolved data as ground truth, we encode weighted particle populations directly rather than binned aerosol states; size-resolved mass and number distributions are used only as diagnostic targets and visual summaries. This latent space enables accurate reconstruction of size-resolved mass and number distributions as well as CCN spectra, optical coefficients, and immersion-freezing behavior, while preserving the linear population structure needed for hybrid ML–physics aerosol models. Although the experiments here focus on diagnostic reconstruction, the embedding is designed as a latent state in which emissions and mixing can be represented exactly and nonlinear microphysical processes can be learned in a controlled latent space. This work establishes the foundation for learning aerosol-process evolution directly in latent space, which will be explored in subsequent studies. 
+
+## 1 Introduction 
+
+Atmospheric aerosol populations influence climate through a wide range of pathways, including direct radiative effects, cloud droplet activation, and ice nucleation efficiency (Hoose and Möhler, 
+
+> ∗
+
+Now at Amazon, Sunnyvale, California, USA; work on this paper was completed while at the University of Illinois Urbana-Champaign. 
+
+1arXiv:2607.11073v1 [cs.LG] 13 Jul 2026 2012; Intergovernmental Panel on Climate Change (IPCC), 2021; McFiggans et al., 2006; Pöschl, 2005). These processes depend sensitively on aerosol size, chemical composition, and mixing state (Ching et al., 2017; Fierce et al., 2016; McFiggans et al., 2006; Riemer et al., 2019), all of which vary across multiple dimensions and evolve under emissions, dilution, coagulation, condensation and evaporation, chemical aging, and deposition. Particle-resolved models can describe this complexity in high detail by representing aerosol populations as size-composition distributions over thousands of computational particles (Gasparik et al., 2020; Riemer et al., 2009), but their computational cost prevents their direct application in regional or global climate models. Consequently, reduced aerosol representations are essential to make physically realistic microphysics tractable at scale. Existing reduced representations such as modal and sectional schemes achieve computational efficiency by imposing strong structural assumptions on the aerosol population (e.g., fixed lognormal shapes, internally mixed modes) (Bauer et al., 2008; Binkowski and Shankar, 1995; Gelbard et al., 1980; Vignati et al., 2004; Whitby and McMurry, 1997). These assumptions constrain the flexibility of the representation and can degrade performance when microphysical variability, source diversity, or mixing-state effects play a dominant role, such as in black-carbon aging, multicomponent urban plumes, or INP-active mineralogy (Ching et al., 2017; Fierce et al., 2016; Tang et al., 2026; Yao et al., 2022). Recent work has begun to explore machine-learning approaches for aerosol-state representation and aerosol-process emulation, including graph-neural-network surrogates for particle-resolved aerosol dynamics and generative latent representations of binned aerosol states (Ferracina et al., 2025; Saleh et al., 2025a,b; Wang et al., 2022; Zheng et al., 2021). These studies show that ML methods can provide compact and flexible aerosol representations, but they do not enforce the linear population structure needed for exact treatment of emissions, dilution, and transport. In the first two papers of this series, we pursued latent embeddings of aerosol states using binned size–composition distributions rather than particle-resolved data. Saleh et al. (2025a) demonstrated that variational autoencoders can learn compact latent spaces that preserve CCN activity, optical properties, and immersion freezing spectra with high fidelity. Saleh et al. (2025b) developed conditional generative models that infer full aerosol states from partial observations, providing uncertainty-aware predictions across multiple measurement configurations. These studies showed that generative models can efficiently represent binned aerosol populations and reconstruct them from incomplete information, but they also highlighted the need for a representation that preserves particle-level mixing state and respects linear combination of aerosol populations. While these generative models effectively represent binned aerosol states, they face two limitations that motivate the present work. First, binned size–composition distributions necessarily discard particle-level mixing-state information, even though mixing state strongly influences CCN activity, optical properties, and chemical aging. Second, the nonlinear autoencoders used in these studies do not preserve population addition: when two aerosol populations are mixed, the corresponding latent variables do not combine linearly. This is a fundamental limitation for atmospheric modeling because emissions, dilution, and transport require additive combination of populations. These shortcomings motivate a latent representation that preserves mixing state while respecting the linear structure of aerosol population addition. In this third paper, we introduce AeroMELD (Aerosol Measure Embedding for Latent Dynamics), a mathematically grounded framework that encodes the particle-level aerosol populations into a low-dimensional latent space (see Figure 1). We show that, after choosing a scale coordinate proportional to total number concentration, any encoder that is both permutation invariant and linear with respect to the aerosol population must take a specific canonical form: a scale-shape decomposition , in which the total number concentration is preserved explicitly and the latent “shape” is a barycentric combination of per-particle embeddings. Equivalently, each latent coordinate is a 210D 
+
+latent 
+
+space 
+
+Particle -resolved 
+
+aerosol state 
+
+10 °3 10 °2 10 °1 1 10 
+
+Diameter (μm) 
+
+0
+
+5
+
+10 
+
+15 
+
+> dM/d  log 10  D (μg/m3)
+
+Original (a) 
+
+10 °3 10 °2 10 °1 1 10 
+
+Diameter (μm) 
+
+0
+
+5
+
+10 
+
+15 
+
+> dM/d  log 10  D (μg/m3)
+
+SMRE=0.14 
+
+Reconstruction (b) 
+
+10 °3 10 °2 10 °1 1 10 
+
+Diameter (μm) 
+
+0
+
+5
+
+10 
+
+15 
+
+> dM/d  log 10  D (μg/m3)
+
+(c) 
+
+10 °3 10 °2 10 °1 1 10 
+
+Diameter (μm) 
+
+0
+
+1000 
+
+2000 
+
+3000 
+
+4000 
+
+> dN/d  log 10  D (# /cm 3)
+
+(d) 
+
+10 °3 10 °2 10 °1
+
+Super-Saturation 
+
+0
+
+0.2
+
+0.4
+
+0.6
+
+0.8
+
+1
+
+> CCN Fraction
+
+(e) 
+
+0.3 0.5 0.7 0.9 1
+
+Wave-Length (μm) 
+
+0
+
+0.1
+
+1
+
+10 
+
+100 
+
+1000 
+
+> Vol Scat Coef  (1 /Mm)
+
+(f) 
+
+0.3 0.5 0.7 0.9 1
+
+Wave-Length (μm) 
+
+0
+
+0.1
+
+1
+
+10 
+
+100 
+
+1000 
+
+> Vol Abs Coef  (1 /Mm)
+
+(g) 
+
+°40 °30 °20 °10 0
+
+Temperature (±C) 
+
+0
+
+10 °14 
+
+10 °10 
+
+10 °6
+
+10 °2
+
+1
+
+> Frozen Fraction
+
+(h) 
+
+SO4 
+
+NO3 
+
+Cl 
+
+NH4 
+
+ARO1 
+
+ARO2 
+
+ALK1 
+
+OLE1 
+
+API1 
+
+Na 
+
+Dust 
+
+POA 
+
+BC 
+
+MOC 
+
+H2O Original 
+
+Reconst 
+
+10 °3 10 °2 10 °1 1 10 
+
+Diameter (μm) 
+
+0
+
+5
+
+10 
+
+15 
+
+> dM/d  log 10  D (μg/m3)
+
+Original (a) 
+
+10 °3 10 °2 10 °1 1 10 
+
+Diameter (μm) 
+
+0
+
+5
+
+10 
+
+15 
+
+> dM/d  log 10  D (μg/m3)
+
+SMRE=0.14 
+
+Reconstruction (b) 
+
+10 °3 10 °2 10 °1 1 10 
+
+Diameter (μm) 
+
+0
+
+5
+
+10 
+
+15 
+
+> dM/d  log 10  D (μg/m3)
+
+(c) 
+
+10 °3 10 °2 10 °1 1 10 
+
+Diameter (μm) 
+
+0
+
+1000 
+
+2000 
+
+3000 
+
+4000 
+
+> dN/d  log 10  D (# /cm 3)
+
+(d) 
+
+10 °3 10 °2 10 °1
+
+Super-Saturation 
+
+0
+
+0.2
+
+0.4
+
+0.6
+
+0.8
+
+1
+
+> CCN Fraction
+
+(e) 
+
+0.3 0.5 0.7 0.9 1
+
+Wave-Length (μm) 
+
+0
+
+0.1
+
+1
+
+10 
+
+100 
+
+1000 
+
+> Vol Scat Coef  (1 /Mm)
+
+(f) 
+
+0.3 0.5 0.7 0.9 1
+
+Wave-Length (μm) 
+
+0
+
+0.1
+
+1
+
+10 
+
+100 
+
+1000 
+
+> Vol Abs Coef  (1 /Mm)
+
+(g) 
+
+°40 °30 °20 °10 0
+
+Temperature (±C) 
+
+0
+
+10 °14 
+
+10 °10 
+
+10 °6
+
+10 °2
+
+1
+
+> Frozen Fraction
+
+(h) 
+
+SO4 
+
+NO3 
+
+Cl 
+
+NH4 
+
+ARO1 
+
+ARO2 
+
+ALK1 
+
+OLE1 
+
+API1 
+
+Na 
+
+Dust 
+
+POA 
+
+BC 
+
+MOC 
+
+H2O Original 
+
+Reconst 
+
+Scattering Absorption 
+
+10 °3 10 °2 10 °1 1 10 
+
+Diameter (μm) 
+
+0
+
+5
+
+10 
+
+15 
+
+> dM/d  log 10  D (μg/m3)
+
+Original (a) 
+
+10 °3 10 °2 10 °1 1 10 
+
+Diameter (μm) 
+
+0
+
+5
+
+10 
+
+15 
+
+> dM/d  log 10  D (μg/m3)
+
+SMRE=0.14 
+
+Reconstruction (b) 
+
+10 °3 10 °2 10 °1 1 10 
+
+Diameter (μm) 
+
+0
+
+5
+
+10 
+
+15 
+
+> dM/d  log 10  D (μg/m3)
+
+(c) 
+
+10 °3 10 °2
+
+Dia 
+
+0
+
+1000 
+
+2000 
+
+3000 
+
+4000 
+
+> dN/d  log 10  D (# /cm 3)
+
+(d) 
+
+10 °3 10 °2 10 °1
+
+Super-Saturation 
+
+0
+
+0.2
+
+0.4
+
+0.6
+
+0.8
+
+1
+
+> CCN Fraction
+
+(e) 
+
+0.3 0.5 0.7 0.9 1
+
+Wave-Length (μm) 
+
+0
+
+0.1
+
+1
+
+10 
+
+100 
+
+1000 
+
+> Vol Scat Coef  (1 /Mm)
+
+(f) 
+
+0.3 0.5 0.7 0.9 1
+
+Wave-Length (μm) 
+
+0
+
+0.1
+
+1
+
+10 
+
+100 
+
+1000 
+
+> Vol Abs Coef  (1 /Mm)
+
+(g) 
+
+°40 °30 
+
+Temp 
+
+0
+
+10 °14 
+
+10 °10 
+
+10 °6
+
+10 °2
+
+1
+
+> Frozen Fraction
+
+(h) 
+
+SO4 
+
+NO3 
+
+Cl 
+
+NH4 
+
+ARO1 
+
+ARO2 
+
+ALK1 
+
+OLE1 
+
+API1 
+
+Na 
+
+Dust 
+
+POA 
+
+BC 
+
+MOC 
+
+H2O 
+
+10 °3 10 °2 10 °1 1 10 
+
+Diameter (μm) 
+
+0
+
+5
+
+10 
+
+15 
+
+> dM/d  log 10  D (μg/m3)
+
+Original (a) 
+
+10 °3 10 °2 10 °1 1 10 
+
+Diameter (μm) 
+
+0
+
+5
+
+10 
+
+15 
+
+> dM/d  log 10  D (μg/m3)
+
+SMRE=0.14 
+
+Reconstruction (b) 
+
+10 °3 10 °2 10 °1 1 10 
+
+Diameter (μm) 
+
+0
+
+5
+
+10 
+
+15 
+
+> dM/d  log 10  D (μg/m3)
+
+(c) 
+
+10 °3
+
+0
+
+1000 
+
+2000 
+
+3000 
+
+4000 
+
+> dN/d  log 10  D (# /cm 3)
+
+(d) 
+
+10 °3 10 °2 10 °1
+
+Super-Saturation 
+
+0
+
+0.2
+
+0.4
+
+0.6
+
+0.8
+
+1
+
+> CCN Fraction
+
+(e) 
+
+0.3 0.5 0.7 0.9 1
+
+Wave-Length (μm) 
+
+0
+
+0.1
+
+1
+
+10 
+
+100 
+
+1000 
+
+> Vol Scat Coef  (1 /Mm)
+
+(f) 
+
+0.3 0.5 0.7 0.9 1
+
+Wave-Length (μm) 
+
+0
+
+0.1
+
+1
+
+10 
+
+100 
+
+1000 
+
+> Vol Abs Coef  (1 /Mm)
+
+(g) 
+
+°40 
+
+0
+
+10 °14 
+
+10 °10 
+
+10 °6
+
+10 °2
+
+1
+
+> Frozen Fraction
+
+(h) 
+
+SO4 
+
+NO3 
+
+Cl 
+
+NH4 
+
+ARO1 
+
+ARO2 
+
+ALK1 
+
+OLE1 
+
+API1 
+
+Na 
+
+Dust 
+
+POA 
+
+BC 
+
+MOC 
+
+H2O 
+
+10 °3 10 °2 10 °1 1 10 
+
+Diameter (μm) 
+
+0
+
+5
+
+10 
+
+15 
+
+> dM/d  log 10  D (μg/m3)
+
+Original (a) 
+
+10 °3 10 °2 10 °1 1 10 
+
+Diameter (μm) 
+
+0
+
+5
+
+10 
+
+15 
+
+> dM/d  log 10  D (μg/m3)
+
+SMRE=0.14 
+
+Reconstruction (b) 
+
+10 °3 10 °2 10 °1 1 10 
+
+Diameter (μm) 
+
+0
+
+5
+
+10 
+
+15 
+
+> dM/d  log 10  D (μg/m3)
+
+(c) 
+
+10 °3 10 °2 10 °1 1 10 
+
+Diameter (μm) 
+
+0
+
+1000 
+
+2000 
+
+3000 
+
+4000 
+
+> dN/d  log 10  D (# /cm 3)
+
+(d) 
+
+10 °3 10 °2 10 °1
+
+Super-Saturation 
+
+0
+
+0.2
+
+0.4
+
+0.6
+
+0.8
+
+1
+
+> CCN Fraction
+
+(e) 
+
+0.3 0.5 0.7 0.9 1
+
+Wave-Length (μm) 
+
+0
+
+0.1
+
+1
+
+10 
+
+100 
+
+1000 
+
+> Vol Scat Coef  (1 /Mm)
+
+(f) 
+
+0.3 0.5 0.7 0.9 1
+
+Wave-Length (μm) 
+
+0
+
+0.1
+
+1
+
+10 
+
+100 
+
+1000 
+
+> Vol Abs Coef  (1 /Mm)
+
+(g) 
+
+°40 °30 °20 °10 0
+
+Temperature (±C) 
+
+0
+
+10 °14 
+
+10 °10 
+
+10 °6
+
+10 °2
+
+1
+
+> Frozen Fraction
+
+(h) 
+
+SO4 
+
+NO3 
+
+Cl 
+
+NH4 
+
+ARO1 
+
+ARO2 
+
+ALK1 
+
+OLE1 
+
+API1 
+
+Na 
+
+Dust 
+
+POA 
+
+BC 
+
+MOC 
+
+H2O Original 
+
+Reconst 
+
+10 °3 10 °2 10 °1 1 10 
+
+Diameter (μm) 
+
+0
+
+5
+
+10 
+
+15 
+
+> dM/d  log 10  D (μg/m3)
+
+Original (a) 
+
+10 °3 10 °2 10 °1 1 10 
+
+Diameter (μm) 
+
+0
+
+5
+
+10 
+
+15 
+
+> dM/d  log 10  D (μg/m3)
+
+SMRE=0.14 
+
+Reconstruction (b) 
+
+10 °3 10 °2 10 °1 1 10 
+
+Diameter (μm) 
+
+0
+
+5
+
+10 
+
+15 
+
+> dM/d  log 10  D (μg/m3)
+
+(c) 
+
+10 °3 10 °2 10 °1 1 10 
+
+Diameter (μm) 
+
+0
+
+1000 
+
+2000 
+
+3000 
+
+4000 
+
+> dN/d  log 10  D (# /cm 3)
+
+(d) 
+
+10 °3 10 °2 10 °1
+
+Super-Saturation 
+
+0
+
+0.2
+
+0.4
+
+0.6
+
+0.8
+
+1
+
+> CCN Fraction
+
+(e) 
+
+0.3 0.5 0.7 0.9 1
+
+Wave-Length (μm) 
+
+0
+
+0.1
+
+1
+
+10 
+
+100 
+
+1000 
+
+> Vol Scat Coef  (1 /Mm)
+
+(f) 
+
+0.3 0.5 0.7 0.9 1
+
+Wave-Length (μm) 
+
+0
+
+0.1
+
+1
+
+10 
+
+100 
+
+1000 
+
+> Vol Abs Coef  (1 /Mm)
+
+(g) 
+
+°40 °30 °20 °10 0
+
+Temperature (±C) 
+
+0
+
+10 °14 
+
+10 °10 
+
+10 °6
+
+10 °2
+
+1
+
+> Frozen Fraction
+
+(h) 
+
+SO4 
+
+NO3 
+
+Cl 
+
+NH4 
+
+ARO1 
+
+ARO2 
+
+ALK1 
+
+OLE1 
+
+API1 
+
+Na 
+
+Dust 
+
+POA 
+
+BC 
+
+MOC 
+
+H2O Original 
+
+Reconst 
+
+10 °3 10 °2 10 °1 1 10 
+
+Diameter (μm) 
+
+0
+
+5
+
+10 
+
+15 
+
+> dM/d  log 10  D (μg/m3)
+
+Original (a) 
+
+10 °3 10 °2 10 °1 1 10 
+
+Diameter (μm) 
+
+0
+
+5
+
+10 
+
+15 
+
+> dM/d  log 10  D (μg/m3)
+
+SMRE=0.14 
+
+Reconstruction (b) 
+
+10 °3 10 °2 10 °1 1 10 
+
+Diameter (μm) 
+
+0
+
+5
+
+10 
+
+15 
+
+> dM/d  log 10  D (μg/m3)
+
+(c) 
+
+10 °3 10 °2 10 °1 1 10 
+
+Diameter (μm) 
+
+0
+
+1000 
+
+2000 
+
+3000 
+
+4000 
+
+> dN/d  log 10  D (# /cm 3)
+
+(d) 
+
+10 °3 10 °2 10 °1
+
+Super-Saturation 
+
+0
+
+0.2
+
+0.4
+
+0.6
+
+0.8
+
+1
+
+> CCN Fraction
+
+(e) 
+
+0.3 0.5 0.7 0.9 1
+
+Wave-Length (μm) 
+
+0
+
+0.1
+
+1
+
+10 
+
+100 
+
+1000 
+
+> Vol Scat Coef  (1 /Mm)
+
+(f) 
+
+0.3 0.5 0.7 0.9 1
+
+Wave-Length (μm) 
+
+0
+
+0.1
+
+1
+
+10 
+
+100 
+
+1000 
+
+> Vol Abs Coef  (1 /Mm)
+
+(g) 
+
+°40 °30 °20 °10 0
+
+Temperature (±C) 
+
+0
+
+10 °14 
+
+10 °10 
+
+10 °6
+
+10 °2
+
+1
+
+> Frozen Fraction
+
+(h) 
+
+SO4 
+
+NO3 
+
+Cl 
+
+NH4 
+
+ARO1 
+
+ARO2 
+
+ALK1 
+
+OLE1 
+
+API1 
+
+Na 
+
+Dust 
+
+POA 
+
+BC 
+
+MOC 
+
+H2O Original 
+
+Reconst 
+
+10 °3 10 °2 10 °1 1 10 
+
+Diameter (μm) 
+
+0
+
+5
+
+10 
+
+15 
+
+> dM/d  log 10  D (μg/m3)
+
+Original (a) 
+
+10 °3 10 °2 10 °1 1 10 
+
+Diameter (μm) 
+
+0
+
+5
+
+10 
+
+15 
+
+> dM/d  log 10  D (μg/m3)
+
+SMRE=0.14 
+
+Reconstruction (b) 
+
+10 °3 10 °2 10 °1 1 10 
+
+Diameter (μm) 
+
+0
+
+5
+
+10 
+
+15 
+
+> dM/d  log 10  D (μg/m3)
+
+(c) 
+
+10 °3 10 °2
+
+Dia 
+
+0
+
+1000 
+
+2000 
+
+3000 
+
+4000 
+
+> dN/d  log 10  D (# /cm 3)
+
+(d) 
+
+10 °3 10 °2 10 °1
+
+Super-Saturation 
+
+0
+
+0.2
+
+0.4
+
+0.6
+
+0.8
+
+1
+
+> CCN Fraction
+
+(e) 
+
+0.3 0.5 0.7 0.9 1
+
+Wave-Length (μm) 
+
+0
+
+0.1
+
+1
+
+10 
+
+100 
+
+1000 
+
+> Vol Scat Coef  (1 /Mm)
+
+(f) 
+
+0.3 0.5 0.7 0.9 1
+
+Wave-Length (μm) 
+
+0
+
+0.1
+
+1
+
+10 
+
+100 
+
+1000 
+
+> Vol Abs Coef  (1 /Mm)
+
+(g) 
+
+°40 °30 
+
+Tem 
+
+0
+
+10 °14 
+
+10 °10 
+
+10 °6
+
+10 °2
+
+1
+
+> Frozen Fraction
+
+(h) 
+
+SO4 
+
+NO3 
+
+Cl 
+
+NH4 
+
+ARO1 
+
+ARO2 
+
+ALK1 
+
+OLE1 
+
+API1 
+
+Na 
+
+Dust 
+
+POA 
+
+BC 
+
+MOC 
+
+H2O 
+
+Diagnostics 
+
+Speciated mass distribution 
+
+CCN 
+
+Mass dist. Number dist. 
+
+INP 
+
+Learned 
+
+encoder 
+
+Direct original evaluation 
+
+(solid blue lines) 
+
+Learned 
+
+reconstruction 
+
+(dashed red lines) 
+
+Training objective: 
+
+Match reconstructed 
+
+diagnostics to original Figure 1: Overview of the AeroMELD framework. weighted sum of learned per-particle features; in the measure-theoretic view developed below, these features define learned test functions on composition space. Because this weighted aggregation is independent of the number of particles used to represent the population, the same trained encoder can be evaluated on aerosol populations with any number of particles. This structure yields several advantages. First, it ensures exact latent-space representations of mixing and scalar concentration changes, allowing emissions, dilution, and transport to be handled without learned approximations. Second, it confines learned latent-process models to the inherently nonlinear components of aerosol evolution (e.g., coagulation, gas-particle partitioning), greatly reducing model complexity. Third, the separation of scale and shape improves interpretability, prevents pathological latent drift, and enables modular regularization strategies. More broadly, by framing aerosol populations as objects in a semimodule with physically meaningful combination rules, AeroMELD contributes one of the first latent-space formulations in the geosciences to enforce linear population structure at the representational level. This linear latent structure does not require giving up the expressiveness of Deep Sets-style diagnostic models (Zaheer et al., 2017): the nonlinear post-aggregation stage can be treated as part of the learned latent diagnostic rather than as part of the stored latent state. In the experiments below, the base model applies this structure to 25000 aerosol population snapshots and maps a 16000-scalar sampled particle representation of each population to a 10-dimensional latent state. We note that the present work does not attempt to learn the time evolution of aerosol populations in latent space. Instead, we establish the mathematical and representational foundations required for such latent-process models, which will be developed in the next paper of this series. Together, these developments provide a conceptual and practical foundation for hybrid ML-physics aerosol simulators that combine exact latent operators with learned nonlinear dynamics. AeroMELD offers a pathway toward reduced-order aerosol microphysics that is compact, interpretable, and 3suitable for coupling with emerging ML-based climate models and Earth system simulators. Section 2 introduces the weighted-particle formulation of aerosol populations and derives the linear, permutation-invariant encoder structure underlying AeroMELD. Section 3 describes the particle-resolved scenario library and the diagnostic operators used for training and evaluation. Section 4 presents results on the learned latent space, including the performance of latent diagnostics and visualizations of the latent space structure. Section 5 concludes with implications for future reduced-order aerosol modeling and the integration of latent-space microphysics into ML-physics hybrid climate frameworks. 
+
+## 2 The AeroMELD Framework 
+
+This section lays the mathematical foundations that define the AeroMELD framework. Crucially, we will see the precise sense in which the AeroMELD encoders are linear and how this can be used for aerosol modeling. The notation used in this paper is summarized in Table 1. 
+
+2.1 Composition Space and Aerosol Populations 
+
+An aerosol particle is represented by its composition μ ∈ RA, where A is the number of chemical species considered. Each component μa represents the mass of species a in the particle, such as sulfate, nitrate, organic carbon, etc. The space RA is referred to as the composition space . It is straightforward to extend this representation to include other particle properties, such as particle charge or fractal dimension, by adding additional components to the composition. An aerosol population is a measure π on the composition space, representing the number distribution of particles with different compositions. We denote the space of aerosol populations by 
+
+Π. In practice, we represent an aerosol population as a weighted set of particles π = {(ni, μ i)}Ni=1 ,where ni is the number concentration of particles with composition μi. Technically, we use multisets in the sense of Knuth (1997), so that particles with the same composition can appear multiple times in the set. A normalized aerosol population has weights which sum to one. That is, it has the form ˆπ = {(pi, μ i)}Ni=1 , where P 
+
+> i
+
+pi = 1 . This can be regarded as a probability measure on the composition space. Given an aerosol population, the total number concentration is n = P 
+
+> i
+
+ni
+
+and the corresponding normalized population has weights pi = ni 
+
+> n
+
+. Equivalently, the total number concentration is the integral of the population measure over the composition space and the normalized population is the probability measure obtained by dividing the population measure by its integral. We can think of an aerosol population π as being composed of two parts: a scale component 
+
+given by its total number concentration n and a shape component given by its normalized population ˆπ. We can thus represent an aerosol population as the pair (n, ˆπ). This scale-shape representation will be useful for constructing encoders and diagnostics that respect the linear structure of aerosol populations. 
+
+2.2 Linear Structures on Aerosol Populations 
+
+An important feature of aerosol populations is that they have a linear structure . Physically, the addition or union of two aerosol populations corresponds to mixing them together, and scaling an aerosol population corresponds to changing its overall concentration without changing its composition distribution. These properties are crucial in 3D numerical models for implementing emissions, which add an emitted population into an existing aerosol, and transport, which takes linear combinations of aerosols from neighboring grid cells. 4Notation Description Space 
+
+A The dimension of the particle composition space Z
+
+α A non-negative scalar R≥0
+
+B The number of diameter bins in the histograms Z
+
+β A non-negative scalar R≥0
+
+d The dimension of the latent shape component ( d = L − 1) Z
+
+D The dimension of the diagnostic space Z
+
+D A diagnostic function Π → RD
+
+ˆD A scale-invariant or number-normalized diagnostic function Π → RD
+
+˜Dθ A latent diagnostic function RL → RD
+
+ˆ˜Dθ The shape component of a latent diagnostic function RL−1 → RD
+
+F An aerosol process function Π → Π˜Fθ A latent aerosol process function RL → RL
+
+Gθ A Deep Sets diagnostic head used in Section 2.12 RH → RD
+
+H The auxiliary dimension after the Deep Sets post-aggregation map Z
+
+Hθ A Deep Sets-style process model on the post-aggregation representation RH → RH
+
+L The dimension of the latent space Z
+
+λ A convex-combination weight [0 , 1] 
+
+λ The optical wavelength R
+
+μ The variational latent mean Rd
+
+μi The composition of aerosol particle i RA
+
+n The total number concentration of an aerosol population R
+
+ni The number concentration (weight) of particle i R
+
+P The dimension of the parameter space Z
+
+pi The normalized weight of particle i R
+
+Φθ The encoder Π → RL
+
+ˆΦθ The shape encoder ˆΠ → RL−1
+
+ϕθ The per-particle encoder RA → RL−1
+
+Π The space of aerosol populations π —
+
+ˆΠ The space of normalized aerosol populations ˆπ —
+
+π A weighted aerosol population {(ni, μ i)}Ni=1 Πˆπ A normalized aerosol population {(pi, μ i)}Ni=1 ˆΠ
+
+ρθ The post-aggregation Deep Sets map used in Section 2.12 RL → RH
+
+s The scaled latent shape in the double-scale representation RL−1
+
+s The critical supersaturation level R
+
+Σ The variational latent covariance matrix Rd×d
+
+σi The variational latent standard deviation for dimension i R
+
+T The temperature R
+
+T the pre-processing transformation —
+
+θ The learned parameters RP
+
+wμ The KL divergence weight for the mean term R
+
+wσ The KL divergence weight for the variance term R
+
+Z The standardization operator applying a zero-mean and unit-scaling transformation inferred over the training data —
+
+z The shape component of the latent representation RL−1
+
+Table 1: The mathematical notation used throughout the paper. 5Mathematically, given two aerosol populations π1 and π2, we can form their union π1 + π2
+
+by combining the weighted sets of particles (technically, this is a multiset union ⊎ as defined by Knuth (1997)). We can also scale an aerosol population π by a positive scalar α to obtain a new population απ with weights αn i. If we are thinking of aerosol populations as measures, then the union corresponds to measure addition and scaling corresponds to multiplying the measure by a scalar. We think of this as a linear structure on the space of aerosol populations Π, although technically it is an R≥0-semimodule rather than a vector space, since we only allow scaling by non-negative scalars and don’t have additive inverses. In the scale-shape representation, scalar multiplication and addition of aerosol populations can be expressed as 
+
+α(n, ˆπ) = ( αn, ˆπ), (1) 
+
+(n1, ˆπ1) + ( n2, ˆπ2) =  n1 + n2, λ ˆπ1 + (1 − λ)ˆ π2
+
+, where λ = n1
+
+n1 + n2
+
+. (2) This is a barycentric or convex addition on the shape components, which reflects the fact that the normalized population of a mixture is a weighted average of the normalized populations of its components. Together these give linear combinations as 
+
+α(n1, ˆπ1) + β(n2, ˆπ2) =  αn 1 + βn 2, λ ˆπ1 + (1 − λ)ˆ π2
+
+, where λ = αn 1
+
+αn 1 + βn 2
+
+. (3) 
+
+2.3 Linear Set Encoders 
+
+We want to construct an encoder Φθ : Π → RL that maps aerosol populations to a latent space RL,parameterized by θ. The latent space is a low-dimensional representation of the aerosol population, where L is much smaller than the dimension of the original composition space or the number of particles in the population. We want our encoder to have three key properties: 1. Permutation invariance: Φθ(π) = Φ θ(π′) for any permutation π′ of the particles in π. This ensures the encoder really acts on the aerosol population as a whole, rather than on the specific ordering of particles in the representation. 2. Linearity: Φθ(απ 1 + βπ 2) = αΦθ(π1) + βΦθ(π2), for any positive scalars α and β and aerosol populations π1 and π2. This is important for efficient representation of aerosol processes that involve mixing and scaling of populations, such as emissions and transport. 3. Scale-shape representation: The latent space should separate scale and shape components as (n, z ) ∈ RL, so that the first component n ∈ R is the total number concentration (the 
+
+scale component ) and the remaining z ∈ RL−1 is the latent shape component . This allows us to regularize and manipulate scale and shape independently in the latent space. We denote the shape component of the encoder by ˆΦθ, so that, for π = ( n, ˆπ), we write 
+
+Φθ(π) = ( n, ˆΦθ( ˆπ)) . The theorem below characterizes the form imposed on ˆΦθ by linearity and permutation invariance. The scale-shape representation in the latent space means that scalar multiplication and addition are defined as 
+
+α(n, z ) = ( αn, z ), (4) 
+
+(n1, z 1) + ( n2, z 2) =  n1 + n2, λz 1 + (1 − λ)z2
+
+, where λ = n1
+
+n1 + n2
+
+. (5) 6This also technically makes the latent space a R≥0-semimodule rather than a vector space and linearity of the encoder should technically be interpreted as semilinearity (a semimodule homomorphism). Combining the above expressions gives the general linear combination 
+
+α(n1, z 1) + β(n2, z 2) =  αn 1 + βn 2, λz 1 + (1 − λ)z2
+
+, where λ = αn 1
+
+αn 1 + βn 2
+
+. (6) The three properties we require of our encoder turn out to restrict it to a simple deterministic form: a learned nonlinear feature map is applied to each particle and the resulting features are averaged using the normalized particle weights. 
+
+Theorem 2.1. Every deterministic encoder Φθ : Π → RL that is permutation invariant and linear can be expressed (up to rescalings in the latent scale component) in the form 
+
+(n, z ) = Φ θ(π) =  n, ˆΦθ(ˆ π), where π = ( n, ˆπ), (7) 
+
+z = ˆΦθ(ˆ π) = 
+
+> N
+
+X
+
+> i=1
+
+piϕθ(μi), where ˆπ = {(pi, μ i)}Ni=1 . (8) 
+
+Here ϕθ : RA → RL−1 is a learned function that maps the composition vector to the (L−1) -dimensional latent shape component. Proof. It is clear that any encoder of the form (7)–(8) is permutation invariant and it is straightforward to check that it is linear with respect to the latent space operations (see Appendix C). Technically, it is a semimodule homomorphism with respect to the semimodule structures on the population space 
+
+Π, given by (1)–(2), and the latent space RL, given by (4)–(5). The necessity of the form (7) follows from the fact that scalar multiplication only affects the first component, and by linearity we can choose the first component to be the total number concentration 
+
+n. The form (8) follows because, for finite weighted particle populations, linearity makes the scaled shape coordinate additive over particles, while permutation invariance ensures that this additive contribution depends only on each particle composition and weight, not on particle ordering. Theorem 2.1 characterizes the latent aerosol state used for physical operations such as mixing, emissions, and transport. The aggregation in Eq. (8) can also be read as the finite-particle evaluation of z = R ϕθ(μ) d ˆπ(μ), and therefore is not tied to a fixed number of particles. If a sequence of empirical particle measures converges weakly to a limiting normalized aerosol measure, and the learned component functions of ϕθ are bounded and continuous on the composition domain, then the AeroMELD shape coordinates converge to the corresponding integrals against the limiting measure. The VAE regularization introduced below adds a stochastic training distribution around this deterministic shape coordinate, but the covariance of that distribution is an auxiliary training quantity and is not part of the AeroMELD state itself. The form of the encoder in Theorem 2.1 is closely related to the Deep Sets architecture of Zaheer et al. (2017), which is designed to be permutation invariant. The precise relationship is discussed in Section 2.12. 
+
+2.4 Double-Scale Representation 
+
+The scale-shape representation separates the total number concentration from the normalized population, but it can be useful for the latent operations to re-introduce the scale into the shape component. This leads to a double-scale representation where the scale is present in both components. We define the double-scale latent variable as (n, s ) ∈ RL, where s = nz is the scaled 
+
+7latent shape component . The latent operations in this representation are much simpler, as scalar multiplication and addition become 
+
+α(n1, s 1) + β(n2, s 2) = ( αn 1 + βn 2, αs 1 + βs 2). (9) See Appendix D for a proof of this relationship between the scale-shape and double-scale representa-tions. While the operations for the double-scale representation are simpler, the scale-shape representation has advantages for interpretability and regularization, since it separates scale and shape explicitly. In this paper, we will primarily use the scale-shape representation for the latent variables, but the double-scale representation will be useful for transport in Section 2.10. 
+
+2.5 Diagnostic Functions 
+
+The linear structure also carries over to aerosol diagnostics , which are typically linear functionals of the aerosol population. For example, the speciated mass distribution with B bins is a map 
+
+DSMD : Π → RA×B defined by summing the contributions of each particle to the mass in each bin. Similarly, the number distribution is DND : Π → RB . Each of these diagnostics D is linear in the aerosol population, so that for any two populations π1 and π2 and positive scalars α and β, we have 
+
+D(απ 1 + βπ 2) = αD(π1) + βD(π2). (10) Some diagnostics are scale-invariant , or number-normalized , diagnostics. These depend on the normalized population shape rather than on the total number concentration, so that ˆD(απ ) = ˆD(π) for any positive scalar α. Many such diagnostics can be obtained by dividing a linear diagnostic by the total number concentration, for example by computing a CCN fraction as the activated number concentration divided by the total number concentration. In this case, such a diagnostic ˆD
+
+satisfies the convex combination 
+
+ˆD(απ 1 + βπ 2) = λ ˆD(π1) + (1 − λ) ˆD(π2), where λ = αn 1
+
+αn 1 + βn 2
+
+, (11) and n1 and n2 are the total number concentrations of π1 and π2, respectively. 
+
+2.6 Latent Diagnostics 
+
+We want to learn latent diagnostic maps ˜Dθ : RL → RD that map the latent space to diagnostic variables y ∈ RD. For example, we will learn latent diagnostics for the speciated mass distribution, number distribution, CCN spectrum, optical properties, or ice nucleation properties. While we could require the latent diagnostics to be linear like the true diagnostics, we will use a more expressive structure by only restricting them to be homogeneous in n, meaning they can be factored as 
+
+˜Dθ(n, z ) = n ˆ˜Dθ(z), (12) where ˆ˜Dθ : RL−1 → RD is a learned function that maps the latent shape component to the diagnostic variables. In the case of a scale-invariant diagnostic that satisfies (11), we will have 
+
+˜Dθ(n, z ) = ˆ˜Dθ(z). (13) If we did wish to constrain ˜Dθ to be linear, ˆ˜Dθ would be a linear map RL−1 → RD.8time t Π RL RD
+
+time t + 1 Π RL RD
+
+... ... ...
+
+> Φθ
+> D
+> F
+> ˜Dθ
+> ˜Fθ
+> Φθ
+> F
+> ˜Dθ
+> ˜Fθ
+
+Figure 2: AeroMELD framework with learned encoder Φθ from the population space Π to the latent space RL, true and learned diagnostics D and ˜Dθ mapping to the diagnostic space RD, and true and learned time evolutions F and ˜Fθ. This is not a commutative diagram but rather indicates approximate equivalence. The learned maps are trying to make this diagram as close to commutative as possible. 
+
+2.7 Reconstruction Loss Function 
+
+We want to find an encoder and latent diagnostic models that approximate the true diagnostics. This is expressed as the diagram 
+
+yt
+
+πt (nt, z t) ˜yt 
+
+> Φθ
+> D
+> ˜Dθ
+> ≈
+
+(14) Based on this, we have the reconstruction loss function 
+
+Lreconstruct (θ) = Eπ∥D (π) − ˜Dθ(Φ θ(π)) ∥2 (15) 
+
+= Eπ∥yi − ˜yi∥2, (16) where yi are the true diagnostics of population i and ˜yi are the approximated versions. 
+
+2.8 Population Dynamics 
+
+The empirical focus of this paper is diagnostic reconstruction, but the purpose of the AeroMELD embedding is to provide a latent state on which aerosol dynamics can act. We briefly sketch how dynamics are incorporated to provide a more complete picture, deferring detailed exploration to future work. Figure 2 shows how the AeroMELD framework includes aerosol population dynamics. These dynamics could include coagulation, gas/particle partitioning, dry deposition, or other processes that directly affect the aerosol population. We assume that the dynamics is given by a map F : Π → Π,which would generally also depend on environmental variables or other system states such as gas concentrations. The dynamics can be approximated by a learned map ˜Fθ : RL → RL (generally one time step of a neural ODE (Chen et al., 2018)) on the latent space, which motivates the dynamics loss 
+
+Ldynamics (θ) = Eπ∥Φθ(F (π)) − ˜Fθ(Φ θ(π)) ∥2. (17) While nonlinear dynamics F must be approximated by a learned map ˜Fθ, the situation for linear dynamics is much simpler. Linear dynamics, such as aerosol transport and emissions, can be evaluated directly with no error using the linearity of the AeroMELD latent representation. Table 2 summarizes the process representations. 9Aerosol Process Representation in AeroMELD Initial conditions Direct evaluation of encoder Φθ (§ 2.9) Emissions Combine latent representations using linear structure (§ 2.9) Transport Combine latent representations using linear structure (§ 2.10) Coagulation Approximate learned function ˜Fcoag ,θ (§ 2.8) Deposition Approximate learned function ˜Fdep ,θ (§ 2.8) Gas/aerosol partitioning Approximate learned function ˜Fgas ,θ (§ 2.8) Table 2: Overview of aerosol process descriptions in the AeroMELD framework. Note that these processes are described in this paper but their implementation will be explored in future work. 
+
+2.9 Initial Conditions and Emissions 
+
+In an atmospheric model, initial conditions and emissions are typically specified as a linear com-bination of aerosol populations, each of which has a given binned, modal, or particle-resolved representation. In the AeroMELD framework, we can convert each of these constituent aerosol populations into a latent AeroMELD representation and then take linear combinations as needed in the latent space. This can be done by first sampling particles for each population (if not already in particle-resolved form), then directly evaluating the encoder Φθ to obtain their latent representations. For example, suppose we have emissions from M different sectors, each being emitted at a time-dependent rate. Assume ˆπ1, . . . , ˆπM are the normalized aerosol population shapes for each sector, given in particle-resolved form (sampled from binned or modal representations if needed), and n1(t), . . . , n M (t) are their total emitted number concentrations at time t. Before the simulation starts, we can do a one-off evaluation of the shape encoder to obtain latent shape representations 
+
+z1, . . . , zM , where zm = ˆΦθ( ˆπm) for m = 1 , . . . , M . At time t, the emitted aerosol population has latent representation 
+
+nemit (t) = 
+
+> M
+
+X
+
+> m=1
+
+nm(t), (18) 
+
+zemit (t) = 1
+
+nemit (t)
+
+> M
+
+X
+
+> m=1
+
+nm(t)zm. (19) Because the AeroMELD encoder is linear, this combination of sector emissions is exact, and no particle data needs to be stored or re-encoded at each time step. These latent emissions can then be added to the model state using the latent addition operation. 
+
+2.10 Transport (Advection and Diffusion) 
+
+Transport schemes in atmospheric models typically involve linear operations on aerosol populations, such as advection and diffusion (Durran, 2010). In the AeroMELD framework, these linear transport operations can be directly applied in the latent space using the linear structure of the latent representation. For example, if grid cell k at time t has aerosol population represented by latent variable (ntk, z tk), and the transport scheme computes a linear combination of populations from neighboring grid cells, we can perform the same linear combination in the latent space. This allows for efficient and exact representation of transport processes without needing to reconstruct particle data. It is especially simple to implement transport processes in the double-scale representation, where both components contain scale information. In this representation, transport operations correspond 10 to standard linear combinations of the latent variables, as shown in Equation (9). Because of this, the double-scale latent variables can be transported as regular tracers in the atmospheric model, simplifying the implementation. More precisely, before computing transport, we convert the scale-shape latent variables (ntk, z tk) to double-scale variables (ntk, s tk), where stk = ntkztk. We then allow the transport scheme to operate on (ntk, s tk) as regular tracers. After transport, we convert back to scale-shape representation by computing zt+1  
+
+> k
+
+= st+1  
+
+> k
+
+/n t+1  
+
+> k
+
+.Note that the use of limiters or other nonlinear stabilization techniques in transport schemes may introduce small nonlinearities. This will mean that using double-scale representation may not be exactly equivalent to transporting the latent variables in scale-shape representation. However, these nonlinearities are typically small. 
+
+2.11 Measure-Theoretic Interpretation 
+
+The AeroMELD framework can be understood entirely in terms of finite weighted particle populations. For readers who prefer a measure-theoretic formulation, the same construction can be viewed as a learned measure embedding. The surrounding linear object is the vector space of finite signed measures on composition space; aerosol populations occupy the nonnegative cone inside this vector space. The learned per-particle map ϕθ : RA → RL−1 defines a collection of learned test functions 
+
+bθ,ℓ (μ) = [ ϕθ(μ)] ℓ, ℓ = 1 , . . . , L − 1, (20) and the AeroMELD coordinates are obtained by pairing these functions with the aerosol population measure, 
+
+zℓ =
+
+Z
+
+bθ,ℓ (μ) dˆ π(μ), sℓ = nz ℓ =
+
+Z
+
+bθ,ℓ (μ) d π(μ). (21) Thus the latent shape coordinates are learned linear functionals of the normalized aerosol measure, while the double-scale coordinates are the corresponding linear functionals of the unnormalized population measure. For a finite weighted particle representation, these measure pairings reduce to weighted sums, 
+
+zℓ =
+
+> N
+
+X
+
+> i=1
+
+pibθ,ℓ (μi), sℓ =
+
+> N
+
+X
+
+> i=1
+
+nibθ,ℓ (μi). (22) This gives a simple finite-vector intuition. If measures were restricted to a fixed support {ξj }Kj=1 ,then a population π = PKj=1 wj δξj could be identified with the weight vector w ∈ RK . A learned test function bθ,ℓ would then be represented by the vector (bθ,ℓ (ξ1), . . . , b θ,ℓ (ξK )) , and the coordinate 
+
+sℓ would be the usual dot product with w. AeroMELD generalizes this construction by learning functions on composition space itself, so the support particles do not need to lie on a fixed grid or have fixed cardinality. In this sense, AeroMELD is similar in spirit to traditional basis representations such as modal (Whitby and McMurry, 1997) or sectional (Gelbard et al., 1980) methods, which remain foundational in aerosol modeling (see also (Riemer et al., 2019) for a modern review). The key distinction is that AeroMELD learns the functions that define the population coordinates directly from data, rather than imposing fixed modal shapes, fixed size bins, or a fixed particle support. This allows the learned coordinates to represent complex mixing states and composition distributions while remaining well-defined for any finite particle representation of the population. This perspective also clarifies the connection between AeroMELD and other dimensionality reduction techniques, such as principal component analysis (PCA) (Jolliffe, 2002), which is closely 11 related to proper orthogonal decomposition (POD) (Holmes et al., 2012) and empirical orthogonal functions (EOF) (Hannachi et al., 2007). PCA, POD, and EOF methods typically begin by representing each sample as a vector in a common finite coordinate system, such as a fixed grid, binning, or support. Their basis vectors are therefore tied to that chosen discretization. AeroMELD instead learns functions on composition space and evaluates those functions against each aerosol measure. The resulting coordinates can be computed for particle populations with different supports or different numbers of particles. The scale-shape decomposition and the diagnostic-focused training objective are additional advantages of this construction. 
+
+2.12 Expressiveness Relative to Deep Sets 
+
+Deep Sets provide a canonical universal architecture for permutation-invariant functions on finite sets: under appropriate assumptions, such functions can be represented or approximated by applying a nonlinear map ρθ to a sum of learned per-element features ϕθ (Zaheer et al., 2017). It is thus natural to ask whether the linearity constraint on the AeroMELD latent state sacrifices expressiveness relative to Deep Sets. The answer is no: for diagnostic reconstruction, AeroMELD simply changes where the boundary is placed between the encoder and the downstream learned maps. In the notation of this paper, the AeroMELD encoder Φθ : Π → RL contains the permutation-invariant weighted aggregation over particles. A conventional Deep Sets model would typically add a nonlinear post-aggregation map ρθ : RL → RH and then a diagnostic head Gθ : RH → RD. We can factorize this in two equivalent ways: 
+
+> AeroMELD encoder
+
+z }| {
+
+Π Φθ
+
+−→ RL 
+
+> AeroMELD learned diagnostic ˜Dθ
+
+z }| {
+
+> ρθ
+
+−→ RH Gθ
+
+−→ RD
+
+Π Φθ
+
+−→ RL ρθ
+
+−→ RH
+
+| {z }
+
+> Deep Sets encoder
+> Gθ
+
+−→ RD
+
+| {z }
+
+> Deep Sets learned diagnostic
+
+.
+
+(23) A Deep Sets interpretation would call ρθ ◦ Φθ the encoder, RH the latent space, and Gθ the learned diagnostic map. In contrast, AeroMELD calls Φθ the encoder, RL the latent space, and absorbs the post-aggregation map into the latent diagnostic, 
+
+˜Dθ = Gθ ◦ ρθ. (24) Thus the same composed map from aerosol populations to diagnostics is represented in either case. The difference is that AeroMELD stores the linear aggregated representation Φθ(π) as the latent state, rather than the nonlinear transformed representation ρθ(Φ θ(π)) .This distinction is important for aerosol modeling. If the nonlinear post-aggregation map ρθ
+
+were included inside the stored latent state, then the resulting latent variable would generally no longer preserve the linear structure of aerosol population addition. By keeping the latent state at RL,AeroMELD retains exact linear operations for emissions and transport, while still allowing arbitrary nonlinear maps to act downstream when predicting diagnostics. A similar perspective applies to learned latent evolution operators, although exact equivalence requires an additional qualification. If a Deep Sets-style process model evolves the post-aggregation representation through a map Hθ : RH → RH , then the corresponding AeroMELD latent process would formally have the structure ˜Fθ = ρ† 
+
+> θ
+
+◦ H θ ◦ ρθ, (25) 12 where ρ† 
+
+> θ
+
+: RH → RL is an inverse, right-inverse, or learned return map on the relevant latent manifold. In practice, this means that the nonlinear post-aggregation map ρθ could be used as a shared backbone for both latent diagnostics and learned process models, with separate output heads for diagnostics and evolution. The stored model state would nevertheless remain the AeroMELD latent variable in RL, preserving the linear operations that motivate the framework. 
+
+## 3 Data and Training 
+
+This section details the dataset used for training and evaluating the AeroMELD models for diagnostics. We begin by describing the source of the data, which is a comprehensive library of aerosol scenarios generated by a particle-resolved model. Following this, we outline the calculation of key climate-relevant aerosol diagnostic variables, including CCN spectra, optical properties, and ice nucleation activity. We also describe the methodology for splitting the data into training and testing sets to ensure robust model evaluation, and describe the details of the training procedure. 
+
+3.1 Data Source 
+
+The dataset used in this study is sourced from the scenario library detailed in Gasparik et al. (2020). This library was generated using the particle-resolved aerosol box model PartMC-MOSAIC (Riemer et al., 2009; Zaveri et al., 2008). PartMC explicitly tracks the composition and size of thousands of individual computational particles within an evolving population, resolving mixing state and allowing for a detailed representation of aerosol microphysics. Particle coagulation is simulated using a stochastic Monte Carlo approach, while MOSAIC provides the coupled gas- and aerosol-phase chemistry and thermodynamics. Together, this framework captures emissions, coagulation, dilution with the background, and gas–aerosol partitioning, producing a comprehensive dataset of aerosol populations across diverse atmospheric conditions and emission scenarios. The library comprises 1000 distinct scenarios, each corresponding to a 24-hour simulation. For the dataset used here, we retain the initial state together with 24 hourly outputs, yielding 25 time snapshots per scenario and 25000 aerosol population snapshots in total. The aerosol populations within these scenarios are described by 15 chemical species yielding particle-resolved ensembles. For the neural-network inputs used here, each population snapshot is represented by 1000 weighted particles. Each particle carries a 15-dimensional chemical composition vector and one scalar weight, so the sampled particle representation contains 16000 scalar particle-state entries per population before encoding. The choice of 1000 particles fixes the tensor size used in these experiments, but it is not an architectural constraint: the AeroMELD encoder is a weighted aggregation over particles and can be evaluated on particle populations with different cardinalities. Unlike conventional bulk or modal representations, this dataset resolves the full evolution of aerosol mixing state, providing a uniquely stringent test for reduced aerosol representations. The model input is the weighted particle population itself, without prior binning by size or aggregation across particles by species. Binned mass and number distributions are computed only downstream as diagnostic targets. The 15 chemical species tracked in the model are: Sulfate (SO4), Nitrate (NO3), Chloride (Cl), Ammonium (NH4), Sodium (Na), Dust, Black Carbon (BC), Water (H2O), Primary Organic Aerosol (POA), Marine Organic Compounds (MOC), and five lumped precursors for Secondary Organic Aerosol (SOA): high-yield aromatics (ARO1), low-yield aromatics (ARO2), long-chain alkanes (ALK1), olefins (OLE1), and alpha-pinene (API1). These species encompass primary emissions including dust, POA and BC, and secondary aerosols formed from both inorganic and organic gas-phase precursors. 13 3.2 Aerosol Diagnostic Variables 
+
+There are six diagnostic variables studied in this paper, as illustrated in Figure 3, all computed from the underlying weighted particle populations. These diagnostics provide training and evaluation tar-gets for the latent diagnostic maps; they should not be interpreted as the aerosol state representation used by AeroMELD. The first two are the speciated mass distribution and the number distribution, which capture the size-resolved structure of the population (but ignore mixing state). The remaining four are climate-relevant and consist of CCN spectra, volume absorption and scattering coefficient spectra, and immersion freezing ice nuclei spectra. CCN spectra provide an integrated measure of aerosol size and composition, directly linking particle properties to their ability to form cloud droplets. Because droplet activation is a threshold process that depends on both size and hygroscopicity, CCN spectra serve as a robust benchmark for testing whether compressed representations retain the information most relevant for warm cloud formation. Aerosol scattering and absorption coefficients are central to direct radiative forcing and depend sensitively on mixing state, especially for black carbon and dust. By including optical diagnostics, we directly test whether the latent representations can preserve compositionally dependent absorption and scattering, which are critical for constraining aerosol-radiation interactions. Immersion freezing diagnostics provide a stringent test because ice nucleation is often controlled by trace components such as dust and soot. Small reconstruction errors in these components can lead to large differences in frozen fraction spectra. Including this diagnostic therefore probes the limits of compression methods in capturing the rare, nonlinear processes most important for mixed-phase and cirrus cloud formation. The following briefly describes the methods used to calculate these diagnostics. 
+
+Speciated Mass Distribution: For each aerosol population, the speciated mass distribution provides the size-resolved mass of each chemical component across the B diameter bins. For every species a and size bin b, we compute the mass concentration ma,b by summing the masses of all particles whose diameters fall within that bin. This diagnostic retains the detailed size stratification of each chemical constituent, but by construction it does not capture mixing state because the masses of different species are aggregated at the bin level. The speciated mass distribution is one of the two “vector” diagnostics used to assess reconstruction fidelity of the latent representation. For ease of visual comparison, we additionally plot the total mass distribution obtained by summing 
+
+ma,b across all species. An example is shown in Figure 3(a). 
+
+Number Distribution: The number distribution nb describes the size-resolved particle number concentration across the same set of logarithmically spaced diameter bins. For each bin, we count the number of particles whose diameters fall within that interval and normalize by the simulation volume, yielding a discrete approximation of dN/d log D. Like the speciated mass distribution, the number distribution reflects the overall size structure of the population but does not carry any information about mixing state. Together, the speciated mass and number distributions constitute the fundamental size-resolved descriptors of each aerosol population and serve as baseline diagnostics for evaluating reconstruction accuracy. An example is shown in Figure 3(d). 
+
+CCN Spectrum: We computed the CCN fraction following Riemer et al. (2010). For each computational particle, the Köhler equation was solved to determine the critical supersaturation based on the particle’s dry size and chemical composition. At each prescribed environmental supersaturation, particles with critical supersaturations below this threshold were counted as activated using their number weights, and the resulting number-weighted activated fraction was used to construct the CCN spectrum. Figure 3(e) shows the CCN fraction spectrum for the population in Figure 3(a). The CCN diagnostic serves as a stringent test of whether the latent representation preserves the information most relevant for warm-cloud activation. 
+
+Volume Absorption and Scattering Coefficient Spectrum: We computed the volume 14 Particle -resolved 
+
+aerosol state 
+
+Compute original diagnostics 
+
+directly from per -particle data      
+
+> 10 °310 °210 °1110
+> Diameter (μm)
+> 0
+> 5
+> 10
+> 15
+> dM/d  log 10  D (μg/m3)
+
+(a)      
+
+> 10 °310 °210 °1110
+> Diameter (μm)
+> 0
+> 5
+> 10
+> 15
+> dM/d  log 10  D (μg/m3)
+
+(c)      
+
+> 10 °310 °210 °1110
+> Diameter (μm)
+> 0
+> 1000
+> 2000
+> 3000
+> dN/d  log 10  D (# /cm 3)
+
+(d)   
+
+> 10 °310 °210 °1
+> Super-Saturation
+> 0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1
+> CCN Fraction
+
+(e)      
+
+> 0.30.50.70.91
+> Wave-Length (μm)
+> 0
+> 0.1
+> 1
+> 10
+> 100
+> 1000
+> Vol Scat Coef  (1 /Mm)
+
+(f)      
+
+> 0.30.50.70.91
+> Wave-Length (μm)
+> 0
+> 0.1
+> 1
+> 10
+> 100
+> 1000
+> Vol Abs Coef  (1 /Mm)
+
+(g)      
+
+> °40 °30 °20 °10 0
+> Temperature (±C)
+> 0
+> 10 °14
+> 10 °10
+> 10 °6
+> 10 °2
+> 1
+> Frozen Fraction
+
+(h) 
+
+> SO4
+> NO3
+> Cl
+> NH4
+> ARO1
+> ARO2
+> ALK1
+> OLE1
+> API1
+> Na
+> Dust
+> POA
+> BC
+> MOC
+> H2O
+
+Figure 3: The aerosol diagnostics that we use in this paper, illustrated for a single population. (a) The speciated mass distribution. (b) Omitted for consistency with the layout of Figure 5. (c) The total mass distribution. (d) The number distribution. (e) The CCN spectrum (i.e., the cloud condensation nuclei fraction of the particles at each supersaturation level). (f) The volume scattering coefficient spectrum. (g) The volume absorption coefficient spectrum. (h) The frozen fraction spectrum. The diagnostics are computed from the weighted particle population and are used as diagnostic targets only; the encoder input remains the particle-resolved state shown at top. 15 absorption βa and scattering coefficients βs using Mie theory, adapting the treatment of Yao et al. (2022). For bins without dust or black carbon, homogeneous spheres were assumed, with refractive indices determined from composition using volume mixing rules. For dust- and BC-containing bins, a core–shell configuration was assumed, with the absorbing or refractory material treated as the core and the remaining components as the shell. Ensemble optical coefficients were then obtained by summing the bin contributions across the distribution. This treatment captures the influence of both size and composition on aerosol optical behavior. Figure 3(g) shows the βa spectrum for the population in Figure 3(a), and Figure 3(f) shows the βs spectrum for the population in Figure 3(a). These diagnostics are particularly sensitive to both size and composition, making them an important test of whether the latent space preserves aerosol–radiation interactions. 
+
+Frozen Fraction Spectrum: Ice nucleation properties were evaluated using the ice nucleation active site (INAS) density parameterization (Hoose and Möhler, 2012). For each bin containing an ice-active component (i.e., dust (Niemand et al., 2012) or black carbon (Schill et al., 2020)), the number of active sites was determined as a function of particle surface area and temperature. The probability of freezing for each bin was then computed from the product of its surface area and the parameterized active site density. By aggregating over the full distribution, we obtained frozen fraction spectra that represent the immersion freezing behavior of the ensemble. Figure 3(h) shows the frozen fraction spectrum for the population in Figure 3(a). Immersion freezing is extremely sensitive to trace ice-active components, so small reconstruction differences can lead to large deviations in this diagnostic, making it a rigorous test of the limits of latent compression. 
+
+3.3 Preprocessing and Post-processing Transformations 
+
+Figure 4 summarizes the transformations used to condition the particle-resolved inputs and diagnostic outputs before they are passed through the neural networks. For each aerosol population π, we first separate the total number concentration n from the normalized population ˆπ = {(pi, μ i)}, where 
+
+pi = ni/n . The scale n is carried explicitly around the learned shape encoder, while the neural network acts on the normalized population. The encoder-side transformation Tenc is applied particle-by-particle to the normalized population. Each particle composition vector is shifted by a small numerical floor ϵμ and standardized with an affine transformation Z whose centering and scaling constants are estimated from the training data. The normalized particle weight pi is retained and used in the weighted set aggregation. Thus Tenc 
+
+produces a numerically well-conditioned weighted set u while preserving the permutation invariance and linear weighting structure required by the AeroMELD encoder. The transformed set is then passed to the variational shape encoder ˆΦθ defined in Eq. (8), whose weighted aggregation over the per-particle encoder ϕθ produces the deterministic shape coordinate used as the VAE mean. During training, a separate auxiliary variance head supplies the covariance of the latent shape distribution. The scale component n is not sampled or regularized; it bypasses the VAE and is reintroduced only when diagnostics with extensive units are reconstructed. Analogously, the diagnostic targets are transformed before being compared with the decoder output. We write the scale-normalized diagnostic vector as ˆy, where extensive diagnostics such as mass, number, and optical coefficients are divided by n, while scale-invariant fractional diagnostics such as CCN and frozen fraction are already number-normalized. The decoder-side transformation 
+
+Tdec separates the mass-related part of ˆy into a total mass magnitude and a composition-fraction component. Specifically, after adding a small floor ϵm, the total mass block is obtained with an 
+
+ℓ1-norm and the remaining mass vector is divided by this total to obtain a normalized composition vector. These magnitude and composition components are then power transformed and standardized separately. The remaining diagnostic block is shifted by ϵh, power transformed, and standardized in 16 enc  
+
+> enc dec
+> dec
+> tot
+> N
+
+Figure 4: Preprocessing and post-processing transformations used in the AeroMELD diagnostic pipeline. (a) The encoder-side transformation Tenc maps each normalized particle composition and weight to standardized set features. (b) The full variational diagnostic pipeline separates an aerosol population into its total number concentration n and normalized population ˆπ, encodes the normalized population into the latent shape variable z, predicts transformed diagnostics v, and maps them back to physical units. (c) The decoder-side transformation Tdec separates scale-normalized diagnostic targets into total-magnitude, composition-fraction, and remaining diagnostic blocks before applying power transformations and standardization. the same manner. This decomposition reduces the dynamic range of the learning problem, keeps near-zero bins numerically stable, and separates total loading from relative composition. The learned latent diagnostic model predicts the transformed variable v. To recover physical diagnostics, we apply the inverse transformation T −1dec and then reapply the scale n to the extensive components. All standardization constants and transformation parameters are fit using the training data only and are held fixed for validation and test cases. The reconstruction errors reported below are computed after these inverse transformations, in the physical diagnostic variables shown in Figure 3. 
+
+3.4 Train and Test Split 
+
+To ensure that our model generalizes to unseen aerosol evolutionary pathways, we partitioned the dataset by randomly splitting entire scenarios into training and testing sets, rather than splitting individual samples. This strategy prevents data leakage from temporally correlated samples within the same scenario. We employed an 80–20 train-test split, assigning 80% of the scenarios to the training set and 20% to the test set. Because all 25 time snapshots from each selected scenario are retained, each randomized split contains 20000 training populations and 5000 testing populations. To ensure the robustness of our findings, this process was repeated with 10 different randomization 17 seeds. A separate model was trained for each seed, and all statistics reported in this paper were averaged across these 10 randomized runs. 
+
+3.5 VAE Regularization 
+
+To encourage a smooth and well-structured latent space, we employ variational autoencoder (VAE) regularization (Kingma and Welling, 2013; Rezende et al., 2014). The deterministic shape encoder 
+
+ˆΦθ from Theorem 2.1 is used as the mean map of a Gaussian recognition distribution over z, while a separate auxiliary variance head supplies a diagonal covariance. That is, for d = L − 1,
+
+μθ(ˆ π) = ˆΦθ(ˆ π),
+
+Σθ(ˆ π) = diag  σ2
+
+> θ, 1
+
+(ˆ π), . . . , σ 2
+
+> θ,d
+
+(ˆ π),qθ(z | ˆπ) = N  μθ(ˆ π), Σθ(ˆ π).
+
+(26) The covariance Σθ is used only for VAE sampling and regularization; the latent shape coordinate used for deterministic latent operations is the mean μθ( ˆπ). The scale component n remains deterministic. During training, latent samples are drawn from this distribution, 
+
+z ∼ qθ(z | ˆπ), (27) using the reparameterization trick to allow gradient propagation. We impose a standard normal prior p(z) = N (0 , I ) and add a mean-reduced Kullback–Leibler (KL) divergence penalty to the reconstruction loss (15). The total training loss is 
+
+Ltotal (θ) = Lreconstruct (θ) + wμ
+
+2d Eπ
+
+∥μθ(ˆ π)∥22
+
+ + wσ
+
+2d
+
+> d
+
+X
+
+> i=1
+
+Eπ
+
+σ2
+
+> θ,i
+
+(ˆ π) − 1 − log σ2
+
+> θ,i
+
+(ˆ π), (28) where wμ and wσ are hyperparameters controlling the regularization strength of the mean and variance terms, respectively. This VAE regularization encourages the encoder to produce latent representations that are spread smoothly across the latent space, which improves generalization and enables meaningful interpolation between aerosol populations. 
+
+3.6 Mixup Regularization 
+
+To further encourage the latent space to support meaningful interpolation, we employ mixup data augmentation (Zhang et al., 2018). During training, we augment the dataset by sampling pairs of aerosol populations (πA, π B ) and encoding them to obtain noisy latent representations (nA, z A) and 
+
+(nB , z B ). We then sample an interpolation coefficient γ ∼ Beta (1 , 1) , which is equivalent to a uniform distribution on [0 , 1] . The interpolated latent representation is formed by convex interpolation in the scale and shape coordinates, 
+
+nmix = γn A + (1 − γ)nB , (29) 
+
+zmix = γz A + (1 − γ)zB , (30) where γ is interpreted as a shape-space interpolation weight rather than as a coefficient in an unnormalized physical population mixture. The corresponding target is the same convex interpolation of the scale-normalized diagnostic variables used for training: 
+
+ˆymix = γ ˆyA + (1 − γ)ˆ yB , (31) 18 where ˆyA and ˆyB are the transformed diagnostic targets for πA and πB , respectively. These interpolated samples (nmix , z mix , ˆymix ) are added to the training set, and the standard reconstruction loss (15) is computed over the augmented data. This data augmentation encourages the learned latent diagnostics to vary smoothly across the latent shape space, improving generalization to intermediate aerosol states. 
+
+## 4 Results 
+
+This section presents the results of using the AeroMELD framework for diagnostic reconstruction. We first evaluate the model’s ability to reconstruct aerosol diagnostics by examining both individual examples and collective error metrics across the test dataset. We then analyze the structure of the learned latent space to assess how the model organizes the aerosol data. 
+
+4.1 Aerosol Diagnostic Reconstruction Examples 
+
+Figure 5 shows an illustrative example comparing the original aerosol diagnostics (blue) with those reconstructed from the AeroMELD latent representation (red). The speciated mass distribution and number distribution (panels a–d) are captured with high fidelity: the reconstructed modes match the original in both location and magnitude, with only small discrepancies in bins with very low mass or number concentration. The climate-relevant diagnostics (panels e–h) likewise show excellent agreement. The CCN spectrum closely matches the original activation curve across the full range of supersaturations. The absorption and scattering coefficient spectra closely follow the originals across wavelengths, indicating that AeroMELD retains the composition-dependent optical signatures associated with absorbing and scattering species. The frozen-fraction spectrum also aligns well, even though immersion freezing is highly sensitive to trace dust and BC. Panels (i 1)–(i 15 ) and (j 1)–(j 15 ) further decompose the speciated mass distributions by individual species. The common vertical scale in the (i) panels emphasizes the dominant components, whereas the independently scaled (j) panels deliberately magnify differences in trace species that are visually suppressed on the common scale. For ARO2, Na, MOC, and H2O, the absolute reconstructed mass is small relative to the dominant mass components, but the relative errors can be appreciable. In particular, the reconstruction assigns small positive amounts of Na, MOC, and H2O where the reference values are zero or nearly zero, overestimates portions of the POA and BC distributions, and underestimates dust. Thus, the model captures the dominant mass structure and associated size ranges but does not enforce exact sparsity or exact species presence and absence. Taken together, this example illustrates that a low-dimensional AeroMELD latent variable reconstructs a wide range of aerosol diagnostics—including threshold processes and composition-specific features—with high accuracy, while trace-species reconstruction remains more challenging. 
+
+4.2 Collective Aerosol Diagnostic Summaries 
+
+Figures 6 and 7 summarize the reconstruction performance across the test dataset. For the climate-relevant diagnostics (Figure 6), errors are generally small: CCN spectra, optical coefficients, and frozen-fraction curves all show strongly right-skewed error distributions, with most samples clustering at low error. The reconstructed diagnostics closely follow the 1:1 line, indicating that the latent representation captures both the overall shape and magnitude of these quantities across several orders of magnitude. Notably, even the frozen-fraction spectra—highly sensitive to trace dust and BC—are reproduced with good fidelity. Figure 7 shows the corresponding error distributions for the speciated mass, total mass, bulk mass, and number distributions. These diagnostics also exhibit 19 10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 0510 15 
+
+> dM/d  log 10  D (μg/m3)
+
+Original (a) 
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 0510 15 
+
+> dM/d  log 10  D (μg/m3)
+
+SMRE=0.14 Reconstruction (b) 
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 0510 15 
+
+> dM/d  log 10  D (μg/m3)
+
+(c) 
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 01000 2000 3000 4000 
+
+> dN/d  log 10  D (# /cm 3)
+
+(d) 
+
+10 −3 10 −2 10 −1
+
+Super-Saturation 
+
+00.20.40.60.81
+
+> CCN Fraction
+
+(e) 
+
+0.3 0.5 0.7 0.9 1
+
+Wave-Length (μm) 00.1110 100 1000 
+
+> Vol Scat Coef  (1 /Mm)
+
+(f) 
+
+0.3 0.5 0.7 0.9 1
+
+Wave-Length (μm) 00.1110 100 1000 
+
+> Vol Abs Coef  (1 /Mm)
+
+(g) 
+
+−40 −30 −20 −10 0
+
+Temperature (◦C) 010 −14 
+
+10 −10 
+
+10 −6
+
+10 −2
+
+1
+
+> Frozen Fraction
+
+(h) 
+
+SO4 NO3 Cl NH4 ARO1 ARO2 ALK1 OLE1 API1 Na Dust POA BC MOC H2O Original Reconst 0246
+
+> dM/d  log 10  D (μg/m3)
+
+SO4 
+
+(i 1)
+
+NO3 
+
+(i 2)
+
+Cl 
+
+(i 3)
+
+NH4 
+
+(i 4)
+
+ARO1 
+
+(i 5)
+
+0246
+
+> dM/d  log 10  D (μg/m3)
+
+ARO2 
+
+(i 6)
+
+ALK1 
+
+(i 7)
+
+OLE1 
+
+(i 8)
+
+API1 
+
+(i 9)
+
+Na 
+
+(i 10 )
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 0246
+
+> dM/d  log 10  D (μg/m3)
+
+Dust 
+
+(i 11 )
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 
+
+POA 
+
+(i 12 )
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 
+
+BC 
+
+(i 13 )
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 
+
+MOC 
+
+(i 14 )
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 
+
+H2O 
+
+(i 15 )0246
+
+> dM/d  log 10  D (μg/m3)
+
+SO4 
+
+(j 1)
+
+00.005 0.01 0.015 NO3 
+
+(j 2)
+
+00.005 0.01 0.015 Cl 
+
+(j 3)
+
+00.511.52 NH4 
+
+(j 4)
+
+00.05 0.1 ARO1 
+
+(j 5)
+
+00.005 0.01 0.015 
+
+> dM/d  log 10  D (μg/m3)
+
+ARO2 
+
+(j 6)
+
+00.01 0.02 0.03 ALK1 
+
+(j 7)
+
+00.02 0.04 0.06 0.08 OLE1 
+
+(j 8)
+
+0246 API1 
+
+(j 9)
+
+00.005 0.01 0.015 Na 
+
+(j 10 )
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 
+
+00.25 0.50.75 1
+
+> dM/d  log 10  D (μg/m3)
+
+Dust 
+
+(j 11 )
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 
+
+00.10.20.3 POA 
+
+(j 12 )
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 
+
+00.20.4 BC 
+
+(j 13 )
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 
+
+00.005 0.01 0.015 MOC 
+
+(j 14 )
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 
+
+00.01 0.02 0.03 0.04 H2O 
+
+(j 15 )Figure 5: The aerosol diagnostics for the original and reconstructed variants of a particular test sample. The (a)–(h) plots show the speciated mass and number distributions, the CCN spectrum, the volume scattering and absorption coefficient curves, and the frozen fraction spectrum. The (i 1)–(i 15 ) plots show the mass distributions conditioned for each chemical. The (j 1)–(j 15 ) plots show the same mass distributions, with the vertical axis being independently scaled. The particular sample in the figure has a speciated mass relative error of 0.14. Binned distributions in panels (a)–(d) and (i)–(j) are diagnostic projections of the particle-resolved state, not the input representation. 20 Aerosol Diagnostic Metric Mean [95% CI] CCN Spectrum Relative Error 2.04% [ 1.92%, 2.20%] Scattering Log-Rel Error 2.72% [ 2.6%, 2.85%] Absorption Log-Rel Error 12.8 % [11.9 %,13.5 %] Frozen Fraction Log-Rel Error 1.37% [ 1.29%, 1.46%] Speciated Mass Relative Error 25.8 % [25.1 %,26.4 %] Number Relative Error 6.20% [ 5.98%, 6.50%] Total Mass Relative Error 19.3 % [18.8 %,19.8 %] Species Bulk Mass Relative Error 16.6 % [16.0 %,17.2 %] Table 3: The average errors of the trained model on the held-out test set. low typical errors with right-skewed distributions, reflecting consistently accurate reconstruction of the size-resolved structure of the aerosol population. Number-distribution errors are smallest, while mass-based diagnostics show somewhat larger variation, primarily for cases with very low loadings. Overall, the results demonstrate that the AeroMELD latent space provides reliable reconstruction across all diagnostic types. Quantitative summary statistics are given in Table 3. 
+
+4.3 Low-Dimensional Visualizations 
+
+Figure 8 shows two-dimensional visualizations of the learned latent shape space and of the speciated mass diagnostics. The top row uses t-SNE to emphasize local neighborhood structure in the latent variables, while the middle row shows the corresponding PCA projection. In both projections, the test samples overlap the training samples rather than forming separated clusters, indicating that held-out aerosol populations are mapped onto the same learned manifold as the training data. Unlike the training and test samples, the generated cases do not begin with a particle-resolved aerosol population. Instead, their latent shape coordinates are sampled directly from the Gaussian prior and passed through the learned latent diagnostic model, without first encoding a physical-space population. The generated samples cover many of the same neighborhoods as the embedded data in the t-SNE projection, while their PCA projection is concentrated near the center because their latent shape coordinates are sampled from the Gaussian prior. These projections therefore provide qualitative evidence that the regularized latent space can generate diagnostic combinations resembling those represented in the dataset. The bottom row of Figure 8 projects the high-dimensional speciated mass distributions using t-SNE. For both training and test data, the reconstructed diagnostics are interleaved with the corre-sponding original diagnostics, showing that the reconstruction preserves neighborhood relationships among aerosol populations in diagnostic space. The generated diagnostic outputs also occupy many of the same neighborhoods as the original and reconstructed samples. Because the present model decodes diagnostics rather than a particle-resolved population, this overlap does not by itself establish that every generated diagnostic vector corresponds to a jointly realizable aerosol population. Instead, it provides evidence of generative coverage and latent-space regularity. The physical interpretation of the latent state comes from its barycentric mixing behavior and its representation as learned test-function moments. Together, the latent-space and diagnostic-space projections indicate that AeroMELD learns a compact representation that generalizes to unseen scenarios while preserving the dominant structure of the speciated aerosol mass distributions. 21 Figure 6: The collective aerosol diagnostic summary plots on the test data. The left column shows (1) the histogram of the CCN spectrum error, and (2) the reconstructed vs. original CCN fractions at three different supersaturation levels ( s = 0 .1% , 0.3% , and 0.6% ). The middle column shows the scattering and absorption error histograms, and the corresponding reconstructed vs. original scatter plots at a wavelength of λ = 0 .5 μm. The right column shows the frozen fraction error histogram, and the reconstructed vs. original scatter plots at three different temperatures of T = −25 ◦C,
+
+−17 ◦C, and −10 ◦C. 22 0 0.2 0.4 0.6 0.8 1Speciated Mass Relative Error 02468Density                   
+
+> (a)
+> 00.2 0.4 0.6 0.8 1Total Mass Relative Error 02468(b)
+> 00.2 0.4 0.6 0.8 1Species Bulk Mass Relative Error 02468Density
+> (c)
+> 00.05 0.1 0.15 0.2 0.25 0.3 Number Relative Error 04812 16 20 (d)
+
+Figure 7: The relative error histogram of the speciated, total, and bulk mass and number distributions for the testing dataset. 
+
+4.4 Hyperparameter Sensitivity 
+
+Figure 9 summarizes the sensitivity of the model to three hyperparameters using the geometric average of the diagnostic errors listed in Table 3. The strongest dependence is on the latent dimension. Very small latent spaces underfit the particle-resolved distributions, while the average diagnostic error decreases rapidly as the dimension is increased from 2 to 10. Beyond this range, the improvement is comparatively small, indicating that the main configuration lies near the point of diminishing returns for this dataset. The KL-weight sweep shows the expected tradeoff between accurate reconstruction and regu-larization of the latent distribution. Weak to moderate KL regularization preserves the aerosol diagnostics most accurately, whereas stronger KL weights increase the diagnostic error by forcing the encoded populations closer to the Gaussian prior. The mixup weight has a weaker effect over the range tested: the error is relatively flat, with a modest improvement at larger weights. This suggests that mixup improves the smoothness of the learned shape-space interpolation without imposing a substantial reconstruction penalty. The boxed settings in Figure 9 indicate the configuration used for the main reconstruction and visualization results. 
+
+4.5 Interpolation of Aerosol Populations 
+
+Figure 10 evaluates interpolation between two held-out aerosol populations. The endpoint populations are encoded, then their latent coordinates and corresponding diagnostic targets are interpolated at several values of the interpolation weight λ. This provides a direct test of whether the linear structure of the AeroMELD latent space produces meaningful intermediate diagnostic states, rather than only accurate reconstructions of the endpoint samples. The mixup regularization introduced above encourages this behavior during training; here, the interpolation is used as a held-out diagnostic of 23 Figure 8: Low-dimensional visualizations of the samples. The top and middle rows show the 2D t-SNE and PCA representation of the samples in the latent space. The bottom row shows the 2D t-SNE representation of the speciated mass distributions. The left, middle-left, and middle-right columns are dedicated to the training, testing, and generated samples, respectively. Generated samples begin from latent shape coordinates sampled from the Gaussian prior, rather than from particle-resolved populations, and are passed through the latent diagnostic model to obtain their diagnostic outputs. The right column is a compilation of all three groups in one plot. The horizontal and vertical axes are shared in each row. 24 2 5 10 20 50 100 Latent Dimension 00.05 0.1 0.15 0.2 Average Aerosol Error  (a)       
+
+> 10 −2
+> 10 −210 −1110
+> KL Weight
+> (b)
+> 10 −2
+> 10 −210 −1110
+> Mixup Weight
+> (c)
+
+Figure 9: Ablating the average aerosol diagnostic metrics against (a) the latent dimensionality, (b) the KL weight, and (c) the mixup regularization weight. The vertical axis denotes the geometric average of the aerosol diagnostic metrics detailed in Table 3. The boxed settings indicate the configuration used for the main results. the learned representation. In the representative example shown in Figure 10, the speciated mass and number distributions evolve smoothly from one endpoint to the other as λ increases from 0 to 1. The reconstructed diagnostic curves closely track the corresponding interpolated targets for the CCN spectrum, optical coefficients, and frozen fraction, including across the intermediate values of λ. This indicates that latent interpolation produces plausible intermediate diagnostic states and preserves the climate-relevant diagnostic structure along the path between observed samples. 
+
+## 5 Conclusions 
+
+In this work, we introduced AeroMELD, a mathematically grounded framework for constructing low-dimensional latent representations of aerosol populations that preserve their intrinsic physical and structural properties. AeroMELD enforces permutation invariance and linearity with respect to aerosol population addition, leading to a canonical scale–shape decomposition in which total particle number concentration is represented explicitly and the latent shape is a barycentric combination of per-particle embeddings. This structure can equivalently be viewed as evaluating learned test functions against the aerosol population measure, so the representation is not tied to a fixed particle support or particle count. It ensures that mixing and scalar concentration changes can be represented exactly in latent space and that latent variables behave like tracers under emissions and transport, which are capabilities essential for eventual integration into three-dimensional atmospheric models. This linearity should not be interpreted as a loss of diagnostic expressiveness: relative to a Deep Sets diagnostic pipeline, AeroMELD simply keeps the nonlinear post-aggregation map in the learned diagnostic rather than in the stored latent state. In the base experiments, this stored state has 10 dimensions, compared with 16000 scalar particle-state entries in the sampled 1000-particle representation used as input, corresponding to a nominal 1600-fold reduction in scalar state dimension. Although these experiments use 1000-particle samples, the same trained encoder can be applied to any finite weighted particle population. This paper advances beyond the first two papers in the series, which demonstrated that vari-ational autoencoders and conditional generative models can efficiently represent and reconstruct binned aerosol size–composition distributions. Those earlier models captured many climate-relevant diagnostics but were limited by the loss of mixing-state information and by nonlinear latent spaces 25 10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 020 40 
+
+> dM/d  log 10  D (μg/m3)
+
+(a 1)
+
+λ = 0 
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 
+
+(a 2)
+
+λ = 0 .25 
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 
+
+(a 3)
+
+λ = 0 .5
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 
+
+(a 4)
+
+λ = 0 .75 
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 
+
+(a 5)
+
+λ = 1 
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 020 40 
+
+> dM/d  log 10  D (μg/m3)
+
+(b 1)
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 
+
+(b 2)
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 
+
+(b 3)
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 
+
+(b 4)
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 
+
+(b 5)
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 02000 4000 
+
+> dN/d  log 10  D (# /cm 3)
+
+(c 1)
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 
+
+(c 2)
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 
+
+(c 3)
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 
+
+(c 4)
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 
+
+(c 5)
+
+10 −3 10 −2 10 −1
+
+Super-Saturation 
+
+00.20.40.60.81
+
+> CCN Fraction
+
+(d 1)
+
+10 −3 10 −2 10 −1
+
+Super-Saturation 
+
+(d 2)
+
+10 −3 10 −2 10 −1
+
+Super-Saturation 
+
+(d 3)
+
+10 −3 10 −2 10 −1
+
+Super-Saturation 
+
+(d 4)
+
+10 −3 10 −2 10 −1
+
+Super-Saturation 
+
+(d 5)
+
+0.3 0.5 0.7 0.9 1 
+
+Wave-Length (μm) 00.1110 100 1000 
+
+> Vol Scat Coef  (1 /Mm)
+
+(e 1)
+
+0.3 0.5 0.7 0.9 1 
+
+Wave-Length (μm) 
+
+(e 2)
+
+0.3 0.5 0.7 0.9 1 
+
+Wave-Length (μm) 
+
+(e 3)
+
+0.3 0.5 0.7 0.9 1 
+
+Wave-Length (μm) 
+
+(e 4)
+
+0.3 0.5 0.7 0.9 1 
+
+Wave-Length (μm) 
+
+(e 5)
+
+0.3 0.5 0.7 0.9 1 
+
+Wave-Length (μm) 00.1110 100 1000 
+
+> Vol Abs Coef  (1 /Mm)
+
+(f 1)
+
+0.3 0.5 0.7 0.9 1 
+
+Wave-Length (μm) 
+
+(f 2)
+
+0.3 0.5 0.7 0.9 1 
+
+Wave-Length (μm) 
+
+(f 3)
+
+0.3 0.5 0.7 0.9 1 
+
+Wave-Length (μm) 
+
+(f 4)
+
+0.3 0.5 0.7 0.9 1 
+
+Wave-Length (μm) 
+
+(f 5)
+
+−40 −30 −20 −10 0
+
+Temperature (◦C) 010 −12 
+
+10 −8
+
+10 −4
+
+1
+
+> Frozen Fraction
+
+(g 1)
+
+−40 −30 −20 −10 0
+
+Temperature (◦C) 
+
+(g 2)
+
+−40 −30 −20 −10 0
+
+Temperature (◦C) 
+
+(g 3)
+
+−40 −30 −20 −10 0
+
+Temperature (◦C) 
+
+(g 4)
+
+−40 −30 −20 −10 0
+
+Temperature (◦C) 
+
+(g 5)
+
+SO4 NO3 Cl NH4 ARO1 ARO2 ALK1 OLE1 API1 Na Dust POA BC MOC H2O Figure 10: Representative interpolation between two held-out aerosol populations. Columns show interpolation weights from λ = 0 to λ = 1 . Rows (a) and (b) show the target and reconstructed speciated mass distributions, respectively; row (c) shows the number distribution; rows (d)–(g) show the CCN spectrum, scattering coefficient, absorption coefficient, and frozen fraction. Blue curves denote the interpolated target diagnostics and red curves denote the corresponding latent reconstructions. 26 in which aerosol populations did not combine linearly. As a result, latent variables in Papers 1 and 2 could not support physically consistent representations of emissions or transport and were not suitable for embedding aerosol-process operators. In contrast, AeroMELD uses particle-resolved data and embeds the linear structure of aerosol populations directly into the latent space, overcoming these two central limitations. Using particle-resolved simulations as ground truth, we demonstrated that the AeroMELD latent space reconstructs aerosol diagnostics with high fidelity across diverse categories. Size-resolved speciated mass and number distributions are accurately recovered, and climate-relevant diagnostics—including CCN spectra, optical absorption and scattering coefficients, and immersion-freezing behavior—are reproduced across wide dynamic ranges and in the presence of threshold nonlinearities. These results show that a compact latent representation derived from the underlying population semilinearity can capture both smooth size-resolved features and sensitive, composition-dependent processes. These diagnostic results establish that the AeroMELD latent state retains the information needed before learning nonlinear aerosol-process operators. Because emissions and mixing operations are exact in latent space, only the inherently nonlinear components of aerosol evolution—such as coagulation or gas–particle partitioning—require learned latent operators. Future work in this series will build on this framework to develop and evaluate latent-space dynamical models, enabling fast, physically consistent aerosol evolution suitable for coupling with next-generation ML-based Earth system models. 
+
+## Conflict of Interest 
+
+The authors declare no conflicts of interest relevant to this study. 
+
+## Open Research Section 
+
+The underlying data for this study can be accessed at https://doi.org/10.13012/B2IDB-2774261_ V1 . The code used for the analysis is available at https://github.com/ehsansaleh/partnn .
+
+## Acknowledgments 
+
+This work used GPU resources at the Delta supercomputer of the National Center for Supercomputing Applications through Allocation CIS220111 from the Advanced Cyberinfrastructure Coordination Ecosystem: Services and Support (ACCESS) program (Boerner et al., 2023), which is supported by National Science Foundation grants #2138259, #2138286, #2138307, #2137603, and #2138296. This work was supported by the U.S. Department of Energy, Office of Science, Office of Biological and Environmental Research under Award Number DE-SC0022130, and the Laboratory Directed Research and Development program at Sandia National Laboratories. Sandia National Laboratories is a multimission laboratory managed and operated by National Technology and Engineering Solutions of Sandia LLC, a wholly owned subsidiary of Honeywell International Inc. for the U.S. Department of Energy’s National Nuclear Security Administration contract DE-NA0003525. This paper describes objective technical results and analysis. Any subjective views or opinions that might be expressed in the paper do not necessarily represent the views of the U.S. Department of Energy or the United States Government. 27 Appendix A Additional Results 
+
+Figures 11 and 12 present other examples of the model’s reconstruction performance on a single, specific test sample, following the same detailed layout as Figure 5. Together, these examples provide a more comprehensive view of the model’s capabilities by showcasing its performance on different cases. These particular samples have a speciated mass relative error of 0.09 and 0.17, respectively, spanning both lower and higher errors than the sample in Figure 5. The higher-error example illustrates that even when individual species, such as dust, are reconstructed less accurately, the climate-relevant diagnostics are still generally recovered with high accuracy. 
+
+## Appendix B Implementation Details 
+
+Models were trained on the particle-resolved aerosol data using an 80–20 train–test split over simulation scenarios, with all time points retained within each selected scenario, and results were aggregated over 10 random splits. The latent state had dimension L = 10 , consisting of a one-dimensional scale coordinate for total number concentration and a nine-dimensional latent shape coordinate. Since each sampled input population contains 1000 ×(15+1) = 16000 scalar particle-state entries, this corresponds to a nominal 1600-fold reduction in scalar state dimension for the sampled representation used here. This particle count fixes the tensor shape and nominal compression ratio in the present experiments, but the encoder is defined as a weighted aggregation and can be evaluated on different numbers of particles. The encoder applied a two-hidden-layer MLP with 256 hidden units to each normalized particle composition vector, multiplied the resulting particle features by the normalized particle weights, and summed them to obtain the mean and diagonal covariance parameters for the latent shape distribution. The total number concentration was deterministically encoded as the scale coordinate. The decoder used a two-hidden-layer MLP with 256 hidden units to map the latent shape coordinate to the transformed aerosol diagnostics, while passing the scale coordinate through separately. We used ReLU activations and no normalization layers. We trained with the Adam (Kingma and Ba, 2014) optimizer using a learning rate of 10 −3,a mini-batch size of 16, and 100000 training iterations. The reconstruction loss was the mean squared error in the transformed diagnostic space described in Section 3.3; the base model used a mean-reduced KL weight of 0.3 for both the latent mean and covariance terms and a mixup loss weight of 1.0, with interpolation coefficients sampled from Beta (1 , 1) . For the diagnostic calculations, the CCN spectrum used 100 logarithmically spaced supersaturation values from 10 −3 to 10 −1 at 
+
+T = 287 K , with 150 Newton iterations for the critical-diameter calculation. Optical scattering and absorption were evaluated at wavelengths from 300 to 1000 nm in 100 nm increments, using 220 terms in the Toon–Ackerman Mie-series calculation. Ice-nucleation spectra were evaluated at 100 temperatures from −40 ◦C to 0◦C.
+
+## Appendix C Proof of Linearity 
+
+Here we explicitly prove the linearity of AeroMELD encoders given by (7)–(8). To prove that Φ is linear, we first observe that π3 = απ 1 + βπ 2 has encoding Φ( π3) = ( n3, z 3) where n3 = αn 1 + βn 2
+
+28 10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 0510 15 20 
+
+> dM/d  log 10  D (μg/m3)
+
+Original (a) 
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 0510 15 20 
+
+> dM/d  log 10  D (μg/m3)
+
+SMRE=0.09 Reconstruction (b) 
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 0510 15 20 
+
+> dM/d  log 10  D (μg/m3)
+
+(c) 
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 01000 2000 3000 4000 
+
+> dN/d  log 10  D (# /cm 3)
+
+(d) 
+
+10 −3 10 −2 10 −1
+
+Super-Saturation 
+
+00.20.40.60.81
+
+> CCN Fraction
+
+(e) 
+
+0.3 0.5 0.7 0.9 1
+
+Wave-Length (μm) 00.1110 100 1000 
+
+> Vol Scat Coef  (1 /Mm)
+
+(f) 
+
+0.3 0.5 0.7 0.9 1
+
+Wave-Length (μm) 00.1110 100 1000 
+
+> Vol Abs Coef  (1 /Mm)
+
+(g) 
+
+−40 −30 −20 −10 0
+
+Temperature (◦C) 010 −14 
+
+10 −10 
+
+10 −6
+
+10 −2
+
+1
+
+> Frozen Fraction
+
+(h) 
+
+SO4 NO3 Cl NH4 ARO1 ARO2 ALK1 OLE1 API1 Na Dust POA BC MOC H2O Original Reconst 02468
+
+> dM/d  log 10  D (μg/m3)
+
+SO4 
+
+(i 1)
+
+NO3 
+
+(i 2)
+
+Cl 
+
+(i 3)
+
+NH4 
+
+(i 4)
+
+ARO1 
+
+(i 5)
+
+02468
+
+> dM/d  log 10  D (μg/m3)
+
+ARO2 
+
+(i 6)
+
+ALK1 
+
+(i 7)
+
+OLE1 
+
+(i 8)
+
+API1 
+
+(i 9)
+
+Na 
+
+(i 10 )
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 02468
+
+> dM/d  log 10  D (μg/m3)
+
+Dust 
+
+(i 11 )
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 
+
+POA 
+
+(i 12 )
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 
+
+BC 
+
+(i 13 )
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 
+
+MOC 
+
+(i 14 )
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 
+
+H2O 
+
+(i 15 )0246
+
+> dM/d  log 10  D (μg/m3)
+
+SO4 
+
+(j 1)
+
+0123 NO3 
+
+(j 2)
+
+00.0025 0.005 0.0075 0.01 Cl 
+
+(j 3)
+
+0123 NH4 
+
+(j 4)
+
+00.05 0.1 ARO1 
+
+(j 5)
+
+00.01 0.02 0.03 
+
+> dM/d  log 10  D (μg/m3)
+
+ARO2 
+
+(j 6)
+
+00.01 0.02 0.03 0.04 ALK1 
+
+(j 7)
+
+00.02 0.04 0.06 OLE1 
+
+(j 8)
+
+02468 API1 
+
+(j 9)
+
+00.0025 0.005 0.0075 0.01 Na 
+
+(j 10 )
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 
+
+00.01 0.02 0.03 
+
+> dM/d  log 10  D (μg/m3)
+
+Dust 
+
+(j 11 )
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 
+
+00.05 0.10.15 POA 
+
+(j 12 )
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 
+
+00.05 0.10.15 BC 
+
+(j 13 )
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 
+
+00.002 0.004 0.006 0.008 MOC 
+
+(j 14 )
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 
+
+00.005 0.01 0.015 H2O 
+
+(j 15 )Figure 11: The aerosol diagnostics for another test sample with the same layout as Figure 5. The particular sample in this figure has a speciated mass relative error of 0.09 .29 10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 010 20 30 
+
+> dM/d  log 10  D (μg/m3)
+
+Original (a) 
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 010 20 30 
+
+> dM/d  log 10  D (μg/m3)
+
+SMRE=0.17 Reconstruction (b) 
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 010 20 30 
+
+> dM/d  log 10  D (μg/m3)
+
+(c) 
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 01000 2000 3000 4000 
+
+> dN/d  log 10  D (# /cm 3)
+
+(d) 
+
+10 −3 10 −2 10 −1
+
+Super-Saturation 
+
+00.20.40.60.81
+
+> CCN Fraction
+
+(e) 
+
+0.3 0.5 0.7 0.9 1
+
+Wave-Length (μm) 00.1110 100 1000 
+
+> Vol Scat Coef  (1 /Mm)
+
+(f) 
+
+0.3 0.5 0.7 0.9 1
+
+Wave-Length (μm) 00.1110 100 1000 
+
+> Vol Abs Coef  (1 /Mm)
+
+(g) 
+
+−40 −30 −20 −10 0
+
+Temperature (◦C) 010 −14 
+
+10 −10 
+
+10 −6
+
+10 −2
+
+1
+
+> Frozen Fraction
+
+(h) 
+
+SO4 NO3 Cl NH4 ARO1 ARO2 ALK1 OLE1 API1 Na Dust POA BC MOC H2O Original Reconst 0246
+
+> dM/d  log 10  D (μg/m3)
+
+SO4 
+
+(i 1)
+
+NO3 
+
+(i 2)
+
+Cl 
+
+(i 3)
+
+NH4 
+
+(i 4)
+
+ARO1 
+
+(i 5)
+
+0246
+
+> dM/d  log 10  D (μg/m3)
+
+ARO2 
+
+(i 6)
+
+ALK1 
+
+(i 7)
+
+OLE1 
+
+(i 8)
+
+API1 
+
+(i 9)
+
+Na 
+
+(i 10 )
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 0246
+
+> dM/d  log 10  D (μg/m3)
+
+Dust 
+
+(i 11 )
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 
+
+POA 
+
+(i 12 )
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 
+
+BC 
+
+(i 13 )
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 
+
+MOC 
+
+(i 14 )
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 
+
+H2O 
+
+(i 15 )0246
+
+> dM/d  log 10  D (μg/m3)
+
+SO4 
+
+(j 1)
+
+0246 NO3 
+
+(j 2)
+
+00.25 0.50.75 1 Cl 
+
+(j 3)
+
+01234 NH4 
+
+(j 4)
+
+00.05 0.1 ARO1 
+
+(j 5)
+
+00.01 0.02 0.03 
+
+> dM/d  log 10  D (μg/m3)
+
+ARO2 
+
+(j 6)
+
+00.01 0.02 0.03 ALK1 
+
+(j 7)
+
+00.05 0.1 OLE1 
+
+(j 8)
+
+0246 API1 
+
+(j 9)
+
+00.01 0.02 0.03 Na 
+
+(j 10 )
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 
+
+01234
+
+> dM/d  log 10  D (μg/m3)
+
+Dust 
+
+(j 11 )
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 
+
+00.10.2 POA 
+
+(j 12 )
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 
+
+00.05 0.10.15 BC 
+
+(j 13 )
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 
+
+00.005 0.01 0.015 0.02 MOC 
+
+(j 14 )
+
+10 −3 10 −2 10 −1 1 10 
+
+Diameter (μm) 
+
+00.02 0.04 0.06 0.08 H2O 
+
+(j 15 )Figure 12: The aerosol diagnostics for another test sample with the same layout as Figure 5. The particular sample in this figure has a speciated mass relative error of 0.17 .30 and 
+
+z3 =
+
+> N1
+
+X
+
+> i=1
+
+αn 1,i 
+
+n3
+
+ϕ(μ1,i ) + 
+
+> N2
+
+X
+
+> i=1
+
+βn 2,i 
+
+n3
+
+ϕ(μ2,i ) (32) 
+
+= αn 1
+
+αn 1 + βn 2
+
+> N1
+
+X
+
+> i=1
+
+n1,i 
+
+n1
+
+ϕ(μ1,i ) + βn 2
+
+αn 1 + βn 2
+
+> N2
+
+X
+
+> i=1
+
+n2,i 
+
+n2
+
+ϕ(μ2,i ) (33) 
+
+= αn 1
+
+αn 1 + βn 2
+
+z1 + βn 2
+
+αn 1 + βn 2
+
+z2. (34) This means that 
+
+Φ( π3) = 
+
+
+
+αn 1 + βn 2, αn 1
+
+αn 1 + βn 2
+
+z1 + βn 2
+
+αn 1 + βn 2
+
+z2
+
+
+
+(35) 
+
+= α(n1, z 1) + β(n2, z 2) (36) 
+
+= αΦ( π1) + βΦ( π2). (37) 
+
+## Appendix D Double-Scale Linear Operation Derivation 
+
+Recall that the latent representation in AeroMELD is given by the pair (n, z ), where n is the total number concentration and z is the shape component of the latent variable. An equivalent representation is given by the double-scale pair (n, s ) where s = nz is the scaled shape component. The linear operation in the latent representation is given by 
+
+α(n1, z 1) + β(n2, z 2) =  αn 1 + βn 2, λz 1 + (1 − λ)z2
+
+, where λ = αn 1
+
+αn 1 + βn 2
+
+, (38) while the linear operation in the double-scale representation is given by 
+
+α(n1, s 1) + β(n2, s 2) = ( αn 1 + βn 2, αs 1 + βs 2). (39) Here we prove that the operation (38) is equivalent to the double-scale operation given in (39). Recall that s = nz , so z = s/n . Starting from the right-hand side of (38), we have 
+
+ αn 1 + βn 2, λz 1 + (1 − λ)z2
+
+ =
+
+
+
+αn 1 + βn 2, αn 1
+
+αn 1 + βn 2
+
+z1 + βn 2
+
+αn 1 + βn 2
+
+z2
+
+
+
+(40) 
+
+=
+
+
+
+αn 1 + βn 2, αn 1
+
+αn 1 + βn 2
+
+s1
+
+n1
+
++ βn 2
+
+αn 1 + βn 2
+
+s2
+
+n2
+
+
+
+(41) 
+
+=
+
+
+
+αn 1 + βn 2, αs 1 + βs 2
+
+αn 1 + βn 2
+
+
+
+. (42) Converting back to the double-scale representation using s = nz , the second component becomes 
+
+(αn 1 + βn 2) · αs 1 + βs 2
+
+αn 1 + βn 2
+
+= αs 1 + βs 2, (43) which gives the result in (39). 31 References 
+
+Bauer, S., D. Wright, D. Koch, E. Lewis, R. McGraw, L.-S. Chang, S. Schwartz, and R. Ruedy. MATRIX (Multiconfiguration Aerosol TRacker of mIXing state): an aerosol microphysical module for global atmospheric models. Atmos. Chem. Phys. , 8(20):6003–6035, 2008. doi: 10.5194/ acp-8-6003-2008 .Binkowski, F. S. and U. Shankar. The regional particulate matter model: 1. Model description and preliminary results. Journal of Geophysical Research: Atmospheres , 100(D12):26191–26209, 1995. doi: 10.1029/95JD02093 .Boerner, T. J., S. Deems, T. R. Furlani, S. L. Knuth, and J. Towns. ACCESS: Advancing innovation: NSF’s advanced cyberinfrastructure coordination ecosystem: Services & support. In Practice and Experience in Advanced Research Computing , PEARC ’23, pages 173–176. Association for Computing Machinery, 2023. doi: 10.1145/3569951.3597559 .Chen, R. T. Q., Y. Rubanova, J. Bettencourt, and D. K. Duvenaud. Neural ordinary differential equations. In Advances in Neural Information Processing Systems , volume 31, pages 6571–6583. 2018. Ching, J., J. Fast, M. West, and N. Riemer. Metrics to quantify the importance of mixing state for CCN activity. Atmos. Chem. Phys. , 17(12):7445–7458, 2017. doi: 10.5194/acp-17-7445-2017 .Durran, D. R. Numerical Methods for Fluid Dynamics: With Applications to Geophysics , vol-ume 32 of Texts in Applied Mathematics . Springer New York, 2nd edition, 2010. doi: 10.1007/ 978-1-4419-6412-0 .Ferracina, F., P. Beeler, M. Halappanavar, B. Krishnamoorthy, M. Minutoli, and L. Fierce. Learning to simulate aerosol dynamics with graph neural networks. ACS ES&T Air , 2(8):1426–1438, 2025. doi: 10.1021/acsestair.4c00261 .Fierce, L., T. C. Bond, S. E. Bauer, F. Mena, and N. Riemer. Black carbon absorption at the global scale is affected by particle-scale diversity in composition. Nature communications , 7:12361, 2016. doi: 10.1038/ncomms12361 .Gasparik, J., Q. Ye, J. Curtis, A. Presto, N. Donahue, R. Sullivan, M. West, and N. Riemer. Quantifying errors in the aerosol mixing-state index based on limited particle sample size. Aerosol Science and Technology , 54(12):1527–1541, 2020. doi: 10.1080/02786826.2020.1804523 .Gelbard, F., Y. Tambour, and J. H. Seinfeld. Sectional representations for simulating aerosol dynamics. 
+
+Journal of Colloid and Interface Science , 76(2):541–556, 1980. doi: 10.1016/0021-9797(80) 90394-X .Hannachi, A., I. T. Jolliffe, and D. B. Stephenson. Empirical orthogonal functions and related techniques in atmospheric science: A review. International Journal of Climatology , 27(9):1119–1152, 2007. doi: 10.1002/joc.1499 .Holmes, P., J. L. Lumley, G. Berkooz, and C. W. Rowley. Turbulence, Coherent Structures, Dynamical Systems and Symmetry . Cambridge University Press, Cambridge, 2nd edition, 2012. doi: 10.1017/CBO9780511919701 .32 Hoose, C. and O. Möhler. Heterogeneous ice nucleation on atmospheric aerosols: A review of results from laboratory experiments. Atmospheric Chemistry and Physics , 12(20):9817–9854, 2012. doi: 10.5194/acp-12-9817-2012 .Intergovernmental Panel on Climate Change (IPCC). Climate Change 2021: The Physical Science Basis. Contribution of Working Group I to the Sixth Assessment Report of the Intergovernmental Panel on Climate Change . Cambridge University Press, Cambridge, United Kingdom and New York, NY, USA, 2021. doi: 10.1017/9781009157896 .Jolliffe, I. T. Principal Component Analysis . Springer Series in Statistics. Springer, New York, 2nd edition, 2002. doi: 10.1007/b98835 .Kingma, D. P. and J. Ba. Adam: A method for stochastic optimization. arXiv preprint arXiv:1412.6980 , 2014. doi: 10.48550/arXiv.1412.6980 .Kingma, D. P. and M. Welling. Auto-encoding variational Bayes. arXiv preprint arXiv:1312.6114 ,2013. doi: 10.48550/arXiv.1312.6114 .Knuth, D. E. The Art of Computer Programming, Volume 2: Seminumerical Algorithms . Addison-Wesley, Reading, MA, 3 edition, 1997. McFiggans, G., P. Artaxo, U. Baltensperger, H. Coe, M. C. Facchini, G. Feingold, S. Fuzzi, M. Gysel, A. Laaksonen, U. Lohmann, T. F. Mentel, D. M. Murphy, C. D. O’Dowd, J. R. Snider, and E. Weingartner. The effect of physical and chemical aerosol properties on warm cloud droplet activation. Atmospheric Chemistry and Physics , 6(9):2593–2649, 2006. doi: 10.5194/ acp-6-2593-2006 .Niemand, M., O. Möhler, B. Vogel, H. Vogel, C. Hoose, P. Connolly, H. Klein, H. Bingemer, P. DeMott, J. Skrotzki, and T. Leisner. A particle-surface-area-based parameterization of immersion freezing on desert dust particles. Journal of the Atmospheric Sciences , 69(10):3077–3092, 2012. doi: 10.1175/JAS-D-11-0249.1 .Pöschl, U. Atmospheric aerosols: Composition, transformation, climate and health effects. Ange-wandte Chemie International Edition , 44(46):7520–7540, 2005. doi: 10.1002/anie.200501122 .Rezende, D. J., S. Mohamed, and D. Wierstra. Stochastic backpropagation and approximate inference in deep generative models. In Proceedings of the 31st International Conference on Machine Learning , volume 32 of Proceedings of Machine Learning Research , pages 1278–1286. PMLR, 2014. Riemer, N., A. P. Ault, M. West, R. L. Craig, and J. H. Curtis. Aerosol mixing state: Measurements, modeling, and impacts. Reviews of Geophysics , 57(2):187–249, 2019. doi: 10.1029/2018RG000615 .Riemer, N., M. West, R. Zaveri, and R. Easter. Estimating black carbon aging time-scales with a particle-resolved aerosol model. Journal of Aerosol Science , 41(1):143–158, 2010. doi: 10.1016/j. jaerosci.2009.08.009 .Riemer, N., M. West, R. A. Zaveri, and R. C. Easter. Simulating the evolution of soot mixing state with a particle-resolved aerosol model. Journal of Geophysical Research: Atmospheres ,114(D9):D09202, 2009. doi: 10.1029/2008JD011073 .33 Saleh, E., S. Ghaffari, J. H. Curtis, L. Patel, P. A. Bosler, N. Riemer, and M. West. Generative modeling of aerosol state representations. arXiv preprint arXiv:2510.10361 , 2025a. doi: 10.48550/ arXiv.2510.10361 .Saleh, E., S. Ghaffari, J. H. Curtis, L. Patel, P. A. Bosler, N. Riemer, and M. West. Reconstructing the aerosol state from partial observations with generative modeling. arXiv preprint arXiv:2511.14059 ,2025b. doi: 10.48550/arXiv.2511.14059 .Schill, G. P., P. J. DeMott, E. W. Emerson, A. M. C. Rauker, J. K. Kodros, K. J. Suski, T. C. Hill, E. J. Levin, J. R. Pierce, D. K. Farmer, and S. M. Kreidenweis. The contribution of black carbon to global ice nucleating particle concentrations relevant to mixed-phase clouds. Proceedings of the National Academy of Sciences , 117(37):22705–22711, 2020. doi: 10.1073/pnas.2001674117 .Tang, W., S. Arabas, J. H. Curtis, D. A. Knopf, M. West, and N. Riemer. The impact of aerosol mixing state on immersion freezing: insights from classical nucleation theory and particle-resolved simulations. Atmospheric Chemistry and Physics , 26(12):9221–9255, 2026. doi: 10.5194/ acp-26-9221-2026 .Vignati, E., J. Wilson, and P. Stier. M7: An efficient size-resolved aerosol microphysics mod-ule for large-scale aerosol transport models. Journal of Geophysical Research: Atmospheres ,109(D22):D22202, 2004. doi: 10.1029/2003JD004485 .Wang, J. L., J. H. Curtis, N. Riemer, and M. West. Learning coagulation processes with combinatorial neural networks. Journal of Advances in Modeling Earth Systems , 14(12):e2022MS003252, 2022. doi: 10.1029/2022MS003252 .Whitby, E. R. and P. H. McMurry. Modal aerosol dynamics modeling. Aerosol Sci. Technol. ,27(6):673–688, 1997. doi: 10.1080/02786829708965504 .Yao, Y., J. Curtis, J. Ching, Z. Zheng, and N. Riemer. Quantifying the effects of mixing state on aerosol optical properties. Atmospheric Chemistry and Physics , 22(14):9265–9282, 2022. doi: 10.5194/acp-22-9265-2022 .Zaheer, M., S. Kottur, S. Ravanbakhsh, B. Poczos, R. Salakhutdinov, and A. Smola. Deep sets. In 
+
+Advances in Neural Information Processing Systems , volume 30. 2017. Zaveri, R. A., R. C. Easter, J. D. Fast, and L. K. Peters. Model for simulating aerosol interactions and chemistry (MOSAIC). Journal of Geophysical Research: Atmospheres , 113(D13):D13204, 2008. doi: 10.1029/2007JD008782 .Zhang, H., M. Cisse, Y. N. Dauphin, and D. Lopez-Paz. mixup: Beyond empirical risk minimization. In International Conference on Learning Representations . 2018. Zheng, Z., J. H. Curtis, Y. Yao, J. T. Gasparik, V. G. Anantharaj, L. Zhao, M. West, and N. Riemer. Estimating submicron aerosol mixing state at the global scale with machine learning and earth system modeling. Earth and Space Science , 8(2):e2020EA001500, 2021. doi: 10.1029/ 2020EA001500 .34
