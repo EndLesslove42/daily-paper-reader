@@ -1,0 +1,1510 @@
+Title: Ensemble Controlled-Flow Filtering for Implicit Data Assimilation
+
+URL Source: https://arxiv.org/pdf/2607.12975v1
+
+Published Time: Wed, 15 Jul 2026 12:03:06 GMT
+
+Number of Pages: 26
+
+Markdown Content:
+# Ensemble Controlled-Flow Filtering for Implicit Data Assimilation 
+
+## Zhuoyuan Li ∗† 1, Yue Zhao ∗1, and Ming Li 21Institute for Functional Intelligent Materials, National University of Singapore, Singapore 117544, Singapore 
+
+> 2
+
+## School of Mathematical Sciences, Fudan University, Shanghai 200433, China 
+
+Abstract 
+
+Data assimilation estimates the state of a dynamical system from model forecasts and in-coming observations. Many observation mechanisms, however, are many-to-one, implicit, non-smooth, or accessible only through simulation, and need not provide the residual structures or likelihood guidance required by existing ensemble filters. We introduce implicit data assimi-lation, in which the analysis law is defined as an energy tilt of the forecast distribution. We then propose the Ensemble Controlled-flow Filter (EnCF), which realizes this update through a stochastic controlled flow and learns the observation-dependent control by adjoint matching from terminal energy gradients. For simulator-defined observations, EnCF-LF learns a surro-gate conditional energy from samples and applies the same controlled-flow solver. We prove ideal exactness, derive a one-step error decomposition, and establish non-accumulation of local errors under filter stability. Numerical results show that Kalman-type filters remain preferable for smooth additive-Gaussian observations, while the proposed methods are better suited to non-Gaussian, many-to-one, multimodal, and implicit observation models. 
+
+Keywords: data assimilation, ensemble filtering, data-driven modeling, stochastic optimal control, adjoint matching 
+
+# 1 Introduction 
+
+Multiscale modeling in scientific computing concerns the relation between an underlying dynamical description and the quantities accessible to computation, experiment, or measurement [20, 38]. From a forward perspective, one derives, approximates, or learns reduced mesoscopic or macroscopic dynamics for relevant observables [14, 34]. A complementary inverse perspective seeks to recover the evolving underlying state from partial, noisy, or indirect observations rather than to construct a closed model for those observables. This is the setting of data assimilation (DA), which combines dynamical models with observational data to infer states, trajectories, and other latent quantities [5, 30]. Originating in numerical weather prediction [29], DA is now widely used in oceanography, geophysics, ecology, and other partially observed dynamical systems [37, 12, 36, 49]. In this work, we focus on the sequential data-assimilation setting. Sequential DA tracks the evolving state by alternating between a forecast step, which propagates the current state uncertainty through the dynamical model, and an analysis step, which incorporates newly available observations [5, 30]. Among numerical realizations of this recursion, ensemble-based methods are the scalable approach most widely used in large-scale systems [21]. They represent the forecast uncertainty by a finite collection of sample states and update this ensemble whenever new data arrive. Once a 
+
+> ∗Equal contributions.
+> †Corresponding to Z.L. ( zy.li@nus.edu.sg ).
+
+1arXiv:2607.12975v1 [stat.ML] 14 Jul 2026 adjoint matching 
+
+> analysis ensemble
+> anchor the base drift
+> forecast ensemble
+> collect
+> next cycle
+
+Figure 1: Illustration of the ensemble controlled-flow framework. forecast ensemble has been generated, the central numerical task considered here is the analysis transformation mapping from the forecast distribution πf to the Bayesian analysis distribution πa ∝
+
+ℓ(·; y)πf by taking into account the likelihood model ℓ and the observation data y.Existing ensemble filters differ mainly in the computational interface through which they use the observation model. For additive-Gaussian observations, the EnKF constructs its analysis update from empirical first and second moments [21, 28]. The bootstrap particle filter evaluates the likeli-hood at forecast particles and then resamples according to the resulting importance weights [4, 46]. Among recent flow methods, EnSF evaluates the observation-likelihood score along a diffusion path, whereas EnFF uses likelihood-reweighted Monte-Carlo guidance or a localized likelihood-gradient approximation [9, 45]. These interfaces are effective when the observation model provides the re-quired quantities, but many scientific sensing mechanisms do not. The map from state to observation can be non-smooth, many-to-one, implicit, or available only through a simulator. For example, a quantized sensor reports only the interval in which a value falls [3], an intensity measurement records magnitude but discards phase [41], and a radiative-transfer code may provide forward samples with-out a tractable likelihood [16]. These observations can still define informative analysis updates, but they may not supply a reliable additive residual, evaluable likelihood weights, or analytic likelihood guidance along a transport path. This motivates separating the distribution targeted by the analysis from the numerical mechanism used to realize the update. We encode the observation information by a scalar energy J(x; y) and define the target analysis law by πa(x | y) ∝ πf (x) exp[ −J(x; y)]. When J(x; y) = − log p(y | x), this is the standard Bayesian posterior. More generally, J may be a compatibility energy that is not a normalized observation density, or a surrogate learned from simulator samples. We call this formulation implicit data assim-ilation . Because the target is defined as a tilt of the forecast law rather than as a Gaussian moment update, it can represent multiple state configurations compatible with a many-to-one observation. To approximate this target with a finite ensemble, the ensemble controlled-flow filter introduces an auxiliary transport time and steers a base diffusion whose terminal law is the forecast distribution. Under the memoryless construction and exact optimal control, the controlled terminal law equals the energy-based analysis law. In the practical method, the optimal control is approximated by adjoint matching [18]: terminal gradients ∇J(Z1; y) are propagated backward through the base dynamics to form regression targets for the control. EnCF therefore requires a differentiable analytic energy, but it does not prescribe an observation-likelihood gradient at every transport-time step. Figure 1 summarizes this design. The observation reaches the analysis only through the energy interface, and one assimilation cycle realizes the tilt as a controlled transport of the forecast ensemble. When the observation is represented by a differentiable analytic energy, EnCF uses that energy directly. When only simulator samples are available, when a Gaussian residual model gives the wrong conditional law, or when direct gradients are unavailable or uninformative, its likelihood-2free variant EnCF-LF learns a smooth surrogate energy function and uses its gradient in the same adjoint-matching solver. We analyze EnCF as a numerical scheme for the Bayes filtering map. It is exact with an exact base flow and optimal control, its one-step error splits into separately refinable approximation terms, and these local errors do not accumulate when the exact filter is stable. The experiments indicate that the controlled-flow formulation is most useful in regimes with non-Gaussian, multimodal, many-to-one, or implicit observation models. The likelihood-free variant addresses the weaker-access case in which only forward simulator samples are available, by learning the energy used by the same controlled-flow solver. Our contributions are summarized as follows. 1. Implicit data assimilation. We formulate the analysis update through a scalar observation energy J, defining the target law as the exponential tilt πa ∝ πf e−J of the forecast distribu-tion. This formulation separates the specification of the observation model from the numerical analysis mechanism and accommodates explicit likelihoods, implicit constraints, joint models, and learned surrogate energies without requiring an explicit forward observation map. 2. Ensemble controlled-flow filter. We introduce the Ensemble Controlled-flow Filter, which realizes the energy-defined analysis as a stochastic optimal-control problem. The observation-dependent feedback control is approximated by adjoint matching from terminal energy gradi-ents. Its likelihood-free variant, EnCF-LF, learns a conditional surrogate energy from simulator samples and applies the same controlled-flow solver. 3. Error analysis. We establish exactness in the ideal limit and derive a one-step total-variation error decomposition that separates the effects of the empirical base flow, control approximation, surrogate energy, and time discretization. Under exponential stability of the exact filtering recursion, we further show that uniformly bounded local errors yield a uniformly bounded multi-step filtering error. 4. Regime-based evaluation. We compare EnCF and EnCF-LF with classical and flow-based ensemble filters across additive-Gaussian, non-Gaussian, many-to-one, multimodal, and im-plicit observation models. The results empirically validate the intended regime of the method: tuned Kalman filters remain preferable for smooth additive-Gaussian observations, whereas controlled transport becomes advantageous when the analysis geometry is non-Gaussian, mul-timodal, or implicitly defined. 
+
+# 2 Background and related work 
+
+Consider the discrete-time state-space model 
+
+xk = Mk(xk−1; ηk) ∈ Rn, ηk ∼ D k, (1) where Mk is a (possibly stochastic) prediction operator and ηk denotes the model noise distributed according to Dk. At each time step k, we observe the system xk through an observation yk ∈ Rm
+
+satisfying yk ∼ p(· | xk). We assume p(yk | xk, y <k ) = p(yk | xk), i.e., the current observation is conditionally independent of previous observations given the current state. We denote by 
+
+πf 
+
+> k
+
+= πf
+
+> k
+
+(xk) := p(xk | y<k ) and πa 
+
+> k
+
+= πa
+
+> k
+
+(xk) := p(xk | y≤k) (2) the forecast and analysis distributions of the system state xk, respectively, where y<k and y≤k collect the observations before and up to step k.Sequential data assimilation seeks to recursively track the analysis distribution πa 
+
+> k
+
+by alternat-ing between a prediction step and an analysis step. Specifically, for each step k, the Chapman– Kolmogorov equation gives 
+
+p(xk | y<k ) = 
+
+Z
+
+qM 
+
+> k
+
+(xk | xk−1)p(xk−1 | y<k ) d xk−1, (3) 3where qM 
+
+> k
+
+denotes the transition kernel induced by Mk. Applying Bayes’ rule then yields 
+
+p(xk | y≤k) = p(yk | xk, y <k )p(xk | y<k )
+
+p(yk | y<k ) = p(yk | xk)p(xk | y<k )
+
+p(yk | y<k ) . (4) The second equality follows from the conditional-independence assumption above. Consequently, sequential data assimilation can be summarized by the two-step recursion 
+
+πf 
+
+> k
+
+= ( Mk)♯πa 
+
+> k−1
+
+(prediction) , πa 
+
+> k
+
+∝ ℓ(·; yk)πf 
+
+> k
+
+(analysis) , (5) where ℓ(xk; yk) denotes the likelihood density associated with p(yk | xk). Classical ensemble-based filters realize this recursion by evolving an ensemble of N particles 
+
+{x(j) 
+
+> k
+
+}Nj=1 over time. In the prediction step, each ensemble member is propagated independently according to 
+
+xf,(j) 
+
+> k
+
+= Mk(xa,(j) 
+
+> k−1
+
+; η(j) 
+
+> k
+
+), η(j) 
+
+> k
+
+∼ D k. (6) If the previous analysis ensemble approximates πa
+
+> k−1
+
+, independently propagating its members pro-duces an ensemble approximation of πf
+
+> k
+
+. Different ensemble filters mainly differ in how they transform the forecast ensemble members so as to approximate the analysis distribution πa 
+
+> k
+
+∝ ℓ(·; yk)πf
+
+> k
+
+.For an additive-Gaussian likelihood 
+
+ℓ(x; yk) = N (yk; H(x), R k), (7) in which Rk is the observation-error covariance, the EnKF approximates the forecast distribution by a Gaussian whose moments match those of the forecast ensemble, and then shifts each member by the empirical Kalman gain, formulated as 
+
+xa,(j) 
+
+> k
+
+= xf,(j) 
+
+> k
+
++ P f
+
+> xy
+
+ P f 
+
+> yy
+
++ Rk
+
+−1y(j) 
+
+> k
+
+− H (xf,(j) 
+
+> k
+
+), y(j) 
+
+> k
+
+∼ N (yk, R k). (8) The matrices P f 
+
+> xy
+
+, P f 
+
+> yy
+
+denote the cross-covariance and predicted observation covariance estimated from the ensembles, respectively. The EnKF recovers the exact analysis distribution as N → ∞ when the forecast is Gaussian and H is linear; finite N introduces covariance-estimation and perturbed-observation sampling errors. Outside the linear–Gaussian setting, an update determined by empirical first and second moments need not reproduce a non-Gaussian or multimodal analysis distribution. The bootstrap particle filter instead preserves the empirical forecast measure and reweights it by the likelihood as 
+
+w(j) 
+
+> k
+
+= ℓ(xf,(j) 
+
+> k
+
+; yk)
+
+PNj′=1 ℓ(xf,(j′) 
+
+> k
+
+; yk) , ˜πa 
+
+> k
+
+:= 
+
+> N
+
+X
+
+> j=1
+
+w(j) 
+
+> k
+
+δxf,(j)
+
+> k
+
+. (9) The analysis ensemble {xa,(j) 
+
+> k
+
+}Nj=1 is then obtained by resampling from ˜ πa
+
+> k
+
+. For a fixed assimilation horizon, the bootstrap particle approximation converges to the filtering distribution as N → ∞ under the usual sequential-Monte-Carlo integrability assumptions, but it faces the curse of dimensionality and suffers from severe degeneracy in high-dimensional settings [46, 42]. Flow-based filters construct stochastic or deterministic transports whose terminal laws approx-imate the analysis distribution. EnSF constructs a score-based diffusion transport [9], whereas EnFF constructs a flow-matching transport [45]. Related work extends score- and flow-based as-similation to partially observed systems, learned latent dynamics, and stochastic-interpolant models [51, 50, 13]. EnSF evaluates ∇z log p(yk | z) along the diffusion path, whereas EnFF uses either likelihood-reweighted Monte-Carlo guidance or a localized likelihood-gradient approximation. Data-driven methods address unknown or unresolved dynamics by learning or replacing forecast-model components from training data [11, 26, 39, 33]. Other methods perform assimilation in learned reduced-order spaces [40, 2, 15, 32]. The comparison above exposes three limitations of existing analysis interfaces. The EnKF re-duces the update to empirical first and second moments and can therefore miss non-Gaussian or multimodal analysis distributions. The bootstrap particle filter is asymptotically consistent, but 4its observation-likelihood weights can degenerate in high dimensions. EnSF and EnFF avoid ex-plicit likelihood-weighted resampling, yet they require an evaluable likelihood or likelihood gradi-ent to prescribe observation-dependent guidance along the transport path. The data-driven and reduced-order methods above primarily address unknown or expensive dynamics and representa-tion cost; here we instead assume access to forecast samples and isolate the analysis update. We seek an update that does not impose a Gaussian approximation, does not weight and resample forecast particles by the observation likelihood, and separates the specification of the observation from the transport mechanism. The next section defines the target energy-based analysis density 
+
+πa
+
+> k
+
+(x) ∝ πf
+
+> k
+
+(x) exp[ −Jk(x; yk)] and constructs a controlled-flow approximation that learns the con-trol by adjoint matching from terminal energy gradients rather than prescribing a likelihood-based guidance rule at every transport-time step. 
+
+# 3 The ensemble controlled-flow filter 
+
+In this section, we formulate the analysis step as a controlled transport from the forecast law to an energy-tilted analysis law. We begin by introducing implicit data assimilation, in which the observation enters through a scalar energy rather than an additive-Gaussian residual or a prescribed analytic representation of the likelihood. We then cast the resulting analysis update as a stochastic optimal-control problem and use this formulation to place several existing flow-based filters within a common controlled-flow perspective [24]. Building on this viewpoint, we develop the ensemble controlled-flow filter, which approximates the optimal feedback control through adjoint matching. Finally, when an analytic observation energy is unavailable but forward simulation of the observation mechanism is possible, we introduce the likelihood-free variant EnCF-LF, which learns a surrogate energy from simulator samples and uses the same controlled-flow solver. 
+
+## 3.1 Implicit data assimilation via energy tilts 
+
+Recall that the classical analysis step in eq. (5) reweights the forecast law by the likelihood ℓ(·; yk). Particular numerical filters often require more restrictive structures or computational interfaces, such as an additive-Gaussian residual, a moment-based closure, or the likelihood score along a transport path. We instead use a scalar energy as the computational interface between the observation model and the analysis solver. 
+
+Definition 3.1 (Implicit data assimilation) . Let πf 
+
+> k
+
+be the forecast density and let Jk(·; yk) : Rn → R
+
+be a measurable observation energy satisfying 0 < Zk(yk) := Eπf
+
+> k
+
+h
+
+e−Jk (·;yk )i
+
+=
+
+Z
+
+> Rn
+
+exp ( −Jk(x; yk)) πf
+
+> k
+
+(x) d x < ∞. (10) The corresponding implicit data-assimilation analysis is the probability density 
+
+πa
+
+> k
+
+(x) = Zk(yk)−1πf
+
+> k
+
+(x) exp ( −Jk(x; yk)) ∝ πf
+
+> k
+
+(x) exp ( −Jk(x; yk)) . (11) The energy Jk(x; yk) measures the compatibility between a candidate state x and the observation 
+
+yk, and is defined up to the addition of a term independent of x. It accommodates several observation interfaces. When an evaluable likelihood is available, taking 
+
+Jk(x; yk) = − log ℓ(x; yk) (12) recovers the standard Bayesian analysis. This includes non-Gaussian and many-to-one observation models and is not restricted to the additive-Gaussian setting. The observation relation may instead be specified implicitly through Rk(x, y k) ≈ 0, without requiring an explicit forward representation yk = H(xk) + εk. A soft enforcement of this relation is obtained from 
+
+Jk(x; yk) = ∥R k(x, y k)∥2
+
+2σ2tol 
+
+, (13) 5where σtol > 0 determines the tolerance assigned to violations of the relation. More generally, any strictly positive compatibility potential Ψ k(x; yk) can be represented by 
+
+Jk(x; yk) = − log Ψ k(x; yk), (14) provided that eq. (10) holds. In this form, eq. (11) defines a Gibbs-type measure with the forecast law as its reference measure, Jk as the energy, and Zk as the partition function [25]. When Ψ k is the likelihood, this measure coincides with the Bayesian posterior. A general compatibility potential instead defines an energy-based analysis that need not correspond to a normalized observation law. When the observation mechanism is accessible only through forward simulation, a differentiable surrogate energy Eϕ(x; yk) may be learned from simulated state–observation pairs and substituted for Jk. This construction is developed in section 3.4. In all these cases, the formulation reweights the full forecast law without selecting a particular inverse branch. It can therefore represent multiple well-separated state configurations that are compatible with the same observation. 
+
+## 3.2 The optimal controlled flow 
+
+To realize the energy-tilted analysis law in eq. (11), we introduce an auxiliary transport time τ ∈ [0 , 1] within each assimilation cycle k. Let P denote the path law of the base diffusion dZτ = f (Zτ , τ ) d τ + σ(τ ) d Wτ , Z0 ∼ μ0, τ ∈ [0 , 1] , (15) whose terminal law is the forecast law, Law P(Z1) = πf
+
+> k
+
+. The base drift generally depends on the forecast law at cycle k, although this dependence is suppressed in the notation. We then steer the base flow toward the analysis law πa 
+
+> k
+
+through an observation-dependent drift u,dZτ = [ f (Zτ , τ ) + u(Zτ , τ ; yk)] d τ + σ(τ ) d Wτ , Z0 ∼ μ0, τ ∈ [0 , 1] . (16) We denote the path law of eq. (16) by Qu. This representation also includes deterministic flows when σ = 0. For the stochastic optimal-control construction below, we assume that σ(τ ) > 0. The control is chosen by minimizing the free-energy objective 
+
+Jk(u) := EQu
+
+ 12
+
+Z 10
+
+σ(τ )−1u(Zτ , τ ; yk) 2 dτ + Jk(Z1; yk)
+
+
+
+. (17) The running term penalizes deviation from the base path law, whereas the terminal term favors states compatible with the observation. Under the corresponding Girsanov change of measure, the running cost equals DKL (Qu ∥ P) for path laws sharing the initial distribution μ0.
+
+Assumption 3.2 (Regularity) . The base drift f (·, τ ) is measurable in τ , locally Lipschitz in z, and of at most linear growth, and the noise schedule σ is continuous and strictly positive. An admissible control u is progressively measurable, makes eq. (16) well posed, and satisfies 
+
+EQu
+
+Z 10
+
+σ(τ )−1u(Zτ , τ ; yk) 2 dτ < ∞, (18) 
+
+together with the conditions required for the Girsanov change of measure. Moreover, 
+
+h(z, τ ; yk) := EP
+
+h
+
+e−Jk (Z1;yk ) | Zτ = z
+
+i
+
+(19) 
+
+is strictly positive and continuously differentiable in z for τ < 1.
+
+These are standard conditions for the Doob h-transform associated with a terminal energy [22, 31]. For the VP construction below, the Gaussian transition kernel provides interior regularization under suitable integrability conditions. 6family μ0 σ base drift f (z, τ ) control u(z, τ ; yk) requirements EnSF [9] N (0 , I n) eq. (22) eq. (23) σ2(τ )λ(τ )∇Jk ∇Jk at each step Z(j)
+
+> τ
+
+EnFF-OT [45] N (0 , I n) 0 PNj=1 wj Z(j)1 −(1 −σmin )z 
+
+> 1−(1 −σmin )τ
+
+λ∇Jk ∇Jk at each step Z(j)
+
+> τ
+
+EnFF-F2P [45] πa 
+
+> k−1
+
+0 PNj=1 wj (Z(j)1 − Z(j)0 ) λ∇Jk ∇Jk at each step Z(j)
+
+> τ
+
+EnSBF [44] δ0 σ0
+
+PNj=1 wj Z(j)1 −z
+
+> 1−τ
+
+PNj=1 w′  
+
+> jZ(j)1−z
+> 1−τ
+
+Jk at each step Z(j)
+
+> τ
+
+EnCF (ours) N (0 , I n) eq. (22) eq. (23) σ2(τ )aθ ∇Jk at terminal Z(j)1
+
+EnCF-LF (ours) N (0 , I n) eq. (22) eq. (23) σ2(τ )aθ yk ∼ p(· | xk) sampler 
+
+Table 1: Flow-based ensemble filters expressed through the common controlled-flow decomposition eq. (16). Only EnCF and EnCF-LF construct the observation-dependent drift by solving eq. (17) through adjoint matching. 
+
+Proposition 3.3 (Optimal control of the analysis step, [22, 17, 10]) . Under Assumption 3.2, the minimizer of eq. (17) is the Markov control 
+
+u⋆(z, τ ; yk) = σ2(τ )∇z log h(z, τ ; yk) = σ2(τ )∇z log EP
+
+h
+
+e−Jk (Z1;yk ) Zτ = z
+
+i
+
+. (20) 
+
+If the base flow is memoryless [18], the controlled terminal law satisfies 
+
+Law Q⋆ (Z1) = πa
+
+> k
+
+. (21) The memoryless condition is essential because otherwise the normalization of the terminal tilt generally depends on Z0, and the controlled terminal law need not coincide with the global analysis law in eq. (11). 
+
+Definition 3.4 (Controlled-flow filter) . At assimilation cycle k, a controlled-flow analysis is specified by ( μ0, f, σ, u ), where the uncontrolled flow has terminal law πf 
+
+> k
+
+and the observation-dependent drift 
+
+u defines the guided dynamics eq. (16). Samples from its terminal law form the analysis ensemble. The controlled-flow analysis is exact if Law( Z1) = πa
+
+> k
+
+. A controlled-flow filter applies such an analysis recursively after each forecast step. Several existing flow-based ensemble filters admit the decomposition in eq. (16), including the score-based EnSF [9], the flow-matching EnFF [45], and the Schr¨ odinger-bridge EnSBF [44]. They differ in their initial law, base dynamics, and observation-dependent drift. This common represen-tation does not imply that all these methods solve the stochastic optimal-control problem eq. (17). Rather, it isolates how each method constructs its forecast transport and incorporates the observa-tion. The resulting decompositions are summarized in table 1. 
+
+## 3.3 The adjoint-matching control 
+
+We now construct EnCF by specifying a memoryless base flow and learning its observation-dependent control. Let ατ and βτ be interpolation coefficients satisfying ( α0, β 0) = (0 , 1) and ( α1, β 1) = (1 , 0) so that the Gaussian kernel qτ |0(z | x) = N (z; ατ x, β 2 
+
+> τ
+
+In) interpolates from the reference law μ0 =
+
+N (0 , I n) to a point mass at x. The associated reverse variance-preserving (VP) diffusion [43, 48] has coefficients 
+
+b(τ ) = ˙ατ
+
+ατ
+
+, σ2(τ ) = 2 b(τ )β2 
+
+> τ
+
+− dβ2
+
+> τ
+
+dτ = 2βτ
+
+  ˙ατ βτ − ˙βτ ατ
+
+
+
+ατ
+
+. (22) This choice makes the endpoints of the base process independent, Z0 ⊥ Z1, and hence satisfies the memoryless condition required in Proposition 3.3. 7At assimilation cycle k, let { ˆZ(j) 
+
+> k
+
+}Nj=1 denote the forecast ensemble approximating πf
+
+> k
+
+. Then we may obtain an empirical base drift by Monte-Carlo approximation as ˆfk(z, τ ) = b(τ )z + σ2(τ )
+
+> N
+
+X
+
+> j=1
+
+wj (z, τ ) ατ ˆZ(j) 
+
+> k
+
+− zβ2
+
+> τ
+
+, wj (z, τ ) = qτ |0(z | ˆZ(j) 
+
+> k
+
+)
+
+PNj′=1 qτ |0(z | ˆZ(j′) 
+
+> k
+
+) . (23) The corresponding population drift transports μ0 to πf
+
+> k
+
+, while eq. (23) replaces the forecast law by its ensemble approximation [23]. With the base flow fixed, it remains to approximate the optimal control in eq. (20). We param-eterize the observation-dependent drift as 
+
+uθ (z, τ ; yk) = σ2(τ )aθ (z, τ ; yk), (24) where aθ approximates the logarithmic gradient in eq. (20). In the experiments, aθ is represented by a convolutional neural network, although the construction is independent of this choice. Direct minimization of Jk(uθ ) in eq. (17) requires differentiating through the sampled controlled trajectories. Adjoint matching [18, 19] instead constructs a least-squares target by solving a lean adjoint equation backward along each sampled path Z ∼ Quθ , with the path treated as stop-gradient. Because the optimal terminal control in eq. (20) is known explicitly at τ = 1 as u⋆(z, 1; yk) = 
+
+−σ2(1) ∇z Jk(z; yk), we start from this terminal information and define the lean adjoint by 
+
+ea(1; Z) = ∇z Jk(Z1; yk), dea(τ ; Z)dτ = −∇ z f (Zτ , τ )Tea(τ ; Z). (25) The control is then trained using the adjoint-matching objective 
+
+LAM (θ; Z) = 12
+
+Z 10
+
+σ2(τ ) ∥aθ (Zτ , τ ; yk) + ea(τ ; Z)∥2 dτ. (26) Thus aθ is regressed onto −ea, or equivalently, the controlled drift uθ is regressed onto −σ2ea. The ob-servation enters the backward equation only through the terminal seed ∇z Jk(Z1; yk). Moreover, the stop-gradient construction avoids retaining an automatic-differentiation graph through the complete controlled rollout. 
+
+Proposition 3.5 (Optimality of adjoint matching [18, 19]) . Suppose that the base drift is exact and the diffusion coefficient depends only on time. Under the regularity and uniqueness conditions of [18, 19], the optimal control u⋆ in Proposition 3.3 is the unique critical point, in the nonparametric control space, of the expected on-policy adjoint-matching objective EZ∼Quθ [LAM (θ; Z)] , where the sampled trajectories and adjoint targets are treated as stop-gradient. 
+
+## 3.4 The likelihood-free surrogate energy 
+
+When the observation law is unavailable but observation samples can be generated, we replace Jk
+
+by a surrogate energy Eϕ. We use two parameterizations according to the available observation structure. When a meaningful observation mapping exists, Gaussian-LF learns a pointwise conditional model with mean mϕ(x) and scale sϕ. Its energy is 
+
+Eϕ(x; y) = 12
+
+mϕ(x) − ysϕ
+
+> 2
+
+, (27) up to terms independent of x. The parameters are fitted online by Gaussian maximum likelihood on simulator pairs ( x(j), y (j)). This model is appropriate for smooth additive observations. For more general observations such as multimodal or implicit conditional laws, the energy is directly parameterized as a scalar network. The network is trained by noise-contrastive estimation, using matched simulator pairs as positives and mismatched observations together with perturbed states as negatives. At each assimilation cycle, Eϕ is first trained with the control fixed and is then held fixed during adjoint matching. In both variants, the controlled-flow solver uses the surrogate only through the terminal gradient ∇xEϕ(Z1; yk). 8Algorithm 1 Ensemble Controlled-flow Filtering ( EnCF /EnCF-LF ). 
+
+Require: dynamics {M k}k; controlled-flow parameters ( μ0, f, σ ). For EnCF, we also require the terminal energy J(·; yk) for each k. 
+
+> 1:
+
+Initialize the control net aθ as zero.  
+
+> 2:
+
+Set up background ensemble members {x(j)0 }Nj=1 ; ▷ x (j)0 ∼ πa0 
+
+> 3:
+
+for k = 1 , 2, · · · do ▷ Assimilation cycle  
+
+> 4:
+
+ˆZ(j) 
+
+> k
+
+← M k(x(j)
+
+> k−1
+
+, η (j)) for each j; ▷ forecast step, ˆZ(j) 
+
+> k
+
+∼ πf 
+
+> k
+> 5:
+
+if we use the EnCF-LF model then ▷ EnCF-LF branch  
+
+> 6:
+
+Sample ˆ y(j) ∼ p(· | ˆZ(j) 
+
+> k
+
+) for each j; 
+
+> 7:
+
+Learn Eϕ(x, y ) with {( ˆZ(j) 
+
+> k
+
+, ˆy(j))}Nj=1 ; ▷ Inner training loop  
+
+> 8:
+
+Set J ← Eϕ; 
+
+> 9:
+
+end if  
+
+> 10:
+
+repeat ▷ Train with adjoint-matching  
+
+> 11:
+
+Initialize and evolve Zτ via eq. (16) with uθ = σ2aθ under stop-gradient;  
+
+> 12:
+
+Set ˜ a(1) ← ∇ z J(Z1; yk) and integrate ˙ ˜a = −˜aT∇f backward;  
+
+> 13:
+
+Do an Nreg -step optimization to minimize the regression loss 
+
+X
+
+> τ
+
+σ(τ )2 ∥aθ (Zτ , τ ; yk) + ˜ a(τ )∥2 ; 
+
+> 14:
+
+until Ek iterations end;  
+
+> 15:
+
+Initialize and evolve Z(j) 
+
+> τ
+
+via eq. (16) with uθ = σ2aθ for each j; 
+
+> 16:
+
+x(j) 
+
+> k
+
+= Z(j)1 for each j. ▷ analysis step, x(j) 
+
+> k
+
+∼ πa 
+
+> k
+> 17:
+
+end for 
+
+# 4 Theory 
+
+Building on the controlled-flow formulation developed in section 3, this section establishes structural a priori guarantees for the resulting filtering scheme along three complementary directions. We first study consistency in the ideal limit, showing that an exact base flow together with the optimal control recovers the exact filtering distribution. We then characterize local accuracy by decomposing the one-step filtering error into refinable contributions from the empirical base flow, control approximation, surrogate energy, and time discretization. Finally, using the perturbation framework for Markov filters [27], we establish stability of the approximate recursion by showing that, whenever the exact filter is stable, these locally injected errors remain uniformly controlled rather than accumulating over assimilation cycles. 
+
+## 4.1 Consistency in the ideal limit 
+
+We first consider the idealized setting in which the forecast propagation, the base flow, and the control approximation are exact. In this setting, the controlled-flow construction recovers the target analysis law at every assimilation cycle. 
+
+Theorem 4.1 (Consistency of the controlled-flow filter) . Suppose that the filter is initialized from the exact analysis law πa0 . For each cycle k, assume that 
+
+• the memoryless base flow eq. (15) transports μ0 to πf 
+
+> k
+
+exactly. 
+
+• the adjoint-matching regression eq. (26) reaches its on-policy fixed point. Then the controlled flow terminates at Law( Z1) = πa 
+
+> k
+
+for each k.Proof. The result follows by induction over the assimilation cycles. The initial analysis law is exact by assumption. For each cycle k, by Proposition 3.5, the on-policy fixed point of the adjoint-matching regression recovers u⋆. Since the base flow is memoryless, Proposition 3.3 implies that the corresponding controlled terminal law is πa
+
+> k
+
+. The claim therefore follows for all k.9In practice EnCF departs from this ideal by four separately measurable amounts, which the next subsection isolates in Lemma 4.4 and bounds in Theorem 4.7, a base-drift Monte-Carlo error, the suboptimality of the learned control, the surrogate energy gap, and the time-discretization of the controlled flow. 
+
+## 4.2 Local accuracy and one-step error decomposition 
+
+We isolate four sources of one-step approximation error under two structural assumptions. Lemma 4.4 first decomposes the error into these contributions. We then bound the terms that admit analytic control and assemble the resulting a priori estimate in Theorem 4.7. Formally, starting from the previous analysis ν := πa
+
+> k−1
+
+, the exact one-step filtering operator Φk := Bk ◦ (Mk)♯ consists of a predictor ( Mk)♯ : πa 
+
+> k−1
+
+7 → πf 
+
+> k
+
+and an exact analysis operator 
+
+Bk(ν)(d x) ∝ e−Jk (x;yk )ν(d x). In this subsection, we study how the practical update operator ˆΦk
+
+differs from the exact Φ k.
+
+Assumption 4.2 (Regularity) . The functions ˆf (·, τ ) and uθ (·, τ ; yk) belong to C4(Rn; Rn), have bounded derivatives of orders one through four, and satisfy a linear growth condition, uniformly in 
+
+τ ∈ [0 , 1] . The scalar diffusion coefficient σ ∈ C2 
+
+> b
+
+([0 , 1]) satisfies 
+
+0 < σ min ≤ σ(τ ) ≤ σmax < +∞, τ ∈ [0 , 1] (28) 
+
+for some constants σmin and σmax .
+
+Assumption 4.3 (Girsanov Integrability) . Let ˆf be the Monte-Carlo base drift eq. (23) and let 
+
+ˆb = ˆf + uθ , b⋆ = f + u⋆ (29) 
+
+denote the practical and ideal controlled drifts, respectively. We assume that the corresponding flows are well posed and that the drift discrepancy satisfies 
+
+EbQ
+
+Z 10
+
+1
+
+σ(τ )2 ˆb(z, τ ) − b⋆(z, τ ) 2
+
+dτ < ∞. (30) 
+
+Moreover, the exponential local martingale associated with this change of drift is a true martingale, so that the Girsanov change of measure between the two path laws is valid. A sufficient condition is the corresponding Novikov condition. 
+
+Fix an assimilation cycle k. Let bQ denote the path law of the practical continuous-time flow dZτ =  ˆf (Zτ , τ ) + uθ (Zτ , τ ; yk)dτ + σ(τ ) d Wτ , Z0 ∼ μ0, (31) and let Q⋆ denote the path law of the ideal flow dZτ = f (Zτ , τ ) + u⋆(Zτ , τ ; yk)dτ + σ(τ ) d Wτ , Z0 ∼ μ0. (32) We write bQ1 and Q⋆ 
+
+> 1
+
+for their terminal marginals, and bQEM 1 for the terminal law produced by the Euler–Maruyama discretization of the practical flow. Thus, the practical terminal law ˆQEM 1 = ˆ πa 
+
+> k
+
+:= ˆΦk(πa
+
+> k−1
+
+) and the ideal terminal law Q⋆ 
+
+> 1
+
+= πa 
+
+> k
+
+= Φ k(πa
+
+> k−1
+
+). 
+
+Lemma 4.4 (One-step error decomposition) . Under Assumptions 4.2 and 4.3, the local one-step error admits the decomposition 
+
+TV (ˆ πa
+
+> k
+
+, π a
+
+> k
+
+) ≤ ˆf − f ˆQ
+
+| {z }
+
+> base-drift error
+
++ uθ − u⋆Eϕ ˆQ
+
+| {z }
+
+> control suboptimality
+
++ u⋆Eϕ − u⋆
+
+> ˆQ
+
+| {z }
+
+> energy mismatch
+
++ TV 
+
+ ˆQEM 1 , ˆQ1
+
+| {z }
+
+> discretization
+
+(33) 
+
+for the total-variation (TV) discrepancy, where we introduce a path-space seminorm 
+
+∥g∥ˆQ = 12
+
+s
+
+EˆQ
+
+Z 10
+
+1
+
+σ(τ )2 ∥g(Zτ , τ )∥2 dτ (34) 10 for any integrable g = g(Zτ , τ ), and u⋆Eϕ stands for the optimal control corresponding to the energy 
+
+Eϕ.Proof. Since the two continuous-time flows have the same initial law and diffusion coefficient, Gir-sanov’s theorem gives 
+
+DKL 
+
+ ˆQ Q⋆
+
+= 12 EˆQ
+
+Z 10
+
+1
+
+σ(τ )2
+
+  ˆf − f (Zτ , τ ) + ( uθ − u⋆)( Zτ , τ ; yk) 2
+
+dτ, (35) which is finite by Assumption 4.3. Pinsker’s inequality and data processing from path laws to their terminal marginals imply TV 
+
+ ˆQ1, Q⋆
+
+> 1
+
+
+
+≤
+
+r 12 DKL 
+
+ ˆQ1 Q⋆
+
+> 1
+
+
+
+≤
+
+r 12 DKL 
+
+ ˆQ Q⋆
+
+
+
+. (36) Sampling ˆQ uses its Euler–Maruyama discretization ˆQEM , so the triangle inequality gives TV (ˆ πa
+
+> k
+
+, π a
+
+> k
+
+) = TV 
+
+ ˆQEM 1 , Q⋆
+
+> 1
+
+
+
+≤ TV 
+
+ ˆQEM 1 , ˆQ1
+
+
+
++ TV 
+
+ ˆQ1, Q⋆
+
+> 1
+
+
+
+. (37) Finally, combining eqs. (35) to (37) and applying the triangle inequality to the path seminorm eq. (34) yields eq. (33). We then discuss the four terms in turn. The decomposition identifies the numerical levers of the method, the ensemble representation and base drift for the base-drift term, the adjoint matching optimization error for the control term, the surrogate gradient mismatch for the energy term, and the number of integration steps Nτ for the discretization term. These terms have different theoretical status. The base-flow and control errors are retained as approximation residuals, whereas the energy and discretization terms admit explicit analytic bounds under additional regularity assumptions. For the base-drift term, Proposition A.1 proves in the appendix the self-normalized importance-sampling rate O(N −1/2), with a constant governed by the χ2 dispersion of the base weights. The control term measures the optimization errors between the learned control and the nonparametric fixed point induced by the on-policy adjoint-matching regression as detailed in Proposition 3.5. We retain this term as a residual because a general convergence rate would additionally require approx-imation estimates for the control class and quantitative guarantees for the optimization procedure, which is beyond our scope in this paper. 
+
+Proposition 4.5 (Continuous dependence of the optimal control on the energy) . Let J1, J 2 ∈
+
+C1(Rn) satisfy ∥∇ J1 − ∇ J2∥∞ < ∞. Consider the homotopy Jr = (1 − r)J1 + rJ 2 and define the probability density ρz,τ r ∝ ˜ρz,τ r := exp( −Jr )p1|τ (· | z). Assume that 
+
+• the score function ∇ log p1|τ (z′ | z) for the base flow has bounded variance 
+
+V := sup 
+
+> r,z,τ
+
+Tr Var ρJr ∇ log p1|τ (· | z) < +∞; (38) 
+
+• every ρz,τ r satisfies the Poincar´ e inequality 
+
+Var ρz,τ r (φ) ≤ CP Eρz,τ r ∥∇ φ∥2 , ∀φ ∈ H1(ρz,τ r ) (39) 
+
+with a constant CP independent of r, z, and τ .Then the optimal control u⋆ depends continuously on the energy function J. Formally, we have 
+
+u⋆J1 − u⋆J2 ∞ ≤ σ(τ )2pCP V ∥∇ J1 − ∇ J2∥∞ . (40) 
+
+Taking J1 = Eϕ and J2 = J bounds the energy term of eq. (33) by the energies’ gradient mismatch alone. It follows immediately that 
+
+u⋆Eϕ − u⋆
+
+> ˆQ
+
+≤ σmax 
+
+2
+
+pCP V ∥∇ Eϕ − ∇ J∥∞ . (41) 11 Proof sketch. Write the optimal control eq. (20) as a Gibbs average of the base-kernel score, whose differentiation along the homotopy is exactly a covariance between J1 − J2 and the base score function. Integrating in r and applying Cauchy–Schwarz, the bounded score variance V , and the Poincar´ e inequality with constant CP gives the bound. The complete calculation is provided in section A.2. Two consequences make this the pivot of the implicit-energy and likelihood-free design. First, although u⋆J is nonlocal in J, replacing J by a learned surrogate perturbs the filtering map only through ∥∇ Eϕ − ∇ J∥∞ under the stated assumptions, so energy learning by adjoint matching is stable in the control metric. Besides, the control is invariant to shifts J 7 → J + c in x. EnCF-LF therefore need not estimate the tilt normalizer over the state, making the maximum-likelihood training reasonable. 
+
+Proposition 4.6 (Time-discretization error, [7, 8]) . Let ˆQEM be the path law induced by the uniform-step Euler–Maruyama discretization of ˆQ with Nτ steps. Under Assumption 4.2, the corresponding terminal laws satisfy 
+
+TV 
+
+ ˆQEM 1 , ˆQ1
+
+
+
+≤ CEM N −1 
+
+> τ
+
+, (42) 
+
+where the constant CEM depends only on the regularity constants. The estimate follows from the total-variation convergence of the Euler–Maruyama scheme. 
+
+Combining the estimate of each component in the decomposition eq. (33), we have the following aggregated result. 
+
+Theorem 4.7 (One-step filtering error) . Suppose that the one-step update is initialized from the exact analysis law πa
+
+> k−1
+
+. Under Assumptions 4.2 and 4.3 and the assumptions of Proposition 4.5, the local one-step filtering error satisfies 
+
+TV (ˆ πa
+
+> k
+
+, π a
+
+> k
+
+) ≤ ˆf − f ˆQ
+
++ uθ − u⋆Eϕ ˆQ
+
++ LE ∥∇ Eϕ − ∇ J∥∞ + CEM N −1 
+
+> τ
+
+, (43) 
+
+where LE = 12 σmax 
+
+√CP V .
+
+Theorem 4.7 separates the local filtering error according to the four approximations made by the practical method. The first term depends on the accuracy with which the empirical base dynamics represent the forecast transport. The second reflects the expressiveness and optimization accuracy of the learned control. The third is governed by the C1-accuracy of the surrogate energy, while the fourth decreases as the transport-time discretization is refined. The bound is therefore structural and a priori rather than an online error certificate, since the exact base drift f and optimal control u⋆ are generally unavailable. The constant LE also indicates that surrogate-energy errors may be amplified when the tilted bridge measures become poorly conditioned, as reflected by large Poincar´ e or score-variance constants. This is consistent with the intuition that sharply concentrated observation models tend to be more challenging. 
+
+## 4.3 Multi-step stability and error propagation 
+
+The one-step estimate of Theorem 4.7 quantifies the local error introduced during a single assimila-tion cycle. To propagate this estimate over multiple cycles, we compare the practical recursion with the exact filtering recursion started from the same intermediate distributions. The key requirement is stability of the exact filtering operators with respect to perturbations of their input laws. To study the accumulated filtering error, we write Φ k→l := Φ l ◦ · · · ◦ Φk+1 for k ≤ l and set Φ k→k
+
+as the identity. Then we define 
+
+dk := TV (ˆ πa
+
+> k
+
+, π a
+
+> k
+
+) , ek := TV  ˆπa
+
+> k
+
+, Φk(ˆ πa
+
+> k−1
+
+) = TV 
+
+ ˆΦk(ˆ πa
+
+> k−1
+
+), Φk(ˆ πa
+
+> k−1
+
+)
+
+
+
+(44) as the accumulated filtering error and the one-step filtering error, respectively. Recall that we have actually provided an upper bound of ek in Theorem 4.7. 12 Assumption 4.8 (Exponential stability of the exact filter) . Let P be a class of probability measures invariant under the exact filtering operators. There exist constants Cstab ≥ 1 and ϱ ∈ (0 , 1) such that 
+
+TV (Φ k→l(ν), Φk→l(ν′)) ≤ Cstab ϱl−kTV ( ν, ν ′) (45) 
+
+for every ν, ν ′ ∈ P and all 0 ≤ k ≤ l.
+
+Estimates of the form (45) are classical under suitable uniform mixing conditions on the forecast kernels and upper and lower bounds on the observation potentials [6, 27]. Note that Assumption 4.8 is a structural property of the exact filtering recursion independent of the choice of numerical im-plementation. 
+
+Theorem 4.9 (Multi-step filtering error) . Suppose that Assumption 4.8 holds and that all interme-diate exact and practical laws belong to P. Then the accumulated filtering error satisfies 
+
+dl ≤ Cstab ϱld0 + Cstab 
+
+1 − ϱ max  
+
+> 1≤k≤l
+
+ek. (46) 
+
+Moreover, each one-step error ek is bounded from above by Theorem 4.7 under certain assumptions. In particular, if the filter is initialized exactly as d0 = 0 , then the accumulated filtering error dk is bounded by the maximum of one-step errors up to a constant multiplier. Proof. The complete proof is deferred to section A.3. Theorem 4.9 does not assert that the practical filtering map is itself contractive. Rather, it shows that local perturbations of a stable exact filtering recursion are geometrically attenuated as they propagate forward in time. Thus, uniformly bounded local errors produce a uniformly bounded global error, with amplification factor Cstab /(1 − ϱ). The one-step estimate Theorem 4.7 remains an a priori structural bound because its base-flow and control terms involve the unavailable exact drift and optimal control. Theorem 4.9 complements this local estimate by describing how such errors propagate across assimilation cycles. When ϱ is close to one, the exact filter forgets perturbations slowly and the resulting multi-step bound becomes correspondingly less informative. 
+
+# 5 Experiments 
+
+This section evaluates the proposed EnCF and its likelihood-free variant EnCF-LF against classical ensemble filters and recently developed flow-based filters. The experiments are organized according to the structure of the observation model. We first consider a smooth additive-Gaussian setting as a sanity check (section 5.3), where classical Kalman-type filters are expected to perform well. We then examine a non-Gaussian additive noise model (section 5.4), which progressively moves the posterior away from a Gaussian approximation. Finally, we focus on the observation regimes targeted by the proposed formulation: a many-to-one sign-blind sensor that induces a genuinely multimodal posterior (section 5.5.1), and an implicit, non-additive observation relation for which the likelihood-free variant uses simulator access only (section 5.5.2). The computational cost of learning the controlled flow is reported separately in section 5.6. 
+
+## 5.1 Filter configurations 
+
+The proposed filters, EnCF and EnCF-LF, are implemented following algorithm 1. The control aθ
+
+is represented by a convolutional neural network. The state z and the observation y are passed through separate convolutional encoders, and the resulting feature maps are concatenated and de-coded by a merge convolution to produce the control. The network is initialized at zero. In EnCF, the observation energy enters the adjoint-matching regression only through the terminal condition 
+
+∇Jk(Z1; yk), as described in algorithm 1. Full implementation details and hyperparameters are provided in section B. 13 At each assimilation step k, the control network of our EnCF is trained from scratch. We therefore use more optimization in the early cycles and gradually reduce the training budget. In all experiments, the number of training epochs Ek follows a cosine schedule, inspired by [35], decreasing from 100 to 1 over the first 20 assimilation cycles. After this warm-up phase, each analysis step uses a single training epoch. The number of regression steps is set as Nreg = 16. We compare against two classes of ensemble filters. The classical baselines are the EnKF [21], the LETKF [28], and the bootstrap particle filter [47]. For EnKF and LETKF, covariance inflation and Gaspari–Cohn localization are tuned separately for each benchmark; the tuning protocol is reported in section B. The particle filter uses the exact likelihood whenever it is available, but is included mainly as a reference method because it is known to suffer from weight degeneracy in high-dimensional problems [42]. The flow-based baselines are EnSF [9], EnFF [45], and EnSBF [44]. For EnFF, we report both the optimal-transport variant (EnFF-OT) and the filtering-to-predictive variant (EnFF-F2P). All flow-based baselines use the same number of transport-time steps Nτ = 100, matching the EnCF implementation. 
+
+## 5.2 Metrics 
+
+For each benchmark, we run the filter for K assimilation cycles and report time-averaged quantities over a converged window C, defined as the last 10% of the rollout. We use three complementary metrics as follows. 
+
+Root mean square error (RMSE) We evaluate the accuracy of the ensemble mean ¯ xk =
+
+N −1 PNj=1 x(j) 
+
+> k
+
+by computing the root mean square error against the reference state x⋆k ∈ Rn,defined by RMSE k =
+
+vuut 1
+
+n
+
+> n
+
+X
+
+> i=1
+
+ ¯xk,i − x⋆k,i 
+
+2, RMSE = 1
+
+|C| 
+
+X
+
+> k∈C
+
+RMSE k, (47) where i indexes coordinates. Lower RMSE indicates a more accurate ensemble mean. 
+
+Continuous ranked probability score (CRPS) Since the analysis output is an ensemble dis-tribution rather than only a point estimate, we also report the multivariate energy-score form of the continuous ranked probability score CRPS k = 1
+
+N
+
+> N
+
+X
+
+> j=1
+
+x(j) 
+
+> k
+
+− x⋆k 2
+
+− 12N 2
+
+> N
+
+X
+
+> j=1
+> N
+
+X
+
+> j′=1
+
+x(j) 
+
+> k
+
+− x(j′) 
+
+> k2
+
+. (48) The reported CRPS is averaged over k ∈ C . The first term penalizes distance from the reference state, whereas the second term rewards ensemble spread. Thus CRPS evaluates the ensemble as a distribution, with lower values indicating a sharper and better calibrated ensemble. 
+
+Spread-to-RMSE ratio (SRR) We use Spread k =
+
+vuut 1
+
+nN 
+
+> N
+
+X
+
+> j=1
+> n
+
+X
+
+> i=1
+
+ x(j) 
+
+> k,i
+
+− ¯xk,i 
+
+2, SRR k = Spread k
+
+RMSE k
+
+, (49) as a calibration diagnostic. The final SRR is again averaged over k ∈ C . Values near one indicate that the ensemble spread is consistent with the realized error. Values below one indicate under-dispersion or ensemble collapse, whereas values above one indicate over-dispersion. All configurations are run with five independent random seeds. Tables report the mean and standard deviation over seeds, and figures show the same variability using error bars or shaded bands. 14 method RMSE ( ↓) CRPS ( ↓) SRR EnKF 0.026 ± 0.000 0.60 ± 0.01 1.114 ± 0.018 LETKF 0.025 ± 0.001 0.58 ± 0.03 1.131 ± 0.044 EnSF 0.080 ± 0.001 1.89 ± 0.03 0.715 ± 0.012 EnFF-OT 0.076 ± 0.001 2.37 ± 0.02 0.038 ± 0.001 EnFF-F2P 0.185 ± 0.001 5.93 ± 0.02 0.002 ± 0.000 EnSBF 1.760 ± 0.016 54 .1 ± 0.49 0.062 ± 0.001 EnCF 0.056 ± 0.002 1.52 ± 0.03 2.02 ± 0.07 EnCF-LF 0.068 ± 0.003 1.65 ± 0.05 1.35 ± 0.07 Table 2: KS dynamics with the smooth additive-Gaussian arctangent observation in eq. (51). All methods use N = 20 ensemble members. Values are mean ± standard deviation over 5 random seeds. 
+
+## 5.3 A conventional assimilation task 
+
+We begin with a standard setting in which the observation model is smooth, dense, and corrupted by additive Gaussian noise. This experiment is intended as a sanity check, and the purpose is to verify that our controlled-flow formulation remains stable and competitive before moving to the non-Gaussian, multimodal, and implicit observation models considered afterward. We consider the Kuramoto–Sivashinsky (KS) dynamics 
+
+ut + uu x + uxx + uxxxx = 0 (50) on a periodic domain discretized into 1024 grid points. The state is observed through the compo-nentwise nonlinear sensor 
+
+y = H(x) + ε ∈ R1024 , H(x) = arctan( x), ε ∼ N (0 , 0.12I1024 ). (51) We run 1000 assimilation cycles with ensemble size N = 20. The results in table 2 are consistent with the expected behavior in this conventional regime. The tuned EnKF and LETKF achieve the lowest RMSE and CRPS, confirming that classical covariance-based updates remain preferable when the observation model is smooth, dense, and additive Gaus-sian. Among the flow-based methods, EnCF gives the best RMSE and CRPS, while EnCF-LF remains stable despite using a learned surrogate observation energy. Several existing flow-based baselines, especially EnFF-F2P and EnSBF, show very small SRR values, indicating strong under-dispersion or ensemble collapse. This sanity check provides a baseline for the more challenging non-Gaussian, multimodal, and implicit observation regimes considered in the following subsections. 
+
+## 5.4 Non-Gaussian additive noise 
+
+We next keep the KS dynamics and the arctangent observation operator in eq. (51), but replace the Gaussian observation noise by a symmetric two-component mixture. Coordinate-wise, the observa-tion model is 
+
+y = H(x) + ε, H(x) = arctan( x), εi ∼ N (aξ iσ, σ 2), σ = 0 .1, (52) where the signs ξi are independent Rademacher variables. The scalar parameter a ≥ 0 controls the separation of the two noise modes in units of σ. Thus a = 0 recovers the Gaussian setting in section 5.3, while larger values of a produce increasingly separated likelihood modes. Figure 2(a) and (b) show how the likelihood changes as a increases. The noise density develops two separated modes, and the corresponding observation energy J = − log ℓ(· | y) changes from a single well to a double-well landscape. Note that for a fixed a, the marginal noise distribution has mean zero and variance σ2(1 + a2). Therefore, in addition to the nominal EnKF using Rk = σ2I (defined in eq. (8)), we also report a 15 10 5 0 5 10                             
+
+> observation noise ε/σ
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> 0.30
+> 0.35
+> 0.40
+> density
+> (a) a= 0
+> a= 2
+> a= 4
+> a= 6
+> a= 8
+> a= 10
+> 10 50510
+> residual (y−arctan x)/σ
+> 0
+> 5
+> 10
+> 15
+> 20
+> 25
+> 30
+> energy  J = − log  p
+> (b)
+> 0246810
+> bimodal mode offset a
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> 0.30
+> converged RMSE
+> (c) EnKF ( Rk=σ2I)
+> EnKF ( Rk=σ2(1 + a2)I)
+> EnCF
+
+Figure 2: KS dynamics with non-Gaussian additive noise ( N = 20, 5 seeds). (a) Bimodal noise density in units of σ for various offsets a. (b) Induced observation energy J = − log ℓ, which changes from a single well at a = 0 to a double-well landscape as a increases. (c) Converged RMSE versus the mode offset a for the EnKF and the EnCF approaches. matched-variance EnKF using Rk = σ2(1 + a2)I. The latter is more reasonable since it uses the correct marginal variance of the mixture, although it still replaces the bimodal likelihood by a single Gaussian approximation. fig. 2(c) reports the converged RMSE for various offsets a. For small a,the likelihood remains close to Gaussian, and the Kalman update is the most effective choice. As 
+
+a increases, the two likelihood modes separate, and a single Gaussian residual model becomes less representative of the posterior. The matched-variance EnKF partly accounts for the larger noise scale, but it still cannot represent the bimodal structure of the likelihood. In contrast, EnCF directly uses the observation energy and remains comparatively insensitive to the mode separation. The RMSE curves cross around a ≈ 4, and beyond this point, EnCF gives lower error than both EnKF variants. This experiment therefore isolates a transition from a regime where Gaussian covariance updates are sufficient to one where the controlled-flow approach becomes advantageous. 
+
+## 5.5 Multimodal posteriors 
+
+We now turn to observation models that induce genuinely multimodal analysis distributions. The common difficulty in this section is that the state-to-observation relation is many-to-one, so a sin-gle observation can be compatible with multiple well-separated states. In such cases, a unimodal Gaussian update can collapse distinct posterior modes, while methods relying directly on analytic likelihood gradients may only exploit the local information exposed by the observation map. The two benchmarks below isolate this issue in a controlled setting: the first uses an explicit differ-entiable sign-blind sensor, and the second replaces the additive observation model by an implicit, non-additive relation. Both benchmarks in this section share the same double-well dynamics in R20 ,dxt = −4xt(x2 
+
+> t
+
+− 1) d t + 0 .5 d Wt (53) where the nonlinear operations are applied coordinate-wise and Wt is a standard Brownian motion. The drift is induced by a double-well potential V (x) with stable wells at x = ±1, as illustrated in fig. 3. We use N = 40 ensemble members and assimilate every 20 model steps for 100 assimilation cycles. 
+
+5.5.1 Sign-blind magnitude observation 
+
+To start with, we consider an explicit many-to-one observation model. The observation consists of a dominant magnitude channel and a weak linear sign channel 
+
+y = H(x) + ε ∈ R40 , H(x) = ( x2, cx )T, ε ∼ N (0 , 0.12I40 ), (54) 16 x
+
+y = V (x) = x4 − 2x20 250 500 750 1000 1250 1500 1750  
+
+> model step k
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> RMSE
+> EnKF
+> LETKF
+> EnSF
+> EnFF-OT
+> EnFF-F2P
+> EnCF
+> EnCF-LF
+
+Figure 3: Illustration of the double-well potential (left) and the evolution of assimilation error for each method (right). where all operations are applied coordinate-wise. The first part is sign-blind, and thus we introduce a linear channel with slope c = 0 .02 that carries the sign at effective noise 0 .1/0.02 = 5 times the state scale, making the problem hard but identifiable over time. By this construction, each analysis step remains strongly multimodal. The RMSE evolution in fig. 3 shows that the Kalman-type filters struggle in this regime even after tuning inflation and localization. The existing flow-based filters improve over the Kalman baselines but remain limited by the artificial controls used to guide the transport. In contrast, EnCF achieves the lowest error among the compared methods. This supports the intended role of the controlled-flow formulation: rather than imposing a Gaussian update or relying on a prescribed likelihood-score control along the path, it learns a transport induced by the terminal observation energy and can better accommodate the two-well posterior structure. 
+
+5.5.2 Implicit and non-additive observation 
+
+The sign-blind sensor in section 5.5.1 is many-to-one, but it is still given by an explicit observation map with additive Gaussian noise. We now replace this structure by an implicit, non-additive observation relation. The observation consists of a circle-constraint channel and a weak sign channel, given by 
+
+R(x, y c) = x2 + y2c − 2 ∼ N (0 , 0.32I20 ); ys = cx + η, η ∼ N (0 , 0.12I20 ). (55) All operations are applied coordinate-wise, and we have y = ( yc, y s) ∈ R40 as observation data. In the circle channel, the noise is imposed on the constraint x2 + y2c ≈ 2, rather than being added to a forward map yc = Hc(x) + ε. Thus the observation model is not naturally represented as an additive residual in the observation variable. Moreover, the constraint is even in x, so it is again sign-blind; the weak linear channel ys is included only to make the state identifiable over time. This benchmark separates two levels of access to the observation model. We provide the exact observation relation in eq. (55) to the flow-based methods, while the Kalman-type baselines use the natural residual representation with tuned inflation and localization. In contrast, EnCF-LF is not given the analytic form of eq. (55). It only receives simulator samples from the conditional observation law at forecast states and learns a surrogate energy online. This setting is intended to mimic an observation mechanism for which forward simulation is available but an explicit likelihood or differentiable observation formula is not. The results in table 3 show that the controlled-flow methods are the most effective in this implicit observation regime. With analytic access to the observation energy, EnCF obtains substantially lower RMSE and CRPS than the classical and existing flow-based baselines. The likelihood-free variant performs comparably, matching the exact-energy EnCF to within a fraction of the seed spread, despite using only simulator samples to learn the surrogate energy. This indicates that the energy-learning interface can recover the relevant observation information without requiring an explicit 17 method RMSE CRPS SRR EnKF (tuned) 0.591 ± 0.127 2.23 ± 0.52 0.30 ± 0.03 LETKF (tuned) 0.750 ± 0.163 2.90 ± 0.71 0.27 ± 0.09 EnSF 0.684 ± 0.039 2.20 ± 0.11 1.30 ± 0.06 EnFF-OT 0.827 ± 0.100 3.30 ± 0.44 0.18 ± 0.02 EnFF-F2P 0.717 ± 0.206 2.55 ± 0.74 0.53 ± 0.04 EnCF 0.433 ± 0.060 1.47 ± 0.17 1.76 ± 0.21 EnCF-LF 0.435 ± 0.067 1.48 ± 0.17 1.75 ± 0.25 
+
+Table 3: Double-well dynamics with the implicit circle sensor ( N = 40, 5 seeds). Bold marks the best mean among the filters with the smallest seed spread (see text). 
+
+Figure 4: The analysis ensemble of 40 members at the final assimilation step ( ⋆: truth, n = 20). 
+
+Left: EnCF keeps mass in both wells of the sign-blind posterior while centering on the correct sign for every coordinate. Right: the EnKF’s Gaussian update collapses the ensemble onto a single well per coordinate and lands in the wrong one on two of them (circled). additive observation map. Figure 4 explains the difference in calibration behavior. The Kalman-type filters and the EnFF variants have small SRR values in table 3, indicating under-dispersion in this multimodal implicit problem. For EnKF, the ensemble visualization shows that this under-dispersion corresponds to a collapse onto a single well for each coordinate. Once the Gaussian update selects the wrong well, the small ensemble spread makes subsequent recovery difficult. By contrast, EnCF and EnCF-LF are somewhat over-dispersed according to SRR, but their lower CRPS suggests that the retained ensemble diversity is useful rather than spurious. The ensemble keeps mass near both wells while still concentrating around the sign supported by the observations. This behavior is consistent with the two-valued structure induced by the circle constraint and illustrates why controlled posterior transport is beneficial for implicit many-to-one observations. 
+
+## 5.6 Computational cost 
+
+The improved flexibility of EnCF comes with the additional cost of learning a control during each analysis step. We therefore report wall-clock time separately from the accuracy metrics above. The comparison is meant to quantify the practical overhead of the learned controlled flow, rather than to claim that EnCF is the cheapest filter. All timings are measured under the same implementation and hardware environment. Since absolute runtime depends on implementation details, we focus on the relative cost across methods. Figure 5 separates the transient and steady-state costs of the learned controlled flow. In the 18 0 20 40 60 80 100         
+
+> assimilation cycle k
+> 10 2
+> 10 1
+> 10 0
+> 10 1
+> wall-clock per cycle (s)
+> Ekreaches 1
+> EnCF
+> EnCF-LF
+> EnSF
+> EnFF-OT
+> EnKF 10 210 110 0
+> wall-clock per assimilation cycle (steady state, s)
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> converged RMSE
+> EnKF
+> LETKF
+> EnSF
+> EnFF-OT
+> EnFF-F2P
+> EnCF
+> EnCF-LF
+
+Figure 5: Computational cost on the implicit circle benchmark. Left: wall-clock time per assimilation cycle over the rollout. EnCF and EnCF-LF use the cosine training schedule described in section 5.1, which decreases the number of control-training epochs from 100 to 1 during the first 20 cycles. 
+
+Right: converged RMSE versus steady-state wall-clock time per assimilation cycle. Each marker corresponds to one filter after the EnCF training schedule has annealed to Ek = 1. Shaded bands and error bars indicate variability over five random seeds. early cycles, EnCF and EnCF-LF are substantially more expensive because the control is trained with a larger epoch budget. After the cosine schedule reaches Ek = 1, the per-cycle cost becomes stable. EnCF-LF remains more expensive than EnCF in this steady regime because it also learns a surrogate observation energy, while EnKF is the cheapest method and the existing flow-based filters have lower per-cycle cost than the controlled-flow methods. The right panel relates this steady-state cost to the converged RMSE on the implicit circle benchmark. The Kalman-type filters and existing flow-based filters are faster, but they have larger errors in this implicit many-to-one setting. EnCF and EnCF-LF require higher wall-clock time per assimilation cycle, but they occupy the low-error region of the plot. Thus the learned control introduces a measurable computational overhead, while providing a favorable accuracy-cost trade-off in the observation regime for which the method is designed. 
+
+# 6 Discussion 
+
+This work introduces implicit data assimilation as a formulation for incorporating observations that are not naturally represented by an additive residual or an explicit forward operator. By expressing the analysis distribution as an energy tilt of the forecast law, the observation model is separated from the numerical mechanism used to realize the update. EnCF implements this update through a stochastic controlled flow, while EnCF-LF replaces an unavailable analytic energy with a surrogate learned from simulator samples. The accompanying analysis establishes ideal exactness and organizes the practical filtering error into contributions from the base flow, the learned control, the surrogate energy, and temporal discretization. Together, these results provide a numerical framework for constructing ensemble analyses from energy-defined observational information. A broader implication is that the interface between a scientific measurement model and an ensemble filter need not be restricted to residuals, moments, or pointwise likelihood weights. These representations are highly effective when their underlying assumptions are appropriate, and the results confirm that tuned Kalman-type methods remain preferable for smooth additive-Gaussian observations. The role of EnCF is therefore complementary. It is intended for problems in which the principal difficulty lies in the geometry or accessibility of the observation model, including many-to-one, multimodal, implicit, and simulator-defined relations. In these regimes, controlled transport offers a way to retain distinct observation-compatible states rather than compressing the analysis into a local Gaussian summary or requiring a separately derived guidance rule for each sensing mechanism. The flexibility of this formulation also creates several opportunities for systematic algorithm 19 design. Because the forecast representation, observation energy, learned control, and transport dis-cretization enter the analysis through distinct components, each can be improved without changing the overall filtering principle. The error decomposition developed in this work makes this modu-larity explicit and identifies how ensemble quality, control optimization, energy approximation, and numerical resolution affect the resulting analysis. It therefore provides a useful basis for allocating computational effort across assimilation cycles and for adapting the method to sharply concentrated observations, evolving forecast distributions, and spatially coupled systems. For EnCF-LF in partic-ular, the separation between energy learning and controlled transport allows increasingly expressive observation models to be incorporated while preserving the same analysis solver. These observations point toward several directions for further development. Adaptive schemes could select the base flow and allocate control optimization and transport resolution according to the difficulty of each analysis step. Localized, reduced-order, or multiscale parameterizations of the control may extend the approach to substantially larger systems. For likelihood-free assimilation, richer conditional energy models could accommodate non-Gaussian, spatially dependent, and tempo-rally correlated observation processes while retaining forward-only simulator access. More generally, the decomposition into a forecast-generating base flow, an observation energy, and a learned control provides a modular foundation on which alternative transport dynamics, energy models, and approx-imation strategies can be developed. This modularity, rather than the replacement of established filters in their natural regime, is the main opportunity offered by the controlled-flow perspective. 
+
+# Reproducibility 
+
+All the codes for data generation, network training, and visualization are publicly available on the GitHub repository https://github.com/zylipku/EnCF .
+
+# Declarations 
+
+During the preparation of this work, the authors used large language models (LLMs) to assist with the code writing and to polish the written text for spelling and grammar. The authors thoroughly reviewed and edited the content and take full responsibility for the final publication. 
+
+# Acknowledgements 
+
+Z.L. is supported by the Ministry of Education, Singapore, under its Research Centre of Excellence award to the Institute for Functional Intelligent Materials. (Project No. EDUNC-33-18-279-V12). Y.Z. is supported by the National University of Singapore and the AI for Science Institute, Beijing, through the AISI–NUS Joint Research Initiative Fund 2025 Award. 
+
+# References 
+
+[1] S. Agapiou, O. Papaspiliopoulos, D. Sanz-Alonso, and A. M. Stuart , Importance sampling: Intrinsic dimension and computational cost , Statistical Science, 32 (2017), pp. 405 – 431, https://doi.org/10.1214/17-STS611 .[2] M. Amendola, R. Arcucci, L. Mottet, C. Q. Casas, S. Fan, C. Pain, P. Linden, and Y.-K. Guo , Data assimilation in the latent space of a convolutional autoencoder , in Compu-tational Science – ICCS 2021, M. Paszynski, D. Kranzlm¨ uller, V. V. Krzhizhanovskaya, J. J. Dongarra, and P. M. Sloot, eds., Cham, 2021, Springer International Publishing, pp. 373–386, 
+
+https://doi.org/10.1007/978-3-030-77977-1_30 .[3] J. L. Anderson , A non-gaussian ensemble filter update for data assimilation , Monthly Weather Review, 138 (2010), pp. 4186–4198, https://doi.org/10.1175/2010MWR3253.1 .20 [4] M. Arulampalam, S. Maskell, N. Gordon, and T. Clapp , A tutorial on particle filters for online nonlinear/non-Gaussian Bayesian tracking , IEEE Transactions on Signal Processing, 50 (2002), pp. 174–188, https://doi.org/10.1109/78.978374 .[5] M. Asch, M. Bocquet, and M. Nodet , Data Assimilation , Society for Industrial and Applied Mathematics, Philadelphia, PA, 2016, https://doi.org/10.1137/1.9781611974546 .[6] R. Atar and O. Zeitouni , Exponential stability for nonlinear filtering , Annales de l’Institut Henri Poincare (B) Probability and Statistics, 33 (1997), pp. 697–725, https://doi.org/10. 1016/S0246-0203(97)80110-0 .[7] V. Bally and D. Talay , The law of the euler scheme for stochastic differential equations: I. convergence rate of the distribution function , Probability theory and related fields, 104 (1996), pp. 43–60, https://doi.org/10.1007/BF01303802 .[8] V. Bally and D. Talay , The law of the euler scheme for stochastic differential equations: Ii. convergence rate of the density , Monte Carlo Methods and Applications, 2 (1996), pp. 93–128, 
+
+https://doi.org/10.1515/mcma.1996.2.2.93 .[9] F. Bao, Z. Zhang, and G. Zhang , An ensemble score filter for tracking high-dimensional nonlinear dynamical systems , Computer Methods in Applied Mechanics and Engineering, 432 (2024), p. 117447, https://doi.org/10.1016/j.cma.2024.117447 .[10] M. Bou´ e and P. Dupuis , A variational representation for certain functionals of brownian motion , The Annals of Probability, 26 (1998), pp. 1641 – 1659, https://doi.org/10.1214/ aop/1022855876 .[11] J. Brajard, A. Carrassi, M. Bocquet, and L. Bertino , Combining data assimilation and machine learning to infer unresolved scale parametrization , Philosophical Transactions of the Royal Society A: Mathematical, Physical and Engineering Sciences, 379 (2021), p. 20200086, 
+
+https://doi.org/10.1098/rsta.2020.0086 .[12] A. Carrassi, M. Bocquet, L. Bertino, and G. Evensen , Data assimilation in the geo-sciences: An overview of methods, issues, and perspectives , WIREs Climate Change, 9 (2018), p. e535, https://doi.org/10.1002/wcc.535 .[13] S. Chen, Y. Jia, Q. Qu, H. Sun, and J. A. Fessler , FlowDAS: A stochastic interpolant-based framework for data assimilation , in The Thirty-ninth Annual Conference on Neural In-formation Processing Systems, 2025, https://openreview.net/forum?id=1nWqhiulqD .[14] X. Chen, B. W. Soh, Z.-E. Ooi, E. Vissol-Gaudin, H. Yu, K. S. Novoselov, K. Hippalgaonkar, and Q. Li , Constructing custom thermodynamics using deep learn-ing , Nature Computational Science, 4 (2024), pp. 66–85, https://doi.org/10.1038/ s43588-023-00581-5 .[15] S. Cheng, J. Chen, C. Anastasiou, P. Angeli, O. K. Matar, Y.-K. Guo, C. C. Pain, and R. Arcucci , Generalised latent assimilation in heterogeneous reduced spaces with machine learning surrogate models , Journal of Scientific Computing, 94 (2023), p. 11, https: //doi.org/10.1007/s10915-022-02059-4 .[16] K. Cranmer, J. Brehmer, and G. Louppe , The frontier of simulation-based inference ,Proceedings of the National Academy of Sciences, 117 (2020), pp. 30055–30062, https://doi. org/10.1073/pnas.1912789117 .[17] P. Dai Pra , A stochastic control approach to reciprocal diffusion processes , Applied mathe-matics and Optimization, 23 (1991), pp. 313–329, https://doi.org/10.1007/BF01442404 .21 [18] C. Domingo-Enrich, M. Drozdzal, B. Karrer, and R. T. Q. Chen , Adjoint match-ing: Fine-tuning flow and diffusion generative models with memoryless stochastic optimal con-trol , in The Thirteenth International Conference on Learning Representations, 2025, https: //openreview.net/forum?id=xQBRrtQM8u .[19] C. Domingo-Enrich and J. Han , Adjoint matching through the lens of the stochastic maxi-mum principle in optimal control , arXiv preprint arXiv:2604.08580, (2026). [20] W. E , Principles of multiscale modeling , Cambridge University Press, 2011. [21] G. Evensen , Data Assimilation , Springer, 2 ed., 2009, https://doi.org/10.1007/ 978-3-642-03711-5 .[22] H. F¨ ollmer , Random fields and diffusion processes , in ´Ecole d’ ´Et´ e de Probabilit´ es de Saint-Flour XV–XVII, 1985–87, vol. 1362 of Lecture Notes in Mathematics, Springer, 1988, pp. 101– 203, https://doi.org/10.1007/BFb0086180 .[23] W. Gao and M. Li , How do flow matching models memorize and generalize in sample data subspaces? , arXiv preprint arXiv:2410.23594, (2024). [24] W. Gao, M. Li, and Q. Li , Terminally constrained flow-based generative models from an optimal control perspective , arXiv preprint arXiv:2601.09474, (2026). [25] H.-O. Georgii , Gibbs Measures and Phase Transitions , De Gruyter, Berlin, New York, 2011, 
+
+https://doi.org/doi:10.1515/9783110250329 .[26] A. Ghosh, A. Honor´ e, and S. Chatterjee , DANSE: Data-driven non-linear state es-timation of model-free process in unsupervised learning setup , Trans. Sig. Proc., 72 (2024), p. 1824–1838, https://doi.org/10.1109/TSP.2024.3383277 .[27] F. L. Gland and N. Oudjane , Stability and uniform approximation of nonlinear filters using the hilbert metric and application to particle filters , The Annals of Applied Probability, 14 (2004), pp. 144 – 187, https://doi.org/10.1214/aoap/1075828050 .[28] B. R. Hunt, E. J. Kostelich, and I. Szunyogh , Efficient data assimilation for spatiotem-poral chaos: A local ensemble transform kalman filter , Physica D: Nonlinear Phenomena, 230 (2007), pp. 112–126, https://doi.org/10.1016/j.physd.2006.11.008 .[29] E. Kalnay, S. Mote, and C. Da , Earth System Modeling, Data Assimilation and Pre-dictability: Atmosphere, Oceans, Land and Human Systems , Cambridge University Press, 2024, 
+
+https://doi.org/10.1017/9780511920608 .[30] K. Law, A. Stuart, and K. Zygalakis , Data Assimilation , Springer, 2015, https://doi. org/10.1007/978-3-319-20325-6 .[31] C. L´ eonard , A survey of the schr¨ odinger problem and some of its connections with optimal transport , Discrete and Continuous Dynamical Systems, 34 (2014), pp. 1533–1574, https: //doi.org/10.3934/dcds.2014.34.1533 .[32] Z. Li, B. Dong, and P. Zhang , Latent assimilation with implicit neural representations for unknown dynamics , Journal of Computational Physics, 506 (2024), p. 112953, https://doi. org/10.1016/j.jcp.2024.112953 .[33] Z. Li, B. Dong, and P. Zhang , State-observation augmented diffusion model for nonlinear assimilation with unknown dynamics , Journal of Computational Physics, 539 (2025), p. 114240, 
+
+https://doi.org/10.1016/j.jcp.2025.114240 .[34] Z. Li, A. Zhu, and Q. Li , Hypothesis-driven construction of mesoscopic dynamics , arXiv preprint arXiv:2605.16211, (2026). 22 [35] I. Loshchilov and F. Hutter , SGDR: Stochastic gradient descent with warm restarts , in In-ternational Conference on Learning Representations, 2017, https://openreview.net/forum? id=Skq89Scxx .[36] Y. Luo, K. Ogle, C. Tucker, S. Fei, C. Gao, S. LaDeau, J. S. Clark, and D. S. Schimel , Ecological forecasting and data assimilation in a data-rich era , Ecological Applica-tions, 21 (2011), pp. 1429–1442, https://doi.org/10.1890/09-1275.1 .[37] M. J. Martin, I. Hoteit, L. Bertino, and A. M. Moore , Data assimilation schemes for ocean forecasting: state of the art , State of the Planet, 5-opsr (2025), p. 9, https://doi.org/ 10.5194/sp-5-opsr-9-2025 .[38] G. Pavliotis and A. Stuart , Multiscale methods: averaging and homogenization , Springer New York, NY, 2008, https://doi.org/10.1007/978-0-387-73829-1 .[39] S. G. Penny, T. A. Smith, T.-C. Chen, J. A. Platt, H.-Y. Lin, M. Goodliff, and H. D. I. Abarbanel , Integrating recurrent neural networks with data assimilation for scal-able data-driven state estimation , Journal of Advances in Modeling Earth Systems, 14 (2022), p. e2021MS002843, https://doi.org/10.1029/2021MS002843 .[40] M. Peyron, A. Fillion, S. G¨ urol, V. Marchais, S. Gratton, P. Boudier, and G. Goret , Latent space data assimilation by using deep learning , Quarterly Journal of the Royal Meteorological Society, 147 (2021), pp. 3759–3777, https://doi.org/10.1002/qj.4153 .[41] Y. Shechtman, Y. C. Eldar, O. Cohen, H. N. Chapman, J. Miao, and M. Segev ,
+
+Phase retrieval with application to optical imaging: A contemporary overview , IEEE Signal Processing Magazine, 32 (2015), pp. 87–109, https://doi.org/10.1109/MSP.2014.2352673 .[42] C. Snyder, T. Bengtsson, P. Bickel, and J. Anderson , Obstacles to high-dimensional particle filtering , Monthly Weather Review, 136 (2008), pp. 4629–4640, https://doi.org/10. 1175/2008MWR2529.1 .[43] Y. Song, J. Sohl-Dickstein, D. P. Kingma, A. Kumar, S. Ermon, and B. Poole , Score-based generative modeling through stochastic differential equations , in International Conference on Learning Representations, 2021, https://openreview.net/forum?id=PxTIG12RRHS .[44] H. Sun , The ensemble schr¨ odinger bridge filter for nonlinear data assimilation , arXiv preprint arXiv:2512.18928, (2025). [45] T. Transue, B. Chen, S. Takao, and B. Wang , Flow matching for efficient and scalable data assimilation , arXiv preprint arXiv:2508.13313, (2025). [46] P. J. van Leeuwen , Particle filtering in geophysical systems , Monthly Weather Review, 137 (2009), pp. 4089–4114, https://doi.org/10.1175/2009MWR2835.1 .[47] P. J. van Leeuwen, H. R. K¨ unsch, L. Nerger, R. Potthast, and S. Reich , Particle filters for high-dimensional geoscience applications: A review , Quarterly Journal of the Royal Meteorological Society, 145 (2019), pp. 2335–2365, https://doi.org/10.1002/qj.3551 .[48] P. Vincent , A connection between score matching and denoising autoencoders , Neural Com-putation, 23 (2011), pp. 1661–1674, https://doi.org/10.1162/NECO_a_00142 .[49] H. L. Wander, R. Q. Thomas, T. N. Moore, M. E. Lofton, A. Breef-Pilz, and C. C. Carey , Data assimilation experiments inform monitoring needs for near-term ecological forecasts in a eutrophic reservoir , Ecosphere, 15 (2024), p. e4752, https://doi.org/10.1002/ ecs2.4752 .[50] P. Xiao, P. Si, and P. Chen , LD-EnSF: Synergizing latent dynamics with ensemble score filters for fast data assimilation with sparse observations , in The Fourteenth International Con-ference on Learning Representations, 2026, https://openreview.net/forum?id=AWSVzzhbr7 .23 [51] Z. Xiong, F. Bao, H. G. Chipilski, S. Liang, J. Tang, and G. Zhang , A two-step ensemble score filter for data assimilation in partially observed systems , arXiv preprint arXiv:2606.28264, (2026). 
+
+# A Deferred proofs 
+
+## A.1 Base-drift Monte-Carlo error 
+
+Proposition A.1 (Monte-Carlo error of the base drift) . Fix (z, τ ) with βτ > 0 and let ˆZ(j) 
+
+> k
+
+∼ πf
+
+> k
+
+be independent forecast samples for j = 1 , · · · , N . Define 
+
+d(z0) := pτ |0(z | z0), ζ(z0) := ( ατ z0 − z)/β 2 
+
+> τ
+
+, and 
+
+ˆgN (z, τ ) := 
+
+> N
+
+X
+
+> j=1
+
+wj ζ( ˆZ(j) 
+
+> k
+
+) ≈ ∇ log pτ (zτ ) =: g(z, τ ). (56) 
+
+Then ˆgN is considered as the self-normalized estimator of the marginal score g(z, τ ) as in eq. (23) .Under Assumption 3.2, if Eπf 
+
+> k
+
+[d2] < ∞ and Eπf 
+
+> k
+
+[∥ζ∥2 d2] < ∞, then ˆgN is strongly consistent and obeys the Monte-Carlo rate 
+
+ˆgN − g = Op(N −1/2), E ∥ˆgN − g∥2 = O(N −1). (57) 
+
+The rate is dimension-free, but its multiplicative constant scales with the second moment of the importance weights 
+
+ρ := Eπf 
+
+> k
+
+[d2]
+
+pτ (z)2 = 1 + χ2 πz,τ πf
+
+> k
+
+ ≥ 1, πz,τ ∝ πf
+
+> k
+
+d, 
+
+the χ2-divergence between the posterior tilt πz,τ and the forecast prior, which grows as the kernel sharpens ( βτ → 0, i.e. τ → 1) or the state dimension increases. Proof. The estimator ˆ gN is the self-normalized importance-sampling estimator of the ratio g =
+
+Eπf 
+
+> k
+
+[ζd ]/Eπf 
+
+> k
+
+[d]. Under the stated second-moment conditions the rate (57) is the classical self-normalized importance-sampling central limit theorem, and the growth of its constant with the weight second moment ρ, the intrinsic dimension of the sampling problem, is quantified by [1]. 
+
+## A.2 Proof of the energy-stability estimate 
+
+Proof of Proposition 4.5. The optimal control eq. (20) is a Gibbs average of the base-kernel score 
+
+u⋆Jr (z, τ ) = σ(τ )2
+
+R e−Jr (z′)∇z p1|τ (z′ | z) d z′
+
+R e−Jr (z′)p1|τ (z′ | z) d z′ = σ(τ )2Eρz,τ r
+
+∇ log p1|τ (· | z) (58) over ρz,τ r . Differentiation under the integral sign along the homotopy is justified by dominated conver-gence. The r-derivatives of the integrands are dominated by e − inf r Jr |J1 − J2| (1 + ∇ log p1|τ )p1|τ ,integrable under Assumption 3.2 and the bounded score variance V . Differentiating along Jr =(1 − r)J1 + rJ 2 gives du⋆Jr
+
+dr = σ(τ )2 Cov ρz,τ r
+
+ J1 − J2, ∇ log p1|τ (· | z) (59) since the r-derivative of a Gibbs average is the covariance of the score with ∂r Jr = J1 − J2. Conse-quently, we have 
+
+u⋆J1 − u⋆J2 = σ(τ )2
+
+Z 10
+
+Cov ρz,τ r (J1 − J2, −∇ log p1|τ ) d r. (60) 24 Bounding the r-integral by its supremum and applying Cauchy–Schwarz results in 
+
+u⋆J1 − u⋆J2 ∞ ≤ σ(τ )2 sup 
+
+> r∈[0 ,1]
+
+q
+
+Var ρJr (J1 − J2) Tr Var ρJr ∇ log p1|τ
+
+≤ σ(τ )2pCP V ∥∇ J1 − ∇ J2∥∞ .
+
+(61) The last inequality holds by the bounded score variance V and the Poincar´ e inequality with constant 
+
+CP , both uniform in r as assumed in Proposition 4.5. 
+
+## A.3 Proof of the multi-step filtering theorem 
+
+Proof of Theorem 4.9. With the convention 
+
+πa 
+
+> k
+
+= Φ 0→k(πa0 ), ˆπa 
+
+> k
+
+= ˆΦ0→k(ˆ πa0 ), ∀k = 0 , 1, · · · , (62) we have ˆπa 
+
+> l
+
+− πa 
+
+> l
+
+= Φ l→l(ˆ πa 
+
+> l
+
+) − Φ0→l(πa0 )=
+
+> l−1
+
+X
+
+> k=0
+
+Φl−k→l(ˆ πa
+
+> l−k
+
+) − Φl−k−1→l(ˆ πa
+
+> l−k−1
+
+) + Φ 0→l(ˆ πa0 ) − Φ0→l(πa0 ), (63) and it follows by the triangle inequality that 
+
+dl ≤
+
+> l−1
+
+X
+
+> k=0
+
+Cstab ϱkTV  ˆπa
+
+> l−k
+
+, Φl−k(ˆ πa
+
+> l−k−1
+
+) + Cstab ϱlTV (ˆ πa0 , π a0 ) (64) by applying Assumption 4.8. The inequality eq. (46) follows immediately. 
+
+# B Experimental details 
+
+EnCF configuration For the base flow in eq. (23), we use 
+
+ατ = ϵα + (1 − ϵα)τ, βτ =
+
+q
+
+1 − (1 − ϵβ )τ , (ϵα, ϵ β ) = (0 .5, 0.025) , (65) following [9]. This regularization keeps the noise schedule in eq. (22) bounded near τ = 1. All flow-based methods use Nτ = 100 transport steps. The number of control-training epochs at cycle k is 
+
+Ek = max 
+
+
+
+1, round 
+
+
+
+1 + 99 2
+
+
+
+1 + cos π min( k, 20) 20 
+
+ 
+
+. (66) Thus, Ek decreases from 100 to 1 over the first 20 cycles and remains 1 thereafter. The Nreg 
+
+regression updates associated with one rollout are evaluated in a single batched forward pass. 
+
+Circle-sensor energy The exact conditional energy includes the state-dependent normalizer 
+
+Z(x) = 
+
+Z
+
+exp 
+
+
+
+− (x2 + y2c − R2)2
+
+2σ2o
+
+
+
+dyc. (67) We evaluate Z(x) independently for each coordinate using a 512-point grid over 
+
+|yc| ≤ R + 5 max( σo, 10 −3), (68) with logsumexp stabilization. Gradients of log Z(x) are computed by automatic differentiation through the quadrature. 25 Baseline tuning For the perturbed-observation EnKF and LETKF, the inflation factor is selected from {1.0, 1.05 , 1.1, 1.2}, while the Gaspari–Cohn localization radius is fixed at 4. Each configuration is evaluated over five random seeds. 
+
+Numerical integration and initialization The Kuramoto–Sivashinsky equation is integrated spectrally with ∆ t = 0 .25. Observations are assimilated every four model steps after a 2000-step spin-up, and the initial ensemble is obtained by adding independent unit Gaussian perturbations to the reference state. The mode-separation sweep in section 5.4 uses 100 assimilation cycles. The double-well dynamics are integrated by Euler–Maruyama with ∆ t = 0 .05 and ten drift substeps per model step. The ensemble is initialized across both wells using Gaussian perturbations with standard deviation 1, following a 1000-step spin-up. 26

@@ -6,35 +6,35 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-14
-- 运行时间：2026-07-14 20:17:14 UTC
+- 最新运行日期：2026-07-15
+- 运行时间：2026-07-15 20:53:11 UTC
 - 运行状态：成功
 - 本次总论文数：5
 - 精读区：2
 - 速读区：3
 
 ### 今日简报（AI）
-今日聚焦物理信息神经网络与数据驱动流体力学，精读两篇高分论文涵盖了不确定性量化与气溶胶诊断。最值得关注的是结构保持变分神经场在非线性守恒律中的约简建模，以及AeroMELD对气溶胶群体的线性嵌入方法。建议普通读者从速读中的物理信息传播路径加权框架入手，快速理解如何提升物理信息神经网络的训练效率。
-- 详情：[/202607/14/README](/202607/14/README)
+今日精读2篇、速读3篇，聚焦AI科学发现框架与深度学习代理建模。最值得关注的是8分精读《自动神经算子发现的智能体社区》和《多尺度问题的深度学习代理建模》。建议先看自动神经算子发现一文，理解AI如何自主驱动科学发现。
+- 详情：[/202607/15/README](/202607/15/README)
 
 ### 精读区论文标签
-1. [Structure-preserving variational neural fields: Uncertainty-quantified reduced-order modeling of nonlinear conservation laws](/202607/14/2607.10965v1-structure-preserving-variational-neural-fields-uncertainty-quantified-reduced-order-modeling-of-nonlinear-conservation-laws)  
+1. [An Agentic AI Scientific Community for Automated Neural Operator Discovery](/202607/15/2607.12122v1-an-agentic-ai-scientific-community-for-automated-neural-operator-discovery)  
    标签：评分：8.0/10、query:aqac
-   evidence：结构保持神经场用于守恒定律及不确定性量化
-2. [AeroMELD: A Linear Embedding of Aerosol Populations for Diagnostics and Latent Dynamics](/202607/14/2607.11073v1-aeromeld-a-linear-embedding-of-aerosol-populations-for-diagnostics-and-latent-dynamics)  
+   evidence：自动神经算子发现，直接相关于神经算子替代模型需求
+2. [Deep Learning-based Surrogate Modelling of the LOD Method for Multiscale Problems](/202607/15/2607.12570v1-deep-learning-based-surrogate-modelling-of-the-lod-method-for-multiscale-problems)  
    标签：评分：8.0/10、query:aqac
-   evidence：气溶胶群体的线性嵌入用于大气建模
+   evidence：基于深度学习代理建模多尺度PDE，适用于化学传输模型
 
 ### 速读区论文标签
-1. [Multi-dimensional training-priority weighting based on physical information propagation paths: a unified residual-weighting framework for physics-informed neural networks](/202607/14/2607.11094v1-multi-dimensional-training-priority-weighting-based-on-physical-information-propagation-paths-a-unified-residual-weighting-framework-for-physics-informed-neural-networks)  
+1. [TSCoNet: A Two-Stage Copula CNN-LSTM for Uncertainty-Aware Spatio-Temporal Forecasting](/202607/15/2607.10410v1-tsconet-a-two-stage-copula-cnn-lstm-for-uncertainty-aware-spatio-temporal-forecasting)  
    标签：评分：7.0/10、query:aqac
-   evidence：物理信息神经网络训练优先级加权方法，可应用于环境建模
-2. [Developing Machine Learning Models of Subgrid Turbulent Transport for Quiet Sun 3D Radiative Hydrodynamic Simulations](/202607/14/2607.08969v1-developing-machine-learning-models-of-subgrid-turbulent-transport-for-quiet-sun-3d-radiative-hydrodynamic-simulations)  
+   evidence：基于CNN-LSTM和Copula的时空预测及不确定性量化
+2. [Ensemble Controlled-Flow Filtering for Implicit Data Assimilation](/202607/15/2607.12975v1-ensemble-controlled-flow-filtering-for-implicit-data-assimilation)  
+   标签：评分：7.0/10、query:aqac
+   evidence：隐式数据同化方法EnCF，适用于空气质量数据同化
+3. [PhyRes-MDNF: Physics-Coupled Residual GNN Correction for Multilevel Discrete Neural Field Inversion](/202607/15/2607.06237v1-phyres-mdnf-physics-coupled-residual-gnn-correction-for-multilevel-discrete-neural-field-inversion)  
    标签：评分：6.0/10、query:aqac
-   evidence：用于太阳流体模拟中次网格湍流输运的深度学习代理模型
-3. [A multi-scale feature enhanced graph neural network for fluid dynamics prediction in complex geometries](/202607/14/2607.11672v1-a-multi-scale-feature-enhanced-graph-neural-network-for-fluid-dynamics-prediction-in-complex-geometries)  
-   标签：评分：6.0/10、query:aqac
-   evidence：多尺度图神经网络代理流体动力学
+   evidence：物理耦合GNN校正用于PDE反问题，可用于环境模型参数反演
 
 
 <div class="dpr-home-promo-card">

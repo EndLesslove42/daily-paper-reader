@@ -1,0 +1,1305 @@
+Title: TSCoNet: A Two-Stage Copula CNN-LSTM for Uncertainty-Aware Spatio-Temporal Forecasting
+
+URL Source: https://arxiv.org/pdf/2607.10410v1
+
+Published Time: Tue, 14 Jul 2026 01:17:02 GMT
+
+Number of Pages: 42
+
+Markdown Content:
+# TSCoNet: A Two-Stage Copula CNN–LSTM for Uncertainty-Aware Spatio-Temporal Forecasting 
+
+Jongwook Kim 1 Jong-Min Kim 2
+
+> 1
+
+Department of Mathematical Sciences, Ball State University, e-mail: 
+
+jongwook.kim@bsu.edu 
+
+> 2
+
+Statistics Discipline, Division of Science and Mathematics, University of Minnesota-Morris, e-mail: jongmink@morris.umn.edu 
+
+Abstract: Reliable forecasting of several interrelated environmental variables—such as regional precipitation and temperature, or other correlated geophysical fields—across many locations calls for accurate predictions accompanied by trustworthy statements of their uncertainty. Modern deep-learning models forecast such variables accurately but usually report no uncertainty, and forcing them to output uncertainty through maximum likelihood tends to degrade their accuracy, especially when the variables are strongly correlated. Motivated by this tension, we develop TSCoNet, a two-stage convolutional–recurrent model coupled with aGaussian copula that jointly forecasts multiple variables over space and time while quantifying predictive uncertainty. The method first learns accurate mean forecasts and then, holding the mean fixed, refines a shared representation to estimate the predictive variance, yielding calibrated prediction intervals after a standard recalibration, so that uncertainty is added without sacrificing point accuracy. We study the approach on simulated non-stationary spatial fields on the sphere and on a real dataset of monthly precipitation and temperature for fifty cities over 2000–2020. The model matches the accuracy of a strong deterministic forecaster while supplying calibrated prediction intervals that the deterministic model cannot, giving a single tool that provides both accurate point forecasts and reliable uncertainty for multivariate spatio-temporal data. 
+
+Keywords and phrases: Spatio-temporal forecasting, Uncertainty quan-tification, Gaussian copula, CNN-LSTM, Intrinsic Random Functions, Mul-tivariate time series. 
+
+1. Introduction 
+
+Forecasting how interrelated environmental variables evolve across space and time—such as regional precipitation and temperature, or other geophysical fields observed across a network of locations—underlies decisions in agriculture, wa-ter and energy management, public health, and environmental risk management more broadly. Such decisions are rarely about a single variable at a single site: they involve several interrelated quantities (for instance, precipitation together with minimum and maximum temperature) at many locations and time hori-zons. They also depend as much on knowing how uncertain a forecast is as 
+
+1arXiv:2607.10410v1 [stat.ML] 11 Jul 2026 /Uncertainty-Aware Multivariate Spatio-Temporal Forecasting 2
+
+on the forecast itself—an interval that is too narrow invites overconfident deci-sions, while one that is too wide is uninformative. Producing such forecasts is genuinely hard: the variables move together in ways that differ from place to place, their spatial dependence is non-stationary across the globe, and each car-ries long-term temporal structure. What practitioners need, and what remains difficult to deliver, is a forecast of all these variables jointly—over space and time—that is both accurate and accompanied by trustworthy, well-calibrated uncertainty. To address these multifaceted challenges, environmental and atmospheric modeling has traditionally relied on classical geostatistical frameworks like krig-ing or Gaussian Processes. While theoretically robust, these models scale poorly to high-dimensional regimes and struggle with multivariate extensions unless highly restrictive covariance structures (e.g., separability) are assumed. Mod-ern deep learning architectures—CNN-LSTM hybrids in particular—instead excel at learning highly non-linear spatio-temporal representations, yet most operate under a deterministic framework: by indiscriminately minimizing mean squared errors, they frequently succumb to the spectral interpolation of noise—memorizing high-frequency stochastic elements rather than true structural signals (Rahaman et al., 2019; Belkin et al., 2019). This flaw produces overly confident point predictions lacking reliable uncertainty quan-tification, a fatal vulnerability in risk-sensitive applications such as climate and environmental monitoring. To overcome these critical limitations, we propose TSCoNet (Two-Stage Cop-ula Network), a unified two-stage copula CNN-LSTM framework designed for scalable, multivariate spatio-temporal forecasting with integrated uncertainty quantification. While directly optimizing a joint Negative Log-Likelihood (NLL) often leads to gradient variance explosion and a pathological collapse of un-certainty bounds, we resolve this with a novel two-stage training framework designed for our CNN-LSTM architecture. 1 We theoretically and empirically demonstrate that this strategy induces Uncertainty-Aware Feature Refinement .By freezing the mean-prediction weights after an initial stabilization phase, we force the network to channel irreducible stochastic noise into a dedicated vari-ance head (the “noise sink”). Consequently, the shared backbone is updated via precision-weighted NLL gradients, actively filtering out noise and sharpening structural representations. The practical upshot differs by regime: in controlled simulations the refinement yields a clear RMSE advantage, whereas on real climate data its central value is to match the deterministic baseline’s point ac-curacy while adding calibrated predictive uncertainty at no accuracy cost. Our key contributions are summarized as follows: 
+
+• To jointly forecast multiple correlated variables over space and time with  
+
+> 1A staged optimization in a similar spirit appears in classical copula estimation (IFM; Joe 1997), where marginal and dependence parameters are estimated sequentially—a princi-ple recently carried into neural copula forecasting, e.g. the two-stage training of TACTiS-2 (Ashok et al., 2024). Our objective and mechanism differ substantially: rather than freezing the marginals to fit a separate dependence module, we freeze only the mean head and continue refining the shared backbone under the variance objective. /Uncertainty-Aware Multivariate Spatio-Temporal Forecasting 3
+
+trustworthy uncertainty, we develop a scalable, two-stage probabilistic multi-output CNN-LSTM architecture that predicts both the mean trajec-tory and the localized predictive variance across high-dimensional fields. 
+
+• To resolve the accuracy-versus-calibration tension this application demands—where forcing a model to report uncertainty typically de-grades its point forecasts—we mathematically formulate and empirically motivate the mechanism of Uncertainty-Aware Feature Refinement , show-ing how precision-weighted gradients let a probabilistic model match or exceed the point accuracy of a deterministic baseline rather than trading accuracy for calibration. 
+
+• Because the multiple output variables in such settings are often strongly cross-correlated, we incorporate a copula-based probabilistic layer to ex-plicitly model global correlations among multiple physical outputs without pathological gradient explosion. 
+
+• We validate the model on extensive spherical-IRF simulations—where it clearly improves RMSE over the direct-NLL baseline in every regime and matches the deterministic and kriging baselines (beating them at low non-stationarity, on par with them at the highest)—and on a real-world dataset of fifty cities worldwide—where it matches deterministic-level point accu-racy while adding calibrated uncertainty (after a standard recalibration) that the deterministic baseline lacks. 
+
+2. Related Work 
+
+Spatio-temporal forecasting has a rich history across statistics and machine learning. In this section, we review classical approaches, modern deep learn-ing architectures, and multi-output dependency modeling within the context of spherical environmental fields. 
+
+2.1. Classical Geostatistics and Spherical Geometries 
+
+Classic methods in spatial forecasting are grounded in spatial geostatistics and state-space equations. Kriging extensions, such as spatio-temporal kriging and multi-variable co-kriging—formally equivalent to Gaussian process regression (Rasmussen and Williams, 2006)—utilize localized spatial-temporal variograms to interpolate and predict physical fields (Cressie, 1993). While mathematically elegant and capable of offering closed-form uncertainty intervals, these statistical methods are computationally hindered by the O(N 3) complexity of covariance matrix inversions, where N represents the number of spatial observation points. Additionally, global-scale datasets must account for the Earth’s spherical ge-ometry. As Porcu et al. (2016) observed, adopting simple Euclidean metrics on spherical coordinates leads to distorted distance calculations and severe param-eter bias, necessitating specialized spherical covariance kernels. /Uncertainty-Aware Multivariate Spatio-Temporal Forecasting 4
+
+2.2. Deep Learning for Spatio-Temporal Representation 
+
+Over the past decade, deep learning models have emerged to bypass the scalabil-ity bottlenecks of classical geostatistics. Convolutional Neural Networks (CNNs) are widely used to encode spatial features from grid-structured datasets, whereas recurrent cells, such as LSTMs or GRUs, are deployed to capture long-term tem-poral dependencies (Shi et al., 2015; Wang et al., 2017). CNN-LSTM hybrids combine these paradigms, learning latent features over continuous temporal se-quences of spatial fields. Despite their impressive empirical performance, stan-dard deep learning architectures suffer from a lack of interpretability and are prone to overconfidence, as they are typically optimized for mean-squared error (MSE) point predictions. 
+
+2.3. Multi-Output Dependency Modeling 
+
+To introduce joint multi-output dependencies in deep learning, copula functions have recently gained attention (Salinas et al., 2019; Drouin et al., 2022). Cop-ula theory allows for the separate modeling of marginal distributions and the joint dependence structure (Nelsen, 2006), and recent forecasting models couple deep marginal predictors with an explicit copula dependence structure—using Gaussian copulas with recurrent networks (Salinas et al., 2019) or attention-based copulas with transformers (Drouin et al., 2022). However, merging copula-based probabilistic outputs with unified CNN-LSTM architectures for high-dimensional spatial fields on spherical surfaces remains comparatively unex-plored. Our work fills this gap by clarifying the distinct boundaries of spatial-temporal dynamics and cross-variable dependencies under spherical settings. Beyond copula-based multivariate modeling, a parallel line of work addresses a related but distinct problem: preserving point-forecast accuracy while adding a variance head to a probabilistic network. Approaches include stop-gradient shielding of the mean pathway (Stirn et al., 2023), precision-weighted ( β-NLL) losses that temper the variance gradient (Seitzer et al., 2022), and sequen-tial mean-then-variance training (Skafte Detlefsen et al., 2019; Sluijterman et al., 2024). These methods operate on univariate responses under a diagonal-covariance assumption, and therefore do not model—nor encounter the train-ing dynamics induced by—cross-variable dependence. Our framework instead couples multiple outputs through a Gaussian copula and analyzes how the re-sulting dependence structure conditions the training gradient (Section 3.4), a regime that lies outside the scope of these single-output methods. Within spatial statistics, deep learning has likewise been integrated with geostatistical structure (Nag et al., 2023; Zhan and Datta, 2025; Wikle and Zammit-Mangion, 2023); our contribution is complementary, focusing on the interaction between cross-variable dependence and gradient conditioning rather than on spatial covariance modeling. /Uncertainty-Aware Multivariate Spatio-Temporal Forecasting 5
+
+3. Proposed Methodology 
+
+Unlike traditional models that treat spatial forecasting as a deterministic regres-sion task, our method maps a historical sequence of multivariate spatial grids to a joint predictive distribution, providing both expected values and dynamic uncertainty bounds over the full spatial field. 
+
+3.1. Problem Formulation 
+
+Let S = {x1, . . . , xN } denote a set of N spatial locations on the sphere S2, where each location is defined by its latitude-longitude coordinate vector xi = ( ξi, θ i). At each discrete time step t ∈ { 1, . . . , T }, we observe a set of nout interrelated output variables at all N locations. This spatio-temporal process is represented as a tensor: 
+
+Yt ∈ RN ×nout . (1) Assuming the spatial locations are organized on an nlat × nlon grid (such that 
+
+N = nlat × nlon ), the observation at time t can be reshaped into a spatial-channel grid tensor Yt ∈ Rnlat ×nlon ×nout . Throughout, the subscript t (or τ )indexes time, ( i, j ) indexes spatial grid location, and k ∈ { 1, . . . , n out } indexes the output variable. Given a temporal lookback window of length Lin , the objective is to predict the joint predictive distribution of the next spatial field Yt+1 given the historical sequence: 
+
+Yt−Lin +1: t =
+
+
+
+Yt−Lin +1 , . . . , Yt
+
+
+
+∈ RLin ×nlat ×nlon ×nout . (2) 
+
+3.2. Probabilistic CNN-LSTM Architecture 
+
+To model both spatial structures and temporal dynamics, we propose a hybrid network consisting of three core stages: 1. Time-Distributed Spatial Encoders: For each time step τ ∈ { t −
+
+Lin + 1 , . . . , t }, the 2D spatial grid is processed by a stack of 2D convolu-tional blocks (each a convolution followed by max-pooling), all wrapped in a Time-Distributed wrapper so that identical spatial filters are applied across every historical step. The resulting per-step feature maps are then flattened into a feature vector. Let fCNN denote this per-step spatial en-coder: 
+
+hτ = fCNN (Yτ ) ∈ Rd, (3) where d is the dimension of the flattened spatial feature vector at each time step. 2. Temporal Recurrent Processing: The sequence of per-step feature vec-tors ( ht−Lin +1 , . . . , ht) is processed by a standard (fully-connected) LSTM /Uncertainty-Aware Multivariate Spatio-Temporal Forecasting 6
+
+that returns only its final hidden state, yielding a single latent temporal representation: 
+
+zt = fLSTM (ht−Lin +1 , . . . , ht) ∈ Rd′
+
+. (4) The explicit spatial layout is not retained at this stage: spatial structure is captured only by the per-step CNN encoder, and the LSTM operates on flattened feature vectors (the grid is reconstructed only at the output stage). This is consistent with the spatial-arrangement limitation discussed in the Limitations section. 3. Dual-Head Parametric Outputs: The latent vector zt is mapped, through two parallel fully-connected heads, to two full-grid parameter fields arranged over the original spatial resolution Rnlat ×nlon ×nout ; no transposed-convolution upsampling is used. Following standard formula-tions in probabilistic deep learning (Nix and Weigend, 1994; Kendall and Gal, 2017), rather than directly outputting point predictions ˆYt+1 , the two heads parameterize a per-location Gaussian: ˆμ = Wμzt + bμ, (5) log ˆ σ2 = Wσ zt + bσ , (6) where Wμ, Wσ ∈ R(nlat nlon nout )×d′
+
+map the latent vector to the full grid, so that—indexing the output over the grid Rnlat ×nlon ×nout —for each lo-cation ( i, j ) and output variable k ∈ { 1, . . . , n out }, ˆ μi,j,k is the predicted mean and log ˆ σ2 
+
+> i,j,k
+
+the log-variance (modeled in log-space to guarantee positivity, ˆ σ2 
+
+> i,j,k
+
+> 0). 
+
+3.3. Joint Copula Modeling & Probabilistic Loss Function 
+
+To resolve the discrepancy between individual univariate predictions and multi-variable correlations, we employ a parametric Gaussian copula ap-proach (Nelsen, 2006) within the backpropagation process. By Sklar’s theorem (Sklar, 1959), any multivariate cumulative distribution function can be ex-pressed in terms of its marginal distribution functions and a copula. Let 
+
+fk(Yi,j,k | ˆμi,j,k , ˆσi,j,k ) denote the marginal Gaussian probability density func-tion of the k-th output variable at location ( i, j ). We transform the marginal probabilities into standard normal spaces using the inverse CDF Φ −1. Let 
+
+wi,j = [ wi,j, 1, . . . , w i,j,n out ]T define the transformed latent residual vector at location ( i, j ), where wi,j,k = ( Yi,j,k − ˆμi,j,k )/ˆσi,j,k , and let R ∈ Rnout ×nout 
+
+denote the joint correlation matrix. The joint probability density f (Yi,j ) is represented as the product of the individual marginal densities and the copula density: 
+
+f (Yi,j, 1, . . . , Y i,j,n out ) = 
+
+"nout Y
+
+> k=1
+
+fk(Yi,j,k |ˆμi,j,k , ˆσi,j,k )
+
+#
+
+· 1
+
+p|R| exp 
+
+
+
+− 12 wTi,j (R−1 − I)wi,j 
+
+
+
+.
+
+(7) /Uncertainty-Aware Multivariate Spatio-Temporal Forecasting 7
+
+The network is optimized end-to-end by minimizing the joint Negative Log-Likelihood (NLL) loss function. By applying the negative logarithm to Equation (7), the joint empirical loss elegantly decomposes into two parts: a marginal NLL term and a cross-variable copula dependency penalty: 
+
+Ljoint = 1
+
+nlat nlon 
+
+> nlat
+
+X
+
+> i=1
+> nlon
+
+X
+
+> j=1
+
+" nout X
+
+> k=1
+
+log ˆ σi,j,k + (Yi,j,k − ˆμi,j,k )2
+
+2ˆ σ2
+
+> i,j,k
+
+!
+
++ 12 log |R| + 12 wTi,j (R−1 − I)wi,j 
+
+#
+
+. (8) We denote the full objective in Equation (8) by Ljoint (the copula loss); it is equivalent (up to additive constants) to the multivariate Gaussian negative log-likelihood, so we use LNLL ≡ L joint interchangeably, with detailed proofs of this equivalence provided in Appendix B. Stage 1 instead minimizes the mean squared error LMSE = 1
+
+> nlat nlon nout
+
+P
+
+> i,j,k
+
+(Yi,j,k − ˆμi,j,k )2, which omits the vari-ance and copula terms. By minimizing Ljoint , the network dynamically learns spatial-temporal fea-tures that simultaneously optimize individual point predictions, marginal un-certainty estimations (ˆ σ), and the shared inter-variable correlation structure (R). To strictly ensure that R remains symmetric and positive semi-definite during backpropagation, it is parameterized via a Cholesky-style decomposition 
+
+R = LL T , where L is a learnable matrix with lower-triangularity enforced at each forward pass via band masking ( L ← tril (L)). The resulting R is then normalized to a proper correlation matrix by Rcorr = D−1/2 
+
+> R
+
+RD −1/2 
+
+> R
+
+, where 
+
+DR = diag( R) (distinct from D = diag( σ1, . . . , σ K ) used in the decomposition ΣR = DRD ). Directly optimizing the highly non-convex joint NLL from random weight ini-tializations can occasionally be computationally unstable. Therefore, we adopt a 
+
+two-stage training strategy , applied uniformly across all experiments, with an intermediate variance-initialization step (Stage 1.5) inserted between the two main stages. 
+
+3.3.1. Two-Stage Training Strategy with Variance Initialization 
+
+Stage 1 (Mean Warm-up). The backbone Φ and mean head Wμ are jointly trained under the MSE loss LMSE to robustly anchor the predicted mean fields (ˆ μ). The variance head Wσ is not yet active. Early stopping on validation MSE retains the best point-prediction checkpoint. 
+
+Stage 1.5 (Variance Head Initialization). The backbone Φ and mean head Wμ are frozen. Only the variance head Wσ is trained under the joint NLL loss Ljoint for a short warm-up. This step supplies calibrated initial ˆ σ estimates that already reflect the data’s noise structure before backbone refinement begins. Without this initialization, the precision-weighting mechanism in Stage 2 would /Uncertainty-Aware Multivariate Spatio-Temporal Forecasting 8
+
+be driven by an uninformative variance head, weakening the Uncertainty-Aware Feature Refinement mechanism. 
+
+Stage 2 (Uncertainty-Aware Feature Refinement). The mean head 
+
+Wμ remains strictly frozen ( ∇Wμ = 0). The backbone Φ and variance head 
+
+Wσ are jointly fine-tuned under Ljoint , allowing precision-weighted gradients to refine the latent representations. Crucially, while the optimization is driven by the NLL gradient, the stopping criterion is the validation MSE rather than the NLL objective: since NLL can decrease even when RMSE degrades, tracking MSE directly and restoring the lowest-MSE checkpoint provides an empirical safeguard consistent with Theorem 2 below, ensuring point-forecasting accuracy is never eroded during fine-tuning. 
+
+3.4. The Effect of Cross-Variable Correlation on Gradient Conditioning 
+
+In this subsection, we analyze how the cross-variable correlation R shapes the conditioning of the training gradient—and thereby the attainable accuracy—for the proposed two-stage model (TSCoNet; denoted Mprop in the analysis below, trained via the two-stage procedure of Section 3.3.1), the direct joint NLL model (Mdirect ), and the deterministic baseline ( Mdet ); the complementary question of how the model separates irreducible noise from the underlying signal is taken up in Section 3.5. These three models share the same CNN-LSTM backbone but dif-fer in their output heads and training procedure: Mprop and Mdirect carry both a mean and a variance head, whereas Mdet produces point predictions from a mean head alone. In training, Mprop follows the two-stage schedule of Section 3.3.1 (MSE warm-up, then NLL refinement with the mean head frozen); Mdirect op-timizes the joint NLL directly from random initialization; and Mdet minimizes the MSE alone, producing point predictions without uncertainty. The gradient-conditioning analysis below applies to these three gradient-trained networks; the kriging baseline introduced in Section 4.2 is a non-gradient classical interpolator and is therefore compared empirically rather than analyzed here. We define the Data Generating Process (DGP) as Y = f ∗(X) + ϵ, where ϵ ∼ N (0, ΣR). By statistical decomposition, Σ R = DRD , where D = diag( σ1, . . . , σ K ) collects the marginal standard deviations σi of the K output variables and R is the inter-variable correlation matrix. The σi are properties of the individual marginals and are independent of R. To isolate the effect of correlation, we assume constant marginal variances ( D = I), yielding Σ R ≡ R; this simplification is common to both theorems below and is relaxed to the general case D̸ = I in Proposition 1. We note that this analysis treats the noise covariance Σ R (equivalently σ and 
+
+R) as fixed and known, whereas in practice they are learned jointly with the mean. The two theorems make this precise: the asymptotic optimum is invari-ant to R (Fisher consistency; Theorem 1), whereas the finite-sample gradient conditioning degrades as R strengthens (Theorem 2). They therefore character-ize this idealized conditioning ; whether the advantage materializes under jointly learned parameters is an empirical question examined in Section 4. /Uncertainty-Aware Multivariate Spatio-Temporal Forecasting 9
+
+3.4.1. Fisher Consistency and Asymptotic Invariance to RTheorem 1. Under the assumption of infinite data and perfect optimization (asymptotic limit), the expected RMSE of both the deterministic model ( Mdet )and the joint probabilistic models ( Mdirect , M prop ) is strictly independent of the correlation matrix R.Proof. See Appendix A. 
+
+3.4.2. Gradient Conditioning of Direct-NLL versus Staged Optimization 
+
+Theorem 2 (Finite-Sample SGD Regime) . In the finite-sample stochastic gra-dient descent (SGD) regime (i.e., with a fixed, finite training set and a finite number of optimization steps), the direct probabilistic model ( Mdirect ) suffers from gradient variance explosion proportional to the condition number of Σ−1 
+
+> R
+
+,whereas the proposed model ( Mprop ) keeps the Stage-1 gradient variance bounded, yielding a better-conditioned optimization trajectory than the direct joint-NLL model. Proof. See Appendix A. This result concerns Mprop relative to Mdirect and explains their empirical accuracy gap; it does not assert an advantage over the deterministic baseline 
+
+Mdet , which also trains on MSE and is likewise free of the precision-matrix conditioning. We also note that this result does not contradict Theorem 1: while the asymptotic optimum μ∗ 
+
+> θ
+
+is theoretically independent of R, the finite-sample SGD optimizer cannot reach that optimum when the gradient covariance is severely ill-conditioned. 
+
+Proposition 1. Under the general case D̸ = I, the Stage-1 gradient covari-ance of Mprop equals ΣR, whose trace Tr(Σ R) = PKi=1 σ2 
+
+> i
+
+is invariant to the correlation matrix R; hence the total gradient variance is bounded by the sum of marginal variances regardless of correlation strength. Proof. See Appendix A. Proposition 1 thus extends the bounded-gradient property of Mprop to the gen-eral case D̸ = I, complementing Theorem 2. 
+
+Remark 1. What makes the direct-NLL gradient explode is how the outputs are correlated, not how noisy each one is: the penalty in Theorem 2 depends on the correlation matrix R but not on the marginal noise scales. Even with large marginal variances, uncorrelated outputs ( R = I) give λmin (R) = 1 and a perfectly conditioned precision matrix; the ill-conditioning emerges only as the correlations strengthen. For the equicorrelation structure R = (1 − ρ)I + ρ11 ⊤,the eigenvalues are 1 + ( K − 1) ρ (once) and λmin (R) = 1 − ρ (with multiplicity 
+
+K − 1), which vanishes only as ρ → 1. In the single-output case ( K = 1), R
+
+reduces to a scalar and the effect disappears entirely, so it cannot arise in the univariate heteroscedastic setting of Stirn et al. (2023); Seitzer et al. (2022). /Uncertainty-Aware Multivariate Spatio-Temporal Forecasting 10 
+
+Example 1. For the correlation structure used in our experiments ( ρ12 = 0 .85, 
+
+ρ13 = 0 .75, ρ23 = 0 .80), direct computation gives λmin (R) ≈ 0.142, condi-tion number λmax (R)/λ min (R) ≈ 18 .3, and precision-matrix spectral norm 
+
+λmax (R−1) = 1 /λ min (R) ≈ 7.05. This places our setting well inside the ill-conditioned regime in which Theorem 2 predicts gradient-variance inflation for 
+
+Mdirect .
+
+3.5. Noise Separation and the Noise Sink Mechanism 
+
+Whereas Section 3.4 examined how the cross-variable correlation R conditions the gradient, this subsection turns to how the model separates irreducible noise from the underlying signal over the course of training. We mathematically es-tablish the “Noise Sink” mechanism and demonstrate how the proposed multi-head architecture induces implicit regularization to overcome the spectral in-terpolation of noise. Our analysis proceeds in three parts. We first show that MSE training run to convergence interpolates high-frequency noise, and that the early stopping of Stage 1 mitigates this by acting as an implicit low-pass filter (Section 3.5.1). We then justify the two design choices of Stage 2 as a comple-mentary pair : freezing the mean head routes the irreducible residual error into the variance head—the noise sink—while keeping the backbone trainable lets precision-weighted gradients refine the shared representation without eroding point accuracy (Sections 3.5.2–3.5.3). Whether these mechanisms deliver their intended effect is an empirical question examined in the simulation and real-data studies of Sections 4 and 5. 
+
+3.5.1. Spectral Interpolation of Noise and Early Stopping 
+
+Left to converge, MSE training interpolates not only the underlying signal but also the high-frequency noise, so that without early stopping a deterministic model memorizes noise—the “spectral interpolation of noise” (Belkin et al., 2019). A Neural Tangent Kernel analysis (Jacot et al., 2018) makes this pre-cise and shows that halting Stage 1 at an appropriate time acts as an implicit low-pass filter, following the same spectral-shrinkage path as Tikhonov ( L2) reg-ularization (Ali et al., 2019); the full derivation is given in Appendix C. This early-stopping mechanism is not specific to Mprop : it applies to any MSE-trained model, including the deterministic baseline Mdet . The distinguishing component of Mprop is Stage 2, analyzed next. 
+
+3.5.2. The Mechanics of Uncertainty-Aware Feature Refinement in Stage 2 
+
+With the mean head frozen, the Stage-2 backbone gradient is scaled by the inverse predicted variance 1 /σ 2, down-weighting noise-dominated regions and emphasizing regions of structural clarity. In Stage 2, the prediction head Wμ
+
+is strictly frozen ( ∇Wμ = 0), and the shared backbone Φ continues to train /Uncertainty-Aware Multivariate Spatio-Temporal Forecasting 11 
+
+under the NLL loss alongside the variance head Wσ . Let Φ denote the shared CNN–LSTM backbone, whose output is the latent vector zt of Section 3.2. Since the conditioning analysis of this section depends only on the joint law of the predictor–response pair and not on the temporal dependence structure, we suppress the temporal index and write X for the predictor window, so that the two heads give μ(X) = WμΦ( X) and log σ2(X) = Wσ Φ( X) (biases absorbed into the heads). The gradient of the NLL loss (Equation (8)) with respect to the unfrozen backbone Φ is evaluated via the multivariable chain rule: 
+
+∇ΦLNLL = ( ∇Φμ) ∂LNLL 
+
+∂μ +  ∇Φ log σ2 ∂LNLL 
+
+∂ log σ2 (9) To expose the precision-weighting mechanism, we evaluate the partial deriva-tives of the marginal Gaussian component 12 log σ2 + (Y −μ)2 
+
+> 2σ2
+
+(the copula penalty also contributes to the backbone gradient through w = ( Y − ˆμ)/ˆσ, but does not alter the precision-weighting structure that is our focus here): 
+
+∂LNLL 
+
+∂μ = − Y − μσ2 , ∂LNLL 
+
+∂ log σ2 = 12 − (Y − μ)2
+
+2σ2 (10) Since μ is a linear combination of features Φ, the Jacobian is simply the trans-pose of the weight matrix ( ∇Φμ = W ⊤ 
+
+> μ
+
+and ∇Φ log σ2 = W ⊤ 
+
+> σ
+
+). Substituting these yields the precision-weighted gradient component applied to the back-bone: 
+
+∇ΦLNLL = −W ⊤
+
+> μ
+
+ Y − μ(X)
+
+σ2(X)
+
+| {z }
+
+> Precision-Weighted Signal Learning
+
++ W ⊤
+
+> σ
+
+ 12 − (Y − μ(X)) 2
+
+2σ2(X)
+
+| {z }
+
+> Uncertainty Calibration
+
+(11) The first term in Equation (11) governs how Stage 2 reshapes the backbone. Unlike the MSE gradient ( −W ⊤ 
+
+> μ
+
+(Y − μ)), it is scaled by the inverse predicted variance 1 /σ 2(X), functioning as a dynamic precision-weighting mechanism. In high-noise regions ( σ2 ≫ 0) the denominator grows, attenuating the gradient sent to Φ and discouraging the network from fitting noise; in regions of structural clarity ( σ2 → 0) the gradient is amplified, focusing Φ on the deterministic signal. The second term calibrates the variance head: its sign is governed by whether the squared residual exceeds the predicted variance. Where ( Y − μ)2 > σ 2
+
+it drives σ2 upward—acknowledging under-estimated uncertainty—and where (Y − μ)2 < σ 2 it drives σ2 downward, with the stationary point σ2 = ( Y − μ)2
+
+matching the predicted variance to the realized error. The backbone thus under-goes Uncertainty-Aware Feature Refinement . Because Stage 1.5 (Section 3.3.1) pre-trains Wσ in isolation with the backbone frozen, ˆ σ already reflects the noise structure of the data when Stage 2 begins, so the precision weighting is in-formative from the first refinement step. The intended effect is that Stage 2 adapts the shared representation to the probabilistic objective while preserv-ing the deterministic-level accuracy established in Stage 1, rather than trading accuracy for likelihood as a direct-NLL model does. Whether this is achieved— and the conditions under which Mprop matches or exceeds the deterministic baseline—is an empirical question examined in Section 4. /Uncertainty-Aware Multivariate Spatio-Temporal Forecasting 12 
+
+3.5.3. The Necessity of Freezing Wμ: Routing Error into the Noise Sink 
+
+Freezing the mean head blocks the trivial route of absorbing noise into the mean, forcing the irreducible residual into the variance head. Why is it strictly necessary to freeze the linear head Wμ while the backbone Φ is updated? If Wμ
+
+were left unfrozen during Stage 2, the model would attempt to minimize the NLL loss via the most trivial mathematical route: driving the residual ( Y − μ)2
+
+to zero by arbitrarily manipulating Wμ. The network would resume the spectral interpolation of noise, and the residual would vanish, leading to the pathological collapse of uncertainty ( σ2 → 0, or “overconfidence”). Freezing Wμ imposes a vital structural bottleneck . Since the linear map-ping Wμ is rigidly anchored, the model cannot take the shortcut of shifting the mean baseline to swallow high-frequency noise. Although the final prediction 
+
+μ(X) = WμΦ( X) dynamically evolves as the backbone Φ refines its features, its capacity to trivially interpolate noise is severely restricted. Denied the shortcut of manipulating Wμ, the model is forced to channel the irreducible stochastic errors into the variance head Wσ —the Noise Sink . This deliberate constraint prevents the mean head from absorbing high-frequency noise and instead routes residual error into the variance head, so that Mprop preserves the deterministic-level accuracy of Stage 1 while producing a usable variance estimate. We note, however, that this raw variance is not automatically calibrated: in low-noise regimes it tends toward overconfidence (Section 4.4), so we apply a standard post-hoc recalibration before reporting interval coverage. 
+
+4. Simulation Study 
+
+To rigorously test our framework’s capacity to handle complex geometries and varying degrees of non-stationarity, we perform a controlled simulation study. Importantly, we formulate the data-generating process under the mathematical framework of Intrinsic Random Functions (IRFs) on the sphere (Matheron, 1973). 
+
+4.1. Spatially and Temporally Non-Stationary Data Generation Process 
+
+To simulate realistic global environmental fields, we construct non-stationary spatial structures on a unit sphere S2. Let κ control the spatial non-stationarity order. 
+
+4.1.1. Spatial Covariance Structure via Spherical IRFs 
+
+The degree of spatial non-stationarity in our simulated fields is governed by the order parameter κ. As κ increases, the spatial dependencies transition from standard homogeneous patterns to highly complex, non-stationary structures. /Uncertainty-Aware Multivariate Spatio-Temporal Forecasting 13 
+
+The generalized spatial covariance matrix Σ ∈ RN ×N is derived from the re-producing kernel Hilbert space (RKHS) covariance kernel Kκ (Matheron, 1973; Huang et al., 2019): Σij = Kκ(xi, xj ) + ϵ δ ij , (12) where ϵ is a small nugget parameter ensuring strict positive definiteness, δij is the Kronecker delta, and Kκ(x, y) is defined as: 
+
+Kκ(x, y) = ϕκ(hxy ) −
+
+> dκ
+
+X
+
+> ν=1
+
+[ϕκ(hxτ ν )pν (y) + ϕκ(hyτ ν )pν (x)] +
+
+> dκ
+
+X
+
+> ν=1
+> dκ
+
+X
+
+> μ=1
+
+ϕκ(hτν τμ )pν (x)pμ(y) + 
+
+> dκ
+
+X
+
+> ν=1
+
+pν (x)pν (y),
+
+(13) where hab represents the great circle distance between locations a and b on the unit sphere. Additionally, {pν }dκ 
+
+> ν=1
+
+denotes a set of linearly independent basis functions (e.g., spherical harmonics) spanning the polynomial space of degree up to κ, dκ is the dimension of this space, and {τν }dκ 
+
+> ν=1
+
+are a set of unisolvent reference nodes on the sphere. The Intrinsic Covariance Function (ICF) ϕκ(h)is modeled using a closed-form spherical representation (Bussberg et al., 2025): 
+
+ϕκ(h) = 1 − r2
+
+4π (1 −2r cos( h)+ r2)−3/2 − 14π
+
+> κ−1
+
+X
+
+> ℓ=0
+
+(2 ℓ+1) rℓ Pℓ(cos h), 0 ≤ r < 1,
+
+(14) where Pℓ is the Legendre polynomial of degree ℓ and the empty sum at κ = 0 recovers the base spherical kernel. Here r ∈ [0 , 1) controls the spatial correlation range/concentration of the base kernel; we fix r = 0 .8 throughout. The non-stationarity order κ thus enters the construction in two complementary ways: it removes the lowest κ angular-frequency (low-degree) components from the ICF 
+
+ϕκ—a low-frequency truncation in the sense of Bussberg et al. (2025)—and it fixes the degree (up to κ) of the polynomial basis {pν } in the generalized covari-ance Kκ of Eq. (13). For the scope of this simulation study, we explicitly execute experiments across three distinct conditions: κ = 0 (representing a completely stationary field), κ = 1 (first-order non-stationarity), and κ = 2 (highly complex, second-order non-homogeneous environments). By restricting our simulation to varying κ ∈ { 0, 1, 2}, we can systematically evaluate the model’s robustness against differing, yet controlled, degrees of spatial complexity. 
+
+4.1.2. Temporal Non-Stationarity via Random Walk Setup 
+
+The spatial field is evolved temporally using a random walk to introduce tem-poral non-stationarity. At each discrete time step t (t = 1 , . . . , T ), the spatial innovations W:,t are drawn from a zero-mean multivariate normal distribution /Uncertainty-Aware Multivariate Spatio-Temporal Forecasting 14 
+
+governed by the spatial covariance matrix Σ defined in the previous section: 
+
+W:,t ∼ N (0, Σ), t = 1 , . . . , T, (15) 
+
+X:,1 = W:,1, (16) 
+
+X:,t = X:,t −1 + W:,t , t = 2 , . . . , T. (17) 
+
+4.1.3. Multi-Output Copula Realization 
+
+Finally, we simulate nout = 3 correlated output variables at each location using a Gaussian copula with a known correlation matrix R ∈ R3×3:
+
+Zi,t ∼ N (0, R) (drawn independently for each location i and time t), (18) 
+
+Yi,t,k = Xi,t + η Z i,t,k , k = 1 , . . . , n out . (19) Here, i indexes the spatial location ( i = 1 , . . . , N ), t denotes the temporal snap-shot ( t = 1 , . . . , T ), k represents the specific output variable ( k = 1 , . . . , n out ), and η > 0 is a noise scaling parameter that controls the signal-to-noise ratio of the generated observations. Throughout the experiments R is fixed to a strongly correlated structure, with off-diagonal correlations ρ12 = 0 .85, ρ13 = 0 .75, and 
+
+ρ23 = 0 .80; this strong cross-variable correlation is precisely what induces the precision-matrix ill-conditioning analyzed in Theorem 2 (Section 3.4). This additive formulation ( Y = X + ηZ ) fundamentally follows the classi-cal “signal-plus-noise” decomposition widely used in spatio-temporal geostatis-tics (Cressie, 1993). We adapt this standard formulation by setting Xi,t as the generalized spatio-temporal mean field (the signal) and ηZ i,t,k as the scaled multivariate error term (the noise). This explicit separation of the marginal spatial trend from the cross-variable dependence structure aligns with the data-generating process implied by Gaussian Copula Marginal Regression (GCMR) (Masarotto and Varin, 2012) and related copula-based regression approaches (Kim and Hwang, 2021). In such frameworks, individual dynamics are mod-eled separately, and the multivariate dependencies of the residuals are strictly governed by a copula. The cross-variable correlation structure R is held fixed across time, while the noise realizations Zi,t vary independently from one snap-shot to the next. The noise scale η is fixed to η = 10 for the primary simulation experiments—a level at which the irreducible noise accounts for roughly 20– 22% of the total marginal variance for the (near-)stationary IRF(0) and IRF(1) fields and about 8% for the strongly non-stationary IRF(2) field, whose larger structural-signal variance dilutes the fixed noise—chosen to balance realistic sig-nal dominance against a noise component strong enough to expose differences between models, and is systematically varied in Section 4.4 to assess how the relative behaviour of the models changes under different signal-to-noise condi-tions. By explicitly decoupling these components, we establish a rigorous testing ground to cleanly verify whether the proposed architecture can correctly disen-tangle the underlying spatial dynamics from the copula-driven inter-variable correlations. /Uncertainty-Aware Multivariate Spatio-Temporal Forecasting 15 
+
+4.2. Experimental Setup & Evaluation Metrics 
+
+Using the generation protocol above, we construct a spherical grid of size N =1600 (40 ×40) over T = 200 time steps. The Time-Distributed encoder stacks two convolutional blocks (16 and 32 filters, 3 ×3 kernels, “same” padding, ReLU, each followed by 2 ×2 max-pooling), and the LSTM has 128 hidden units; the network jointly predicts the nout = 3 correlated synthetic variables following the two-stage procedure of Section 3.3.1. The Stage-2 fine-tuning learning rate is 10 −4
+
+for the simulation model (versus 10 −5 for the real-data model; see Section 5). The T = 200 time steps are partitioned chronologically into train/validation/test segments in a 70 /15 /15 ratio. With a lookback window of Lin = 5, this yields 195 forecasting samples, of which the last 30 (snapshots t = 171 , . . . , 200) form the held-out test set Ttest . The model is trained on the train segment with early stopping on the validation segment (no shuffling, hence no temporal leakage), and all reported metrics (RMSE, PICP, NLL) are computed on the held-out test segment only ; normalization statistics use the training period only. To demonstrate the benefit of the probabilistic framework and to benchmark against classical geostatistical methods, we compare our proposed two-stage model ( Mprop ; Section 3.3.1) against three comparative baselines: 1. Deterministic CNN-LSTM Baseline (Mdet ): This model shares the exact spatial-temporal architecture as our proposed model but is opti-mized using a standard Mean Squared Error (MSE) loss function to pro-duce point predictions without variance estimation. For a fair comparison, 
+
+Mdet is trained with the same validation-MSE early stopping and best-weights restoration used in Stage 1 of Mprop .2. Spatio-Temporal Kriging Baseline : A space-time kriging forecaster 
+
+that predicts the next field from a window of past observations (an 8-step lookback) using the grid’s true coordinates and a space-time variogram with a temporal-anisotropy axis, with a per-point persistence fallback on any solver failure. It is evaluated on the same held-out test times Ttest 
+
+as the neural models. It remains an O(N 3), linear, stationarity-assuming interpolator, serving as a classical comparison point on the non-stationary IRF fields. (Its 8-step past window differs from the neural models’ Lin = 5 lookback.) 3. Direct Probabilistic Baseline (Mdirect ): This model shares the identical dual-head architecture as our proposed model but directly optimizes the joint NLL (Equation (8)) from random initialization, without the two-stage procedure (no MSE warm-up, no variance head initialization, no mean-head freezing). This serves as an ablation study to empirically vali-date the necessity of our staged training strategy. The predictive accuracy is evaluated using the root-mean-square error (RMSE) per output variable k:RMSE k =
+
+vuut 1
+
+N |T test |
+
+> N
+
+X
+
+> i=1
+
+X
+
+> t∈T test
+
+(Yi,t,k − ˆμi,t,k )2, k = 1 , . . . , n out , (20) /Uncertainty-Aware Multivariate Spatio-Temporal Forecasting 16 
+
+and the overall RMSE across all nout = 3 outputs: RMSE overall =
+
+vuut 1
+
+N |T test | nout 
+
+> N
+
+X
+
+> i=1
+
+X
+
+> t∈T test
+> nout
+
+X
+
+> k=1
+
+(Yi,t,k − ˆμi,t,k )2, (21) where i indexes the spatial locations and t ranges over the held-out test snap-shots Ttest (|T test | = 30), Yi,t,k is the simulated true value, and ˆ μi,t,k is the predicted mean for the k-th output variable. The PICP and NLL defined below are likewise computed over the held-out test snapshots Ttest only. Furthermore, to evaluate the quality of the uncertainty intervals, we compute the 95% Prediction Interval Coverage Probability (PICP) :PICP k = 1
+
+N |T test |
+
+> N
+
+X
+
+> i=1
+
+X
+
+> t∈T test
+
+1 (Yi,t,k ∈ [ˆ μi,t,k − 1.96ˆ σi,t,k , ˆμi,t,k + 1 .96ˆ σi,t,k ]) .
+
+(22) The PICP measures the empirical probability that the true observed values fall within the theoretical 95% prediction intervals generated by the model. A PICP value close to the nominal confidence level (i.e., 0 .95) indicates that the model is well-calibrated; meaning its estimated uncertainty (ˆ σ) accurately reflects the true predictive error without being overly conservative or overconfident. Con-versely, a significantly lower PICP suggests an overconfident model producing bounds that are too narrow to capture the ground truth. Finally, we compute the 
+
+Average per-output marginal Negative Log-Likelihood (Avg. NLL) to evaluate the quality of the univariate predictive distributions. Concretely, for each output k we compute NLL k = 1
+
+N |T test |
+
+> N
+
+X
+
+> i=1
+
+X
+
+> t∈T test
+
+log ˆ σi,t,k + (Yi,t,k − ˆμi,t,k )2
+
+2ˆ σ2
+
+> i,t,k
+
+!
+
++ 12 log(2 π), (23) and report the average over outputs. Note that the full joint NLL including the copula correction term ( 12 log |R| + 12 wT (R−1 − I)w) serves as the train-ing objective but is not separately tabulated; the per-output marginal NLL is the more directly interpretable measure of per-variable uncertainty calibration quality. PICP and NLL are not applicable to the deterministic baselines. Because the network’s raw predictive variance can be miscalibrated—in par-ticular overconfident in high signal-to-noise regimes (Sections 3.5 and 4.4)—we apply a single post-hoc recalibration (Kuleshov et al., 2018) before reporting interval coverage. Writing zi,t,k = ( Yi,t,k − ˆμi,t,k )/ˆσi,t,k for the standardized residuals on the validation window, we fit, per output variable k, a scalar that multiplies the predictive standard deviation. This scalar can be set by more than one criterion; we present two here. The first is the MLE (temperature) scale 
+
+svar ,k =
+
+r
+
+mean i,t 
+
+
+
+z2
+
+> i,t,k
+
+
+
+,/Uncertainty-Aware Multivariate Spatio-Temporal Forecasting 17 
+
+Table 1 
+
+Overall predictive performance (mean ± standard deviation over 50 Monte Carlo runs per IRF order, noise scale η = 10 ). PICP and NLL are reported after post-hoc coverage recalibration ( scov ); the kriging median RMSE is additionally given for IRF(2). Bold marks the lowest mean RMSE in each panel and the lowest mean NLL where the proposed model leads by more than one standard deviation (Panels A–B).                                                                                        
+
+> Model Overall RMSE Avg. PICP Avg. NLL Panel A: Stationary Field (IRF(0)) Proposed (Two-stage) 0.9067 ±0.0508 0.8906 ±0.0130 1.3792 ±0.0637
+> Direct Prob (NLL-only) 1.0769 ±0.0679 0.9044 ±0.0090 1.4775 ±0.0599 Deterministic Baseline 1.0730 ±0.0662 ––Kriging Baseline 1.0454 ±0.1842 ––
+> Panel B: 1st-Order Non-Stationary (IRF(1)) Proposed (Two-stage) 0.9310 ±0.0711 0.8887 ±0.0209 1.3986 ±0.0936
+> Direct Prob (NLL-only) 1.0863 ±0.0818 0.9024 ±0.0132 1.4761 ±0.0747 Deterministic Baseline 1.0708 ±0.0883 ––Kriging Baseline 1.0374 ±0.1700 ––
+> Panel C: 2nd-Order Non-Stationary (IRF(2)) Proposed (Two-stage) 0.8144 ±0.2719 0.8757 ±0.0456 0.9985 ±0.3189 Direct Prob (NLL-only) 1.3254 ±0.3282 0.8955 ±0.0258 1.0087 ±0.2715 Deterministic Baseline 0.9623 ±0.3822 ––Kriging Baseline 1.2062 ±0.9350 (med. 0 .8071) ––
+
+which rescales the mean predictive variance to unity and maximizes the valida-tion Gaussian likelihood; the second is the coverage-matched scale 
+
+scov ,k = quantile i,t (|zi,t,k |, 0.95) /1.96 ,
+
+which forces the validation intervals ˆ μi,t,k ±1.96 s ˆσi,t,k to cover exactly 95%. The two scales coincide when the standardized residuals are Gaussian and diverge under heavier-tailed residuals. The fitted scale is applied unchanged to the test window; because only ˆ σ is rescaled, ˆ μ and hence RMSE are unaffected. Because this scaling is a single scalar per output variable, it adjusts the overall magnitude of the predictive intervals but leaves the learned per-location, per-time structure of ˆ σ intact: the pattern of where the model is more or less certain is determined by training, not by the recalibration. We adopt scov as the primary scale, under which PICP and NLL are reported unless stated otherwise; in the real-data analysis we additionally report both scales side by side (Table 5) to confirm that our calibration conclusions are insensitive to this choice. 
+
+4.3. Simulation Results & Discussion 
+
+The overall comparative performance metrics across all spatial complexities are detailed in Table 1. Table 1 reveals a consistent accuracy ordering, established over 50 Monte Carlo replications and corroborated by per-seed paired comparisons. The Di-rect Probabilistic Baseline , which optimizes the joint NLL from scratch without an MSE warm-up, is the weakest point predictor in every regime: it /Uncertainty-Aware Multivariate Spatio-Temporal Forecasting 18 
+
+trades mean accuracy for its likelihood objective, and TSCoNet attains a lower RMSE on 94–98% of paired realizations across the three IRF orders. The Deter-ministic Baseline (MSE-only) is a far stronger competitor, with mean RMSE comparable to the proposed model. The proposed model matches it on average and, more importantly, is more robust on the difficult realizations where the deterministic baseline’s error inflates—visible in the substantially larger Deter-ministic RMSE standard deviation at IRF(2) ( ±0.38 vs. ±0.27), and in a deter-ministic “failure tail” (RMSE > 1.2 on 14 /50 IRF(2) seeds, where the proposed model’s mean error remains markedly lower). The proposed and deterministic models attain their lowest absolute RMSE in the IRF(2) panel. We emphasize that this reflects the data-generating process— in RMSE terms the second-order non-stationary field is, for these MSE-based models, the easier regime, since its larger structural-signal variance dominates the fixed noise (Section 4.1)—rather than the proposed model exploiting com-plexity. The direct-NLL baseline, by contrast, degrades in this regime under its gradient-variance explosion, and kriging’s mean RMSE is inflated by a few hard realizations (though its median likewise improves). The informative quantity is the relative advantage, which is in fact largest at low complexity: at IRF(0) and IRF(1) the proposed model achieves the lowest RMSE outright, beating the deterministic baseline on 94–98% and the kriging baseline on 82–88% of paired realizations. At the most complex IRF(2) regime—comparable in non-stationarity to the real-data application—the margin narrows. The proposed model still attains the lowest mean RMSE (0 .81), but its lead is no longer de-cisive: it is essentially tied with kriging (analyzed in detail below), and while it stays ahead of the deterministic baseline in mean RMSE (0 .81 vs. 0 .96), this margin is far smaller than the near-uniform lead at IRF(0)/IRF(1). Its clear-est advantage in this regime is robustness—the thinnest failure tail among the baselines—rather than outright dominance. The kriging baseline is best described as regime-dependent. Under the (near-)stationary IRF(0)/IRF(1) fields its error is well-behaved (mean ≈ median) and the proposed model is more accurate on 82–88% of realizations. Under IRF(2) the two are statistically even (56% paired win rate): kriging’s mean RMSE (1 .21) is inflated by a few hard random-walk realizations, and on the robust median (0 .81) it is comparable to the proposed model (0 .81). We therefore do not claim to beat kriging in this regime, only to match it while additionally supplying calibrated uncertainty. On the uncertainty side, the network’s raw variance is overconfident at η =10 and is corrected by the post-hoc coverage recalibration ( scov ) defined in Section 4.2. After recalibration the average PICP reaches 0 .88–0 .89. It falls short of the full nominal 0 .95 because the recalibration scale is fit on the validation window—where it attains near-nominal coverage—whereas the held-out test window has drifted relative to it under the random-walk temporal dynamics; this validation-to-test gap narrows as the noise level rises (PICP 0 .93 at η =30; Table 2). On marginal NLL, the recalibrated proposed model is at least as good as the direct-NLL baseline: the two are tied at IRF(2) (within one standard deviation), while at IRF(0) and IRF(1) the proposed model is lower /Uncertainty-Aware Multivariate Spatio-Temporal Forecasting 19 Lat=36, Lon=37 Lat=37, Lon=25 Lat=7, Lon=36                         
+
+> Lat=24, Lon=27 Lat=25, Lon=20 Lat=36, Lon=3
+> Lat=1, Lon=37 Lat=10, Lon=26 Lat=18, Lon=25
+> 050 100 150 200 050 100 150 200 050 100 150 200
+> −3 −2 −1 01
+> −1.0 −0.5 0.0 0.5 1.0
+> −1 01
+> −2 −1 012
+> −1 012
+> −2 −1 0
+> −3 −2 −1 01
+> −1 0123
+> −1 01
+> Time
+> Value
+> Output Output 1 Output 2 Output 3 Data Type True Predicted
+> Time Series Comparison for 9 Random Locations (IRF 2)
+
+Fig 1 . Time series of true (solid line) and predicted (dashed line) values at nine randomly chosen grid points for IRF(2). 
+
+(better) on 98% and 86% of paired realizations respectively—hence the bold NLL entries in those panels. The two-stage model thus recovers, and at low complexity exceeds, the direct model’s calibration without paying its accuracy cost, while supplying calibrated uncertainty that the deterministic baseline does not provide at all. The dependence of the raw calibration on the noise level is analyzed in Section 4.4. 
+
+Visual Inspection of Temporal and Spatial Predictions 
+
+The prediction quality is illustrated for the highest-complexity regime, IRF(2), in Figures 1 and 2. The time series plot (Figure 1) traces true versus predicted sequences at nine randomly chosen spatial coordinates, showing that the pro-posed model follows the true trajectories closely; the analogous plots for the other non-stationarity levels κ exhibit the same behavior and are provided in Appendix D. The spatial heatmap (Figure 2) compares True, Predicted, and Residual fields for Y1; the flat, randomized residual distribution indicates that the CNN-LSTM generalizes the localized spatial patterns without imposing ge-ographical biases. Corresponding heatmaps for the remaining outputs Y2 and 
+
+Y3, and for the other non-stationarity levels, are provided in Appendix D. 
+
+4.4. Sensitivity Analysis: Effect of Noise Level on Relative Model Performance 
+
+This section examines how model behaviour depends on the noise level, vary-ing the noise scale η ∈ { 1, 5, 10 , 20 , 30 } in the data-generating process under the most demanding IRF(2) regime. We ask two questions: (i) is the accuracy ordering among the models stable across noise levels, and (ii) how does the cal-ibration of the proposed model’s raw predictive intervals depend on the noise /Uncertainty-Aware Multivariate Spatio-Temporal Forecasting 20 True Predicted Residual 
+
+> Time t=49  Time t=65  Time t=153
+> Value / Residual
+> −2 −1 012
+> Spatial heatmap comparison for IRF(2)
+> Spatio−Temporal Comparison (Output 1) across Random Time Slices
+
+Fig 2 . Spatial heatmaps at randomly selected three temporal points with Y1 (output 1). Left: True values; Center: Predicted Values; Right: Residuals for IRF(2) 
+
+level? The headline findings are that the accuracy ordering is stable across the range, while the raw calibration is strongly noise-dependent—improving mono-tonically as the noise rises—which identifies the low-noise under-coverage as an artifact of the high signal-to-noise regime rather than a defect of the method. 
+
+Theoretical Analysis 
+
+Three mechanisms motivate why the proposed model should remain robust 
+
+across noise levels—retaining its accuracy ordering rather than degrading as the baselines do—without implying a strictly monotone growth of its margin: 1. Precision-Weighted Gradient Suppression (Stage 2). The back-bone gradient is scaled by 1 /ˆσ2(X) (Equation (11)). A higher η forces Wσ
+
+to learn larger ˆ σ2 values in noise-dominated regions, making the precision-weighting denominator larger and the noise-region gradients more strongly suppressed. The backbone therefore continues to suppress noise-region gra-dients as η grows, helping it preserve signal recovery rather than interpo-late the added noise. 2. Gradient Variance Explosion in Mdirect (Theorem 2). The gradient covariance of Mdirect is Σ −1 
+
+> R
+
+, so its optimization carries a gradient-variance handicap—the explosion that Mprop avoids via the MSE warm-up in Stage /Uncertainty-Aware Multivariate Spatio-Temporal Forecasting 21 
+
+Table 2 
+
+Noise sensitivity under IRF(2) (50 Monte Carlo runs per η). Overall RMSE (mean ± SD) for each model, and the proposed model’s raw and recalibrated ( scov ) PICP and recalibrated NLL. Kriging RMSE is summarized by its median (mean in parentheses), since a few hard random-walk realizations right-skew its mean.                                                                                 
+
+> Noise Proposed Direct Prob Determ. Kriging Prop. raw Prop. recal Prop. recal Scale η(Two-stage) (NLL-only) (MSE) med. (mean) PICP PICP NLL
+> 10.7867 ±0.3106 1.3721 ±0.3635 0.8922 ±0.4003 0.711 (1 .19) 0.391 0.810 0.966 50.7906 ±0.2955 1.3513 ±0.3516 0.9516 ±0.4113 0.740 (1 .19) 0.631 0.842 0.962 10 0.8144 ±0.2719 1.3254 ±0.3282 0.9623 ±0.3822 0.807 (1 .21) 0.773 0.876 0.999 20 0.8776 ±0.2266 1.2460 ±0.2641 0.9890 ±0.2961 0.911 (1 .22) 0.875 0.917 1.125 30 0.9136 ±0.1794 1.1611 ±0.1979 0.9957 ±0.2328 0.952 (1 .21) 0.896 0.929 1.240
+
+1—throughout the noise range. This is a persistent structural disadvantage rather than one that grows with η: empirically the direct baseline remains the weakest point predictor at every noise level without monotonically worsening. 3. Spectral Interpolation in Mdet (NTK / Tikhonov). At t → ∞ , Mdet 
+
+converges to Ytrain = Xtrain + η · Zdep . A larger η means a larger noise component is interpolated, directly worsening RMSE. The early-stopping Tikhonov regularization of Stage 1 of Mprop avoids this, protecting its signal estimate as η grows. 
+
+Empirical Results 
+
+Table 2 reports, for each η, the overall RMSE of the four models (mean ±
+
+standard deviation over 50 Monte Carlo runs) under IRF(2), together with the proposed model’s raw and recalibrated PICP and recalibrated NLL. Two findings emerge. First, the accuracy ordering is stable across the entire noise range. The proposed model is the most accurate learned model at every level (lowest mean RMSE among the neural models), and the direct probabilistic baseline is worst by a clear and persistent margin: its error stays near 1 .16–1 .37 across η because its gradient-variance explosion (Theorem 2) prevents it from cleanly recovering the conditional mean, and the proposed model attains a lower RMSE on 92–98% of paired realizations at every noise level. The deterministic 
+
+and kriging baselines remain comparable to the proposed model throughout— the proposed model is more robust on the deterministic baseline’s failure tail and comparable to kriging on the median across the noise range, with kriging’s tabulated median falling below the proposed model’s mean at the lowest noise level ( η = 1). Second, the calibration of the proposed model’s raw intervals is strongly noise-dependent and improves monotonically with η: the raw PICP rises from 0.39 at η = 1 to 0 .90 at η = 30 (Table 2). This identifies the low-noise under-coverage as an artifact of the high signal-to-noise regime—when nearly all vari-ance is explainable signal, the variance head is driven toward overconfidence— rather than a defect of the method. A single post-hoc coverage recalibration corrects this across the range, lifting PICP to 0 .81–0 .93, and the recalibrated NLL of the proposed model tracks that of the direct-NLL baseline (0 .97 vs. 0 .93 /Uncertainty-Aware Multivariate Spatio-Temporal Forecasting 22 
+
+at η = 1, up to 1 .24 vs. 1 .23 at η = 30). After recalibration the two are calibrated comparably; the value of the two-stage design therefore lies in point-forecasting accuracy and robustness rather than in superior calibration per se. Taken together, this sweep also locates the primary operating point: the moderate-noise regime around η = 10—used as the main simulation setting (Section 4.3) and the regime most representative of the real-data application—is where raw coverage is already substantial and recalibration yields near-nominal intervals. 
+
+5. Real Data Analysis: Multi-City Climate Prediction 
+
+Having characterized the framework on controlled spherical-IRF simulations (Section 4), we now turn to a real-world setting in which the underlying sig-nal and noise structure are unknown. We apply TSCoNet to a multi-city cli-mate dataset covering 50 major cities worldwide (Figure 3). For each city, daily precipitation ( PRECTOTCORR ), minimum temperature ( T2M MIN ), and maximum temperature ( T2M MAX ) were obtained from the NASA POWER database 2—a global meteorology and solar-energy dataset derived from NASA satellite ob-servations and reanalysis—via the nasapower R package (Sparks, 2018) (agro-climatology community, daily temporal API), for the period 2000–2020 and aggregated to a monthly resolution (precipitation summed and temperatures averaged within each month), yielding 252 monthly time points. Each city was treated as a separate spatial location, producing a spatio-temporal array of di-mensions T × N × nout ,3 where T = 252 is the number of monthly time points, 
+
+N = 50 is the number of cities, and nout = 3 is the number of climate variables: precipitation ( ppt ), minimum temperature ( tmin ), and maximum temperature (tmax ). Prior to modeling, each variable was standardized to zero mean and unit variance using statistics computed on the training period only (the earliest 70% of the monthly time points) and applied to the validation and test periods, to avoid information leakage from the held-out data. 
+
+5.1. Cross-Variable Dependence in the Climate Data 
+
+The three target variables are cross-dependent, and their dependence is hetero-geneous . Table 3 reports the empirical correlation among ppt , tmin , and tmax ,averaged within city over the observation period so that the values reflect tem-poral co-variation rather than between-city climate gradients. Minimum and maximum temperature are strongly correlated (0 .80), whereas precipitation is only weakly related to temperature (0 .25 with tmin , and essentially uncorre-lated, −0.02, with tmax ). This pattern carries a direct methodological impli-cation: an independent-marginals model would ignore the strong tmin –tmax 
+
+coupling, whereas a homogeneous-dependence assumption would misrepresent                 
+
+> 2https://power.larc.nasa.gov/
+> 3For the convolutional input, the Ncities are arranged as a degenerate N×1 spatial grid (nlat =N,nlon = 1), consistent with the nlat ×nlon ×nout tensor convention of Section 3.2.
+
+/Uncertainty-Aware Multivariate Spatio-Temporal Forecasting 23 Tokyo Cairo New York London Sydney     
+
+> 50 °S0°
+> 50 °N
+> 120 °W60 °W0°60 °E120 °E
+> Longitude
+> Latitude
+> Global Distribution of 50 Selected Cities
+
+Fig 3 . Global distribution of the 50 selected cities used in the real-data analysis. 
+
+Table 3 
+
+Empirical cross-variable correlation of the three climate variables ( ppt , tmin , tmax ), averaged within city over 2000–2020. Minimum and maximum temperature are strongly dependent, whereas precipitation is nearly independent of temperature—a heterogeneous dependence structure that motivates the copula-based joint model. 
+
+ppt tmin tmax ppt 1.00 0.25 −0.02 
+
+tmin 0.25 1.00 0.80 
+
+tmax −0.02 0.80 1.00 
+
+the near-independence of precipitation. The Gaussian copula layer is precisely what allows the framework to represent this variable-specific dependence, and it is the real-data instance of the cross-variable correlation whose effect on the training gradient we analyze in Section 3.4. 
+
+5.2. Model Setup for Multi-City Prediction 
+
+The CNN-LSTM model takes a sequence of Lin = 12 previous monthly time steps as input and predicts the mean and variance for each climate variable at the next time step. For city i and output variable k, the model produces a probabilistic forecast (ˆ μi,k , ˆσi,k ), where ˆ μi,k is the predicted mean and ˆ σi,k is the predicted standard deviation. The model was trained following the standard two-stage strategy defined in Section 3.3.1. Hyperparameters were set as follows: Stage 1 used the Adam opti-mizer (learning rate 10 −3, up to 100 epochs); Stage 1.5 ran for up to 30 epochs with the same optimizer; Stage 2 used a reduced learning rate (10 −5, up to 50 epochs) to prevent overshooting the refined feature space. All stages moni-tored validation MSE for early stopping (patience = 10, restore best weights). The monthly series is split chronologically into train/validation/test (70 /15 /15 of the time points), following the same protocol as the simulation study (Sec-/Uncertainty-Aware Multivariate Spatio-Temporal Forecasting 24                                                                              
+
+> Table 4
+> Held-out test RMSE (mean ±standard deviation over 50 model-init seeds) on the real climate dataset. Bold marks the tied accuracy leaders (Proposed/Deterministic) per variable; the kriging baseline is deterministic in the model-init seed (SD = 0 ).
+> Variable Proposed (Two-stage) Direct (NLL) Deterministic Kriging
+> ppt 0.7370 ±0.0018 0.8617 ±0.0123 0.7347 ±0.0027 0.9412 ±0.0000
+> tmin 0.1348 ±0.0035 0.1512 ±0.0168 0.1331 ±0.0029 0.3289 ±0.0000
+> tmax 0.1661 ±0.0036 0.1844 ±0.0183 0.1655 ±0.0028 0.3481 ±0.0000
+> Table 5
+> Recalibrated predictive uncertainty on the held-out test set (mean ±standard deviation over 50 model-init seeds), for the two probabilistic models (the deterministic and kriging baselines produce no uncertainty). Both recalibration scalings are reported: scov
+> (coverage-matched) and svar (MLE-temperature); PICP targets the nominal 0.95 .
+> Model PICP ( scov )PICP ( svar )NLL ( scov )NLL ( svar )
+> Proposed (Two-stage) 0.945 ±0.004 0.954 ±0.004 −0.055 ±0.067 −0.075 ±0.038 Direct (NLL-only) 0.946 ±0.003 0.955 ±0.004 −0.096 ±0.069 −0.102 ±0.067
+
+tion 4.2); the model is trained on the train segment with early stopping on the validation segment, and all reported metrics are computed on the held-out test segment to avoid information leakage. Normalization statistics are computed on the training period only. 
+
+5.3. Prediction Performance 
+
+Table 4 reports the held-out test RMSE (mean ± standard deviation over 50 model-init seeds) for each climate variable, and Table 5 the recalibrated pre-dictive uncertainty (95% prediction-interval coverage, PICP, and average per-output NLL). TSCoNet and the deterministic baseline are statistically tied on accuracy (the deterministic baseline marginally lower), and both substantially outperform the direct-NLL and kriging baselines; after recalibration the pro-posed model’s intervals track the nominal 0 .95 coverage. Consistent with the simulation study, the real-data results show the same core ordering. On point accuracy (Table 4), the proposed model and the deter-ministic baseline are statistically tied—the deterministic baseline is marginally lower in mean RMSE (e.g. 0 .7347 vs. 0 .7370 for ppt ), well within the seed-to-seed spread—so we describe the proposed model as matching deterministic-level accuracy. Both clearly outperform the direct-NLL baseline (e.g. 0 .8617 for ppt ;lower RMSE on 46–50 of 50 seeds per variable), confirming that the direct model trades point accuracy for its likelihood objective. After recalibration (Table 5) the proposed model’s 95% coverage is close to nominal ( ≈ 0.945) and its NLL is comparable to the direct-NLL baseline, which is in fact marginally lower; we therefore do not claim a calibration advantage over the direct model, only that the proposed model attains calibrated uncertainty without the accuracy cost the direct model pays, and supplies uncertainty the deterministic baseline does not provide at all. /Uncertainty-Aware Multivariate Spatio-Temporal Forecasting 25 
+
+The proposed model also outperforms the space-time kriging forecast baseline on every variable and every seed (e.g. ppt 0.7370 vs. 0 .9412). Importantly, this kriging baseline is itself a genuine forecaster—it predicts each held-out month from a 12-month past window using the cities’ true coordinates and a space-time variogram—so the gap is not because kriging ignores time; rather, it reflects the gain from learned, nonlinear seasonal-temporal and cross-variable structure over a linear, stationarity-assuming spatio-temporal interpolator. We also note that the robustness advantage observed in simulation (the proposed model’s thinner failure tail on hard realizations) does not apply here: the real dataset is fixed, so the only source of variation is model initialization, the seed-to-seed RMSE spread is small, and the deterministic baseline shows no failure tail—robustness is therefore a simulation-only finding. That the same conclusions (proposed ≈
+
+deterministic on accuracy, clearly above direct-NLL and kriging, and calibration on par with direct after recalibration) hold under both the simulated IRF(2) regime and the real climate data provides cross-setting corroboration of the framework’s value. 
+
+5.4. Where Predictive Uncertainty Concentrates 
+
+The cross-variable dependence structure of Section 5.1 also shapes where predic-tive uncertainty concentrates. Precipitation is intrinsically far less predictable than temperature—its held-out RMSE (0 .74) is four to five times that of tmin 
+
+and tmax (0 .13–0 .17; Table 4)—and because the recalibrated intervals attain near-nominal 95% coverage across all three variables (Table 5), the framework necessarily assigns correspondingly wider predictive intervals to precipitation. The variance “noise sink” thus absorbs the large aleatoric variability of pre-cipitation rather than allowing it to corrupt the mean forecast. The practical contribution on the real data is accordingly not a point-accuracy gain over the deterministic baseline—the two are tied—but a calibrated, variable-specific, and spatially resolved characterization of predictive uncertainty across the 50 cities, information the deterministic model cannot provide. 
+
+5.5. Visualization of Predictions 
+
+Time series comparisons for randomly selected cities demonstrate that the pro-posed model successfully captures the temporal dynamics of all three climate variables (see Figure 4). The figures in this subsection are illustrative and span the full series; all quantitative metrics reported above are computed on the held-out test period only. Furthermore, city-wise mean predictions and residuals (Figures 5 and 6; anal-ogous plots for the remaining variables are provided in Appendix E) indicate that the model maintains consistent accuracy across different locations. Residuals are generally centered around zero, with the largest deviations observed in precipitation forecasts. /Uncertainty-Aware Multivariate Spatio-Temporal Forecasting 26 −1 0123                                                   
+
+> 050 100 150 200 250
+> Kuala Lumpur
+> −1 012
+> 050 100 150 200 250
+> Dubai
+> −2 024
+> 050 100 150 200 250
+> Tokyo
+> 0246
+> 050 100 150 200 250
+> Shenzhen
+> −2.5 0.0 2.5
+> 050 100 150 200 250
+> Osaka
+> −0.5 0.0 0.5 1.0
+> 050 100 150 200 250
+> Nairobi
+> −1 0123
+> 050 100 150 200 250
+> Lagos
+> −4 −3 −2 −1 01
+> 050 100 150 200 250
+> Moscow
+> 04812
+> 050 100 150 200 250
+> Mumbai
+> Data Type True Predicted Output ppt tmin tmax
+> Time Series Comparison
+
+Fig 4 . Time series comparison for 9 randomly selected cities. Output variables are differ-entiated by color ( ppt , tmin , tmax ), and data types are differentiated by linetypes (True vs. Predicted). 
+
+The real data results demonstrate that TSCoNet effectively models multi-output, spatio-temporal climate data at city-level resolution. The model, trained on standardized data, successfully captures seasonal trends, resulting in low RMSE for temperature variables. Precipitation prediction remains challenging due to its intermittent and highly variable nature, but the model provides prob-abilistic estimates that quantify prediction uncertainty. 
+
+6. Limitations and Future Work 
+
+While the proposed framework performs well, several extensions remain. The 50 real-world stations form an irregular, arbitrarily ordered array rather than a regular grid, so the spatial convolution’s advantage—validated in the grid-ded simulation study—is less fully exercised on this irregular network; here the temporal and cross-variable components play a larger role. This does not affect the framework’s central contribution—calibrated probabilistic forecasting—and a distance- or graph-based encoder (e.g. a graph-convolutional network) is a natural extension for irregular station networks. Further directions include non-Gaussian marginals—precipitation is skewed and zero-inflated, so zero-inflated Gamma or Tweedie distributions integrated into the dual-head output would yield more physically consistent intervals than the Gaussian marginals used here—and spherical CNN architectures, which would align the convolution operator with the underlying spherical geometry for global-scale forecasting, a natural direction given the spherical formulation of this work. /Uncertainty-Aware Multivariate Spatio-Temporal Forecasting 27 −0.5 0.0 0.5 1.0 1.5 
+
+> Bangkok Beijing Berlin Bogotá Buenos Aires Cairo Chicago Chongqing Delhi Dhaka Dubai Guangzhou Ho Chi Minh City Hong Kong Istanbul Jakarta Johannesburg Karachi Kinshasa Kolkata Kuala Lumpur Lagos Lima London Los Angeles Madrid Manila Melbourne Mexico City Moscow Mumbai Nairobi New York Osaka Paris Rio de Janeiro Riyadh Rome San Francisco Santiago São Paulo Seoul Shanghai Shenzhen Singapore Sydney Tehran Tianjin Tokyo Toronto
+> Mean value
+> variable
+> True
+> Pred
+> ppt ... True vs Pred (mean over time)
+
+Fig 5 . City-wise comparison of true and predicted means (over time) for Precipitation ( ppt ). 
+
+7. Conclusion 
+
+In this study, we developed TSCoNet, a two-stage, copula-based probabilistic CNN-LSTM framework for multivariate spatio-temporal forecasting. A key lim-itation of standard deterministic models is that they provide no measure of predictive uncertainty, whereas directly optimizing the negative log-likelihood supplies uncertainty but degrades point accuracy. TSCoNet resolves this tension with a two-stage scheme: a first stage anchors the mean under an MSE objective to deterministic-level accuracy, after which the mean head is frozen and, during a second NLL stage, the backbone and a dedicated variance head are refined. Freezing the mean head prevents it from absorbing high-frequency noise and routes residual error into the variance head, which acts as a dedicated noise sink. It uses precision-weighted gradients to drive Uncertainty-Aware Feature Refinement within the shared backbone, preserving this accuracy while pro-ducing variance estimates that, after recalibration, yield calibrated predictive intervals. Simulation results under Intrinsic Random Functions (IRF) and real-world multi-city climate experiments support the value of this two-stage mecha-nism. TSCoNet supplies dynamic, cross-variable uncertainty bounds that— after a standard post-hoc recalibration—are well-calibrated, while matching deterministic-level point accuracy. In simulation it clearly improves RMSE over the direct-NLL baseline and matches the deterministic and kriging baselines (beating them at low non-stationarity); on real data it matches the deterministic baseline’s accuracy (the deterministic baseline marginally lower), outperforms the direct-NLL and kriging baselines, and supplies calibrated uncertainty that the deterministic baseline lacks. Ultimately, this uncertainty-aware framework /Uncertainty-Aware Multivariate Spatio-Temporal Forecasting 28 Bangkok Beijing Berlin Bogotá Buenos Aires Cairo Chicago Chongqing Delhi Dhaka Dubai Guangzhou Ho Chi Minh City Hong Kong Istanbul Jakarta Johannesburg Karachi Kinshasa Kolkata Kuala Lumpur Lagos Lima London Los Angeles Madrid Manila Melbourne Mexico City Moscow Mumbai Nairobi New York Osaka Paris Rio de Janeiro Riyadh Rome San Francisco Santiago São Paulo Seoul Shanghai Shenzhen Singapore Sydney Tehran Tianjin Tokyo Toronto   
+
+> ppt tmax tmin
+
+Output 
+
+> City
+
+Residual 
+
+> 0.0 0.1 0.2
+
+City−wise Residual Mean per Output 
+
+Fig 6 . City-wise residual mean per output (True − Predicted). 
+
+provides a theoretically grounded, scalable, and reliable tool for multivari-ate spatio-temporal forecasting, with applications ranging from climate and environmental modeling to broader scientific and industrial domains. 
+
+Acknowledgments 
+
+Jongwook Kim is the corresponding author. Jong-Min Kim is additionally af-filiated with EGADE Business School, Tecnol´ ogico de Monterrey, Monterrey, Mexico. The authors declare that they have no competing interests. The real-world climate data are publicly available from the NASA POWER database (https://power.larc.nasa.gov/ ), accessed via the nasapower R package. /Uncertainty-Aware Multivariate Spatio-Temporal Forecasting 29 
+
+Funding 
+
+This research did not receive any specific grant from funding agencies in the public, commercial, or not-for-profit sectors. 
+
+Overview of the Appendices 
+
+The remainder of the paper collects, in the appendices below, the proofs of The-orems 1 and 2 and Proposition 1 stated in Section 3.4 (Appendix A); the equiva-lence between the copula-factorized training loss and the multivariate Gaussian negative log-likelihood (Appendix B); a neural-tangent-kernel analysis of noise interpolation and early stopping (Appendix C); and additional simulation and real-data figures (Appendices D and E). 
+
+Appendix A: Proofs of the Main Results 
+
+Proof of Theorem 1. Recall the data-generating process Y = f ∗(X) + ϵ with 
+
+ϵ ∼ N (0, ΣR), so that the conditional mean of the response is the true signal, 
+
+EY |X [Y | X] = f ∗(X), since the noise has zero mean and is independent of X.For probabilistic models minimizing LNLL , the gradient with respect to μθ is (up to a positive constant arising from sample-size normalization): 
+
+∇μLNLL (θ) ∝ − Σ−1 
+
+> R
+
+(Y − μθ (X)) (24) Under the infinite-data assumption, the empirical gradient converges to its pop-ulation counterpart by the law of large numbers, so it suffices to analyze the population gradient. Taking the expectation over the joint distribution of ( X, Y )and applying the Law of Iterated Expectations EX,Y [·] = EX [EY |X [· | X]]: 
+
+EX,Y [∇μLNLL (θ)] = EX
+
+−Σ−1 
+
+> R
+
+(EY |X [Y | X] − μθ (X))  = EX
+
+−Σ−1 
+
+> R
+
+(f ∗(X) − μθ (X)) 
+
+(25) Setting the expected gradient to zero and noting that Σ R is a positive-definite noise covariance, hence invertible, so that Σ −1 
+
+> R
+
+is a fixed matrix that factors out of EX [·] and can be cancelled: 
+
+EX [f ∗(X) − μ∗ 
+
+> θ
+
+(X)] = 0. (26) Because μθ is optimized over a sufficiently expressive function class—so that its value can be chosen independently at each X—minimizing the population risk reduces to a pointwise minimization at every X. The stationarity condition therefore holds not merely on average but for each X separately, giving 
+
+f ∗(X) − μ∗ 
+
+> θ
+
+(X) = 0 =⇒ μ∗ 
+
+> θ
+
+(X) = f ∗(X) for all X. (27) This confirms that the theoretical global minimum μ∗ 
+
+> θ
+
+is the true conditional mean f ∗(X), completely independent of R. Consequently, the theoretical RMSE remains invariant to changes in R./Uncertainty-Aware Multivariate Spatio-Temporal Forecasting 30 
+
+Proof of Theorem 2. During training, models are updated using SGD. The sta-bility is governed by the covariance of the stochastic gradient g = ∇μLNLL .Evaluating g at the true mean μ = f ∗(X): Cov( g | X) = Cov( −Σ−1 
+
+> R
+
+(Y −μ) | X) = Σ −1 
+
+> R
+
+Cov( Y | X)Σ −1 
+
+> R
+
+= Σ −1 
+
+> R
+
+ΣRΣ−1 
+
+> R
+
+= Σ −1
+
+> R
+
+(28) The gradient variance in Mdirect is precisely the precision matrix Σ −1 
+
+> R
+
+. As the correlation R strengthens, Σ R becomes ill-conditioned, and its smallest eigen-value approaches 0, causing the largest eigenvalue of Σ −1 
+
+> R
+
+to explode towards infinity ( λmax (Σ −1 
+
+> R
+
+) → ∞ ). Although the true asymptotic optimum is invari-ant to R (Theorem 1), in the finite-sample SGD regime the optimizer cannot traverse this ill-conditioned loss landscape reliably within a bounded number of steps. This artificially inflates the empirical RMSE. By contrast, Mprop dedicates Stage 1 exclusively to minimizing the Mean Squared Error ( LMSE ), completely decoupling μ from Σ R. The gradient is 
+
+gprop = −(Y − μ). Cov( gprop | X) = Cov( −(Y − μ) | X) = Σ R (29) 
+
+Proof of Proposition 1. We relax the simplifying assumption D = I and con-sider the general case D̸ = I, so that Σ R = DRD with arbitrary marginal standard deviations. Since R has unit diagonal, the diagonal entries of Σ R are (Σ R)ii = σ2 
+
+> i
+
+, so its trace is the sum of the marginal variances: Tr(Σ R) = 
+
+> K
+
+X
+
+> i=1
+
+(Σ R)ii =
+
+> K
+
+X
+
+> i=1
+
+σ2 
+
+> i
+
+, (30) which is independent of R by the marginal property noted above. Because ΣR is symmetric, the Spectral Theorem permits the eigendecomposition Σ R =
+
+QΛQ ⊤. Applying the cyclic property of the trace (Tr( ABC ) = Tr( CAB )): Tr(Σ R) = Tr( QΛQ ⊤) = Tr( Q⊤QΛ ) = Tr( Λ) = 
+
+> K
+
+X
+
+> i=1
+
+λi. (31) This identity P σ2 
+
+> i
+
+= P λi shows that although strong correlation R may re-distribute the individual eigenvalues λi, the total stochastic energy (the trace) is invariant to R and bounded by the sum of marginal variances. Since Σ R is positive semi-definite, all eigenvalues are non-negative, so its largest eigenvalue is bounded by the trace, λmax (Σ R) ≤ Tr(Σ R) = PKi=1 σ2 
+
+> i
+
+. Hence the spectral norm of the Stage-1 gradient covariance is controlled by the ( R-independent) marginal variances and cannot blow up as R becomes ill-conditioned. This is in stark contrast to the direct-NLL gradient covariance Σ −1 
+
+> R
+
+, whose largest eigen-value λmax (Σ −1 
+
+> R
+
+) = 1 /λ min (Σ R) diverges as R drives λmin (Σ R) → 0. /Uncertainty-Aware Multivariate Spatio-Temporal Forecasting 31 
+
+Appendix B: Equivalence of the Gaussian Copula PDF and the Multivariate Negative Log-Likelihood 
+
+In this appendix, we establish the equivalence between our copula-factorized training loss and the multivariate Gaussian negative log-likelihood. While the underlying relationship is classical (Sklar, 1959; Nelsen, 2006), we derive it ex-plicitly for our decomposed, spatially-averaged formulation, making the con-nection between the implemented copula loss of the main text and standard maximum-likelihood estimation precise. Concretely, we show that the three for-mulations used in the proposed model—the joint probability density function based on the Gaussian copula, the empirical spatial-averaged loss used for the deep-learning implementation, and the theoretical multivariate NLL—are math-ematically equivalent from an optimization perspective. Throughout, we assume Gaussian marginals, fk = N (ˆ μi,j,k , ˆσ2
+
+> i,j,k
+
+), together with a Gaussian copula; the equivalence established below is specific to this Gaussian specification. At a spatial grid point ( i, j ), assuming the model predicts a marginal Gaussian distribution N (ˆ μi,j,k , ˆσ2
+
+> i,j,k
+
+), the joint PDF using a Gaussian Copula is defined as: 
+
+f (Yi,j ) = 
+
+"nout Y
+
+> k=1
+
+fk(Yi,j,k | ˆμi,j,k , ˆσi,j,k )
+
+#
+
+· 1
+
+p|R| exp 
+
+
+
+− 12 wTi,j (R−1 − I)wi,j 
+
+
+
+(32) where wi,j is the vector of standardized residuals (Z-scores) such that wi,j,k =(Yi,j,k − ˆμi,j,k )/ˆσi,j,k , and R is the correlation matrix. The empirical loss function computed over the entire spatial grid ( Ngrid = nlat × nlon ) is: 
+
+Ljoint = 1
+
+Ngrid 
+
+X
+
+> i,j
+
+" nout X
+
+> k=1
+
+log ˆ σi,j,k + (Yi,j,k − ˆμi,j,k )2
+
+2ˆ σ2
+
+> i,j,k
+
+!
+
++ 12 log |R| + 12 wTi,j (R−1 − I)wi,j 
+
+#
+
+(33) Conversely, the standard multivariate Gaussian NLL, often used in statistics, is compactly expressed using the covariance matrix Σ R:
+
+LNLL (θ) = 12 log |ΣR| + 12 (Y − μθ )⊤Σ−1 
+
+> R
+
+(Y − μθ ) + K
+
+2 log(2 π) (34) Deep learning optimization converts Maximum Likelihood Estimation (MLE) into a minimization of the negative logarithm. Taking − log of the single-point PDF in Equation (32) yields: 
+
+− log f (Yi,j ) = −
+
+> nout
+
+X
+
+> k=1
+
+log fk(Yi,j,k ) − log (Copula( wi,j )) (35) Substituting the Gaussian marginal density 
+
+fk(Yi,j,k | ˆμi,j,k , ˆσi,j,k ) = 1
+
+√2π ˆσi,j,k 
+
+exp − (Yi,j,k − ˆμi,j,k )2
+
+2ˆ σ2
+
+> i,j,k
+
+!
+
+,/Uncertainty-Aware Multivariate Spatio-Temporal Forecasting 32 
+
+the first term (marginal NLL) evaluates to: 
+
+−
+
+> nout
+
+X
+
+> k=1
+
+log fk(Yi,j,k ) = 
+
+> nout
+
+X
+
+> k=1
+
+log ˆ σi,j,k + (Yi,j,k − ˆμi,j,k )2
+
+2ˆ σ2
+
+> i,j,k
+
+!
+
++ nout 
+
+2 log(2 π) (36) The constant term nout  
+
+> 2
+
+log(2 π) vanishes upon differentiation. Applying − log to the copula term gives: 
+
+− log 1
+
+p|R| exp 
+
+
+
+− 12 wTi,j (R−1 − I)wi,j 
+
+!
+
+= 12 log |R| + 12 wTi,j (R−1 − I)wi,j 
+
+(37) Summing these terms from Equations (36) and (37) while averaging over the spatial grid Ngrid yields the empirical loss function Ljoint presented in Equation (33). To prove equivalence with the theoretical multivariate NLL (Equation (34)), we decompose the covariance matrix at a single grid point as Σ R = DRD ,where D = diag( σ1, . . . , σ K ). The determinant property yields: 
+
+|ΣR| = |DRD | = |D|2|R| =
+
+> K
+
+Y
+
+> k=1
+
+σ2
+
+> k
+
+!
+
+|R| (38) Taking the logarithm and multiplying by 12 :12 log |ΣR| =
+
+> K
+
+X
+
+> k=1
+
+log σk + 12 log |R| (39) This perfectly matches the first two corresponding terms in Equation (33). Next, rewriting the quadratic form from Equation (34) using Σ −1 
+
+> R
+
+= D−1R−1D−1 and 
+
+w = D−1(Y − μ): 12 (Y − μ)⊤Σ−1 
+
+> R
+
+(Y − μ) = 12 w⊤R−1w (40) By factoring the residual term from Equation (33) as 12 w⊤Iw and summing it with the copula cross-term, we obtain perfect cancellation: 12 w⊤Iw + 12 w⊤(R−1 − I)w = 12 w⊤R−1w (41) Equations (40) and (41) confirm that, excluding constants, the empirical loss 
+
+Ljoint is algebraically identical to the theoretical multivariate NLL. This estab-lishes that the decomposed empirical implementation strictly shares the same optimization landscape. /Uncertainty-Aware Multivariate Spatio-Temporal Forecasting 33 
+
+Appendix C: Spectral Interpolation of Noise and Early Stopping: A Neural Tangent Kernel Analysis 
+
+C.1. Spectral Interpolation of Noise under Prolonged MSE Training 
+
+Problem (Spectral Interpolation). Left to converge, MSE training interpo-lates not only the underlying signal but also the high-frequency noise, so that without early stopping the deterministic model memorizes noise. To trace the learning dynamics underlying this, we utilize Neural Tangent Kernel (NTK) theory (Jacot et al., 2018) for a network optimized under the MSE objec-tive, which describes both Mdet and Stage 1 of Mprop . Let the kernel ma-trix be defined by the gradient features: Θ t = ( ∇W μt)( ∇W μt)⊤. Under the infinite-width limit, weights barely move from initialization ( Wt ≈ W0), and the kernel is constant (Θ t ≈ Θ0 ≡ Θ). We additionally assume zero initializa-tion ( μ0 = 0), which together with the constant-kernel approximation yields a tractable closed-form solution. The optimization dynamics of Gradient Descent under loss L = 12 (μt − Y )2 can be formulated using the chain rule: 
+
+dμ t
+
+dt = ( ∇W μt)⊤ dW dt = ( ∇W μt)⊤ [−α(∇W μt)( μt − Y )] = −αΘ( μt − Y ) (42) Solving this differential equation with initial condition μ0 = 0 yields the closed-form trajectory: 
+
+μt(Xtrain ) = Ytrain − exp( −αΘt)Ytrain (43) As t → ∞ , μt → Ytrain = f ∗(Xtrain ) + ϵtrain . The model interpolates both the smooth signal f ∗ and the unpredictable high-frequency noise ϵ, suffering from the “spectral interpolation of noise” (Belkin et al., 2019). This limit describes training run to convergence without early stopping; in practice every MSE-trained model in this work—including Mdet —is halted well before this regime by validation-MSE early stopping, as detailed next. 
+
+C.2. Early Stopping as Tikhonov Regularization 
+
+Mechanism (Early Stopping). Halting Stage 1 at an optimal time τ acts as an implicit low-pass filter that preserves the signal while attenuating the noise. Interrupting MSE training in this way yields the prediction μτ (X) = (I − exp( −αΘτ )) Y ≈ f ∗(X), which follows the same spectral-shrinkage path as Tikhonov (L2) regularization under the calibration λ ∝ 1/τ , attaining compara-ble estimation risk (Ali et al., 2019). Severely attenuating the stochastic noise ϵ
+
+in this manner is what saves the model from memorization. We emphasize that this early-stopping mechanism is not specific to Mprop : it applies to any MSE-trained model, including the deterministic baseline Mdet , and Stage 1 of Mprop 
+
+is identical in this respect. The distinguishing component of Mprop is Stage 2 (analyzed in the main text), where precision-weighted gradients further refine the shared backbone. /Uncertainty-Aware Multivariate Spatio-Temporal Forecasting 34 
+
+Appendix D: Additional Simulation Figures 
+
+These figures complement the IRF(2) representatives shown in the main text. Lat=36, Lon=37 Lat=37, Lon=25 Lat=7, Lon=36                         
+
+> Lat=24, Lon=27 Lat=25, Lon=20 Lat=36, Lon=3
+> Lat=1, Lon=37 Lat=10, Lon=26 Lat=18, Lon=25
+> 050 100 150 200 050 100 150 200 050 100 150 200
+> −2 024
+> −1 01
+> −2 02
+> −2 −1 01
+> −2 −1 01
+> 01234
+> −2 −1 012
+> −3 −2 −1 01
+> −2 −1 01
+> Time
+> Value
+> Output Output 1 Output 2 Output 3 Data Type True Predicted
+> Time Series Comparison for 9 Random Locations (IRF 0)
+
+Fig 7 . Time series of true (solid line) and predicted (dashed line) values at nine randomly chosen grid points for IRF(0). 
+
+Appendix E: Additional Real-Data Prediction Figures 
+
+Per-variable city-wise true-versus-predicted means for minimum and maximum temperature, complementing the precipitation figure in the main text. 
+
+References 
+
+Ali, A., Kolter, J. Z., and Tibshirani, R. J. (2019). A continuous-time view of early stopping for least squares regression. In Proceedings of the 22nd International Conference on Artificial Intelligence and Statistics (AISTATS) ,volume 89 of PMLR , pages 1370–1378. Ashok, A., Marcotte, ´E., Zantedeschi, V., Chapados, N., and Drouin, A. (2024). TACTiS-2: Better, faster, simpler attentional copulas for multivariate time series. In International Conference on Learning Representations (ICLR) .Belkin, M., Hsu, D., Ma, S., and Mandal, S. (2019). Reconciling modern machine-learning practice and the classical bias–variance trade-off. Proceed-ings of the National Academy of Sciences , 116(32):15849–15854. Bussberg, N. W., Shields, J., and Huang, C. (2025). Intrinsic Random Function Kriging on the Sphere. Journal of Statistical Theory and Practice , 19(3):35. Cressie, N. (1993). Statistics for Spatial Data . Wiley, New York. /Uncertainty-Aware Multivariate Spatio-Temporal Forecasting 35 Lat=36, Lon=37 Lat=37, Lon=25 Lat=7, Lon=36                   
+
+> Lat=24, Lon=27 Lat=25, Lon=20 Lat=36, Lon=3
+> Lat=1, Lon=37 Lat=10, Lon=26 Lat=18, Lon=25
+> 050 100 150 200 050 100 150 200 050 100 150 200
+> −2 −1 0123
+> −2 −1 01
+> −1 0123
+> −3 −2 −1 0
+> −2 −1 012
+> −3 −2 −1 01
+> 0.0 2.5 5.0 7.5 10.0
+> −1 012
+> −1 01
+
+Time 
+
+> Value
+
+Output Output 1 Output 2 Output 3 Data Type True Predicted 
+
+Time Series Comparison for 9 Random Locations (IRF 1) 
+
+Fig 8 . Time series of true (solid line) and predicted (dashed line) values at nine randomly chosen grid points for IRF(1). True Predicted Residual 
+
+> Time t=49  Time t=65  Time t=153
+
+Value / Residual 
+
+−2 −1 012
+
+Spatial heatmap comparison for IRF(0) 
+
+Spatio−Temporal Comparison (Output 1) across Random Time Slices 
+
+Fig 9 . Spatial heatmaps at randomly selected three temporal points with Y1 (output 1). Left: True values; Center: Predicted Values; Right: Residuals for IRF(0) /Uncertainty-Aware Multivariate Spatio-Temporal Forecasting 36 True Predicted Residual 
+
+> Time t=49  Time t=65  Time t=153
+> Value / Residual
+> −2 −1 012
+> Spatial heatmap comparison for IRF(1)
+
+Spatio−Temporal Comparison (Output 1) across Random Time Slices 
+
+Fig 10 . Spatial heatmaps at randomly selected three temporal points with Y1 (output 1). Left: True values; Center: Predicted Values; Right: Residuals for IRF(1) True Predicted Residual 
+
+> Time t=49  Time t=65  Time t=153
+> Value / Residual
+> −2 −1 012
+> Spatial heatmap comparison for IRF(0)
+
+Spatio−Temporal Comparison (Output 2) across Random Time Slices 
+
+Fig 11 . Spatial heatmaps at randomly selected three temporal points with Y2 (output 2). Left: True values; Center: Predicted Values; Right: Residuals for IRF(0) /Uncertainty-Aware Multivariate Spatio-Temporal Forecasting 37 True Predicted Residual 
+
+> Time t=49  Time t=65  Time t=153
+> Value / Residual
+> −2 −1 012
+> Spatial heatmap comparison for IRF(1)
+
+Spatio−Temporal Comparison (Output 2) across Random Time Slices 
+
+Fig 12 . Spatial heatmaps at randomly selected three temporal points with Y2 (output 2). Left: True values; Center: Predicted Values; Right: Residuals for IRF(1) True Predicted Residual 
+
+> Time t=49  Time t=65  Time t=153
+> Value / Residual
+> −2 −1 012
+> Spatial heatmap comparison for IRF(2)
+
+Spatio−Temporal Comparison (Output 2) across Random Time Slices 
+
+Fig 13 . Spatial heatmaps at randomly selected three temporal points with Y2 (output 2). Left: True values; Center: Predicted Values; Right: Residuals for IRF(2) /Uncertainty-Aware Multivariate Spatio-Temporal Forecasting 38 True Predicted Residual 
+
+> Time t=49  Time t=65  Time t=153
+> Value / Residual
+> −2 −1 012
+> Spatial heatmap comparison for IRF(0)
+
+Spatio−Temporal Comparison (Output 3) across Random Time Slices 
+
+Fig 14 . Spatial heatmaps at randomly selected three temporal points with Y3 (output 3). Left: True values; Center: Predicted Values; Right: Residuals for IRF(0) True Predicted Residual 
+
+> Time t=49  Time t=65  Time t=153
+> Value / Residual
+> −2 −1 012
+> Spatial heatmap comparison for IRF(1)
+
+Spatio−Temporal Comparison (Output 3) across Random Time Slices 
+
+Fig 15 . Spatial heatmaps at randomly selected three temporal points with Y3 (output 3). Left: True values; Center: Predicted Values; Right: Residuals for IRF(1) /Uncertainty-Aware Multivariate Spatio-Temporal Forecasting 39 True Predicted Residual 
+
+> Time t=49  Time t=65  Time t=153
+
+Value / Residual 
+
+−2 −1 012
+
+Spatial heatmap comparison for IRF(2) 
+
+Spatio−Temporal Comparison (Output 3) across Random Time Slices 
+
+Fig 16 . Spatial heatmaps at randomly selected three temporal points with Y3 (output 3). Left: True values; Center: Predicted Values; Right: Residuals for IRF(2) −1 01
+
+> Bangkok Beijing Berlin Bogotá Buenos Aires Cairo Chicago Chongqing Delhi Dhaka Dubai Guangzhou Ho Chi Minh City Hong Kong Istanbul Jakarta Johannesburg Karachi Kinshasa Kolkata Kuala Lumpur Lagos Lima London Los Angeles Madrid Manila Melbourne Mexico City Moscow Mumbai Nairobi New York Osaka Paris Rio de Janeiro Riyadh Rome San Francisco Santiago São Paulo Seoul Shanghai Shenzhen Singapore Sydney Tehran Tianjin Tokyo Toronto
+> Mean value
+
+variable 
+
+True 
+
+Pred 
+
+tmin ... True vs Pred (mean over time) 
+
+Fig 17 . City-wise comparison of true and predicted means (over time) for Minimum Tem-perature ( tmin ). /Uncertainty-Aware Multivariate Spatio-Temporal Forecasting 40 −1 01
+
+> Bangkok Beijing Berlin Bogotá Buenos Aires Cairo Chicago Chongqing Delhi Dhaka Dubai Guangzhou Ho Chi Minh City Hong Kong Istanbul Jakarta Johannesburg Karachi Kinshasa Kolkata Kuala Lumpur Lagos Lima London Los Angeles Madrid Manila Melbourne Mexico City Moscow Mumbai Nairobi New York Osaka Paris Rio de Janeiro Riyadh Rome San Francisco Santiago São Paulo Seoul Shanghai Shenzhen Singapore Sydney Tehran Tianjin Tokyo Toronto
+> Mean value
+> variable
+> True
+> Pred
+> tmax ... True vs Pred (mean over time)
+
+Fig 18 . City-wise comparison of true and predicted means (over time) for Maximum Tem-perature ( tmax ). 
+
+Drouin, A., Marcotte, ´E., and Chapados, N. (2022). TACTiS: Transformer-attentional copulas for time series. In Proceedings of the 39th International Conference on Machine Learning (ICML) , volume 162 of PMLR , pages 5447– 5493. Huang, C., Zhang, H., Robeson, S. M., and Shields, J. (2019). Intrinsic random functions on the sphere. Statistics & Probability Letters , 146:7–14. Jacot, A., Gabriel, F., and Hongler, C. (2018). Neural tangent kernel: Conver-gence and generalization in neural networks. Advances in Neural Information Processing Systems (NeurIPS) , 31. Joe, H. (1997). Multivariate Models and Multivariate Dependence Concepts .Chapman & Hall/CRC. Kendall, A. and Gal, Y. (2017). What uncertainties do we need in bayesian deep learning for computer vision? Advances in neural information processing systems (NeurIPS) , 30. Kim, J.-M. and Hwang, S. Y. (2021). Functional ARCH directional dependence via copula for intraday volatility from high-frequency financial time series. 
+
+Applied Economics , 53(4):506–520. Kuleshov, V., Fenner, N., and Ermon, S. (2018). Accurate uncertainties for deep learning using calibrated regression. In Proceedings of the 35th International Conference on Machine Learning (ICML) , volume 80 of PMLR , pages 2796– 2804. Masarotto, G. and Varin, C. (2012). Gaussian copula marginal regression. Elec-tronic Journal of Statistics , 6:1517–1549. Matheron, G. (1973). The Intrinsic Random Functions and Their Applications. 
+
+Advances in Applied Probability , 5(3):439–468. /Uncertainty-Aware Multivariate Spatio-Temporal Forecasting 41 
+
+Nag, P., Sun, Y., and Reich, B. J. (2023). Spatio-temporal DeepKriging for interpolation and probabilistic forecasting. Spatial Statistics , 57:100773. Nelsen, R. B. (2006). An Introduction to Copulas . Springer, 2nd edition. Nix, D. A. and Weigend, A. S. (1994). Estimating the mean and variance of the target probability distribution. Proceedings of 1994 ieee international conference on neural networks (ICNN’94) , 1:55–60. Porcu, E., Bevilacqua, M., and Genton, M. G. (2016). Spatio-temporal covari-ance and cross-covariance functions of the great circle distance on a sphere. 
+
+Journal of the American Statistical Association , 111(514):888–898. Rahaman, N., Baratin, A., Arpit, D., Draxler, F., Lin, M., Hamprecht, F., Ben-gio, Y., and Courville, A. (2019). On the spectral bias of neural networks. In Proceedings of the 36th International Conference on Machine Learning (ICML) , volume 97 of PMLR , pages 5301–5310. Rasmussen, C. E. and Williams, C. K. I. (2006). Gaussian Processes for Machine Learning . MIT Press. Salinas, D., Bohlke-Schneider, M., Callot, L., Medico, R., and Gasthaus, J. (2019). High-dimensional multivariate forecasting with low-rank Gaus-sian copula processes. Advances in Neural Information Processing Systems (NeurIPS) , 32:6824–6834. Seitzer, M., Tavakoli, A., Antic, D., and Martius, G. (2022). On the pitfalls of heteroscedastic uncertainty estimation with probabilistic neural networks. In 
+
+International Conference on Learning Representations (ICLR) .Shi, X., Chen, Z., Wang, H., Yeung, D.-Y., Wong, W.-K., and Woo, W.-C. (2015). Convolutional LSTM network: A machine learning approach for pre-cipitation nowcasting. Advances in Neural Information Processing Systems (NeurIPS) , 28. Skafte Detlefsen, N., Jørgensen, M., and Hauberg, S. (2019). Reliable train-ing and estimation of variance networks. Advances in Neural Information Processing Systems (NeurIPS) , 32. Sklar, M. (1959). Fonctions de r´ epartition ` a n dimensions et leurs marges. 
+
+Publications de l’Institut de statistique de l’Universit´ e de Paris , 8(1):229–231. Sluijterman, L., Cator, E., and Heskes, T. (2024). Optimal training of Mean Variance Estimation neural networks. Neurocomputing , 597:127929. Sparks, A. H. (2018). nasapower: A NASA POWER global meteorology, sur-face solar energy and climatology data client for R. Journal of Open Source Software , 3(30):1035. Stirn, A., Wessels, H., Schertzer, M., Pereira, L., Sanjana, N. E., and Knowles, D. A. (2023). Faithful heteroscedastic regression with neural networks. In 
+
+Proceedings of the 26th International Conference on Artificial Intelligence and Statistics (AISTATS) , volume 206 of PMLR , pages 5593–5613. Wang, X., Long, M., Wang, J., Gao, Z., and Yu, P. S. (2017). PredRNN: Re-current neural networks for predictive learning using spatiotemporal LSTMs. 
+
+Advances in Neural Information Processing Systems (NeurIPS) , 30. Wikle, C. K. and Zammit-Mangion, A. (2023). Statistical deep learning for spatial and spatio-temporal data. Annual Review of Statistics and Its Appli-cation , 10:247–270. /Uncertainty-Aware Multivariate Spatio-Temporal Forecasting 42 
+
+Zhan, W. and Datta, A. (2025). Neural networks for geospatial data. Journal of the American Statistical Association , 120(549):535–547.

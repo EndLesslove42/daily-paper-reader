@@ -1,0 +1,2499 @@
+Title: Deep Learning-based Surrogate Modelling of the LOD Method for Multiscale Problems
+
+URL Source: https://arxiv.org/pdf/2607.12570v1
+
+Published Time: Wed, 15 Jul 2026 12:01:29 GMT
+
+Number of Pages: 56
+
+Markdown Content:
+# Deep Learning-based Surrogate Modelling of the LOD Method for Multiscale Problems 
+
+Marc Haltmayer a,1 , Jaemin Seo a,1 , Yuseung Lee a, Sungyeop Lee b, Jaehoon Jeong b, Jae Yong Lee a, ∗
+
+> aDepartment of Artificial Intelligence, Chung-Ang University, 84 Heukseok-ro, Dongjak-gu, Seoul, 06974, Republic of Korea
+> bComputational Science and Engineering Team, Samsung Electronics, 41 Samsung-ro, Giheung-gu, Yongin-si, 17113, Republic of Korea
+
+Abstract 
+
+Multiscale problems are notoriously difficult to tackle using traditional nu-merical methods, as accurately resolving fine-scale features often requires prohibitively fine discretizations. This challenge is particularly pronounced in applications such as materials science, fluid dynamics, climate systems, chemical processes, and complex networks. Recent neural operator models provide a promising data-driven alternative, but frequently struggle to achieve sufficient accuracy in the presence of strongly heterogeneous or oscillatory coefficients. In this work, we focus on the solution of elliptic PDEs with rough and high-contrast inputs. The Localized Orthogonal Decomposition (LOD) method is a well-established numerical approach for such problems, but it comes, however, at a substantial computational cost. We investigate the performance of popular neural operator architectures on these challenging multiscale problems and identify key limitations in their ability to resolve fine-scale structure. To overcome these challenges, we introduce LOD-MSNO 
+
+(LOD-Multiscale Neural Operator), a hybrid approach that leverages the LOD method as a strong multiscale prior by building on its representation of the solution as a linear combination of problem-adapted basis functions, while addressing its main computational bottlenecks through data-driven operator learning. We further provide theoretical error estimates for the proposed coefficient-learning framework. Lastly, we demonstrate the potential 
+
+> ∗Corresponding author.
+> 1Equal contribution. arXiv:2607.12570v1 [math.NA] 14 Jul 2026
+
+of our proposed method to outperform current neural operator baselines in terms of accuracy for challenging multiscale inputs, while mainly retaining the computational efficiency of neural operator models. 
+
+Keywords: Scientific Machine Learning, Multiscale Problems, Neural Operator, Finite Element Method 
+
+1. Introduction 
+
+Multiscale PDE problems, characterized by the coexistence of important features across multiple spatial and temporal scales, arise in a wide range of scientific and engineering domains. A representative example is given by Darcy Flow, 
+
+−∇ · (κ∇u) = f in D, u = 0 on ∂D, (1) where D ⊂ Rd, d = 2 , 3 is a bounded physical domain, u : D → R denotes the pressure, f ∈ L2(D) is a given source term and κ : D → R+ is a heterogeneous permeability coefficient. The Darcy Flow equation can be viewed as a heterogeneous extension of Poisson’s equation, which arises naturally across a range of physical settings involving transport through complex media. For example, it describes fluid flow in porous subsurface [1] formations, while analogous formulations govern heat conduction in materials [ 37 ] with spatially varying thermal properties and potential fields in electrically inhomogeneous media [ 16 ]. Across these problems, the spatial variability of the coefficient field plays a central role, as even fine-scale heterogeneities can significantly influence the global solution behavior, leading to pronounced multiscale effects. This interplay between fine-scale structure and macroscopic response poses significant challenges for both modeling and computation, often requiring high-resolution simulations to accurately capture the underlying physics. Such demands are particularly critical in practical engineering workflows, where repeated evaluations under varying material configurations or design parameters are often required. As a result, developing accurate and efficient solution strategies for this class of problems remains a key objective in both scientific computing and industrial applications [8, 14]. In this context, neural operator methods have emerged as promising alternatives, as they aim to learn mappings between infinite-dimensional function spaces and thereby approximate solution operators of parametric 2Figure 1: Example permeability fields κ(x). (a) Two-phase piecewise-constant as considered in many related works. (b) Six-phase piecewise-constant. (c) lognormal random field. (d) High-contrast lognormal random field spanning several orders of magnitude, yielding a particularly difficult regime due to extreme coefficient variation. (e) Cell-wise i.i.d. discrete random field sampled from a finite level set. 
+
+PDEs directly. However, despite their favorable computational properties and remarkable success in learning solution operators of parametric PDEs, neural operator models exhibit important limitations when applied to multi-scale problems with rough and strongly heterogeneous inputs. Much of the existing neural operator literature focuses on relatively simplified flow config-urations; for instance, benchmark studies involving Fourier Neural Operator (FNO) [ 19 ], Deep Operator Network (DeepONet) [ 24 ], and Transformer-based architectures such as Transolver [ 35 ], and related approaches frequently con-sider two-phase Darcy flow problems with moderately varying permeability fields (Figure 1(a)). While these settings provide useful testbeds for model development and evaluation for such models, they do not fully reflect the complexity encountered in realistic subsurface flow applications. In particular, multi-phase Darcy flow in highly heterogeneous and highly oscillatory media (Figure 1(b)-(e)) remains largely unexplored in the neural operator community, despite its relevance in groundwater hydrology, petroleum engineering, and carbon sequestration. 
+
+Contributions. In this work, we address these gaps and make the following contributions. 
+
+• We identify a key shortcoming of existing neural operator models when applied to multiscale problems with rough, high-contrast coefficients. Using Darcy flow as a prototypical example, we demonstrate the chal-lenges posed by highly heterogeneous and multiscale permeability fields through a series of carefully designed datasets inspired by applications in industry that exhibit complex fine-scale features. 3• We propose LOD-MSNO , an operator learning model specifically de-signed for multiscale PDE problems that follows a coefficient-learning paradigm. The approach adopts a hybrid strategy by using the finite element method-based Localized Orthogonal Decomposition (LOD) approximation as a strong numerical prior and employing neural net-works to learn the associated multiscale basis functions and expansion coefficients. 
+
+• We provide a theoretical analysis showing that the proposed model converges to the true numerical LOD solution. As our main theorem, we derive a precise error bound with respect to the true analytical solution, separating the LOD discretization error from the generalization error of the neural surrogate. 
+
+• We demonstrate that our method can outperform established neural operator benchmarks on the proposed multiscale datasets. These results validate the feasibility of our idea and highlight its potential for reliable and efficient surrogate modeling of multiscale PDE problems. 
+
+2. Related work 
+
+Multiscale numerical methods . The numerical approximation of PDEs with highly heterogeneous and multiscale coefficients has been extensively studied in computational mathematics. Classical multiscale methods [28 ] and 
+
+numerical homogenization [2] techniques aim to derive effective coarse-scale models that capture fine-scale effects implicitly. While successful in settings with clear scale separation, their performance degrades when coefficients exhibit strong local variations or lack periodicity. Localized approaches, most notably the Localized Orthogonal Decomposition (LOD) [ 27 ] method, address these limitations by enriching coarse finite element spaces with localized correctors that encode fine-scale information. LOD methods provide rigorous error estimates for elliptic [ 26 ] and parabolic [ 25 ] problems with rough and high-contrast coefficients but require the solution of many localized fine-scale problems, which can be computationally expensive in many-query settings. 
+
+Physics-informed machine learning . Physics-informed learning approaches such as Physics-Informed Neural Networks (PINNs) [ 30 ] and the closely re-lated Deep Galerkin Method [32 ] embed the governing PDEs into the training objective through residual minimization. These methods offer mesh-free 4approximations and flexibility with respect to geometry and boundary con-ditions. However, they often suffer from optimization issues and have to be retrained for every input instance. 
+
+Neural operators . Neural operator methods aim to learn mappings between function spaces directly. DeepONet [23 ] represents operators as linear combina-tions of a branch and trunk network, with extensions such as Physics-informed DeepONet (PI-DeepONet) [ 12 ] or HyperDeepONet [17 ]. A complementary class of methods is based on spectral representations. The Fourier Neural Op-erator (FNO) [ 19 ] and its variants, including Convolutional Neural Operators (CNO) [ 31 ], U-shaped Neural Operators (UNO) [ 29 ] and the physics-informed 
+
+PINO [20 ], have demonstrated strong performance on parametric PDE bench-marks. However, their reliance on global spectral representations can limit their ability to resolve localized fine-scale features in highly heterogeneous and multiscale settings. Other work has explored attention-based and graph-based operator learning [ 4, 34 , 13 ]; for example, Transolver [ 35 ] is a representa-tive example that leverages Transformer architectures to model long-range dependencies. 
+
+Hybrid numerical and machine learning approaches . Recent work has explored hybrid approaches that combine classical numerical methods, such as finite element or spectral discretizations, with neural networks in order to leverage the strengths of both paradigms [ 10 ]. In these methods, the solution is represented in a fixed basis, and the learning task is to infer the correspond-ing expansion coefficients. For example, Finite element operator network (FEONet) [ 18 ] integrates neural networks with the continuous Galerkin finite element method by directly learning solution coefficients, enabling physics-aware training without requiring labeled data. Related spectral approaches, such as SCLON [ 6] and ULGNet [ 5], learn coefficients in spectral or Galerkin bases, further demonstrating the effectiveness of combining classical numerical schemes with neural networks as a hybrid model for PDEs. Other hybrid AI-based approaches have also demonstrated substantial computational speedups and improved flexibility, with successful applications reported in areas such as solid mechanics [ 15 , 38 ], fluid dynamics [ 33 ], climate science [ 11 ], and biomedical systems [7]. 53. Preliminaries 
+
+3.1. Problem setting and Finite Element approximation 
+
+Let D ⊂ Rd, d ∈ { 2, 3}, be a bounded polygonal (or polyhedral) Lipschitz domain with boundary ∂D . We consider the Darcy flow problem with homogeneous Dirichlet boundary conditions: Given a permeability field κ,find u : D → R such that 
+
+−∇ · (κ∇u) = f in D, u = 0 on ∂D, (2) where f ∈ L2(D) and κ : D → Rd×d. Throughout this work, we assume that 
+
+κ is uniformly elliptic and almost everywhere bounded. 
+
+0 < ess inf  
+
+> x∈D
+
+κ(x) ≤ κ(x) ≤ ess sup 
+
+> x∈D
+
+κ(x) < ∞ for a.e. x ∈ D. 
+
+However, no further smoothness or scale separation assumptions on κ are imposed; in particular, κ may exhibit highly oscillatory or high-contrast behavior, i.e. the contrast of the permeability field κ defined by 
+
+contrast( κ) := ess sup x∈D κ(x)ess inf x∈D κ(x)
+
+might have a very high value, which increases the difficulty of solving (2) numerically. For the approximation of this problem using FEM-based methods, we introduce two conforming simplicial triangulations of D. Let TH denote a coarse triangulation with maximum element diameter H > 0, and let Th be a fine triangulation with maximum element diameter h < H . We assume that 
+
+Th is a (possibly non-uniform) refinement of TH and that D = S 
+
+> K∈T H
+
+K =S 
+
+> Kh∈T h
+
+Kh. The fine mesh Th is chosen sufficiently small to resolve all relevant variations of the diffusion coefficient κ and is therefore referred to as a fine-scale discretization. We define the standard conforming P1 finite element spaces 
+
+P1(T ) := v ∈ C0(D) v|K is affine for all K ∈ T ,
+
+and set 
+
+Vh := P1(Th) ∩ H10 (D), VH := P1(TH ) ∩ H10 (D),
+
+with VH ⊂ Vh. Let NH = {Zi | 0 ≤ i ≤ NH − 1} and Nh = {zj | 0 ≤ j ≤
+
+Nh − 1} denote the sets of interior vertices (nodes) of the coarse and fine meshes, respectively, where NH and Nh are their cardinalities. We denote by 
+
+{ΦiH }NH 
+
+> i=1
+
+⊂ VH , {ϕjh}Nh 
+
+> j=1
+
+⊂ Vh,
+
+6the associated nodal basis functions. A fine-scale finite element approximation is obtained by seeking uh ∈ Vh such that 
+
+a(uh, v h) = 
+
+Z
+
+> Ω
+
+f v h dx for all vh ∈ Vh. (3) Writing uh = PNh−1 
+
+> i=0
+
+uiϕih, this problem is equivalent to solving the linear system Au = f with Aij = a(ϕih, ϕ jh) and f i = R 
+
+> Ω
+
+f ϕ ih, dx . As already indicated, in order to accurately resolve the fine-scale features of a potentially highly-varying and oscillatory coefficient κ, the mesh size h must typically be chosen very small, which may result in prohibitively high computational cost for solving the linear system. On the other hand, a coarse-scale finite element approximation based on VH generally fails to capture the influence of the unresolved fine-scale variations in κ and therefore leads to poor accuracy. 
+
+3.2. Localized orthogonal decomposition (LOD) 
+
+The LOD method, originally proposed in [ 26 ], is a finite element method (FEM) designed to overcome this difficulty by constructing problem-adapted multiscale basis functions that combine the computational efficiency of coarse discretizations with the accuracy of fine-scale resolution. 
+
+3.2.1. Orthogonal decomposition of scales 
+
+The central idea of the LOD method is to construct an accurate approxi-mation of the solution in a low-dimensional space of the same dimension as a coarse finite element space VH , while enriching this space with fine-scale information from a high-dimensional space Vh. To this end, first define a projection (or quasi-interpolation) operator IH : V → VH , which projects functions from the energy space V = H10 (D) onto its associated counterpart in the coarse finite element space VH . The operator IH is assumed to be a projection in the algebraic sense, i.e., 
+
+IH ◦ I H = IH ,
+
+and to satisfy appropriate stability properties [ 27 ]. Several realizations of such a projection are possible. Typical examples include the global L2-orthogonal projection onto the coarse finite element space VH , defined by 
+
+(IH v, ΦH )L2(Ω) = ( v, ΦH )L2(Ω) for all ΦH ∈ VH ,
+
+7as well as locally defined L2-projections based on nodal patches. These local constructions exploit projections onto polynomial spaces restricted to coarse neighborhoods and lead to operators that satisfy the required stability properties on quasi-uniform meshes. In contrast, nodal interpolation operators generally fail to provide sufficient stability in the H1-norm and are therefore not suitable for the LOD framework; see [ 27 ] for a detailed discussion of admissible choices. We define the space of microscopic fine-scale functions as 
+
+W := ker( IH ) = {v ∈ V | I H (v) = 0 } .
+
+The space W contains all functions that encode fine-scale features that cannot be represented in the coarse space VH and yields an orthogonal decomposition 
+
+V = VH ⊕ W w.r.t. the standard inner product on V . In order to construct an improved approximation space compared to VH , we exploit the problem-specific inner product on V induced by the bilinear form 
+
+a(u, v ) := 
+
+Z
+
+> D
+
+κ∇u · ∇ v dx. 
+
+and define the improved multiscale approximation space as 
+
+V ms  
+
+> H
+
+:= {vms  
+
+> H
+
+∈ V | a(vms  
+
+> H
+
+, w ) = 0 for all w ∈ W } ,
+
+which is nothing else but the orthogonal complement of the subspace W in V
+
+with respect to the inner product a, leading to the A-orthogonal decompo-sition V = V ms  
+
+> H
+
+⊕ W . By construction, V ms  
+
+> H
+
+has the same dimension as VH
+
+and consists of functions that are A-orthogonal to all unresolved fine-scale components. Based on this decomposition, we define the ideal numerical homogenization method as follows: given f ∈ L2(D), find ums  
+
+> H
+
+∈ V ms  
+
+> H
+
+such that 
+
+a(ums  
+
+> H
+
+, v ) = 
+
+Z
+
+> D
+
+f v dx for all v ∈ V ms  
+
+> H
+
+. (4) It is ideal in the sense that V ms H contains all coarse-resolvable fine-scale features of the multiscale coefficient κ.
+
+3.2.2. Practical realization via localization Finite-dimensional realization of the LOD method. The ideal numerical homog-enization method introduced above is formulated in the infinite-dimensional multiscale space V ms  
+
+> H
+
+⊂ V . In order to make this formulation computationally 8feasible, we next clarify how the corresponding variational problem can be solved in practice. To this end, consider the correction operator Q : V → W ,defined as the a(·, ·)-orthogonal projection onto the detail space W = ker (IH ).More precisely, for a given v ∈ V , the correction Qv ∈ W is defined as the unique solution of 
+
+a(Qv, w ) = a(v, w ) for all w ∈ W. (5) By construction, (1 − Q)v is a-orthogonal to W . One can show that the operator (1 − Q) : VH → V ms  
+
+> H
+
+is bijective, with inverse given by the projection 
+
+IH . Consequently, every function vms  
+
+> H
+
+∈ V ms  
+
+> H
+
+can be written uniquely as 
+
+vms  
+
+> H
+
+= (1 − Q)vH for some vH ∈ VH . Using this observation, the ideal multiscale problem can be reformulated as follows: find uH ∈ VH such that 
+
+a (1 − Q)uH , (1 − Q)vH
+
+ =
+
+Z
+
+> D
+
+f (1 − Q)vH dx 
+
+for all vH ∈ VH . This formulation is more favorable from a computational perspective, as it depends on the discrete, low-dimensional unknown uH ∈ VH
+
+instead of the infinite-dimensional object ums  
+
+> H
+
+∈ V ms  
+
+> H
+
+.
+
+Practical computation via localization. In practice, the numerical construction of the correction operator Q itself is localized to small patches around each coarse element in order to make the method computationally feasible. This localization is motivated by the exponential decay of the corrector functions away from their associated coarse elements; see Chapter 4 in [ 27 ]. For a given coarse element T ∈ T H , we define a patch N ℓ(T ) consisting of all coarse elements within ℓ layers of T recursively by 
+
+N 0(T ) := T, 
+
+N ℓ(T ) := [  TH ∈ T H TH ∩ N ℓ−1(T )̸ = ∅ , ℓ ∈ N.
+
+and compute the localized correction operator Qℓh by solving fine-scale elliptic problems of the form (5) on these patches. To be precise, let W ℓ(T ) ⊂ W be the space consisting of functions in W supported on N ℓ(T ) and extended by zero outside this region. The localized element corrector 
+
+QℓT : V → W ℓ(T )
+
+9is then defined as the solution of 
+
+a(QℓT v, w ) = 
+
+Z
+
+> T
+
+κ∇v · ∇ w dx for all w ∈ W ℓ(T ).
+
+For practical computations, all spaces are discretized using the fine-scale finite element space Vh. For a given vh ∈ Vh, the fully discrete localized element corrector 
+
+QℓT,h (vh) ∈ W ℓ(T ) ∩ Vh
+
+is defined as the solution of 
+
+a QℓT,h (vh), w h
+
+ =
+
+Z
+
+> T
+
+κ∇vh · ∇ wh dx for all wh ∈ W ℓ(T ) ∩ Vh. (6) The corresponding discrete localized correction operator is then given by 
+
+Qℓh := X 
+
+> T∈T H
+
+QℓT,h .
+
+Finally, the fully discrete Localized Orthogonal Decomposition method reads as follows: given f ∈ L2(D), find ums  
+
+> H,ℓ,h
+
+∈ V ms ,h H,ℓ such that 
+
+a(ums 
+
+> H,ℓ,h
+
+, v ) = 
+
+Z
+
+> D
+
+f v dx for all v ∈ V ms ,h H,ℓ , (7) where the multiscale space is defined by 
+
+V ms ,h H,ℓ := span ΦiH − Qℓh(Φ iH ) Zi ∈ N H .
+
+This space has the same dimension as the coarse finite element space VH , and the method can be interpreted as a Galerkin approximation of the original problem in a problem-adapted multiscale space. Both the correction operator 
+
+Qℓh and the final solution ums  
+
+> H,ℓ,h
+
+can be obtained by assembling and solving the corresponding linear systems; see [ 9] for implementation details. In what follows, we shall omit the coarse and fine mesh sizes H and h and the localization parameter ℓ and call the solution ums  
+
+> H,ℓ,h
+
+to (7) simply uLOD .
+
+3.3. Limitations of the LOD method 
+
+Despite its effectiveness for multiscale problems without any assumption about the periodicity of κ, the LOD method suffers from notable compu-tational limitations. In particular, LOD-based discretization requires the 10 solution of |T H | fine-scale auxiliary problems in overlapping subdomains N ℓ(T )
+
+for each realization of the random coefficient. As the localization parameter ℓ
+
+increases, these subdomains grow in size and overlap more strongly, leading to a rapidly increasing computational cost for the construction of the correction operator Qℓh. However, theoretical accuracy results typically require choosing 
+
+ℓ ≈ C|log H| for some constant C > 0, which may result in relatively large lo-calization patches in practice. This renders the computation of the correctors a major computational bottleneck. Moreover, the corrected basis functions lose the local support of standard finite element nodal basis functions: Instead of being supported on a single coarse element T , the LOD basis functions have support on the entire patch 
+
+N ℓ(S), thereby significantly polluting the sparsity structure of the resulting system matrix. This effect is further exacerbated in settings where the resulting sparsity-polluted linear systems must be solved repeatedly. These considerations motivate the development of fully surrogate-based models that bypass both the explicit computation of the basis corrections Qℓh and the solution of the associated dense or weakly sparse linear systems. 
+
+4. Proposed method: LOD Multiscale Neural Operator (LOD-MSNO) 
+
+The overall goal of LOD-MSNO is to learn the solution operator 
+
+G : κ 7 → u, 
+
+for the multiscale Darcy problem by using neural networks to surrogate the computationally expensive components of the LOD method. We assume the permeability is a random field κ = κ(ω) on a probability space (Ω , F, P),where Ω is assumed to be compact and ω ∈ Ω parameterizes one realization of the coefficient field. In the experiments, κ may be generated from Gaussian or lognormal random fields; the specific input distributions we used are described in Section 5. Accordingly, both the input permeability field and solution are interpreted as Bochner-type functions written as κ(x, ω ) and u(x, ω ) for 
+
+(x, ω ) ∈ D × Ω.Central to the LOD method are the corrected FEM basis functions 
+
+ΨjH (ω) := Φ jH − Qℓh,κ (ω)(Φ jH ), j = 1 , . . . , N H , (8) where {ΦjH } denotes the standard coarse nodal basis functions and Qℓh,κ (ω) is the localized correction operator computed from fine-scale problems posed on 11 overlapping patches of diameter proportional to the localization parameter ℓ.The dependence on ω enters through the bilinear form 
+
+aω(v, w ) := 
+
+Z
+
+> D
+
+κ(x, ω )∇v · ∇ w dx, 
+
+which defines the localized corrector problems. Consequently, the corrected basis functions ΨjH (ω) are problem-adapted and depend on the realization of the coefficient field. Using the corrected basis {ΨjH (ω)}, the LOD solution is represented as 
+
+uLOD (x, ω ) = 
+
+> NH
+
+X
+
+> j=1
+
+u(j)LOD (ω)Ψ jH (x, ω ), (9) where the coefficient vector uLOD (ω) ∈ RNH is obtained by solving the linear system 
+
+ALOD (ω)uLOD (ω) = f LOD (ω). (10) Here, ALOD (ω) is the LOD stiffness matrix and f LOD (ω) is the LOD load vector, with entries 
+
+ALOD (ω)ij := aω(Ψ iH (ω), ΨjH (ω)) , f LOD (ω)i := 
+
+Z
+
+> D
+
+f ΨiH (x, ω ) dx. 
+
+LOD-MSNO targets this parameter-to-solution map by predicting the coeffi-cient vector uLOD (ω) directly with a neural network, while avoiding explicit assembly and solution of (10) at inference time. At the same time, surrogating the construction of the correction operator Qℓh,κ (ω)—and thereby obtaining the corrected multiscale basis functions ΨiH (ω)—poses a separate and equally important challenge. 
+
+4.1. LOD-MSNO (Coeff ): Learning the coefficients 
+
+The first component of our surrogate focuses on learning the coefficient map 
+
+ω 7 → uLOD (ω),
+
+or equivalently κ(·, ω ) 7 → uLOD (ω), without assembling and solving (10) explicitly at inference time. To train this neural network surrogate, we draw i.i.d. realizations ωi ∈ Ω and evaluate the corresponding permeability fields 
+
+κi := κ(·, ω i). We then construct a dataset of tuples 
+
+{(ALOD (ωi), uLOD (ωi)) }Mi=1 ,
+
+12 Figure 2: Schematic of the proposed LOD-MSNO. Neural network predicts the coarse LOD coefficient vector. 
+
+where ALOD (ωi) denotes the LOD stiffness matrix and uLOD (ωi) denotes the ground-truth coefficient vector for the realization κ(·, ω i). Since the space 
+
+V ms ,h H,ℓ (ωi) = span ΨjH (ωi) is typically low-dimensional, storing the matrices 
+
+ALOD (ωi) remains feasible in terms of memory consumption. Moreover, these matrices have to be computed during data generation to obtain the ground-truth coefficients uLOD (ωi). Rather than employing a standard L2-or mean-square-based regression loss, we adopt an energy-based loss that reflects the variational structure of the underlying elliptic problem. At the population level, for a predicted coefficient map u : Ω → RNH , we define 
+
+LE (u) := A1/2LOD (ω) u(ω) − uLOD (ω)
+
+> L1(Ω)
+
+. (11) In practice, this expectation over the probability space is replaced by a Monte Carlo approximation using i.i.d. samples ωi ∼ P, which yields the empirical loss 
+
+LE,M (u) := 1
+
+M
+
+> M
+
+X
+
+> i=1
+
+A1/2LOD (ωi) u(ωi) − uLOD (ωi) . (12) The choice of the energy-based loss (12) is directly motivated by the variational formulation of the underlying elliptic PDE. At the discrete level, this variational principle is associated with the (discrete) energy norm of a coefficient vector v, which is given by 
+
+∥v∥2 
+
+> ALOD
+
+= v⊤ALOD v.
+
+Consequently, the proposed loss (12) measures the error between the predicted and true coefficients in the natural energy norm associated with the elliptic operator. We hypothesize that employing this energy-based loss can be ben-eficial for generalization, as it is more closely aligned with the variational 13 principle underlying the PDE. We empirically observe that training with the energy-based loss (12) leads to improved accuracy and better general-ization, particularly for coefficients exhibiting strong heterogeneity and high contrast. An ablation study comparing different loss functions is provided in Section 5.2.2. In the next section, we develop an error estimate for the LOD-MSNO (Coeff) model and analyze how using the energy-based loss affects its convergence properties. 
+
+4.2. Error analysis for LOD-MSNO (Coeff ) 
+
+Throughout this subsection, we assume that the corrected LOD basis functions {ΨjH (ω)}NH 
+
+> j=1
+
+are available for each realization ω ∈ Ω. Hence, the basis functions are treated as given, and the learning task reduces to approxi-mating the coefficient map associated with the LOD representation. Let N
+
+be any class of RNH -valued functions parameterized by neural networks. We distinguish the following objects: 
+
+• u(x, ω ) denotes the true solution of the Darcy problem (1). 
+
+• uLOD (x, ω ) denotes the numerical LOD solution obtained as a linear combination of the LOD basis by solving the linear system (10). 
+
+• buE
+
+> LOD
+
+(x, ω ) denotes the solution reconstructed from coefficients predicted by a network trained with the population loss LE in (11). 
+
+• buE,M 
+
+> LOD
+
+(x, ω ) denotes the actual LOD-MSNO (Coeff) prediction recon-structed from coefficients trained with the empirical Monte Carlo loss 
+
+LE,M in (12). More precisely, if 
+
+buE 
+
+> LOD
+
+∈ argmin 
+
+> u∈N
+
+LE (u), buE,M  
+
+> LOD
+
+∈ argmin 
+
+> u∈N
+
+LE,M (u),
+
+then the corresponding reconstructed LOD solutions are 
+
+buE
+
+> LOD
+
+(x, ω ) := 
+
+> NH
+
+X
+
+> j=1
+
+buE, (j)LOD (ω)Ψ jH (x, ω ),
+
+buE,M 
+
+> LOD
+
+(x, ω ) := 
+
+> NH
+
+X
+
+> j=1
+
+buE,M, (j)LOD (ω)Ψ jH (x, ω ).
+
+14 In particular, throughout this subsection, bold symbols denote coefficient vectors, whereas non-bold symbols denote the corresponding (reconstructed) functions. The goal of the following analysis is to quantify the discrepancy between the true solution and the learned LOD-MSNO (Coeff) prediction. To this end, we decompose the total error into three contributions: 
+
+u(x, ω ) − buE,M 
+
+> LOD
+
+(x, ω ) = u(x, ω ) − uLOD (x, ω )
+
+| {z }
+
+> (I) LOD approximation error
+
++ uLOD (x, ω ) − buE
+
+> LOD
+
+(x, ω )
+
+| {z }
+
+> (II) population learning error
+
++ buE
+
+> LOD
+
+(x, ω ) − buE,M 
+
+> LOD
+
+(x, ω )
+
+| {z }
+
+> (III) empirical/generalization error
+
+.
+
+(13) The three terms correspond to the LOD discretization error, the approximation error induced by the neural network class, and the generalization error arising from finite sampling. The first term is controlled by the classical LOD approximation theory. We state the corresponding result here: 
+
+Theorem 1 (LOD approximation error [ 27 ]) . Assume that the coefficient is uniformly elliptic, i.e. 0 < α ≤ κ(x, ω ) ≤ β < ∞. In particular, choosing 
+
+ℓ ≳ | log H| recovers the convergence rates of the ideal method. More precisely, 
+
+∥u(x, ω ) − uLOD (x, ω )∥L2(D) ≲ H2, (14) 
+
+and 
+
+∥A1/2∇ u(x, ω ) − uLOD (x, ω )∥L2(D)
+
+≤ CI
+
+√α H + CII 
+
+ ℓd/ 2 + 1   βα
+
+3/2
+
+exp 
+
+
+
+−c αβ ℓ
+
+!2
+
+∥f ∥L2(D). (15) The proof of the above result can be found in [ 27 ]. In particular, term (I) in (13) converges like H2 in the L2(D) norm when ℓ ≳ | log H|. In the following, we now develop bounds for terms (II) and (III) in Theorems 2 and 3, respectively. Their proofs are given in the appendix. We first start with a bound for (II). 
+
+Theorem 2 (Approximation error for the energy-based loss) . Denote by 
+
+λmin (ω) and λmax (ω) the smallest and biggest eigenvalues of ALOD respectively. Assume that there exists a positive constant c0 > 0 such that 
+
+ess inf  
+
+> ω∈Ω
+
+λmin (ω) ≥ c0 > 0.
+
+15 Denote by uLOD : Ω −→ RNH the true coefficient map of the LOD approxima-tion, i.e. the solution of the linear system (10) for a given ω ∈ Ω Let N be any neural network class, and define 
+
+uE 
+
+> LOD
+
+∈ argmin 
+
+> u∈N
+
+LE (u).
+
+Then 
+
+∥uLOD − uE
+
+> LOD
+
+∥L1(Ω) ≤ c−1/20 inf  
+
+> u∈N
+
+∥A1/2LOD (u − uLOD )∥L1(Ω) .
+
+If, in addition, 
+
+∥pλmax ∥L∞(Ω) := c1 < ∞,
+
+for some c1 > 0, then 
+
+∥uLOD − uE
+
+> LOD
+
+∥L1(Ω) ≤ c1
+
+√c0
+
+inf  
+
+> u∈N
+
+∥(u − uLOD )∥L1(Ω) 
+
+Next, we shall give a bound for term (III). 
+
+Theorem 3 (Generalization error for the energy-based loss) . Assume that 
+
+ess inf  
+
+> ω∈Ω
+
+λmin (ω) ≥ c0 > 0, ess sup 
+
+> ω∈Ω
+
+λmax (ω) ≤ c1 < ∞.
+
+Let ω1, . . . , ω M be i.i.d. samples in Ω. Define the empirical energy loss as the Monte-Carlo approximation of the energy loss 
+
+LE,M (u) := |Ω|
+
+M
+
+> M
+
+X
+
+> i=1
+
+ALOD (ωi)1/2 uLOD (ωi) − u(ωi) .
+
+and let 
+
+buE,M  
+
+> LOD
+
+∈ argmin 
+
+> u∈N
+
+LE,M (u)
+
+be a minimizer of the empirical energy loss function. Define the function class associated with the Neural Network class N and the energy loss 
+
+GE := 
+
+n
+
+ω 7 → A1/2LOD (ω) uLOD (ω) − u(ω) : u ∈ N 
+
+o
+
+.
+
+16 Then 
+
+E
+
+buE 
+
+> LOD
+
+− buE,M  
+
+> LOD L1(Ω)
+
+
+
+≲ 1
+
+√λmin L∞(Ω) 
+
+RM (GE )+ 1
+
+√λmin L∞(Ω) 
+
+∥pλmax ∥L∞(Ω) inf  
+
+> u∈N
+
+∥(u − uLOD )∥L1(Ω) .
+
+Here, RM (GE ) denotes the empirical Rademacher complexity of the function class GE , and the expectation is taken with respect to the random training samples ω1, . . . , ω M , and RM (GEn ) .
+
+If the neural network class N is chosen appropriately through the architec-ture, such that the associated Rademacher complexity satisfies RM (GE ) → 0
+
+as M → ∞ , and if N is sufficiently expressive to approximate the LOD coeffi-cient map, then the learned coefficient surrogate converges to the ground-truth LOD coefficients uLOD . Since the final LOD-MSNO(Coeff) prediction is ob-tained by reconstructing the physical solution from these coefficients and the multiscale basis functions, it remains to transfer this coefficient conver-gence to convergence of the reconstructed solution. The following theorem establishes this result and is our main theoretical result. It provides a precise error bound between the exact solution of equation (1) and the LOD-MSNO (Coeff) coefficient surrogate, combining the LOD discretization error with the approximation and generalization errors of the neural coefficient model. 
+
+Theorem 4 (Error estimate for LOD-MSNO(Coeff)) . Let λmin (ω) and 
+
+λmax (ω) denote the smallest and largest eigenvalues of the LOD stiffness matrix ALOD (ω) for a given input representation ω, and assume that there exist constants c0, c 1 > 0 such that 
+
+ess inf  
+
+> ω∈Ω
+
+λmin (ω) ≥ c0 > 0,
+
+∥pλmax ∥L∞(Ω) ≤ c1 < ∞,
+
+and patch size chosen as ℓ ≈ | log H|. Let RM (GE ) denote the empirical Rademacher complexity of the function class GE defined by 
+
+GE := 
+
+n
+
+ω 7 → A1/2LOD (ω) uLOD (ω) − u(ω) : u ∈ N 
+
+o
+
+.
+
+17 Then 
+
+E∥u − buLOD ∥L1(Ω; L2(D)) 
+
+ ≲ H2 + 1
+
+√c0
+
+RM (GE )+ 2c1
+
+√c0
+
+inf  
+
+> u∈N
+
+∥(u − uLOD )∥L1(Ω) .
+
+(16) 
+
+Here, the expectation E is taken with respect to the random training samples 
+
+ω1, . . . , ω M .Proof. We decompose the total error as 
+
+u − buE,M  
+
+> LOD
+
+= u − uLOD 
+
+| {z }
+
+> (I)
+
++ uLOD − buE
+
+> LOD
+
+| {z }
+
+> (II)
+
++ buE 
+
+> LOD
+
+− buE,M 
+
+> LOD
+
+| {z }
+
+> (III)
+
+.
+
+By Theorem 1 we have that ∥u(·, ω ) − uLOD (·, ω )∥L2(D) ≲ H2 for all ω ∈ Ω.Using the compactness of Ω we get: 
+
+∥u−uLOD ∥L1(Ω; L2(D)) =
+
+Z
+
+> Ω
+
+∥u(·, ω )−uLOD (·, ω )∥L2(D) dμ (ω) ≤
+
+Z
+
+> Ω
+
+CH 2 dμ (ω) ≲ H2
+
+Next, from the definition, we have that 
+
+∥uLOD − uE,M 
+
+> LOD
+
+∥L1(Ω; L2(D)) =
+
+Z
+
+> Ω
+> NH
+
+X
+
+> j=1
+
+ u(j)LOD − (buE,M (j)LOD )ΨjH
+
+> L2(D)
+
+dω 
+
+≲
+
+Z
+
+> Ω
+> NH
+
+X
+
+> j=1
+
+u(j)LOD − (buE,M (j)LOD ) ∥ΨjH ∥L2(D)
+
+!
+
+dω 
+
+≲ max 
+
+> 1≤j≤NH
+
+∥ΨjH ∥L2(D)
+
+Z
+
+> Ω
+> NH
+
+X
+
+> j=1
+
+u(j)LOD − (buE,M (j)LOD )
+
+!
+
+dω 
+
+≲ max 
+
+> 1≤j≤NH
+
+∥ΨjH ∥L2(D) ·
+
+> NH
+
+X
+
+> j=1
+
+∥u(j)LOD − buE,M (j)LOD ∥L1(Ω) 
+
+≲ ∥uLOD − buE,M 
+
+> LOD
+
+∥L1(Ω) 
+
+Theorem 2 implies 
+
+∥uLOD − buE
+
+> LOD
+
+∥L1(Ω) ≤ c1
+
+√c0
+
+inf  
+
+> u∈N
+
+∥(u − uLOD )∥L1(Ω) ,
+
+18 while Theorem 3 gives 
+
+E[∥buE 
+
+> LOD
+
+− buE,M 
+
+> LOD
+
+∥L1(Ω) ] ≲ 1
+
+√c0
+
+RM (GE ) + c1
+
+√c0
+
+inf  
+
+> u∈N
+
+∥(u − uLOD )∥L1(Ω) .
+
+Combining the three terms proves 
+
+E
+
+h
+
+∥u − buE,M 
+
+> LOD
+
+∥L1(Ω; L2(D)) 
+
+i
+
+≲ H2 + 1
+
+√c0
+
+RM (GE )+ 2c1
+
+√c0
+
+inf  
+
+> u∈N
+
+∥(u−uLOD )∥L1(Ω) .
+
+Theorem 4 establishes that the total error between the true solution of (1) is primarily governed by three contributions. The first term reflects the approximation properties of the LOD method and recovers the optimal bound when ℓ ≈ | log (H)|. The second term captures the generalization capability of the neural network class, which can be quantified via its Rademacher complexity. The third term depends on both the expressive power of the neural network class N and the spectral properties of the LOD stiffness matrix corresponding to a given input ω ∈ Ω. By picking a neural network class N
+
+with strong enough approximation (third term) and generalization properties (second term), and by choosing H small enough (first term), we can achieve that the expected error between the true solution u and the LOD-MSNO (Coeff) prediction buE,M  
+
+> LOD
+
+converges to zero. 
+
+4.3. LOD-MSNO (Joint): Learning the basis functions and the combined model 
+
+The coefficient model described so far assumes that the corrected LOD basis functions {ΨjH (ω)}NH 
+
+> j=1
+
+are available for every input realization. How-ever, computing these basis functions by solving localized fine-scale corrector problems of the form (6) for every patch constitutes the major computational bottleneck of the classical LOD method. In order to remove this remaining bottleneck, we aim to also learn the coefficient-dependent basis map 
+
+κ(·, ω ) 7 −→ { ΨjH (·, ω )}NH
+
+> j=1
+
+.
+
+that maps an input permeability field κ to its corresponding set of LOD-corrected basis functions. Rather than learning the multiscale basis functions 19 directly, we exploit their LOD construction. For each coarse basis function 
+
+ΦjH , the corresponding localized multiscale basis function is given by 
+
+ΨjH (ω) := Φ jH − Qℓh(Φ jH )( ω) = Φ jH − X 
+
+> T∈T H
+
+QℓT,h (Φ jH )( ω). (17) Consequently, it is sufficient to learn the local correction operators QℓT,h on each patch N ℓ(T ).We now rewrite the discrete localized corrector problem in a form that is suitable for supervised learning. Let T ∈ T H be fixed and let {ϕℓ,T,m }Nℓ,h (T )
+
+> m=1
+
+denote the fine-scale nodal basis functions associated with the fine interior degrees of freedom in the patch N ℓ(T ). For a given coarse basis function ΦjH ,we write the local corrector as 
+
+QℓT,h (Φ jH )( x, ω ) =  
+
+> Nℓ,h (T)
+
+X
+
+> m=1
+
+wT,j,m (ω) ϕℓ,T,m (x), (18) and collect the local correction coefficients in the vector wT,j (ω) ∈ RNℓ,h (T ).The defining local corrector equation is 
+
+aω
+
+ QℓT,h (Φ jH ), w h
+
+ =
+
+Z
+
+> T
+
+κ(x, ω )∇ΦjH ·∇ wh dx for all wh ∈ W ℓ(T )∩Vh. (19) The constraint QℓT,h (Φ jH ) ∈ W ℓ(T ) = ker (IH ) ∩ { v : supp (v) ⊂ N ℓ(T )} can be imposed algebraically by a local constraint matrix CT representing the action of IH on the patch degrees of freedom. More precisely, if AT (ω) ∈
+
+RNℓ,h (T )×Nℓ,h (T ) and rT,j (ω) ∈ RNℓ,h (T ) are defined by 
+
+(AT (ω)) mn := 
+
+Z  
+
+> Nℓ(T)
+
+κ(x, ω )∇ϕℓ,T,n (x) · ∇ ϕℓ,T,m (x) dx, 
+
+(rT,j (ω)) m := 
+
+Z
+
+> T
+
+κ(x, ω )∇ΦjH (x) · ∇ ϕℓ,T,m (x) dx, 
+
+then the local correction coefficients are obtained from the saddle-point system 
+
+AT (ω) C⊤
+
+> T
+
+CT 0
+
+  wT,j (ω)
+
+λT,j (ω)
+
+
+
+=
+
+rT,j (ω)
+
+0
+
+
+
+. (20) Here, λT,j (ω) is a vector of Lagrange multipliers that enforces the fine-scale constraint IH QℓT,h (Φ jH ) = 0 on the patch. If we let wT ∈ Rcd×Nℓ,h be 20 correction values associated with the patch centered around T ∈ T H for each of the cd degrees of freedom in the element T , the numerical construction of the LOD basis produces, for each realization ω, a collection of local coefficient matrices 
+
+W (ω) := wT (ω) : T ∈ T H }. (21) Equivalently, after choosing a fixed ordering of patches and local fine degrees of freedom, this collection can be viewed as a sparse tensor whose entries are the numbers wT,j,m (ω) in (18) . Based on the above formulation, instead of trying to directly approximate (4.3), our basis-correction network is trained to approximate the map 
+
+κ(·, ω ) 7 −→ cW (ω) (22) Given a training set 
+
+DB := (κi, W i) Mi=1 , W i = W (ωi), (23) where W i is computed by solving (20) for all relevant patches and coarse basis functions, we use the supervised loss function 
+
+Lbasis,M (θB ) := 1
+
+M
+
+> M
+
+X
+
+> i=1
+
+X 
+
+> T∈T H
+> NH
+
+X
+
+> j=1
+
+1
+
+Nℓ,h (T ) ∥P T bwT,j (ωi) − wT,j (ωi)∥ . (24) the learn the parameters θB of the basis-correction network. Here, P T denotes the nullspace projector 
+
+P T = I − CTT (CT CTT )−1CT
+
+that ensures the predicted coefficients bwT,j are in the space ker (IH ) ∩ { v :supp (v) ⊂ N ℓ(T )}. In practice, the summation over j only involves coarse basis functions whose support intersects the element T , since all other right-hand sides rT,j (ω) vanish. Once the local corrections have been predicted, the learned multiscale basis is assembled by 
+
+bΨjH (ω) := Φ jH − X  
+
+> T∈T H
+> Nℓ,h (T)
+
+X
+
+> m=1
+
+bw(m) 
+
+> T,j
+
+(ω) ϕℓ,T,m . (25) This gives a learned approximation of the full LOD basis map in (4.3) without solving local saddle-point systems at inference time. To obtain a single 21 Algorithm 1 Overall Training Procedure for LOD-MSNO 
+
+Input: Training data {(κ(( ωi)) , uLOD (ωi), W (ωi)) }Mi=1 with {ωi}Mi=1 being an i.i.d sequence in Ω.Initialize the parameters of the coefficient and basis model (θc, θ B ).
+
+while the coefficient validation loss has not converged do 
+
+Draw a mini-batch I ⊂ { 1, . . . , M }
+
+for all i ∈ I do 
+
+Train the coefficient model with the energy loss (12): 
+
+LE,M (u) := 1
+
+M
+
+X
+
+> i∈I
+
+A1/2LOD (ωi) u(ωi) − uLOD (ωi) .
+
+end for end while while the basis validation loss has not converged do 
+
+Draw a mini-batch I ⊂ { 1, . . . , M } and a subset T ⊂ T H .
+
+for all i ∈ I , T ∈ T do 
+
+Train the basis-correction model with the correction loss (24): 
+
+Lbasis,M (θB ) := 1
+
+M
+
+> M
+
+X
+
+> i=1
+
+X 
+
+> T∈T
+> NH
+
+X
+
+> j=1
+
+1
+
+Nℓ,h (T ) ∥P T bwT,j (ωi) − wT,j (ωi)∥ .
+
+end for end while 
+
+Predict LOD coefficients buE,M 
+
+> LOD
+
+(ωi) from κi.Predict local correction coefficients cW (ωi) = { bwT (ωi) : T ∈ T H }.Assemble the learned correction matrix bQℓh(ωi) from cW (ωi).Reconstruct the full LOD solution via (26). neural operator from the permeability field to the fine-scale solution, both components are combined through the LOD reconstruction formula. Let 
+
+buLOD (ω) denote the coefficient prediction and let cW (ω) denote the predicted local correction coefficients. LOD-MSNO (Joint) reconstructs the full solution 22 as 
+
+buLOD −M SN O =
+
+> NH
+
+X
+
+> j=1
+
+buE,M, (j)LOD (ω) bΨjH (x, ω )=
+
+> NH
+
+X
+
+> j=1
+
+buE,M, (j)LOD (ω) ΦjH − X 
+
+> T∈T H
+
+bQℓT,h (Φ jH )( ω)
+
+!
+
+=
+
+> NH
+
+X
+
+> j=1
+
+buE,M, (j)LOD (ω)Φ jH −
+
+> NH
+
+X
+
+> j=1
+
+buE,M, (j)LOD (ω) X  
+
+> T∈T H
+> Nℓ,h (T)
+
+X
+
+> m=1
+
+bw(m) 
+
+> T,j
+
+(ω) ϕℓ,T,m 
+
+(26) The coefficient network and the basis-correction network define two com-plementary surrogates. The first network approximates the coefficient map 
+
+κ(·, ω ) 7 → uLOD (ω), whereas the second network approximates the correc-tion map κ(·, ω ) 7 → W (ω). LOD-MSNO then predicts the full solution via (26). The full procedure to train the full LOD-Multiscale Neural Operator is summarized in Algorithm 1. 
+
+5. Experiments 
+
+We evaluate the proposed LOD-MSNO on the steady Darcy flow (1) problem, where the objective is to approximate the LOD representation of the solution from the permeability coefficient κ. As already indicated through naming, we distinguish two models. LOD-MSNO (Coeff ) is the coefficient model that assumes the exact corrected multiscale basis {ΨiH } to be available and learns the map from κ to the expansion coefficients uLOD in (9) . The full PDE solution is then reconstructed as a linear combination of the exact corrected basis functions with the learned coefficients. LOD-MSNO (Joint) is the combination of the coefficient model and the basis model that predicts, by contrast, both the coefficients buLOD and the localized correction operators that define the coefficient-dependent multiscale basis as described in Section 4.3 and reconstructs the full solution via (26). Thus, the coefficient model only replaces the LOD-system (10) assembly and solve, whereas the basis model additionally replaces the localized basis corrector computations and predicts the solution to (1) without the need of any numerical computations. 
+
+Baseline models. We compare our method against a range of established base-lines to ensure a balanced and meaningful evaluation. First, we include FNO 23 [ 19 ], CNO [ 31 ], and UNO [ 29 ], which are widely used and representative neural operator architectures based on the iterative application of kernel integrals. Similarly, Transolver [ 35 ] is incorporated as a multi-purpose transformer-based operator model capable of capturing long-range dependencies. These models serve as standard data-driven operator learning benchmarks. To ensure fairness with respect to physics-informed approaches, we additionally compare against PINO [ 20 ], as our method also incorporates physical struc-ture—specifically through the use of problem-adapted basis functions and the inclusion of the LOD stiffness matrix ALOD in the loss function. We further include FEONet [ 18 ] as a representative hybrid neural network–numerical method, since it also follows a coefficient-learning paradigm in which the solution is reconstructed as a linear combination of basis functions. In contrast to LOD-MSNO, however, FEONet uses fixed coarse P 1 finite element basis functions rather than coefficient-dependent corrected LOD basis functions. Finally, we consider PI-DeepONet [ 12 ], which is both physics-informed and structurally similar to our approach in that it represents the solution as a linear expansion over a learned set of basis functions. Our LOD-MSNO models are trained to predict the LOD coefficient vector uLOD , from which the full fine-scale solution is reconstructed using the corrected LOD basis. 
+
+5.1. Benchmark datasets 
+
+As depicted in Figure 1, training and test datasets are generated using four distinct classes of permeability fields designed to probe different multiscale and high-contrast regimes. In the following, we refer to them as lognor-mal1 , lognormal2 , quantile , and checkerboard . These datasets are specifically constructed to highlight a key shortcoming of neural operator models when applied to multiscale problems and are inspired by industry-relevant real-world applications. A more detailed description of the dataset characteristics and its generation process can be found in Appendix C. 
+
+Lognormal coefficients. For the lognormal datasets, we consider permeability fields of the form κ(x) = exp (Z(x)) where Z is a centered Gaussian random field with Whittle–Matérn covariance with smoothness parameter ν > 0,correlation length ℓ > 0, and variance σ2 > 0. We distinguish two regimes: (1) Lognormal1 with σ = 1 .0, ℓ = 0 .1, (2) Lognormal2 with σ = 2 .0,
+
+ℓ = 0 .3. The second setting exhibits significantly stronger oscillations and substantially higher contrast, making it particularly challenging for operator learning methods. 24 Figure 3: Prediction errors for lognormal2 coefficients using the best-performing baseline model and LOD-MSNO(Coeff). 
+
+Quantile coefficients. For the quantile dataset, we first sample a Gaussian random field Z with squared-exponential covariance and define a lognormal field exp (Z). The resulting values are then discretized into a finite set of prescribed permeability levels via empirical quantiles and randomly permuted across the domain, yielding piecewise-constant coefficients with sharp jumps and high contrast. 
+
+Checkerboard coefficients.. The checkerboard coefficients are defined as piecewise-constant random fields on a fine Cartesian grid, where each cell independently takes values from a fixed set of permeability levels. This yields coefficients with discontinuities at the grid scale and no spatial correlation. 
+
+5.2. Evaluation of LOD-MSNO 5.2.1. Comparison of baseline models and LOD-MSNO 
+
+In this section, we fix the coarse and fine mesh sizes to H = 2 −4 and 
+
+h = 2 −7 for the evaluation of LOD-MSNO. LOD-MSNO (Coeff ) uses the exact corrected multiscale basis functions and only replaces the LOD coefficient solve with a learned coefficient predictor. The coefficient model is realized by GlobalCoeffNet , which maps the normalized permeability field to the coefficient vector uLOD associated with the corrected multiscale basis {ΨiH }.It first extracts fine-grid features by a convolutional encoder built from Conv– GroupNorm–GELU and residual blocks and then performs nonlinear mixing on the coarse LOD grid by residual layers, so that the output is restricted to the interior coarse degrees of freedom. Training is supervised by precomputed LOD coefficient vectors and uses the energy-based objective in (12) , which weights coefficient errors by the LOD stiffness matrix and therefore reflects their contribution to the reconstructed solution. At inference time, the predicted coefficients are combined with the exact corrected basis functions 25 to reconstruct the solution, which is then evaluated on a uniform 128 × 128 
+
+grid. 
+
+LOD-MSNO (Joint) combines the coefficient model with a learned basis-correction model, so that both the expansion coefficients uLOD and the coefficient-dependent localized LOD basis {ΨjH }NH 
+
+> j=1
+
+are predicted from the permeability field. The basis model is realized by PatchCorrectionNet , which acts locally on oversampling patches and predicts the correction coefficients associated with the three local coarse basis functions of each triangular coarse element. Because boundary and interior patches have different active fine degrees of freedom, each patch is embedded into a common rectangular patch canvas using padding, and the network receives the normalized log-permeability together with input and target support masks. Architecturally, 
+
+PatchCorrectionNet is a U-Net-style convolutional encoder–decoder with skip connections, using the same Conv–GroupNorm–GELU and residual blocks as the coefficient model. The local patch predictions are assembled into a global approximation of the LOD correction operator and combined with the predicted coefficient vector to reconstruct the fine-scale solution. All baseline models are trained directly on pairs {(κi, u (i) 
+
+> h
+
+)} of permeability fields and corresponding fine-scale reference solutions computed by (3) on the fine grid with mesh size h, using the relative L2 error as the training objective. For the models LOD-MSNO, FNO, CNO, and UNO, we apply the same input preprocessing and normalization pipeline, consisting of a logarithmic transformation of the permeability field, gradient-magnitude and coordinate channels, and channel-wise input as well as per-component output normalization (see Appendix Appendix D.1 for details). For PI-DeepONet and Transolver, which do not support additional input channels, the gradient-magnitude and coordinate augmentations ( add_grad and add_coords ) are therefore omitted. For evaluation, we report the mean and standard deviation of the relative L2 error (Rel-L2) computed on the fine grid, where u denotes the reference solution and bu the model prediction. The aggregated results are summarized in Table 1. The results indicate that LOD-MSNO(Coeff) attains competitive and, in three out of four cases, improved relative L2-error accuracy compared to the considered baselines, with particularly strong performance on the multiscale lognormal datasets, while remaining comparable to the best-performing methods on the other coefficient configurations. In comparison to FEONet and PI-DeepONet, the results highlight the advantage of employing problem-adapted multiscale 26 Table 1: Mean ± standard deviation of the test relative L2 errors on the fine grid with                                                                                                                    
+
+> h= 2 −7across 5 independent runs. The best-performing model is shown in bold , and the second-best is underlined.
+> Model Lognormal1 Lognormal2 Quantile Checkerboard FNO [19] 0.049 ±0.001 0.163 ±0.002 0.254 ±0.010 0.064 ±0.000
+> CNO [31] 0.018 ±0.001 0.093 ±0.003 0.120 ±0.007 0.010 ±0.001
+> UNO [29] 0.044 ±0.000 0.160 ±0.003 0.239 ±0.008 0.064 ±0.001
+> PI-DeepONet [12] 0.138 ±0.001 2.028 ±0.084 1.282 ±0.015 0.062 ±0.000
+> Transolver [35] 0.082 ±0.022 0.341 ±0.016 0.610 ±0.050 0.053 ±0.003
+> PINO [20] 0.025 ±0.000 0.145 ±0.002 0.203 ±0.012 0.035 ±0.000
+> FEONet [18] 0.099 ±0.000 1.805 ±0.073 0.129 ±0.020 0.668 ±0.109
+> LOD-MSNO (Coeff) 0.012 ±0.002 0.042 ±0.006 0.118 ±0.017 0.018 ±0.003
+> LOD-MSNO (Joint) 0.029 ±0.001 0.068 ±0.002 0.302 ±0.016 0.029 ±0.001
+
+basis functions. While FEONet relies on a fixed coarse P 1-FEM basis and PI-DeepONet learns a global set of basis functions via the trunk network, LOD-MSNO leverages LOD basis functions that are specifically tailored to the underlying coefficient field. This leads to consistently improved accu-racy, particularly in strongly heterogeneous regimes. Moreover, compared to physics-informed approaches such as PINO and PI-DeepONet, the results suggest that incorporating the physical structure through a strong numerical prior is more effective than enforcing the PDE via autodifferentiation-based loss terms. In particular, constructing the solution using the LOD framework allows the model to directly encode relevant multiscale features of the problem, which appears to be a more robust way of injecting physical information than relying solely on PDE residual minimization. The results for LOD-MSNO (Joint) further show that the fully learned surrogate remains competitive despite also replacing the localized corrector computations. In particular, on the high-contrast lognormal2 dataset, LOD-MSNO (Joint) achieves a mean relative L2 error of 0.068 , outperforming all benchmark models and demonstrating the potential of the full surrogate in high-contrast regimes. 
+
+5.2.2. Ablation study 
+
+We conduct an ablation study to assess the impact of the training loss function on the performance and generalization ability of LOD-MSNO (Coeff). In particular, we train the model using three alternative losses: the standard 
+
+L2 loss, the relative L2 loss, and the L1 loss. We specifically use LOD-MSNO (Coeff) to isolate the effect of the choice of loss function from LOD-27 Figure 4: Loss ablation for predicting uLOD . Test Rel -L2 error vs. epoch for lognormal2 (left) and quantile (right). Table 2: Ablation on preprocessing and input-channel augmentation for LOD-MSNO(Coeff). Fine-grid test relative L2 errors. Dataset Training setting Variants LOD-MSNO (Coeff) w/o log +normalization w/o add_grad 
+
++add_coords w/o all  
+
+> log + normalization
+
+✓ ✗ ✓ ✗  
+
+> add_grad +
+> add_coords
+
+✓ ✓ ✗ ✗
+
+Lognormal1 0.025 0.080 0.034 0.236 Lognormal2 0.042 0.135 0.096 1.215 Quantile 0.089 0.247 0.319 0.313 Checkerboard 0.020 0.020 0.056 0.188 
+
+MSNO (Joint), in which the error predicting the basis also influences the relative L2 error on the fine grid. All models are trained on 500 samples with lognormal2 and quantile-type permeability fields, and we report the evolution of the test relative L2 error during training. As shown in Figure 4, training with the energy-based loss yields the lowest final error for both coefficient classes, while the L1 and (relative) L2 saturate at higher error levels. Especially in the lognormal2 case, the energy-loss exhibits the most stable convergence behavior, whereas the L2- and L1-based training runs display larger fluctuations and higher asymptotic errors. Table 2 reports the impact of the proposed preprocessing and channel augmentation strategies on the performance of LOD-MSNO (Coeff). Here, all models are trained using the energy-norm loss on 500 samples from the Quantile dataset. Across all 28 Table 3: Comparison of data-generation times, measured in seconds per sample. Local patch-corrector times assume 16 CPU cores. Global basis assembly involves global sparse matrix operations and is measured sequentially on the same CPU.                                           
+
+> Resolution Fine FEM LOD Basis LOD Coeff Local patch correctors Global basis assembly Total Coeff. assembly Coeff. solve Total
+> h= 7 , H = 4 0.1135 0.7842 0.4890 1.2732 0.2145 0.0020 0.2165
+> h= 8 , H = 4 0.5590 4.2527 1.8327 6.0854 0.8500 0.0021 0.8521
+> h= 8 , H = 5 0.5606 4.5842 4.7611 9.3453 1.2688 0.0752 1.3440
+> h= 9 , H = 6 4.3828 20.0033 72.9008 92.9041 6.9178 3.1047 10.0225
+
+datasets, the full configuration—combining logarithmic scaling, normalization, and the additional gradient-magnitude and coordinate channels—consistently yields the lowest relative L2 errors. Removing either the log-scaling and normalization or the auxiliary channels leads to a noticeable degradation in accuracy, while omitting all preprocessing steps results in a substantial loss of performance. These results demonstrate that both the normalization strategy and the inclusion of gradient and coordinate information play an important role in enabling accurate and stable learning for LOD-MSNO(Coeff). 
+
+5.3. Comparison of training and inference time 
+
+Table 3 summarizes the data-generation costs for different mesh resolutions; all times are measured in seconds per sample. For the LOD basis construction, we report the local patch-corrector cost, the global basis assembly cost, and their sum parallelized over 16 CPU cores, the sequential global basis assembly cost, and their sum. The localized corrector problems QℓT,h are embarrassingly parallel—each depends only on the fine-grid stiffness matrix restricted to its patch—so the patch-corrector step distributes exactly across cores; scaling to more than 16 cores would reduce this component proportionally. By contrast, assembling the LOD basis (given by the rows of the matrix G = P1 − Qℓh,which is the difference of the prolongation matrix P1 that encodes the coarse nodal basis functions and the correction operator Qℓh) via global sparse-matrix stacking and multiplication across all patches such that is an aggregation step that does not decompose into independent patch-level tasks and is therefore measured without inter-task parallelization. Classical LOD timings were obtained on a 16-core CPU; all neural-network timings (training and inference) were measured on an NVIDIA A100 80GB GPU. 29 Table 4: Comparison of training and inference times, measured in seconds. Inference times are reported per sample using a batch size of one. Training times use 500 training samples, with the coefficient model and CNO trained for the same number of epochs. 
+
+Resolution Training time Inference Coeff Basis CNO Coeff Basis CNO 
+
+h = 7 , H = 4 1186 4409 10366 0.0036 0.0347 0.0061 
+
+h = 8 , H = 4 3922 12290 36076 0.0036 0.9686 0.0064 
+
+h = 8 , H = 5 4508 17652 36040 0.0036 1.3884 0.0064 
+
+h = 9 , H = 6 27334 71862 137714 0.0086 5.5559 0.0207 
+
+The results show that the localized basis-corrector computations dominate the classical LOD data-generation cost, especially as the fine mesh is refined. With 16-core parallelization of the local corrector step, the per-sample patch-corrector time is substantially reduced compared to the sequential cost; using more than 16 cores would decrease this cost further proportionally. The global basis assembly and the coefficient steps remain sequential, and for fine coarse spaces, the global assembly itself becomes a dominant cost—at h = 9 , H = 6 ,it accounts for the majority of the basis construction time. In particular, as H
+
+is refined, the coarse LOD solve becomes comparable in cost to the fine FEM solve despite involving fewer degrees of freedom, which highlights the effect of the non-sparsity of the LOD system as a major computational bottleneck. This observation motivates the coefficient surrogate, whose direct inference of the expansion coefficients avoids repeatedly assembling and solving this dense coarse system and thereby contributes directly to the speedup of LOD-MSNO. These timings motivate the two surrogate components of LOD-MSNO: the basis model targets the expensive localized corrector computations, whereas the coefficient model targets the assembly and solution of the coarse LOD system. Consequently, the timing results indicate that LOD-MSNO indeed addresses the main computational bottlenecks of the classical LOD method discussed in Section 3.3. Table 4 reports the corresponding neural-network training and single-sample inference times for LOD-MSNO and CNO. All neural-network models were trained using 1000 training samples, and the coefficient model and CNO were trained for the same number of epochs. We compare against CNO because it is the strongest benchmark model in terms of accuracy among the standard neural-operator baselines considered in Table 1. 30 The results show that both LOD-MSNO components combined are faster to train than CNO across all tested resolutions. At inference time, the neural surrogates are much faster than the corresponding traditional LOD compu-tations, as can be inferred from the per-sample LOD basis and coefficient generation times in Table 3. This speedup stems from replacing the repeated localized corrector solves and coarse LOD solves with neural-network pre-dictions, and holds even when the classical pipeline is parallelized over 16 CPU cores for the corrector step. Consequently, the inference-time results indicate that LOD-MSNO is capable of addressing the main computational bottlenecks of the classical LOD method discussed in Section 3.3. The CNO inference time is lower than that of the basis model because CNO directly outputs the solution as an image on the grid. By contrast, the basis model predicts local basis corrections patch by patch and must assemble the global correction operator and reconstructed solution from these individual local predictions. 
+
+6. Conclusion and outlook 
+
+In this work, we introduced LOD-MSNO, a hybrid neural-operator frame-work for multiscale Darcy-Flow Problems that combines the problem-adapted approximation structure of the Localized Orthogonal Decomposition method with deep learning-based surrogate modeling. The method is designed based on the Localized Orthogonal Decomposition (LOD) method and aims to replace the expensive numerical computations associated with it through a mainly data-driven approach. In the coefficient-only variant, LOD-MSNO (Coeff) predicts the LOD expansion coefficients and reconstructs the fine-scale solution using the exact corrected multiscale basis, thereby avoiding the as-sembly and solution of a non-sparse system of equations. In the joint variant, LOD-MSNO (Joint) additionally learns the localized basis corrections, thereby also targeting the second computational bottleneck of the LOD method: the coarse LOD solve and the construction of localized correctors. Through a rigorous error analysis, we gave a precise convergence bound for our models. Numerical experiments also show that using the LOD method as a modeling prior is beneficial for challenging rough and high-contrast permeability fields for the Darcy-flow equation. The comparison with other physics-informed baselines further indicates that explicitly incorporating problem-adapted LOD basis information can be more effective than relying only on PDE residuals for physically consistent solutions. 31 The following directions remain open for future work. A stronger theoret-ical analysis of the basis-learning component would be valuable, especially for quantifying how errors in the learned local correction operators propa-gate to the assembled multiscale basis and the final fine-scale reconstruction. Another important direction is to improve the efficiency of the joint model during inference, for example by reducing patch-wise assembly overhead or by exploiting parallel structure in the local corrector predictions. Lastly, since LOD methods are available for a wide range of problem classes, including elliptic eigenvalue problems and parabolic equations, extending LOD-MSNO to these settings constitutes another promising avenue for future work. 
+
+Acknowledgements 
+
+This work was supported by Samsung Electronics Co., Ltd (IO250307-12279-01), by the Institute of Information & Communications Technology Planning & Evaluation (IITP) grant funded by the Korea government (MSIT) [RS-2021-II211341, Artificial Intelligence Graduate School Program (Chung-Ang University)], and by the Chung-Ang University Young Scientist Scholar-ship in 2025. 
+
+Declaration of generative AI and AI-assisted technologies in the manuscript preparation process 
+
+During the preparation of this work, the author(s) used Prism AI in order to polish and improve the scientific language and readability of human-written texts, as well as to assist with the formatting of formulas and tables. After using this tool/service, the author(s) reviewed and edited the content as needed and take(s) full responsibility for the content of the published article. 
+
+References 
+
+[1] Bear, J., 1988. Dynamics of Fluids in Porous Media. Dover Civil and Mechanical Engineering Series, Dover. URL: https://books.google.c o.kr/books?id=-XEaxd3hGzoC .[2] Blanc, X., Le Bris, C., 2023. Homogenization Theory for Multiscale Problems: An introduction. MS&A, 21, Springer Nature Switzerland. doi: 10.1007/978-3-031-21833-0 .32 [3] Bonizzoni, F., Nobile, F., 2014. Perturbation analysis for the Darcy problem with log-normal permeability. SIAM/ASA J. Uncertain. Quantif. 2, 223–244. URL: https://doi.org/10.1137/130949415 , doi: 10.113 7/130949415 .[4] Cao, S., 2021. Choose a Transformer: Fourier or Galerkin, in: Advances in Neural Information Processing Systems. [5] Choi, J., Kim, N., Hong, Y., 2023. Unsupervised legendre-galerkin neural network for solving partial differential equations. IEEE Access PP, 1–1. doi: 10.1109/ACCESS.2023.3244681 .[6] Choi, J., Yun, T., Kim, N., Hong, Y., 2024. Spectral operator learning for parametric pdes without data reliance. Computer Methods in Applied Mechanics and Engineering 420, 116678. doi: 10.1016/j.cma.2023.116 678 .[7] C.Y.Peng, G., Alber, M., Tepole, A.B., Cannon, W.R., De, S., Dura-Bernal, S., Garikipati, K., Karniadakis, G., Lytton, W.W., Perdikaris, P., Petzold, L., Kuhl, E., 2021. Multiscale modeling meets machine learning: what can we learn? Archives of computational methods in engineering 28.3, 1017–1037. URL: https://link.springer.com/article/10.100 7/s11831-020-09405-5 .[8] Efendiev, Y., Hou, T.Y., 2009. Multiscale finite element methods: theory and applications. Springer Science & Business Media. [9] Engwer, C., Henning, P., Målqvist, A., Peterseim, D., 2019. Efficient implementation of the localized orthogonal decomposition method. Com-puter Methods in Applied Mechanics and Engineering 350, 123–153. URL: https://www.sciencedirect.com/science/article/pii/S004 5782519301112 , doi: https://doi.org/10.1016/j.cma.2019.02.040 .[10] Fanaskov, V.S., Oseledets, I.V., 2023. Spectral neural operators, in: Doklady Mathematics, Springer. pp. S226–S232. [11] Gentine, P., Pritchard, M., Rasp, S., Reinaudi, G., Yacalis, G., 2018. Could machine learning break the convection parameterization deadlock? Geophysical Rresearch Letters 45.11, 5742–5751. URL: https://agup ubs.onlinelibrary.wiley.com/doi/full/10.1029/2018GL078202 .33 [12] Goswami, S., Bora, A., Yu, Y., Karniadakis, G.E., 2022. Physics-informed deep neural operator networks. ArXiv abs/2207.05748. URL: 
+
+https://api.semanticscholar.org/CorpusID:250626955 .[13] Hao, Z., Su, C., Liu, S., Berner, J., Ying, C., Su, H., Anandkumar, A., Song, J., Zhu, J., 2024. DPOT: Auto-regressive denoising operator transformer for large-scale PDE pre-training, in: Proceedings of the 41st International Conference on Machine Learning, PMLR. pp. 17616–17635. [14] Hou, T.Y., Wu, X.H., 1997. A multiscale finite element method for elliptic problems in composite materials and porous media. Journal of computational physics 134, 169–189. [15] Kalina, K.A., Linden, L., Brummund, J., Kastner, M., 2023. Feann: an efficient data-driven multiscale approach based on physics-constrained neural networks and automated data mining. Computational Mechanics 71.5, 827–851. URL: https://link.springer.com/article/10.1007/ s00466-022-02260-0 .[16] Kirkham, M., 2023. Chapter 22 - electrical analogs for water movement through the soil-plant-atmosphere continuum, in: Principles of Soil and Plant Water Relations (Third Edition). third edition ed.. Academic Press, pp. 431–449. URL: https://www.sciencedirect.com/science/arti cle/pii/B9780323956413000301 , doi: https://doi.org/10.1016/B9 78-0-323-95641-3.00030-1 .[17] Lee, J.Y., Cho, S.W., Hwang, H.J., 2023. Hyperdeeponet: learning oper-ator with complex target function space using the limited resources via hypernetwork. URL: https://arxiv.org/abs/2312.15949 ,
+
+arXiv:2312.15949 .[18] Lee, J.Y., Ko, S., Hong, Y., 2025. Finite element operator network for solv-ing elliptic-type parametric pdes. SIAM Journal on Scientific Computing 47, C501–C528. URL: https://doi.org/10.1137/23M1623707 , doi: 10 .1137/23M1623707 , arXiv:https://doi.org/10.1137/23M1623707 .[19] Li, Z., Kovachki, N., Azizzadenesheli, K., Liu, B., Bhattacharya, K., Stuart, A., Anandkumar, A., 2021. Fourier neural operator for parametric partial differential equations. URL: https://arxiv.org/abs/2010.0 8895 , arXiv:2010.08895 .34 [20] Li, Z., Zheng, H., Kovachki, N., Jin, D., Chen, H., Liu, B., Azizzade-nesheli, K., Anandkumar, A., 2024. Physics-informed neural operator for learning partial differential equations. ACM / IMS J. Data Sci. 1. URL: https://doi.org/10.1145/3648506 , doi: 10.1145/3648506 .[21] Liu, R., Lehman, J., Molino, P., Such, F.P., Frank, E., Sergeev, A., Yosinski, J., 2018. An intriguing failing of convolutional neural networks and the coordconv solution, in: Proceedings of the 32nd International Conference on Neural Information Processing Systems, Curran Associates Inc., Red Hook, NY, USA. p. 9628–9639. [22] Lu, L., Jin, P., Pang, G., Zhang, Z., Karniadakis, G., 2021a. Learning nonlinear operators via deeponet based on the universal approximation theorem of operators. Nature Machine Intelligence 3, 218–229. doi: 10.1 038/s42256-021-00302-5 .[23] Lu, L., Jin, P., Pang, G., Zhang, Z., Karniadakis, G.E., 2021b. Learning nonlinear operators via deeponet based on the universal approximation theorem of operators. Nature Machine Intelligence 3, 218–229. URL: 
+
+http://dx.doi.org/10.1038/s42256-021-00302-5 , doi: 10.1038/s4 2256-021-00302-5 .[24] Lu, L., Meng, X., Cai, S., Mao, Z., Goswami, S., Zhang, Z., Karniadakis, G.E., 2022. A comprehensive and fair comparison of two neural operators (with practical extensions) based on fair data. Computer Methods in Applied Mechanics and Engineering 393, 114778. URL: https://ww w.sciencedirect.com/science/article/pii/S0045782522001207 ,doi: https://doi.org/10.1016/j.cma.2022.114778 .[25] Målqvist, A., Persson, A., 2018. Multiscale techniques for parabolic equations. Numerische Mathematik 138. doi: 10.1007/s00211-017-090 5-7 .[26] Målqvist, A., Peterseim, D., 2011. Localization of elliptic multiscale problems. Math. Comput. 83, 2583–2603. URL: https://api.semant icscholar.org/CorpusID:267820598 .[27] Målqvist, A., Peterseim, D., 2020. Numerical Homogenization by Localized Orthogonal Decomposition. Society for Industrial and Applied Mathematics, Philadelphia, PA. URL: https://epubs.siam.org/d 
+
+35 oi/abs/10.1137/1.9781611976458 , doi: 10.1137/1.9781611976458 ,
+
+arXiv:https://epubs.siam.org/doi/pdf/10.1137/1.9781611976458 .[28] Pavliotis, G.A., Stuart, A.M., 2008. Multiscale Methods: Averaging and Homogenization. volume 53 of Texts in Applied Mathematics . Springer Science & Business Media, New York. [29] Rahman, M.A., Ross, Z.E., Azizzadenesheli, K., 2023. U-no: U-shaped neural operators. URL: https://arxiv.org/abs/2204.11127 ,
+
+arXiv:2204.11127 .[30] Raissi, M., Perdikaris, P., Karniadakis, G., 2019. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational Physics 378, 686–707. URL: https://www.scienced irect.com/science/article/pii/S0021999118307125 , doi: https: //doi.org/10.1016/j.jcp.2018.10.045 .[31] Raonić, B., Molinaro, R., De Ryck, T., Rohner, T., Bartolucci, F., Alaifari, R., Mishra, S., de Bézenac, E., 2023. Convolutional neural operators for robust and accurate learning of pdes, in: Proceedings of the 37th International Conference on Neural Information Processing Systems, Curran Associates Inc., Red Hook, NY, USA. [32] Sirignano, J., Spiliopoulos, K., 2018. Dgm: A deep learning algorithm for solving partial differential equations. Journal of Computational Physics 375, 1339–1364. URL: https://www.sciencedirect.com/science/ar ticle/pii/S0021999118305527 , doi: https://doi.org/10.1016/j.jc p.2018.08.029 .[33] Vinuesa, Ricardo, , Brunton, S.L., 2022. Enhancing computational fluid dynamics with machine learning. Nature Computational Science 2.6, 358–366. URL: https://www.nature.com/articles/s43588-022-002 64-7 .[34] Wang, S., Seidman, J.H., Sankaran, S., Wang, H., Pappas, G.J., Perdikaris, P., 2025. CViT: Continuous Vision Transformer for Opera-tor Learning, in: The Thirteenth International Conference on Learning Representations. 36 [35] Wu, H., Luo, H., Wang, H., Wang, J., Long, M., 2024. Transolver: a fast transformer solver for pdes on general geometries, in: Proceedings of the 41st International Conference on Machine Learning, JMLR.org. [36] Wu, Y., He, K., 2018. Group normalization, in: Proceedings of the European Conference on Computer Vision (ECCV). [37] Yang, F.B., Huang, J.P., 2024. Convective Heat Transfer in Porous Materials. Springer Nature Singapore, Singapore. pp. 129–143. URL: 
+
+https://doi.org/10.1007/978-981-97-0487-3_7 , doi: 10.1007/97 8-981-97-0487-3_7 .[38] Yizheng, W., Li, X., Yan, Z., Ma, S., Bai, J., Liu, B., Zhuang, X., Rabczuk, T., Liu, Y., 2026. A pretraining-finetuning computational framework for material homogenization. International Journal of Me-chanical Sciences 314, 111388. URL: https://www.sciencedirect.co m/science/article/abs/pii/S0020740326002444 .37 Appendix A. Theoretical Analysis 
+
+Appendix A.1. SPD-property of the LOD-stiffness matrix 
+
+Lemma. Let D ⊂ Rd be the physical domain and let Ω be the input domain of the neural network. Assume that A(x, ω ) ∈ Rd×d is symmetric and uniformly elliptic, i.e., 
+
+α|ξ|2 ≤ ξT A(x, ω )ξ ≤ β|ξ|2, ∀ξ ∈ Rd,
+
+for a.e. x ∈ D and a.e. ω ∈ Ω. For each fixed ω ∈ Ω, define the bilinear form 
+
+aω(u, v ) := 
+
+Z
+
+> D
+
+(A(x, ω )∇u) · ∇ v dx, 
+
+and let AH (ω) be the coarse-scale stiffness matrix associated with aω. Let 
+
+Vms (ω) be the matrix that represents the change of basis from the nodal basis functions of VH to the LOD-corrected basis, and define 
+
+ALOD (ω) := Vms (ω) Ah(ω) Vms (ω)T .
+
+Then, for a.e. ω ∈ Ω, the matrix ALOD (ω) is symmetric positive definite. Proof. We first establish that the bilinear form aω is coercive on V = H1(D).Fix ω ∈ Ω and let u ∈ H10 (D). The Poincaré inequality gives: 
+
+|| u|| L2(D) ≤ Cp||∇ u|| L2(D)
+
+Therefore: 
+
+∥u∥2 
+
+> H1(D)
+
+= ∥u∥2 
+
+> L2(D)
+
++ ∥∇ u∥2
+
+> L2(D)
+
+≤ (C2 
+
+> p
+
++ 1) ∥∇ u∥2
+
+> L2(D)
+
+.
+
+Using this and the uniform ellipticity of A we obtain 
+
+aω(u, u ) = 
+
+Z
+
+> D
+
+(A(x, ω )∇u) · ∇ u dx 
+
+≥ α∥∇ u∥2 
+
+> L2(D)
+
+≥ αC2 
+
+> p
+
++ 1 ∥u∥2
+
+> H1(D)
+
+.
+
+Next, the coarse-scale stiffness matrix Ah(ω) associated with aω, defined by 
+
+(AH (ω)) ij = aω(Φ i, Φj )
+
+38 is positive-definite: Let c̸ = 0 and write vH ∈ VH as vh = P 
+
+> i
+
+ciφi in the nodal basis. Then vH̸ = 0 , and therefore 
+
+cT Ah(ω)c = aω(vh, v h) > 0
+
+The LOD construction gives the multiscale space 
+
+Vms (ω) = (1 − C ℓ(ω)) VH ,
+
+and the map (1 − C ℓ(ω)) : VH → Vms (ω) is bijective. Therefore, the associated change-of-basis matrix Bms (ω) has full rank. Let x̸ = 0 and set 
+
+y := Bms (ω)T x. 
+
+Since Bms (ω) has full rank, we have y̸ = 0 . Thus 
+
+xT ALOD (ω)x = xT Bms (ω)AH (ω)Bms (ω)T x = yT AH (ω)y > 0.
+
+Symmetry follows from the symmetry of Ah(ω).
+
+Appendix A.2. Proof of Theorem 2 - Approximation error for the energy-based loss function 
+
+To prove Theorem 2, we shall use the following Lemma: 
+
+Lemma (Uniform norm equivalence) . Denote with ALOD (ω) the LOD-stiffness matrix and let λmin (ω) and λmax (ω) denote its smallest and largest eigenvalues. Then for every measurable e : Ω → RNH we have, 
+
+pλmin (ω) |e(ω)| ≤ | ALOD (ω)1/2e(ω)| ≤ pλmax (ω) |e(ω)|
+
+for a.e. ω ∈ Ω. Consequently, 
+
+∥A1/2LOD e∥L∞(Ω) ≤ ∥ pλmax ∥L∞(Ω) ∥e∥L∞(Ω) ,
+
+and 
+
+∥e∥L∞(Ω) ≤ 1
+
+√λmin L∞(Ω) 
+
+∥A1/2LOD e∥L∞(Ω) .
+
+Proof. Since ALOD (ω) is symmetric positive definite, it admits an orthonormal eigenbasis. Hence, for any z ∈ RNH ,
+
+λmin (ω)|z|2 ≤ zT ALOD (ω)z = |ALOD (ω)1/2z|2 ≤ λmax (ω)|z|2.
+
+Taking z = e(ω) and then square roots yields 
+
+pλmin (ω) |e(ω)| ≤ | ALOD (ω)1/2e(ω)| ≤ pλmax (ω) |e(ω)|.
+
+Taking essential suprema over ω ∈ Ω gives the two L∞ estimates. 39 Theorem (Approximation error for the energy-based loss) . Denote by λmin (ω)
+
+and λmax (ω) the smallest and biggest eigenvalues of ALOD respectively. Assume that there exists a positive constant c0 > 0 such that 
+
+ess inf  
+
+> ω∈Ω
+
+λmin (ω) ≥ c0 > 0.
+
+Denote by uLOD : Ω −→ RNH the true coefficient map of the LOD approxima-tion, i.e. the solution of the linear system (10) for a given ω ∈ Ω Let N be any neural network class, and define 
+
+uE 
+
+> LOD
+
+∈ argmin 
+
+> u∈N
+
+LE (u).
+
+Then 
+
+∥uLOD − uE
+
+> LOD
+
+∥L1(Ω) ≤ c−1/20 inf  
+
+> u∈N
+
+∥A1/2LOD (u − uLOD )∥L1(Ω) .
+
+If, in addition, 
+
+∥pλmax ∥L∞(Ω) := c1 < ∞,
+
+for some c1 > 0, then 
+
+∥uLOD − uE
+
+> LOD
+
+∥L1(Ω) ≤ c1
+
+√c0
+
+inf  
+
+> u∈N
+
+∥(u − uLOD )∥L1(Ω) 
+
+Proof. Set 
+
+e(ω) := uLOD (ω) − uE
+
+> LOD
+
+(ω).
+
+By the uniform norm equivalence lemma, 
+
+|e(ω)| ≤ |A1/2LOD (ω)e(ω)|
+
+pλmin (ω)
+
+for a.e. ω ∈ Ω. Integrating over Ω gives 
+
+∥uLOD − uE
+
+> LOD
+
+∥L1(Ω) ≤ 1
+
+√λmin L∞(Ω) 
+
+∥A1/2LOD (uLOD − uE
+
+> LOD
+
+)∥L1(Ω) .
+
+Since uE 
+
+> LOD
+
+minimizes LE over N ,
+
+∥A1/2LOD (u − uLOD )∥L1(Ω) = inf  
+
+> u∈N
+
+LE (u).
+
+40 Combining the two estimates yields 
+
+∥uLOD − uE
+
+> LOD
+
+∥L1(Ω) ≤ 1
+
+√λmin L∞(Ω) 
+
+inf  
+
+> u∈N
+
+∥A1/2LOD (u − uLOD )∥L1(Ω) .
+
+The bound with c−1/20 follows from 
+
+1
+
+√λmin L∞(Ω) 
+
+≤ c−1/20 .
+
+For the final estimate, use the upper spectral bound 
+
+|ALOD (ω)1/2v| ≤ pλmax (ω) |v|
+
+with v = uLOD (ω) − uE
+
+> LOD
+
+(ω) to get 
+
+∥A1/2LOD (u − uLOD )∥L1(Ω) ≤ ∥ pλmax ∥L∞(Ω) ∥(u − uLOD )∥L1(Ω) .
+
+Substituting this into the previous bound gives 
+
+∥uLOD − uE
+
+> LOD
+
+∥L1(Ω) ≤ 1
+
+√λmin L∞(Ω) 
+
+∥pλmax ∥L∞(Ω) inf  
+
+> u∈N
+
+∥(u − uLOD )∥L1(Ω) .
+
+Appendix A.3. Proof of Theorem 3 - Generalization error for the energy-based loss function 
+
+Theorem (Generalization error for the energy-based loss) . Assume that 
+
+ess inf  
+
+> ω∈Ω
+
+λmin (ω) ≥ c0 > 0, ess sup 
+
+> ω∈Ω
+
+λmax (ω) ≤ c1 < ∞.
+
+Let ω1, . . . , ω M be i.i.d. samples in Ω. Define the empirical energy loss as the Monte-Carlo approximation of the energy loss 
+
+LE,M (u) := |Ω|
+
+M
+
+> M
+
+X
+
+> i=1
+
+ALOD (ωi)1/2 uLOD (ωi) − u(ωi) .
+
+and let 
+
+buE,M  
+
+> LOD
+
+∈ argmin 
+
+> u∈N
+
+LE,M (u)
+
+41 be a minimizer of the empirical energy loss function. Define the function class associated with the Neural Network class N and the energy loss 
+
+GE := 
+
+n
+
+ω 7 → A1/2LOD (ω) uLOD (ω) − u(ω) : u ∈ N 
+
+o
+
+.
+
+Then 
+
+E
+
+buE 
+
+> LOD
+
+− buE,M  
+
+> LOD L1(Ω)
+
+
+
+≲ 1
+
+√λmin L∞(Ω) 
+
+RM (GE )+ 1
+
+√λmin L∞(Ω) 
+
+∥pλmax ∥L∞(Ω) inf  
+
+> u∈N
+
+∥(u − uLOD )∥L1(Ω) .
+
+Here, RM (GE ) denotes the empirical Rademacher complexity of the function class GE and the expectation is taken with respect to the random training samples ω1, . . . , ω M .Proof. Set 
+
+Cmin := 1
+
+√λmin L∞(Ω) 
+
+.
+
+By the lower spectral bound, 
+
+|v(ω)| ≤ |A1/2LOD (ω)v(ω)|
+
+pλmin (ω)
+
+for a.e. ω ∈ Ω. Hence 
+
+E
+
+buE 
+
+> LOD
+
+− buE,M  
+
+> LOD L1(Ω)
+
+
+
+≤ Cmin E
+
+
+
+A1/2LOD 
+
+ buE 
+
+> LOD
+
+− buE,M 
+
+> LOD
+
+
+
+> L1(Ω)
+
+
+
+≤ Cmin E
+
+
+
+A1/2LOD (buE 
+
+> LOD
+
+− uLOD ) L1(Ω) 
+
+
+
++ Cmin E
+
+
+
+A1/2LOD (buE,M  
+
+> LOD
+
+− uLOD ) L1(Ω) 
+
+
+
+= Cmin E
+
+h
+
+LE (buE
+
+> LOD
+
+) + LE (buE,M 
+
+> LOD
+
+)
+
+i
+
+.
+
+42 Since buE 
+
+> LOD
+
+minimizes the population loss, 
+
+LE (buE
+
+> LOD
+
+) ≤ L E (buE,M 
+
+> LOD
+
+),
+
+and therefore 
+
+E
+
+buE 
+
+> LOD
+
+− buE,M  
+
+> LOD L1(Ω)
+
+
+
+≤ 2Cmin E
+
+h
+
+LE (buE,M 
+
+> LOD
+
+)
+
+i
+
+.
+
+Now, 
+
+LE (buE,M 
+
+> LOD
+
+) = 
+
+
+
+LE (buE,M 
+
+> LOD
+
+) − L E,M (buE,M 
+
+> LOD
+
+)
+
+
+
++ LE,M (buE,M 
+
+> LOD
+
+)
+
+≤ sup 
+
+> u∈N
+
+LE (u) − L E,M (u) + LE,M (buE,M 
+
+> LOD
+
+)
+
+≤ sup 
+
+> u∈N
+
+LE (u) − L E,M (u) + LE,M (buE
+
+> LOD
+
+)= sup 
+
+> u∈N
+
+LE (u) − L E,M (u) +
+
+
+
+LE,M (buE
+
+> LOD
+
+) − L E (buE
+
+> LOD
+
+)
+
+
+
++ LE (buE
+
+> LOD
+
+)
+
+≤ 2 sup 
+
+> u∈N
+
+LE (u) − L E,M (u)
+
++ inf  
+
+> u∈N
+
+LE (u).
+
+Taking expectation and using the fact that the Rademacher complexity serves as a measure between the error of the population risk minimizer and the empirical risk minimizer, we obtain: 
+
+E
+
+
+
+sup 
+
+> u∈N
+
+LE (u) − L E,M (u)
+
+
+
+≲ RM (GE ),
+
+we obtain 
+
+E
+
+h
+
+LE (buE,M 
+
+> LOD
+
+)
+
+i
+
+≲ RM (GE ) + inf  
+
+> u∈N
+
+LE (u).
+
+Substituting this into the previous estimate yields 
+
+E
+
+buE 
+
+> LOD
+
+− buE,M  
+
+> LOD L1(Ω)
+
+
+
+≲ Cmin 
+
+
+
+RM (GE ) + inf  
+
+> u∈N
+
+LE (u)
+
+
+
+.
+
+Finally, by the upper spectral bound, 
+
+LE (u) = ∥A1/2LOD (u − uLOD )∥L1(Ω) ≤ ∥ pλmax ∥L∞(Ω) ∥(u − uLOD )∥L1(Ω) 
+
+Therefore, 
+
+inf  
+
+> u∈N
+
+LE (u) ≤ ∥ pλmax ∥L∞(Ω) inf  
+
+> u∈N
+
+∥(u − uLOD )∥L1(Ω) .
+
+43 Combining the above bounds gives the claimed conclusion, 
+
+E
+
+buE 
+
+> LOD
+
+− buE,M  
+
+> LOD L1(Ω)
+
+
+
+≲ 1
+
+√λmin L∞(Ω) 
+
+RM (GE )+ 1
+
+√λmin L∞(Ω) 
+
+∥pλmax ∥L∞(Ω) inf  
+
+> u∈N
+
+∥(u − uLOD )∥L1(Ω) .
+
+Appendix B. Baseline models 
+
+Appendix B.1. Common input–output format and training losses 
+
+All baselines learn the solution operator for (1) on a regular s × s grid. The input is a coefficient field (and optional engineered channels), and the output is the scalar solution field. Concretely, the network input is a tensor in RB×s×s×Cin (or equivalently B × Cin × s × s), and the output prediction is uθ ∈ RB×s×s. Here, Cin is the number of input channels used in the experiment. All baselines except FEONet are trained on fine-mesh finite element reference solutions uh defined by (3) , i.e s = 1 
+
+> h
+
+. FEONet is treated separately because it is trained through its finite-element weak-form residual rather than by direct supervision on these fine-mesh solution labels. For supervised training, we use the standard data loss 
+
+Ldata (θ) = ∥uθ − u∥22.
+
+For physics-informed training of PI-DeepONet and PINO, we additionally enforce the Darcy equation 
+
+−∇ ·  κ(x)∇u(x) = f (x)
+
+through coordinate-based automatic differentiation rather than a finite-volume/finite-difference stencil. Let 
+
+G = {xij }si,j =1 
+
+denote the regular grid points, and let uθ(x; κ) be the network prediction evaluated at coordinate x ∈ Ω. We define the pointwise residual by 
+
+rθ(x; κ) = −∂x1 (κ(x) ∂x1 uθ(x; κ)) − ∂x2 (κ(x) ∂x2 uθ(x; κ)) − f (x).
+
+44 In the implementation, the spatial coordinates are treated as differentiable inputs, ∇uθ is obtained by automatic differentiation with respect to those coordinates, and κ(x) is evaluated from the raw coefficient field at the same co-ordinates by differentiable interpolation. The physics-informed loss functions are then 
+
+Lpde (θ) = 1
+
+|G| 
+
+X
+
+> x∈G
+
+|rθ(x; κ)|2, LPI (θ) = Ldata (θ) + λLpde (θ).
+
+Appendix B.2. Fourier neural operator (FNO) 
+
+The Fourier Neural Operator (FNO), introduced by Li et al. [ 19 ], is a neu-ral operator architecture for learning mappings between infinite-dimensional function spaces, with a particular focus on approximating solution operators of parametric partial differential equations. The key idea of the FNO is to parameterize an integral operator in Fourier space, enabling efficient global convolution and resolution-invariant generalization. Given a function vt defined on a spatial domain, the FNO constructs a learnable integral operator K(ϕ) of the form 
+
+(K(ϕ)vt) ( x) = F−1 (F(κϕ) · (Fvt)) ( x),
+
+where F and F−1 denote the Fourier transform and its inverse, respectively, and κϕ is a learnable kernel. This formulation corresponds to a global convolution in physical space and allows the operator to capture long-range dependencies efficiently. In practice, the continuous Fourier transforms are replaced by discrete fast Fourier transforms. Specifically: 
+
+• The operators F and F−1 are replaced by the discrete fast Fourier transforms ˆF and ˆF−1.
+
+• The input ˆv ∈ Rs1×···× sd×n represents the evaluation of the function v
+
+on a uniform grid with sj ∈ N points in each spatial dimension. 
+
+• The Fourier transform of the kernel F(κ) is replaced by a complex-valued weight tensor T ∈ Cs1×···× sd×n×n, whose entries correspond to the learnable Fourier modes of the kernel. To reduce computational complexity and improve generalization, the FNO typically employs a low-frequency truncation in Fourier space. Concretely, 45 only a prescribed number of low-frequency modes are retained in each spatial dimension, while the remaining high-frequency modes are set to zero. With this truncation, one Fourier layer of the FNO is given by 
+
+ˆv 7 → ˆF−1
+
+
+
+T low · ˆF(ˆ v)
+
+
+
+,
+
+where T low denotes the restriction of T to the retained low-frequency Fourier modes. By stacking multiple such Fourier layers and interleaving them with pointwise nonlinearities, the Fourier Neural Operator is able to approximate nonlinear operators with global receptive fields while remaining computation-ally efficient. 
+
+Experimental configuration. In our experiments, the FNO uses 4 Fourier layers with channel width 64 , retaining 12 low-frequency modes per spatial dimension in each spectral convolution layer. 
+
+Appendix B.3. Convolutional neural operator (CNO) 
+
+The Convolutional Neural Operator (CNO) [ 31 ] is designed to approximate operators G : Bw(D, RdX ) → B w(D, RdY ) between band-limited function spaces. By restricting both the input and output to band-limited spaces, the CNO mitigates aliasing errors and enables stable learning across different spatial resolutions. The CNO represents the target operator as a composition of lifting, convolutional operator layers, and projection, expressed as 
+
+G : u 7 → P (u) = v0 7 → v1 7 → · · · 7 → vL 7 → Q(vL) = ¯ u, 
+
+where P is a lifting operator that maps the input function u to a higher-dimensional feature representation, Q is a projection operator to the target space, and the intermediate states {vℓ}Lℓ=0 are defined recursively by 
+
+vℓ+1 = Pℓ ◦ Σℓ ◦ K ℓ(vℓ), 1 ≤ ℓ ≤ L − 1.
+
+Here, Kℓ denotes a convolutional operator, Σℓ a pointwise nonlinearity, and 
+
+Pℓ a resolution-changing operator. Architecturally, the CNO adopts a modified operator U-Net structure composed of an encoder that expands the feature width and contracts the spatial height, enabling multiscale feature extraction, and a decoder that reconstructs high-resolution outputs by successively upsampling the feature 46 maps while reducing the channel dimension. To compensate for the potential loss of high-frequency information caused by upsampling, feature maps from earlier encoder stages are concatenated with decoder features, ensuring the preservation of fine-scale details. 
+
+Experimental configuration. We use a 4-level encoder–decoder CNO with base channel width 64 and 2 residual (R-)blocks at each resolution. 
+
+Appendix B.4. U-shaped neural operator (UNO) 
+
+UNO is a Fourier-based neural operator architecture that extends the Fourier Neural Operator (FNO) with a U-Net-style encoder-decoder structure and skip connections. UNO progressively contracts and expands the spatial domain of intermediate functions, enabling deeper and more memory-efficient operator learning while preserving global interactions through spectral integral operators. Its core operations are performed in the Fourier domain, making it particularly effective for learning global solution operators of PDEs. In contrast, CNO replaces Fourier integral operators with purely con-volutional operators defined in physical space. CNOs rely on hierarchical convolution, interpolation, and local kernel operations to achieve resolution-invariant operator learning. Unlike UNO, CNO does not explicitly use spectral transforms or global Fourier modes; instead, it emphasizes locality, translation equivariance, and scalability through convolutional architectures similar to CNNs. Therefore, the key distinction is that UNO learns operators primarily through global spectral interactions using Fourier operators and domain con-traction/expansion, whereas CNO learns operators through local multiscale convolutions directly in physical space. 
+
+Experimental configuration. We use an 4-stage UNO with base channel width 
+
+64 in the lifting layer and scale the width across encoder/decoder stages accordingly. 
+
+Appendix B.5. Deep operator network (DeepONet / PI-DeepONet) 
+
+Deep Operator Networks (DeepONets) [ 22 ] learn nonlinear operators by combining two subnetworks: a branch net that encodes the input function and a trunk net that encodes the query location. For an input coefficient field 47 κ and a spatial point y ∈ Ω, DeepONet represents the solution operator in the form 
+
+uθ(y; κ) = 
+
+> p
+
+X
+
+> j=1
+
+bθ,j (κ) tθ,j (y), (B.1) where bθ(κ) ∈ Rp is produced by the branch net and tθ(y) ∈ Rp is produced by the trunk net. Evaluating (B.1) over all grid points yields the full predicted field. Physics-informed variants of DeepONet (often referred to as PI-DeepONet or PI-DON) incorporate the governing PDE as an additional training signal. In our experiments, we adopt a PI-DeepONet-style training of DeepONet by using the common PI objective in Section Appendix B.1, where the physics loss is computed by automatic differentiation with respect to the trunk coordinates. 
+
+Experimental configuration. For the plain DeepONet baseline, we set the latent dimension to p = 128 . Both the branch and trunk nets are MLPs of depth 4 and 4, respectively, with hidden width 128 .For the PI-DeepONet baseline, we use branch layers (db, 100 , 100 , 100 , 100) 
+
+and trunk layers (2 , 100 , 100 , 100 , 100) , where db = Cin s2 is the flattened branch input dimension. 
+
+Appendix B.6. Transolver 
+
+Transolver [ 35 ] is an operator learning architecture built on physics-attention, which compresses dense attention over grid tokens into a two-stage slicing–token mechanism. Let x ∈ RN ×d denote the per-point features on a grid ( N = s2). Transolver first assigns each grid point to one of S latent slices by 
+
+A = softmax 
+
+Wsxτ
+
+
+
+∈ RN ×S ,
+
+then forms slice tokens by normalized pooling, 
+
+T = A⊤xA⊤1 ∈ RS×d.
+
+Multi-head self-attention is applied among the S tokens (cost O(S2)), and the updated tokens are projected back to the grid by deslicing, ˜x = AT ′.This reduces the quadratic cost in N to O(N S + S2) while retaining global information flow, which is beneficial for elliptic problems where long-range dependencies are intrinsic. 48 Experimental configuration. We use feature dimension d = 128 , number of slices S = 64 , number of attention heads 8, and temperature τ = 0.5 for the slicing softmax. 
+
+Appendix B.7. Physics-informed Neural Operator (PINO) 
+
+The Physics-Informed Neural Operator (PINO) combines an operator-learning backbone with a PDE residual during training. In our implementation, the PINO baseline uses an FNO-style 2D architecture on the regular s × s
+
+grid. Concretely, if vℓ denotes the hidden feature map at layer ℓ, one PINO block takes the form 
+
+vℓ+1 (x) = σ(Kℓ(vℓ)( x) + Wℓvℓ(x)) ,
+
+where Kℓ is a Fourier spectral convolution retaining only low-frequency modes and Wℓ is a learnable pointwise linear map. Stacking such blocks yields a neural operator with a global receptive field and efficient spectral mixing. For physics-informed training, PINO uses the same PI objective from Section Appendix B.1. 
+
+Experimental configuration. We use four spectral blocks, hidden width 64 ,retain 12 Fourier modes in each spatial dimension at every block, use a pointwise projection dimension of 128 , GELU activations, and no domain padding. 
+
+Appendix B.8. Finite-Element Operator Network (FEONet) 
+
+FEONet is a neural operator model grounded in the finite element method (FEM), using nodal basis functions {ϕi} to approximate solutions as a linear combination 
+
+u =
+
+> NH
+
+X
+
+> i=1
+
+αiϕi
+
+where the index i denotes the nodes of a triangulation of the physical domain and NH the number of (coarse) nodes. The basic idea of FEONet is to predict the FEM-coefficients {αi}. For the Darcy equation 1, the training procedure of FEONet is based on the weak formulation, which reads: Find u ∈ V such that Z
+
+> Ω
+
+κ∇u · ∇ v dx =
+
+Z
+
+> Ω
+
+f v dx ∀v ∈ V. 
+
+49 Using the FEM ansatz u = P 
+
+> j
+
+αj ϕj and testing with ϕi, one obtains the linear system Aα = b with the stiffness matrix A = ( Aij ) and the load vector 
+
+f = ( fi) defined as 
+
+Aij =
+
+Z
+
+> Ω
+
+κ∇ϕj · ∇ ϕi dx, bi =
+
+Z
+
+> Ω
+
+f ϕ i dx. 
+
+for i, j = 1 , ...., N H . FEONet is then trained by sampling permeability fields κi and computing corresponding stiffness and load vector samples 
+
+{(Ai(κi), b i(κi)) }Ni=1 and then using the weak-form residual loss over samples with index i:
+
+L = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+∥Aiαi − bi∥.
+
+Note that, by using this loss function, we do not need the ground-truth FEM-coefficients αi to train our model. This way, FEONet can be interpreted as a hybrid Operator Learning model that combines neural networks with the conventional FEM-method, which is data-free and fully physics-informed .
+
+Experimental configuration. In our implementation of FEONet, we use a CNN-based feature extractor for the input κ, followed by a Multi-Layer Perceptron to predict the coefficients αi based on these features. For comparability with LOD-MSNO, the input of the model is the permeability field κ on a grid with the fine resolution h and the output is the coefficients αi for the coarse-scale-basis functions ϕi, i = 1 , ..., N H .
+
+Appendix C. Datasets 
+
+Coefficient families. We provide more detailed information about the used datasets here: 
+
+• Quantile and filtered quantile coefficients. We first sample a smooth Gaussian random field g on the fine nodes using the squared-exponential covariance 
+
+Eg(x)g(y) = σ2SE exp 
+
+
+
+−∥x − y∥22
+
+2ℓ2SE 
+
+
+
+,
+
+where ℓSE = se_length and σSE = se_sigma . The field is exponenti-ated, a = exp (g), and empirical quantile bins of a are mapped to a randomly shuffled set of prescribed permeability values 
+
+{0.01 , 4, 8, 12 , 66 , 100 }
+
+50 by default. The filtered_quantile variant additionally blends the nodal values toward the background value 4 near the boundary using a smooth boundary weight. This is the default coefficient type in the generation script. 
+
+• Lognormal Matérn coefficients. For coeff_type=lognormal , we sample a Matérn Gaussian field Z on the fine nodes and define κ =exp( Z). The covariance is 
+
+EZ(x)Z(x′) = σ2
+
+2ν−1Γ( ν)
+
+√2νℓ ∥x − x′∥2
+
+!ν
+
+Kν
+
+√2νℓ ∥x − x′∥2
+
+!
+
+,
+
+where Kν denotes the modified Bessel function of the second kind. The default Matérn parameters are ν = 0 .5, correlation length ℓ = 0 .3, vari-ance parameter σ = 2 .0, and jitter 10 −8, with the same implementation also allowing the lower-contrast lognormal setting by changing these arguments. 
+
+• Fine checkerboard coefficients. For coeff_type=fine_checkerboard ,values are sampled independently from the prescribed permeability lev-els on the fine h-scale grid cells. Nodal coefficient values are obtained by indexing into the corresponding fine cell. 
+
+Per-sample LOD assembly. For each generated coefficient realization, the script performs the following steps: 1. Fine stiffness assembly. The elementwise coefficient is used to assemble a discontinuous Galerkin element stiffness matrix, which is then mapped to the continuous fine space to obtain the fine stiffness matrix Ah. The load corresponds to the constant source f ≡ 1 and is assembled using the fine mass matrix. 2. Localized correctors. For each coarse element T , the localized cor-rector is computed on the precomputed fine patch degrees of freedom. In matrix form, the implementation solves the constrained local cor-rector problem using the local stiffness block, the local right-hand side induced by the three coarse basis functions on T , and the patch in-terpolation constraint IH,T . The resulting local corrector matrix has shape Nℓ,h (T ) × 3 and is stored in the flattened array corr_values ,with corr_ptr marking the offsets of each patch. 51 3. Global multiscale operator. The local correctors are inserted into global fine-grid columns and assembled into the localized correction matrix Cℓ. The multiscale reconstruction matrix is then 
+
+G = P 1 − Cℓ.
+
+After restricting to interior coarse degrees of freedom, the LOD stiffness matrix and load vector are formed as 
+
+ALOD = G⊤ 
+
+> 0
+
+AhG0, f LOD = G⊤ 
+
+> 0
+
+bh.
+
+4. Coarse solve and fine reconstructions. The interior LOD system is solved for uLOD , the full coarse vector is padded with zero boundary values, and the fine-grid multiscale solution is reconstructed as 
+
+ums = Gu H .
+
+For diagnostic and evaluation purposes, the fine FEM reference solution 
+
+uh is also computed by solving the fine interior system with homogeneous Dirichlet boundary conditions. 
+
+Appendix D. Implementation details 
+
+Appendix D.1. Neural architecture for LOD-MSNO (Coeff ) Input preprocessing. We form a multi-channel tensor X ∈ RB×Cin ×nh×nh from the raw field ah. Denote by b the base channel :
+
+b(i, j ) = log(max {ah(i, j ), ε }) (D.1) where ε > 0 is a small constant to avoid numerical issues. The log transform compresses the dynamic range of high-contrast permeability fields. This is consistent with the common modeling practice in Darcy-flow settings [3]. 
+
+Gradient-magnitude channel ( add_grad ).. To expose sharp interfaces/discontinuities in ah, we append a gradient-magnitude channel computed by forward differ-ences (with zero padding at the boundary): 
+
+gx(i, j ) = 
+
+(
+
+b(i, j + 1) − b(i, j ), j < n h − 1,
+
+0, j = nh − 1, (D.2) 
+
+gy(i, j ) = 
+
+(
+
+b(i + 1 , j ) − b(i, j ), i < n h − 1,
+
+0, i = nh − 1, (D.3) 
+
+g(i, j ) = 
+
+q
+
+gx(i, j )2 + gy(i, j )2 + δ, (D.4) 52 with δ > 0 small. 
+
+Coordinate channels ( add_coords ).. Convolutional networks are translation-equivariant, while boundary-value problems on bounded domains are position-dependent. We therefore append explicit coordinates (CoordConv-style posi-tional encoding [21]): 
+
+x(j) = −1 + 2jnh − 1, y(i) = −1 + 2inh − 1, (D.5) 
+
+Channel count. The number of input channels is 
+
+Cin = 1 + I[add_grad ] + 2 I[add_coords ], (D.6) and the final preprocessed tensor is formed by concatenation along the channel dimension. Let X ∈ RB×Cin ×nh×nh be the preprocessed input. 
+
+Channel-wise input normalization.. We compute per-channel statistics (μc, σ c)
+
+on the training set after preprocessing: 
+
+μc = E[Xc], σ2 
+
+> c
+
+= E[X2 
+
+> c
+
+] − μ2 
+
+> c
+
+, (D.7) where expectations are taken over all training samples and spatial locations. We then normalize as 
+
+eXb,c,i,j = Xb,c,i,j − μc
+
+σc + ϵ . (D.8) The values μ, σ are stored as non-trainable buffers and reused at test time. 
+
+Per-component output normalization.. Let uint ∈ RD denote the target interior coefficient vector. We compute per-component statistics (μ(u) 
+
+> k
+
+, σ (u) 
+
+> k
+
+) on the training set and normalize: 
+
+euk = uint ,k − μ(u)
+
+> k
+
+σ(u) 
+
+> k
+
++ ϵ . (D.9) The core network is trained to predict beu; inference returns the decoded coefficients buint via the inverse transform of (D.9). 53 Building block for CNN-based model: GNAct.. We use the block 
+
+GNAct( z) = GELU(GN(Conv k×k,s (z))) , (D.10) where GN denotes Group Normalization [ 36 ]. For GroupNorm, we use G =min(8 , C ) groups for a C-channel tensor. 
+
+Residual block (ResBlock2D).. At a fixed resolution and channel width C, we use a ResNet-style block: 
+
+ResBlock( x) = GELU ( x + GN (Conv 3×3,1 (GNAct( x)))) (D.11) 
+
+Hyperparameters used.. We use base = 32 , GroupNorm with G = min (8 , C )
+
+groups, add_grad = True , and add_coords = True .
+
+Appendix D.2. Neural architecture for predicting the basis correction Patch-wise supervised learning target. Each training example corresponds to one coefficient realization and one coarse patch. For a fixed patch T ∈ T H ,the input is the coefficient field restricted to the localized region N ℓ(T ) and stored on a rectangular patch grid. Since boundary and interior patches can have different physical sizes and different active fine degrees of freedom, each patch is embedded into a common rectangular patch canvas using padding. Thus, all patches have the same input shape and can be processed by one convolutional network. The target consists of the local correction coefficients 
+
+wT,j (ω) =  wT,j, 1(ω), . . . , w T,j,N ℓ,h (T )(ω)⊤, j = 1 , . . . , N H , (D.12) restricted in practice to the coarse basis functions whose support intersects 
+
+T . Since a two-dimensional triangular coarse element has three local coarse vertices, the implementation stores the local corrector target as an array with three output components per fine patch degree of freedom. Thus, for a patch with Nℓ,h (T ) active fine degrees of freedom, the supervised target has shape 
+
+YT (ω) ∈ RNℓ,h (T )×3. (D.13) The basis dataset therefore consists of patch-sample pairs 
+
+Dbasis =   κi|N ℓ(T ), Y T (ωi) : i = 1 , . . . , M, T ∈ T H . (D.14) In the implementation, this dataset is flattened over samples and patches, so that one training epoch iterates over all pairs (i, T ).54 PatchCorrectionNet architecture. The core of PatchCorrectionNet is a U-Net-style convolutional encoder–decoder with skip connections. It uses the same basic Conv–GroupNorm–GELU and residual blocks as the coefficient architecture, but preserves the patch-grid structure and returns a dense three-channel patch image. Starting from 
+
+XT ∈ RB×3×Hp×Wp , (D.15) the network applies the following stages: 
+
+• Stem: a non-downsampling DownStage mapping 3 → c1 channels, followed by residual blocks. 
+
+• Encoder: three stride-two downsampling stages with channel widths 
+
+c1 = base , c2 = min(2 c1, max ),c3 = min(4 c1, max ), c4 = min(8 c1, max ).
+
+Each stage consists of a Conv–GroupNorm–GELU block followed by 
+
+blocks_per_stage residual blocks. 
+
+• Bottleneck: bottleneck_blocks residual blocks at width c4.
+
+• Decoder: three upsampling stages using bilinear interpolation, concate-nation with the corresponding encoder skip feature, a Conv–GroupNorm– GELU projection, and residual blocks. 
+
+• Head: a Conv–GroupNorm–GELU block, one residual block, and a final 1 × 1 convolution producing 
+
+bY grid  
+
+> T
+
+(ω) ∈ RB×3×Hp×Wp . (D.16) The three output channels correspond to the correction coefficients associated with the three local coarse basis functions on the patch. The architecture is fully convolutional on the patch canvas, and the use of skip connections is important because local correctors are spatially localized and may contain sharp features near coefficient jumps or patch boundaries. 55 Patch readout and constraint projection. The network output is a dense patch image, whereas the correction target is stored only on active fine degrees of freedom. Let 
+
+CT = {(xm, y m)}Nℓ,h (T ) 
+
+> m=1
+
+(D.17) denote the list of local grid coordinates corresponding to these active fine degrees of freedom. The dense prediction is read out as 
+
+bYT (ω) = 
+
+ bY grid  
+
+> T
+
+(: , y m, x m)
+
+Nℓ,h (T )
+
+> m=1
+
+∈ RNℓ,h (T )×3. (D.18) Because the LOD correctors must lie in the local fine-scale space W ℓ(T ) = ker (IH ), the implementation applies a hard algebraic projection before com-puting the loss. With the precomputed patch matrices denoted by P left  
+
+> T
+
+and 
+
+P right  
+
+> T
+
+, the projected prediction is 
+
+bY proj  
+
+> T
+
+= bYT − P left  
+
+> T
+
+P right  
+
+> T
+
+bYT , (D.19) and the same projection is applied to the target YT . This projection enforces compatibility with the kernel constraint induced by IH and prevents the network from being penalized for components outside the admissible local detail space. 
+
+Hyperparameters used. For PatchCorrectionNet , we use 
+
+base_channels = 48 , max_channels = 256 , blocks_per_stage = 2 ,
+
+bottleneck_blocks = 4 , dropout = 0 .05 .
+
+The output dimension is fixed to three channels, corresponding to the three local coarse basis functions associated with a triangular coarse element. During validation, predictions from all patches are assembled into the global correction matrix bQℓh and combined with the coarse coefficients to reconstruct the fine-scale LOD solution. 56

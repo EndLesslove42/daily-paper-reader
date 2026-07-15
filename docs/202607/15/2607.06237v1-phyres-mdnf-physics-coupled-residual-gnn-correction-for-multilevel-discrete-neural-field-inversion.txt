@@ -1,0 +1,1451 @@
+Title: PhyRes-MDNF: Physics-Coupled Residual GNN Correction for Multilevel Discrete Neural Field Inversion
+
+URL Source: https://arxiv.org/pdf/2607.06237v1
+
+Published Time: Wed, 08 Jul 2026 01:28:13 GMT
+
+Number of Pages: 27
+
+Markdown Content:
+# Highlights 
+
+## PhyRes-MDNF: Physics-Coupled Residual GNN Correction for Multilevel Discrete Neural Field Inversion 
+
+Zheng Lu, Jiwei Jia, Young Ju Lee 
+
+• Multilevel DNF improves Darcy inversion under matched fine-grid updates. 
+
+• PhyRes-GNN directly prolongs and corrects across levels without replacing physics. 
+
+• LUNDIsim and KTC2023 demonstrate generality across inverse problems. arXiv:2607.06237v1 [math.NA] 7 Jul 2026 PhyRes-MDNF: Physics-Coupled Residual GNN Correction for Multilevel Discrete Neural Field Inversion 
+
+## Zheng Lu a, Jiwei Jia a,c ,∗ and Young Ju Lee b,∗∗ 
+
+> a
+
+School of Mathematics, Jilin University, Changchun, Jilin, 130012, China 
+
+> b
+
+Department of Mathematics, Texas State University, San Marcos, TX, 78666, USA 
+
+> c
+
+AI for Science and Engineering Center, Shenzhen Loop Area Institute, Shenzhen, 518048, China 
+
+A R T I C L E I N F O 
+
+Keywords :PDE-constrained inverse problems discrete neural fields multilevel optimization graph neural networks Darcy flow electrical impedance tomography 
+
+A B S T R A C T 
+
+Coefficient inversion on fine grids under PDE constraints is ill conditioned: sparse observations weakly constrain fine-scale parameters, and direct single-resolution optimization must recover state and coefficient fields across all scales simultaneously. This causes slow, initialization-sensitive convergence; learned transfer models require offline data and can introduce approxi-mation error into the numerical physics. We propose PhyRes-MDNF, a fixed-physics multilevel discrete neural field framework. On each level, a single-level DNF represents the inverse unknowns directly as trainable fields and optimizes the discrete objective. In the full-space Darcy realization, state fields 𝑈 and their shared coefficient field 𝐾 are optimized jointly in one fixed-physics inverse process. Between levels, one zero-initialized PhyRes-GNN jointly performs fixed-stencil prolongation and bounded residual correction to construct an incoming target representation, which a fixed initialization map converts to the next DNF variables. It is fitted anew from the observations and unchanged numerical model, without offline pretraining or fine-grid truth. Coarse levels therefore resolve large-scale structure before refined degrees of freedom are introduced, shortening the fine-grid optimization path while retaining the original discrete operator. Under the same final-grid update budget, the multilevel Darcy realization reduces coefficient and state errors by approximately 85% and 90% , respectively, demonstrating improved accuracy and final-grid iteration efficiency. On measured KTC2023 EIT data, the full-
+
+𝑊 pipeline improves mean Otsu mIoU by approximately 3.4% over the official linearized CEM reconstruction and 16 .9% over direct single-level DNF. 
+
+## 1. Introduction 
+
+Coefficient inversion for elliptic PDEs seeks a spatially varying material field from indirect measurements of states, voltages, or fluxes. The problem is intrinsically ill conditioned: observations are sparse relative to the number of coefficient degrees of freedom, fine-scale modes are only weakly visible, and errors in the reconstructed state can be absorbed by the coefficient. On a fine grid, direct single-resolution optimization must recover large- and small-scale structures simultaneously. This produces a long, initialization-sensitive optimization path and can cause the coefficient and state variables to settle into an inaccurate local solution before the large-scale structure has been identified [13, 30, 31]. Classical finite-difference and finite-element inverse methods retain a trusted discrete forward model, but opti-mizing all fine-grid inverse variables from the start remains expensive and poorly conditioned. Physics-informed neural networks (PINNs) instead represent states and coefficients with coordinate networks and fit their weights from observation and residual losses [16, 25]. Although flexible, this representation can introduce spectral bias, loss imbalance, and a mismatch between continuous automatic differentiation and the discrete operator used to interpret the measurements [32]. Learned surrogates and neural operators offer fast repeated inference, but typically require an offline dataset spanning coefficients, sources, and observations [18, 20]. Moreover, surrogate error is especially risky in coefficient inversion because it can be misinterpreted as a physically plausible change in the unknown coefficient. These limitations motivate a method that retains the prescribed numerical operator, avoids dataset pretraining, and reduces the difficult fine-grid optimization burden. 
+
+> ∗
+
+Corresponding author. 
+
+> ∗∗
+
+Corresponding author. 
+
+luzheng21@mails.jlu.edu.cn (Z. Lu); jiajiwei@jlu.edu.cn (J. Jia); yjlee@txstate.edu (Y.J. Lee) 
+
+> ORCID
+
+(s): 
+
+Lu et al.: Preprint submitted to Elsevier Page 1 of 22 PhyRes-MDNF for Inverse Problems 
+
+We propose PhyRes-MDNF , a fixed-physics multilevel discrete neural field framework. A discrete neural field (DNF) represents the inverse unknowns themselves as trainable grid or mesh arrays rather than as the outputs of a coordinate network. On one level, the arrays are optimized by automatic differentiation through a prescribed finite-dimensional objective. In the full-space Darcy realization, the pressure fields 𝑈 𝑚 for all sources and their shared permeability field 𝐾 are placed in the same objective and optimized jointly. State and coefficient recovery therefore exchange information within one inverse optimization process. In the reduced KTC2023 EIT realization, the electrical states are eliminated by the linearized complete electrode model (CEM), and the trainable DNF variable is the conductivity contrast sampled to the official finite-element mesh. Repeating the single-level DNF solve on nested discretizations gives the multilevel DNF (MDNF) backbone. Coarse levels identify strongly observable large-scale structure before weakly constrained refined degrees of freedom are introduced. This continuation does not remove the cost of the coarse solves, but it shortens the effective fine-grid optimization path and improves iteration efficiency at the expensive final resolution. The idealized equal-step analysis in Section 3 makes this mechanism explicit: coarse optimization can reduce slowly decaying error modes before the direct and multilevel paths receive the same number of final-grid updates. This hierarchy is connected to classical subspace-correction and cascadic multigrid ideas, which use nested spaces to remove error components at the resolutions where they are most efficiently represented [3, 34]. Multigrid strategies have also been developed for discretized optimization and distributed parameter estimation [2, 5, 22], while recent multilevel optimization theory addresses inverse problems more broadly [33]. PhyRes-MDNF differs in combining this continuation principle with direct trainable discrete fields and a per-instance learned transfer correction. The second component is a physics-coupled GNN transfer (PhyRes-GNN) used at each coarse-to-fine interface. At an interface, the GNN maps the coarse fields to an incoming target representation in one forward transfer, and a fixed initialization map converts that representation into the next DNF variables. Its graph layer uses fixed coarse-to-fine neighbor weights and its zero-initialized trainable branch supplies a bounded residual, so prolongation and correction are jointly realized inside the single mapping 𝑇 𝓁 →𝓁 +1  
+
+> 𝜔
+
+. They are not two successive algorithmic stages, and deterministic interpolation is not applied before PhyRes-GNN. The target-grid transfer objective couples the output nodes through the unchanged finite-difference stencil, finite-element mesh, or CEM measurement map and updates the transfer weights using only the current observations and numerical physics. Deterministic interpolation is only the zero-residual special case of this GNN mapping and serves as the transfer ablation. After fitting, the transfer weights are frozen and the next single-level DNF solve resumes under its prescribed reconstruction objective. Neither component requires paired training fields or offline data pretraining. The DNF variables and PhyRes-GNN weights are reinitialized and optimized for the current inverse instance; no fine-grid state or coefficient truth enters the transfer objective. PhyRes-GNN also does not learn or replace the finite-difference, finite-element, or CEM operator. Learning is restricted to improving the optimization path between two fixed-physics DNF solves. Our principal contribution is PhyRes-MDNF, a unified fixed-physics inversion framework whose defining interlevel mechanism is PhyRes-GNN. The backbone repeats DNF solves from coarse to fine, and the accompanying idealized equal-final-grid-step analysis explains how coarse-level error modes can be attenuated before refined optimization begins. Within this framework, our specific contributions are: 1. We formulate a single-level DNF solve in which the discrete state fields 𝑈 and their shared coefficient field 𝐾 are direct trainable inverse variables and are updated jointly through one prescribed-physics objective. This coupled update removes separate alternating state and coefficient subsolves, shortens the iterative inversion workflow, and allows information to pass between 𝑈 and 𝐾 at every update. 2. We develop PhyRes-GNN as a single coarse-to-fine transfer operator that outputs the incoming representation used to initialize the next DNF level while jointly realizing prolongation and correction. It combines fixed coarse-neighbor message passing, a zero-initialized bounded residual parameterization, and a separate transfer-stage objective. The operator is fitted anew for each inverse instance without reference fields, paired data, or dataset pretraining. 3. We validate the framework on reservoir-realistic LUNDIsim Darcy permeability fields and measured KTC2023 EIT data. Matched transfer ablations and complete-pipeline comparisons distinguish the effects of the multilevel backbone, PhyRes-GNN transfer, and refined DNF optimization. The numerical results demonstrate both accuracy and final-grid iteration advantages. First, on a manufactured Darcy problem, direct 128 2 optimization and the 64 2 → 128 2 path receive the same 6000 final-grid Adam updates.   
+
+> Lu et al.: Preprint submitted to Elsevier Page 2 of 22 PhyRes-MDNF for Inverse Problems
+
+The multilevel path reduces the final coefficient and state errors by approximately 85% and 90% , respectively. This is a matched final-grid iteration comparison rather than an equal-total-cost or wall-clock claim because the multilevel path also includes a coarse solve. Second, on reservoir-like two-dimensional LUNDIsim permeability fields [7], the matched 64 2 → 128 2 transfer experiment compares the end-to-end PhyRes-GNN transfer with its zero-residual, deterministic-interpolation ablation. The learned transfer reduces the initial refined-grid PDE loss by approximately 62% and the final permeability error by approximately 7% . A longer 16 2 → 32 2 → 64 2 → 128 2 realization further demonstrates that the complete multilevel path can recover a sharper geological field. Every Darcy transfer is fitted only from the target PDE residual and observed pressures; reference fields are reserved for evaluation. Third, we realize the complete framework on measured KTC2023 EIT data [26, 27]. The full-𝑊 pipeline combines a coarse DNF solve, one per-phantom PhyRes-GNN transfer on an auxiliary target grid, a fixed map from that corrected representation to the FEM mesh, and mesh-unlocked refinement. Its weight 𝜆 𝐾 is set from measurement energy without segmentation labels. The pipeline reaches 0.623 mean Otsu mIoU, compared with 0.603 for the official linearized CEM reconstruction and 0.533 for direct single-level DNF, corresponding to relative improvements of approximately 3.4% 
+
+and 16 .9% , respectively. The evaluated 76-pattern coordinate-network PINN produces valid three-class scores only on Data 1 and Data 2, so no aggregate PINN mean is reported. KTC2023 compares complete reconstruction pipelines; the matched LUNDIsim experiment isolates the causal effect of PhyRes-GNN. Together, the Darcy and EIT results support framework-level generality across coefficient structures, discretiza-tions, physics, and observation geometries. This means that the same fixed-physics construction can be re-instantiated for different inverse problems; it is not a claim of cross-instance weight generalization. The rest of the paper is organized as follows. Section 2 reviews classical inversion, inverse PINNs, discretization-aware learning, and the limitations of direct high-resolution inverse training. Section 3 introduces single-level DNF, the MDNF backbone, and PhyRes-GNN transfer. Section 4 instantiates the framework for Darcy permeability inversion and KTC2023 EIT. Section 5 reports the numerical experiments, and Section 6 summarizes the findings and limitations. 
+
+## 2. Preliminaries 
+
+This section establishes the notation and standard formulations used in the rest of the paper. We first introduce a general PDE-constrained coefficient inverse problem and summarize the classical full-space and reduced-space solution frameworks. We then describe the two discrete numerical models used in our realizations: a conservative finite-difference model for Darcy flow and a finite-element complete electrode model for EIT. Finally, we review the neural representations relevant to the proposed construction. 
+
+2.1. PDE-constrained inverse problems 
+
+Let Ω ⊂ ℝ𝑑 be a bounded physical domain, 𝜅 an unknown coefficient field, and {𝑢 𝑚 }𝑀 𝑚 =1 the states generated by 
+
+𝑀 excitations or experiments. A general forward problem can be written as 
+
+𝑚 (𝑢 𝑚 , 𝜅 ) = 0 in Ω, (1) 
+
+𝑚 (𝑢 𝑚 , 𝜅 ) = 0 on 𝜕 Ω, (2) 
+
+𝑑 𝑚 = 𝑚 𝑢 𝑚 + 𝜂 𝑚 , 𝑚 = 1 , … , 𝑀, (3) where 𝑚 is the governing differential operator, 𝑚 represents boundary or electrode conditions, 𝑚 is the observation operator, 𝑑 𝑚 denotes measured data, and 𝜂 𝑚 is measurement error. The coefficient 𝜅 is shared by all experiments, whereas each excitation has its own state 𝑢 𝑚 .A regularized full-space formulation retains the states and coefficient as independent variables: 
+
+min 
+
+> 𝜅, {𝑢 𝑚 }𝑀 𝑚 =1
+
+12
+
+> 𝑀
+
+∑
+
+> 𝑚 =1
+
+‖𝑚 𝑢 𝑚 − 𝑑 𝑚 ‖2Γ−1 
+
+> 𝑚
+
++ 𝛼 (𝜅 )
+
+s.t. 𝑚 (𝑢 𝑚 , 𝜅 ) = 0 in Ω,
+
+𝑚 (𝑢 𝑚 , 𝜅 ) = 0 on 𝜕 Ω, 𝑚 = 1 , … , 𝑀. 
+
+(4) Here Γ𝑚 is a data covariance or weighting matrix and  encodes prior information such as smoothness, bounded variation, or proximity to a background field. Regularization is needed because elliptic coefficient inverse problems   
+
+> Lu et al.: Preprint submitted to Elsevier Page 3 of 22
+
+PhyRes-MDNF for Inverse Problems 
+
+are typically ill posed: different fine-scale coefficients may have very similar effects on sparse interior or boundary measurements. 
+
+2.2. Classical numerical inversion 
+
+Classical numerical inversion first discretizes the forward problem by finite differences, finite volumes, or finite elements and then solves the resulting finite-dimensional optimization problem [4, 11, 19]. Let 𝜅 ℎ ∈ ℝ𝑛 𝜅 denote the discrete coefficient and 𝑈 𝑚,ℎ ∈ ℝ𝑛 𝑢 the state for experiment 𝑚 . The numerical forward model has the algebraic form 
+
+𝐹 𝑚,ℎ (𝑈 𝑚,ℎ , 𝜅 ℎ) = 0 , 𝑚 = 1 , … , 𝑀, (5) and a matrix 𝑃 𝑚,ℎ maps the state degrees of freedom to the observation locations. The discrete full-space problem is 
+
+min 
+
+> 𝜅 ℎ,{𝑈 𝑚,ℎ }
+
+12
+
+> 𝑀
+
+∑
+
+> 𝑚 =1
+
+‖𝑃 𝑚,ℎ 𝑈 𝑚,ℎ − 𝑑 𝑚 ‖2 
+
+> 𝑊 𝑚
+
++ 𝛼𝑅 ℎ(𝜅 ℎ)
+
+s.t. 𝐹 𝑚,ℎ (𝑈 𝑚,ℎ , 𝜅 ℎ) = 0 , 𝑚 = 1 , … , 𝑀. 
+
+(6) Classical algorithms treat these constraints with SQP, augmented Lagrangians, or residual penalties. In each case, both the states and coefficient remain active in the optimization. In a reduced-space method, the numerical forward equation is solved for each trial coefficient, 
+
+𝐹 𝑚,ℎ (𝑈 𝑚,ℎ (𝜅 ℎ), 𝜅 ℎ) = 0 ,
+
+and the resulting states are inserted into 
+
+red  
+
+> ℎ
+
+(𝜅 ℎ) = 12
+
+> 𝑀
+
+∑
+
+> 𝑚 =1
+
+‖𝑃 𝑚,ℎ 𝑈 𝑚,ℎ (𝜅 ℎ) − 𝑑 𝑚 ‖2 
+
+> 𝑊 𝑚
+
++ 𝛼𝑅 ℎ(𝜅 ℎ). (7) Writing 𝐹 𝑚,𝑈 and 𝐹 𝑚,𝜅 for the state and coefficient Jacobians, respectively, the adjoint variable satisfies 
+
+𝐹 𝑇 𝑚,𝑈 𝜆 𝑚 = 𝑃 𝑇 𝑚,ℎ 𝑊 𝑚 (𝑃 𝑚,ℎ 𝑈 𝑚,ℎ − 𝑑 𝑚 ), (8) and the reduced gradient is 
+
+∇red  
+
+> ℎ
+
+(𝜅 ℎ) = 𝛼 ∇𝑅 ℎ(𝜅 ℎ) − 
+
+> 𝑀
+
+∑
+
+> 𝑚 =1
+
+𝐹 𝑇 𝑚,𝜅 𝜆 𝑚 , (9) up to the sign convention used in (5). Thus a reduced update requires forward and adjoint solves but its gradient cost is essentially independent of 𝑛 𝜅 .For a measurement map linearized around a background coefficient, 
+
+𝛿𝑑 ≈ 𝐽 ℎ𝛿𝜅 ℎ, (10) a standard Tikhonov update solves 
+
+min 
+
+> 𝛿𝜅 ℎ
+
+12 ‖𝐽 ℎ𝛿𝜅 ℎ − 𝛿𝑑 ‖2 
+
+> 𝑊
+
++ 𝜆 
+
+2 ‖𝐿 ℎ𝛿𝜅 ℎ‖22, (11) or the equivalent normal equations 
+
+(𝐽 𝑇 ℎ 𝑊 𝐽 ℎ + 𝜆𝐿 𝑇 ℎ 𝐿 ℎ)𝛿𝜅 ℎ = 𝐽 𝑇 ℎ 𝑊 𝛿𝑑. (12) Full-space, reduced-space, and linearized formulations therefore differ in which variables remain active, but all are defined by the selected numerical operator, observation map, and regularization. 
+
+Lu et al.: Preprint submitted to Elsevier Page 4 of 22 PhyRes-MDNF for Inverse Problems 
+
+2.3. Discrete forward models 
+
+To instantiate the abstract discrete residual 𝐹 𝑚,ℎ and observation operator 𝑃 𝑚,ℎ , we consider two forward models with different numerical discretizations. Darcy flow is represented by a conservative structured-grid scheme, whereas EIT is represented by the finite-element complete electrode model. 
+
+Conservative discretization for Darcy flow. For permeability 𝐾 (𝑥 ) > 0, the pressure generated by excitation 𝑚 
+
+satisfies 
+
+−∇ ⋅ (𝐾 ∇𝑢 𝑚 ) = 𝑓 𝑚 in Ω, 𝑢 𝑚 = 𝑔 𝑚 on 𝜕 Ω. (13) On a structured grid, integration over a cell 𝐶 𝑖 gives the conservative residual 
+
+𝑅 D
+
+> 𝑚,ℎ,𝑖
+
+(𝑈 𝑚,ℎ , 𝐾 ℎ) = ∑ 
+
+> 𝑗 ∈(𝑖 )
+
+𝑇 𝑖𝑗 (𝐾 ℎ)( 𝑈 𝑚,ℎ,𝑖 − 𝑈 𝑚,ℎ,𝑗 ) − |𝐶 𝑖 |𝑓 𝑚,ℎ,𝑖 , (14) with the prescribed boundary contributions included in the same balance. For an orthogonal grid, a typical interior transmissibility is 
+
+𝑇 𝑖𝑗 (𝐾 ℎ) = |𝑒 𝑖𝑗 |
+
+𝑑 𝑖𝑗 
+
+2𝐾 ℎ,𝑖 𝐾 ℎ,𝑗 
+
+𝐾 ℎ,𝑖 + 𝐾 ℎ,𝑗 
+
+,
+
+where 𝑒 𝑖𝑗 is the shared face and 𝑑 𝑖𝑗 is the distance between cell centers. This harmonic face value preserves flux continuity across strong permeability contrasts. Sparse pressure observations take the algebraic form 𝑑 𝑚 = 𝑃 𝑚,ℎ 𝑈 𝑚,ℎ +
+
+𝜂 𝑚 . The Darcy realization below uses the full-space viewpoint: all pressure fields and their shared permeability are active variables. 
+
+Finite-element complete electrode model for EIT. Let 𝜎 (𝑥 ) > 0 denote conductivity, 𝐸 𝑒 the electrodes, 𝜁 𝑒 their contact impedances, 𝐼 𝑚,𝑒 the applied currents, and 𝑉 𝑚,𝑒 the electrode voltages. The complete electrode model (CEM) [28] is 
+
+∇ ⋅ (𝜎 ∇𝑢 𝑚 ) = 0 in Ω, (15) 
+
+𝑢 𝑚 + 𝜁 𝑒 𝜎𝜕 𝑛 𝑢 𝑚 = 𝑉 𝑚,𝑒 on 𝐸 𝑒 , (16) 
+
+∫𝐸 𝑒 
+
+𝜎𝜕 𝑛 𝑢 𝑚 𝑑𝑠 = 𝐼 𝑚,𝑒 , 𝑒 = 1 , … , 𝐸, (17) 
+
+𝜎𝜕 𝑛 𝑢 𝑚 = 0 on 𝜕 Ω ⧵ ⋃
+
+> 𝑒
+
+𝐸 𝑒 , (18) 
+
+> 𝐸
+
+∑
+
+> 𝑒 =1
+
+𝑉 𝑚,𝑒 = 0 . (19) A finite-element discretization produces a grounded block system 
+
+𝐴 ℎ(𝜎 ℎ)
+
+[𝑈 𝑚,ℎ 
+
+𝑉 𝑚,ℎ 
+
+]
+
+= 𝑏 𝑚 , 𝑦 𝑚,ℎ = 𝑄 𝑚 𝑉 𝑚,ℎ , (20) where 𝑄 𝑚 selects the measured voltage channels. For difference imaging around a homogeneous background 𝜎 0, the stacked voltage change is linearized as 
+
+Δ𝑈 ≈ 𝐽 ℎ𝛿𝜎 ℎ, 𝛿𝜎 ℎ = 𝜎 ℎ − 𝜎 0,ℎ . (21) This is a reduced linear inverse model of the form (10). The KTC2023 realization uses the official finite-element sensitivity 𝐽 ℎ, active voltage mask, and measurement weighting [13, 26, 27]. 
+
+Lu et al.: Preprint submitted to Elsevier Page 5 of 22 PhyRes-MDNF for Inverse Problems 
+
+2.4. Neural-network approaches to inverse problems 
+
+Besides conventional numerical inversion, neural networks can be used to parameterize the unknown states, coefficients, or the map from observations to reconstructions. Some neural inverse models are trained offline from paired samples and then evaluated on new data. Physics-informed neural networks (PINNs) provide a different, per-instance approach: they optimize a new set of network parameters for the current observations and governing equations, and therefore require neither paired training data nor offline pretraining [16, 25]. In an inverse PINN, coordinate networks represent the states and coefficient, 
+
+𝑢 𝑚 (𝑥 ) ≈ 𝑢 𝜃 𝑚 (𝑥 ), 𝜅 (𝑥 ) ≈ 𝜅 𝜓 (𝑥 ),
+
+and automatic differentiation evaluates the continuous residuals. A generic training objective is 
+
+PINN = 𝜆 data data + 𝜆 pde pde + 𝜆 bc bc + 𝜆 reg (𝜅 𝜓 ). (22) The state-network parameters {𝜃 𝑚 } and the shared coefficient parameters 𝜓 are fitted jointly from measurements and collocation residuals. Thus PINNs avoid a problem-specific discrete adjoint and can be applied directly to a single inverse instance. Their performance, however, depends on the coordinate-network parameterization, collocation rule, and balance among the data, PDE, boundary, and regularization terms. For ill-conditioned coefficient inversion, the resulting nonconvex optimization can exhibit spectral bias, slow convergence, and competition between state and coefficient errors [32]. Per-instance physics-informed inversion has been studied in subsurface flow and transport, including hydraulic tomography, multiphysics data assimilation, and inverse differential-equation formulations [9, 10, 17]. These examples motivate physics-based learning without paired solution data, but they retain a neural parameterization of the unknown fields. A different line of work makes discrete numerical quantities differentiable and trainable. Physics-informed convolutional models evaluate prescribed discrete operators on grids [35], PIXEL uses trainable cell representations for PDE solutions [14], and ODIL directly optimizes a discrete physical loss without a neural solution network [15]. Conservative PINNs on discrete subdomains provide a related discretization-aware treatment of conservation laws [12]. These works support the distinction between a trainable discrete field and a learned surrogate of the numerical operator. Graph neural networks provide a complementary representation for information exchange on grids and meshes. Message-passing neural networks define learned node updates from graph-local aggregations [8], and MeshGraphNets apply this principle to mesh-based simulation [23]. GNNs have also been used to learn algebraic multigrid prolongation and multilevel domain-decomposition components [21, 29]. In the proposed method, by contrast, graph aggregation is restricted to the transfer interface and the physical operator used in the inverse objective remains fixed. The numerical and PINN approaches therefore have complementary limitations. Classical numerical methods retain a trusted discretization and accurately enforce the selected forward model, but they commonly require problem-dependent forward solvers, sensitivities, or adjoint implementations; direct fine-grid inversion can also be expensive and poorly conditioned. PINNs remove the need for an offline dataset and explicit discrete adjoint, but replace the discrete unknowns by coordinate-network weights and require a carefully balanced residual optimization. In both approaches, activating all high-resolution degrees of freedom from the beginning makes weakly observable fine-scale coefficient modes difficult to recover and can lead to slow, initialization-sensitive optimization. 
+
+## 3. PhyRes-MDNF: Single-Level DNF Optimization and Physics-Coupled Residual GNN Correction 
+
+Section 2 contrasted classical numerical inversion, which retains a prescribed discrete forward model, with per-instance PINN optimization, which requires no offline training data. We now combine the relevant advantages through three design choices. First, the inverse variables are stored directly as trainable grid or mesh fields and optimized under a prespecified discrete level objective; we call this fixed-level operation a discrete neural field (DNF) solve. Second, the DNF solve is repeated on a nested coarse-to-fine sequence, giving a multilevel discrete neural field (MDNF) backbone. Third, a single objective-only transfer operator jointly performs fixed-stencil prolongation and bounded residual correction without fine-grid truth. We call this transfer module the physics-coupled residual GNN (PhyRes-GNN).   
+
+> Lu et al.: Preprint submitted to Elsevier Page 6 of 22 PhyRes-MDNF for Inverse Problems
+
+These three design choices define the complete PhyRes-MDNF framework. Each coarse-to-fine transition has two components. A single-level DNF solve optimizes the active inverse variables, and PhyRes-GNN constructs a prolonged-and-corrected incoming representation. The fixed initialization map then converts it into the variables for the next DNF solve. The finite-difference, finite-element, or CEM operator remains fixed in both components; the learned corrector neither replaces the numerical physics nor defines the final reconstruction objective. The remainder of this section defines this algorithmic path at the framework level. The concrete Darcy residual, KTC2023 EIT sensitivity matrix, and problem-specific features are deferred to Section 4. 
+
+3.1. Framework overview 
+
+Let ℎ denote a discrete level and let 𝑧 ℎ collect the unknown fields on that level. In a full-space problem, 𝑧 ℎ
+
+can contain both state variables and coefficient variables. In a reduced problem, it may contain only a coefficient or conductivity perturbation after the state has been eliminated by a forward model or a linearization. The trainable variables are denoted by Θℎ. An assembly map 
+
+ℎ ∶ Θ ℎ ↦ 𝑧 ℎ (23) inserts prescribed values, applies positivity or box constraints, maps reduced parameters to the active reconstruction space, and returns the admissible fields seen by the physics evaluator. The coordinates used for level transfer need not be the assembled physical fields. We therefore distinguish the coordinates extracted from a completed DNF level from the incoming representation used to initialize the next DNF level: 
+
+𝜏 ℎ = ℎ(Θ ℎ), Θ0 
+
+> ℎ
+
+= ℎ(̄𝜏 0
+
+> ℎ
+
+), (24) where ℎ extracts the variables acted on by the transfer operator and ℎ converts the incoming transfer representation ̄𝜏 0 
+
+> ℎ
+
+into a valid trainable initialization. The range of ℎ and the domain of ℎ need not be the same discrete space: an interface may use an auxiliary target grid before ℎ samples or assembles the result on the next DNF discretization. For Darcy, 𝜏 ℎ contains the pressure fields and the raw permeability parameter 𝜌 ℎ, whereas 𝑧 ℎ contains the pressure fields and the positive permeability 𝐾 ℎ. For grid-parameterized EIT, the outgoing coarse coordinate is a regular-grid conductivity perturbation, the incoming representation is corrected on an auxiliary target grid, and ℎ samples that corrected field to the finite-element variable. We use the same notation throughout the paper: Θ𝓁 denotes all trainable DNF variables on level ℎ𝓁 , 𝑧 𝓁 denotes the assembled physical fields, 𝜏 𝓁 denotes coordinates extracted from the completed level, ̄𝜏 𝓁 +1 denotes the incoming representation constructed at the 𝓁 → 𝓁 + 1 interface, 𝜅 𝓁 denotes the physical coefficient component, and 𝜔 𝓁 denotes only the parameters of the learned transfer module. On one level, let ̂ ℎ denote the objective evaluated on assembled physical fields. The optimized DNF objective is its pullback through the assembly map: ̂
+
+ℎ(𝑧 ℎ) =  data  
+
+> ℎ
+
+(𝑧 ℎ) + 𝛾  phys  
+
+> ℎ
+
+(𝑧 ℎ) + 𝛼 ℎ(𝑧 ℎ),
+
+ℎ(Θ ℎ) = ̂ ℎ(ℎ(Θ ℎ)) . (25) Here  data  
+
+> ℎ
+
+measures agreement with observations,  phys  
+
+> ℎ
+
+is a PDE residual or reduced-model consistency term, and 
+
+ℎ is a prior or regularizer. The physics evaluator is part of the loss, not a learned module. Automatic differentiation is used only to compute gradients of this finite-dimensional objective with respect to the active trainable fields. Across levels, PhyRes-MDNF repeats its two components. First, single-level DNF optimizes ℎ𝓁 on the current level. Second, a PhyRes-GNN transfer operator 𝑇 𝓁 →𝓁 +1  
+
+> 𝜔 𝓁
+
+jointly prolongs and corrects the transfer coordinates. The map ℎ𝓁 +1 converts the result into the next trainable initialization. The next level then resumes the ordinary DNF solve with its own physics-based objective. One transition has the form 
+
+Θ0
+
+> 𝓁
+> DNF
+
+←←←←←←←←←←←←←←←←←←←←←←→ (Θ ⋆ 
+
+> 𝓁
+
+, 𝑧 ⋆ 
+
+> 𝓁
+
+)
+
+> ℎ𝓁
+
+←←←←←←←←←←←←←←←←←←←←→ 𝜏 ⋆ 
+
+> 𝓁
+> 𝑇 𝓁 →𝓁 +1
+> 𝜔 𝓁
+
+←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←→̄𝜏 0,𝜔 
+
+> 𝓁 +1
+> ℎ𝓁 +1
+
+←←←←←←←←←←←←←←←←←←←←←←←←←←←←←→ Θ0
+
+> 𝓁 +1
+
+. (26) Algorithm 1 gives the complete order of operations. Deterministic interpolation is recovered as the zero-correction or ablation case of the same transfer operator.   
+
+> Lu et al.: Preprint submitted to Elsevier Page 7 of 22 PhyRes-MDNF for Inverse Problems
+
+Algorithm 1 PhyRes-MDNF: single-level DNF optimization with PhyRes-GNN transfer 
+
+Require: Levels ℎ1, … , ℎ 𝐿 , data 𝑑 , fixed reconstruction objectives ̂ ℎ𝓁 , fixed transfer-stage objectives ̂ tr  
+
+> ℎ𝓁
+
+, assembly maps ℎ𝓁 , transfer extractors ℎ𝓁 , initialization maps ℎ𝓁 , transfer operators 𝑇 𝓁 →𝓁 +1  
+
+> 𝜔 𝓁
+> 1:
+
+Initialize trainable fields Θ01 on the coarsest level  
+
+> 2:
+
+for 𝓁 = 1 , … , 𝐿 do  
+
+> 3:
+
+DNF solve: optimize Θ𝓁 with the fixed objective ℎ𝓁  
+
+> 4:
+
+Assemble 𝑧 ⋆ 
+
+> 𝓁
+
+= ℎ𝓁 (Θ ⋆ 
+
+> 𝓁
+
+) 
+
+> 5:
+
+if 𝓁 = 𝐿 then  
+
+> 6:
+
+return 𝑧 ⋆𝐿  
+
+> 7:
+
+end if  
+
+> 8:
+
+Extract transfer coordinates 𝜏 ⋆ 
+
+> 𝓁
+
+= ℎ𝓁 (Θ ⋆ 
+
+> 𝓁
+
+) 
+
+> 9:
+
+PhyRes-GNN transfer: assemble fixed coarse-to-fine neighbor messages and nodewise problem features; reinitialize and update only 𝜔 𝓁 for the current inverse instance; set ̄𝜏 0,𝜔  
+
+> 𝓁 +1
+
+= 𝑇 𝓁 →𝓁 +1  
+
+> 𝜔 𝓁
+
+(𝜏 ⋆ 
+
+> 𝓁
+
+; 𝑑, tr  
+
+> ℎ𝓁 +1
+
+) 
+
+> 10:
+
+Initialize Θ0 
+
+> 𝓁 +1
+
+= ℎ𝓁 +1 (̄𝜏 0,𝜔 
+
+> 𝓁 +1
+
+) 
+
+> 11:
+
+end for 
+
+3.2. Single-level DNF optimization 
+
+The full-space and reduced-space formulations in Section 2 distinguish which variables remain active on one fixed discretization. The DNF step in Algorithm 1 is the only step that optimizes the inverse variables on a fixed level. Starting from Θ0
+
+> ℎ
+
+, it repeatedly assembles admissible fields, evaluates the fixed objective in (25), differentiates through the numerical operations, and updates Θℎ with Adam or LBFGS. The output is the optimized field 𝑧 ⋆ℎ , not a network prediction. 
+
+Algorithm 2 DNF optimization on one level 
+
+Require: Trainable variables Θℎ, assembly map ℎ, loss terms in (25)  
+
+> 1:
+
+for optimization step 𝑡 = 0 , 1, … do  
+
+> 2:
+
+Assemble admissible fields 𝑧 ℎ = ℎ(Θ ℎ) 
+
+> 3:
+
+Evaluate data, physics, and regularization terms  
+
+> 4:
+
+Differentiate ℎ(Θ ℎ) by automatic differentiation  
+
+> 5:
+
+Update Θℎ with Adam or LBFGS  
+
+> 6:
+
+end for  
+
+> 7:
+
+return optimized fields 𝑧 ⋆ℎ
+
+This representation is deliberately different from a coordinate-network surrogate. The trainable objects are the discrete fields themselves. In a full-space realization, the assembled field contains states and coefficients; in a reduced realization, it contains the parameters seen by a preassembled measurement map. The Darcy and EIT choices of  phys 
+
+> ℎ
+
+are specified in Section 4.1 and Section 4.3. 
+
+3.3. Multilevel DNF backbone 
+
+The next design choice concerns how the active inverse space is introduced. Elliptic coefficient inverse problems are ill conditioned because fine-scale coefficient modes can be weakly visible in sparse or boundary data. MDNF therefore repeats the single-level DNF solve over nested reconstruction spaces 
+
+1 ⊂ 2 ⊂ ⋯ ⊂ 𝐿 ,
+
+rather than exposing all fine-scale degrees of freedom in the first solve. If 𝜗 𝓁 ∈ ℝ𝑛 𝓁 is the coefficient-level variable, the assembled coefficient component is represented abstractly by 
+
+𝜅 𝓁 = 𝜅  
+
+> 𝓁
+
+(Π 𝓁 𝜗 𝓁 ), (27)   
+
+> Lu et al.: Preprint submitted to Elsevier Page 8 of 22
+
+PhyRes-MDNF for Inverse Problems 
+
+where Π𝓁 maps the level variable to the physical reconstruction space and 𝜅  
+
+> 𝓁
+
+applies any positivity, background-plus-update, or box constraint. If states are active, they are included in Θ𝓁 and assembled by the same map ℎ𝓁 . The level objective is the single-level inverse objective restricted to the current space: 
+
+Φ𝓁 (Θ 𝓁 ) = ℎ𝓁 (Θ 𝓁 ), 𝑧 𝓁 = ℎ𝓁 (Θ 𝓁 ). (28) 
+
+3.3.1. Why coarse-to-fine continuation helps 
+
+The coarse-to-fine path is not introduced only as a heuristic resolution schedule. In an idealized local model, it removes slowly decaying error components before the direct and multilevel paths receive the same number of fine-grid updates. This gives a sufficient mechanism for the observed equal-final-grid-step advantage; it does not claim that coarse-to-fine continuation is universally necessary for every nonlinear inverse problem. Consider the local quadratic model for the fine-grid coefficient variable 
+
+𝔪 𝑓 (𝜗 ) = 12 (𝜗 − 𝜗 ⋆𝑓 )𝑇 𝐻 𝑓 (𝜗 − 𝜗 ⋆𝑓 ), 𝐻 𝑓 = 𝐻 𝑇 𝑓 ≻ 0, (29) where a local Gauss–Newton Hessian may have the form 𝐻 𝑓 = 𝐺 𝑇 𝑓 𝑊 𝑓 𝐺 𝑓 + 𝛼𝐷 𝑇 𝑓 𝐷 𝑓 .
+
+Proposition 1 (Coarse-mode equal-step bound) . Let (𝜆 𝑖 , 𝑣 𝑖 ) be orthonormal eigenpairs of 𝐻 𝑓 , ordered as 
+
+0 < 𝜆 1 ≤ ⋯ ≤ 𝜆 𝑛 = 𝐿 𝐻 ,
+
+and define ‖𝑒 ‖𝐻 𝑓 = ( 𝑒 𝑇 𝐻 𝑓 𝑒 )1∕2 . For some 1 ≤ 𝑘 < 𝑛 , assume 𝜆 𝑘 +1 > 𝜆 1, the nested coarse space contains the 𝑘 
+
+modes that are slowest for fine-grid gradient descent, 
+
+𝑐 = span{ 𝑣 1, … , 𝑣 𝑘 },
+
+and the coarse objective is the Galerkin-consistent restriction of 𝔪 𝑓 . Starting from the same fine-grid initialization 
+
+𝜗 0dir , let 
+
+𝑣 ⋆𝑐 = arg min 
+
+> 𝑣 ∈𝑐
+
+𝔪 𝑓 (𝜗 0dir + 𝑣 ), 𝜗 0ml = 𝜗 0dir + 𝑣 ⋆𝑐 .
+
+For gradient descent with 0 < 𝜂 ≤ 1∕ 𝐿 𝐻 , after the same 𝑡 fine-grid updates the direct and multilevel errors satisfy 
+
+‖𝑒 𝑡  
+
+> dir
+
+‖𝐻 𝑓 ≤ (1 − 𝜂𝜆 1)𝑡 ‖𝑒 0dir ‖𝐻 𝑓 ,
+
+‖𝑒 𝑡 
+
+> ml
+
+‖𝐻 𝑓 ≤ (1 − 𝜂𝜆 𝑘 +1 )𝑡 ‖𝑒 0ml ‖𝐻 𝑓 ,
+
+with ‖𝑒 0ml ‖𝐻 𝑓 ≤ ‖𝑒 0dir ‖𝐻 𝑓 . Hence the multilevel equal-step worst-case error bound is no larger. Proof. Expand the direct initial error in the orthonormal eigenbasis, 
+
+𝑒 0dir = 𝜗 0dir − 𝜗 ⋆𝑓 =
+
+> 𝑛
+
+∑
+
+> 𝑖 =1
+
+𝑐 𝑖 𝑣 𝑖 .
+
+After 𝑡 gradient-descent iterations, 
+
+𝑒 𝑡  
+
+> dir
+
+= ( 𝐼 − 𝜂𝐻 𝑓 )𝑡 𝑒 0dir =
+
+> 𝑛
+
+∑
+
+> 𝑖 =1
+
+(1 − 𝜂𝜆 𝑖 )𝑡 𝑐 𝑖 𝑣 𝑖 .
+
+Since 0 < 𝜂 ≤ 1∕ 𝐿 𝐻 , this gives the stated direct bound. Exact coarse minimization is the 𝐻 𝑓 -orthogonal correction on 𝑐 ; it eliminates the components in 𝑣 1, … , 𝑣 𝑘 , so 
+
+𝑒 0ml =
+
+> 𝑛
+
+∑
+
+> 𝑖 =𝑘 +1
+
+𝑐 𝑖 𝑣 𝑖 .
+
+The multilevel bound follows by applying the same iteration to the remaining modes. Orthogonal removal also gives 
+
+‖𝑒 0ml ‖𝐻 𝑓 ≤ ‖𝑒 0dir ‖𝐻 𝑓 , and 𝜆 𝑘 +1 > 𝜆 1 completes the comparison. 
+
+Lu et al.: Preprint submitted to Elsevier Page 9 of 22 PhyRes-MDNF for Inverse Problems 
+
+For a nonlinear inverse problem, the same reasoning is only local. Suppose a fine-grid objective Φ𝑓 satisfies 
+
+𝜇𝐼 ⪯ ∇ 2Φ𝑓 ⪯ 𝐿 Φ𝐼 in a ball of radius 𝑟 around 𝜗 ⋆𝑓 , and the prolonged coarse minimizer obeys 
+
+‖𝑐 →𝑓 𝜗 ⋆𝑐 − 𝜗 ⋆𝑓 ‖ ≤ 𝐶ℎ 𝑝 𝑐 < 𝑟. 
+
+Then gradient descent with 0 < 𝜂 ≤ 1∕ 𝐿 Φ, while it remains in this local region, satisfies 
+
+‖𝜗 𝑡 𝑓 − 𝜗 ⋆𝑓 ‖ ≤ (1 − 𝜂𝜇 )𝑡 𝐶ℎ 𝑝 𝑐 .
+
+A direct initialization with local error bound 𝐸 dir > 𝐶ℎ 𝑝 𝑐 has the corresponding bound (1 − 𝜂𝜇 )𝑡 𝐸 dir . These idealized estimates explain why a coarse-to-fine initialization can retain an advantage under a common fine-grid update budget. They do not compare the additional coarse-grid work or establish a global rate for the implemented method, which uses Adam, nonlinear objectives, approximate prolongation, and finite coarse solves. The matched final-grid experiment is reported in Section 5.2. 
+
+3.4. Physics-coupled residual GNN transfer 
+
+A multilevel construction also requires a transfer between two consecutive DNF solves. Once a coarse level is optimized, its variables must be represented on the target level before refined optimization begins. A prespecified transfer-stage objective, rather than a learned surrogate or fine-grid truth, supplies the fitting signal. Let ̂ tr  
+
+> ℎ
+
+denote this objective as a function of the assembled target-level fields, the transfer coordinates, and the data. Its evaluation in transfer coordinates is 
+
+tr  
+
+> ℎ
+
+(𝜏 ; 𝑑 ) = ̂ tr 
+
+> ℎ
+
+(ℎ(ℎ(𝜏 )) , 𝜏 ; 𝑑 ) . (30) The transfer-stage objective is fixed before the corrector is fitted, but it is not required to equal the reconstruction objective ̂ ℎ. It may select or reweight available data, physics, and regularization blocks for the sole purpose of constructing an initialization. The special choice ̂ tr  
+
+> ℎ
+
+(𝑧, 𝜏 ; 𝑑 ) =̂ ℎ(𝑧 ) recovers the full reconstruction-objective pullback. Allowing explicit dependence on 𝜏 also covers a transfer-space regularizer such as the EIT grid-smoothness term. In either case, the numerical operator is unchanged and no reference state or coefficient enters the transfer objective. After level 𝓁 is optimized, a single transfer operator constructs the incoming representation for the next level: ̄𝜏 0,𝜔  
+
+> 𝓁 +1
+
+= 𝑇 𝓁 →𝓁 +1 
+
+> 𝜔 𝓁
+
+(
+
+𝜏 ⋆ 
+
+> 𝓁
+
+; 𝑑, tr 
+
+> ℎ𝓁 +1
+
+)
+
+. (31) This operator is the point where coarse-to-fine continuation and the GNN work together. It maps the coarse transfer coordinates to the incoming target representation by combining fixed neighbor aggregation with a bounded shared nodewise update. These are internal parts of one transfer operator, not two successive algorithmic stages. The target nodes are coupled when the fixed transfer-stage objective evaluates its finite-difference stencil, finite-element mesh, or CEM measurement map. The transfer remains an initialization operator only: after transfer, the refined level is optimized with its own fixed objective and active variables. PhyRes-GNN is therefore a GNN variant whose graph aggregation is fixed rather than learned. Let 𝑐 →𝑓 (𝑝 ) be the coarse-layer nodes whose interpolation stencil contains the fine node 𝑝 . The coarse-to-fine message received at 𝑝 
+
+is 
+
+𝑚 𝑐 →𝑓 𝑝 = ∑ 
+
+> 𝑞 ∈𝑐 →𝑓 (𝑝 )
+
+𝑤 𝑝𝑞 𝜏 ⋆𝑐 (𝑞 ), ∑
+
+> 𝑞
+
+𝑤 𝑝𝑞 = 1 , (32) which is bilinear interpolation on Cartesian grids and the corresponding sampling/prolongation stencil on a mesh. Let 
+
+𝑓 (𝑝 ) denote adjacent target nodes in the fixed numerical graph. Separately from this graph message, we compute the target-objective gradient diagnostic 
+
+𝑔 phys  
+
+> 𝑝
+
+= ∇ 𝜏 𝑓 (𝑝 )tr  
+
+> 𝑓
+
+(𝜏 𝑓 )|||𝜏 𝑓 =𝑚 𝑐 →𝑓 (33) This diagnostic contains the coupling induced by 𝑓 (𝑝 ) through the PDE stencil or mesh regularizer, together with any nonlocal measurement coupling such as the CEM sensitivity map. The quantity 𝑔 phys  
+
+> 𝑝
+
+is not an additional message-passing operation: it neither aggregates learned edge messages nor updates neighboring features. It is a nodewise   
+
+> Lu et al.: Preprint submitted to Elsevier Page 10 of 22 PhyRes-MDNF for Inverse Problems
+
+diagnostic obtained by differentiating the fixed transfer objective at the prolonged baseline. Thus (32) is the graph message, while (33) supplies an objective-gradient feature to the shared neural update below. This differs from a conventional message-passing GNN, in which the edge-message function itself is learned. In both realizations, 𝑔 phys is included explicitly as a diagnostic node feature. For Darcy, it is the nodewise gradient of the refined physics–observation transfer loss with respect to the prolonged pressure and raw-permeability coordinates; hence it carries the adjacent-node coupling of the conservative finite-difference stencil. For KTC2023, it is the gradient of the normalized linearized CEM transfer objective and therefore also carries the nonlocal measurement coupling through 𝐽 .To expose the residual parameterization of the single operator 𝑇 𝓁 →𝓁 +1  
+
+> 𝜔
+
+, we write 𝜏 𝑓 locally for the incoming representation ̄𝜏 𝓁 +1 ; this target representation may be an auxiliary grid that 𝑓 subsequently maps to the next DNF discretization. Define its fixed coarse-to-fine message by deterministic interpolation, injection, or mesh sampling: 
+
+𝜏 𝑃 𝑓 = 𝑐 →𝑓 𝜏 ⋆𝑐 = 𝑚 𝑐 →𝑓 ,
+
+where the subscripts 𝑐 and 𝑓 denote the source and target transfer representations of one interface, respectively. This is an internal message of PhyRes-GNN, not the output of a separate prolongation stage. The node feature at a refined node 𝑝 is 
+
+𝜙 𝑝 = Ψ 𝑝 (𝜏 𝑃 𝑓 , 𝑑, 𝔡 𝑓 (𝜏 𝑃 𝑓 ), 𝜉 𝑝 ),
+
+where 𝜉 𝑝 contains geometric coordinates and 𝔡 𝑓 denotes optional diagnostics of the transfer-stage objective, such as the objective-gradient diagnostic 𝑔 phys . The remaining channels are the transferred variables, observations, masks, or source terms used by the specific problem. The unified prolongation–correction map is 
+
+𝜏 0,𝜔 𝑓 = 𝑇 𝑐 →𝑓 𝜔 (𝜏 ⋆𝑐 ; 𝑑, tr  
+
+> 𝑓
+
+)= 𝜏 𝑓 
+
+(𝑚 𝑐 →𝑓 + 𝜖 tanh 𝐺 𝜔 (𝜙 )) . (34) Here 𝜏 𝑓 reapplies constraints in transfer space, including prescribed state boundaries. Physical constraints are subsequently enforced by 𝑓 ◦𝑓 . The final layer of 𝐺 𝜔 is initialized to zero, so before fitting the complete transfer operator reduces exactly to deterministic interpolation; this zero-correction case is the ablation, not a separate first stage of PhyRes-GNN. During transfer training, only 𝜔 is optimized. The coarse solution and the transfer-stage objective are fixed. Abstractly, 
+
+min  
+
+> 𝜔
+
+tr 
+
+> 𝑓
+
+(
+
+𝑇 𝑐 →𝑓 𝜔 (𝜏 ⋆𝑐 ; 𝑑, tr  
+
+> 𝑓
+
+)
+
+)
+
+. (35) Transfer parameters could in principle be pretrained across a collection of inverse problems and then held fixed, or reinitialized and fitted for one inverse instance. This paper uses only the latter regime. More importantly, the fitting signal is transfer-objective-only: reference fine-level state and coefficient fields are excluded from tr  
+
+> 𝑓
+
+. For Darcy, the corrector is constrained by the refined discrete PDE residual and the observed pressure samples; for KTC2023 EIT, it is constrained by the linearized voltage objective and conductivity regularization. Thus all transfer modules are fitted per instance, but none is truth-supervised. This is still not a held-out, cross-instance, or cross-physics generalization test: no transfer weights are shared between Darcy and EIT, between Darcy target fields, or across the four EIT phantoms. This does not preclude framework-level generalizability: the same DNF–PhyRes-GNN construction can be instantiated for different inverse problems even when the corrector parameters are refitted for each target. After the transfer stage, all transfer parameters are frozen and the ordinary fine-level DNF solve resumes under the distinct reconstruction objective 𝑓 :
+
+Θ⋆𝑓 = argmin 
+
+> Θ𝑓
+
+𝑓 (Θ 𝑓 ), 𝑧 ⋆𝑓 = 𝑓 (Θ ⋆𝑓 ),
+
+Θ0 
+
+> 𝑓
+
+= 𝑓 
+
+[
+
+𝑇 𝑐 →𝑓 𝜔 (𝜏 ⋆𝑐 ; 𝑑, tr  
+
+> 𝑓
+
+)
+
+]
+
+.
+
+(36)   
+
+> Lu et al.: Preprint submitted to Elsevier Page 11 of 22 PhyRes-MDNF for Inverse Problems
+
+3.5. Consistency of the single-level DNF penalty 
+
+The two algorithmic components are now fully specified. We close the framework section with a consistency property of the single-level DNF penalty objective; this property concerns the fixed discrete physics loss, not the learned transfer module. DNF is also consistent with the classical constrained discrete inverse problem when the physics penalty is increased. Let 
+
+ℎ(𝑧 ) =  data  
+
+> ℎ
+
+(𝑧 ) + 𝛼 ℎ(𝑧 ), 𝐹 ℎ(𝑧 ) = 0 
+
+denote the corresponding constrained inverse problem and define 
+
+𝛾,ℎ (𝑧 ) = ℎ(𝑧 ) + 𝛾 
+
+2 ‖𝑆 ℎ𝐹 ℎ(𝑧 )‖22.
+
+Proposition 2 (Penalty consistency) . Assume that the admissible set ℎ is compact, ℎ and 𝐹 ℎ are continuous, and the feasible set {𝑧 ∈ ℎ ∶ 𝐹 ℎ(𝑧 ) = 0} is nonempty. Assume additionally that the residual scaling is nondegenerate: there is a constant 𝑐 res > 0 such that 
+
+‖𝑆 ℎ𝑣 ‖2 ≥ 𝑐 res ‖𝑣 ‖2 for every 𝑣 ∈ 𝐹 ℎ(ℎ).
+
+Let 𝑧 𝛾 be a global minimizer of 𝛾,ℎ over ℎ. Then every accumulation point of {𝑧 𝛾 }𝛾 →∞ is a minimizer of 
+
+min 
+
+> 𝑧 ∈ℎ
+
+ℎ(𝑧 ) s.t. 𝐹 ℎ(𝑧 ) = 0 .
+
+Proof. Let ̄𝑧 be feasible. Since 𝑧 𝛾 minimizes the penalty objective, 
+
+ℎ(𝑧 𝛾 ) + 𝛾 
+
+2 ‖𝑆 ℎ𝐹 ℎ(𝑧 𝛾 )‖22 ≤  ℎ(̄𝑧 ).
+
+Because ℎ is bounded below on compact ℎ, ‖𝑆 ℎ𝐹 ℎ(𝑧 𝛾 )‖2 → 0. The lower bound on 𝑆 ℎ then gives ‖𝐹 ℎ(𝑧 𝛾 )‖2 → 0.By continuity of 𝐹 ℎ, every accumulation point is feasible. Comparing 𝑧 𝛾 with any feasible point and passing to the limit proves optimality. Together, these pieces define PhyRes-MDNF as used in the experiments: single-level DNF optimizes the fixed inverse objective on each level, the coarse-to-fine hierarchy chooses a stable sequence of active spaces, and PhyRes-GNN prolongs and corrects the initialization passed between levels. The next section instantiates the abstract objects 
+
+ℎ, ℎ, ℎ, ℎ, Π𝓁 , and Ψ𝑝 for Darcy permeability inversion and KTC2023 EIT. 
+
+## 4. Darcy and EIT Realizations 
+
+Section 3 defined PhyRes-MDNF through its single-level DNF optimization and PhyRes-GNN correction compo-nents without committing to a particular PDE. This section gives the two concrete realizations used in the experiments. The Darcy problem is treated as a full-space inverse problem in which states and permeability are optimized together. The KTC2023 EIT problem is treated as a reduced difference-imaging problem in which the complete-electrode-model sensitivity matrix maps a conductivity perturbation to electrode-voltage changes. 
+
+4.1. Darcy full-space realization 
+
+For the Darcy experiments, the coefficient is a positive permeability field 𝐾 (𝑥 ) > 0. For each source or boundary excitation 𝑚 = 1 , … , 𝑀 , the pressure 𝑢 𝑚 satisfies the elliptic model 
+
+−∇ ⋅ (𝐾 ∇𝑢 𝑚 ) = 𝑓 𝑚 in Ω, 𝑢 𝑚 = 𝑔 𝑚 on 𝜕 Ω. (37) The observations are sparse pressure samples 
+
+𝑑 𝑚 = 𝑚 𝑢 𝑚 + 𝜂 𝑚 .
+
+The full-space inverse problem keeps both the pressure states and the shared permeability active. On level ℎ, the single-level DNF variables are 
+
+ΘD 
+
+> ℎ
+
+= { 𝑈 1,ℎ , … , 𝑈 𝑀,ℎ , 𝜌 ℎ}, 𝐾 ℎ = 𝐾 min + sof tplus( 𝜌 ℎ).  
+
+> Lu et al.: Preprint submitted to Elsevier Page 12 of 22
+
+PhyRes-MDNF for Inverse Problems 
+
+The assembly map restores the Dirichlet data in 𝑈 𝑚,ℎ and applies the positivity map to 𝜌 ℎ. The transfer coordinates retain the raw parameterization, 
+
+𝜏 D 
+
+> ℎ
+
+= D 
+
+> ℎ
+
+(Θ D 
+
+> ℎ
+
+) = { 𝑈 1,ℎ , … , 𝑈 𝑀,ℎ , 𝜌 ℎ}.
+
+The initialization map D 
+
+> ℎ
+
+copies the transferred interior states and 𝜌 ℎ into the trainable variables, after which D
+
+> ℎ
+
+restores the boundary values and constructs the physical field 𝑧 D 
+
+> ℎ
+
+= { 𝑈 1,ℎ , … , 𝑈 𝑀,ℎ , 𝐾 ℎ}.Let 
+
+𝑅 D
+
+> 𝑚,ℎ
+
+(𝑈 𝑚,ℎ , 𝐾 ℎ)
+
+denote the discrete residual of (37) evaluated by the fixed numerical model used in the code. The Darcy MDNF objective is 
+
+D 
+
+> ℎ
+
+= 𝛾 pde 
+
+2𝑀 
+
+> 𝑀
+
+∑
+
+> 𝑚 =1
+
+‖‖‖𝑆 𝑚,ℎ 𝑅 D
+
+> 𝑚,ℎ
+
+(𝑈 𝑚,ℎ , 𝐾 ℎ)‖‖‖
+
+> 22
+
++ 𝜆 obs 
+
+2𝑀 
+
+> 𝑀
+
+∑
+
+> 𝑚 =1
+
+‖‖𝑃 𝑚,ℎ 𝑈 𝑚,ℎ − 𝑑 𝑚 ‖‖22 + 𝛼 𝐾 𝑅 𝐾 (𝐾 ℎ).
+
+(38) Here 𝑆 𝑚,ℎ normalizes the residual scale, 𝑃 𝑚,ℎ is the observation mask, and 𝑅 𝐾 is the coefficient regularizer. This is the concrete instance of (25) used in the Darcy experiments. The multilevel hierarchy acts on both states and the raw coefficient parameter through 𝜏 D 
+
+> ℎ
+
+. After a coarse solve, the state fields and 𝜌 ℎ are transferred to the next level, the boundary values are reinserted, and the same full-space objective (38) is minimized on the refined level. The coefficient remains trainable through the refined level in the reported core comparisons. 
+
+4.2. Darcy PhyRes-GNN transfer 
+
+For Darcy, the transfer operator acts on the transfer coordinates 𝜏 D 
+
+> ℎ
+
+, namely the pressure states and raw permeability parameter, before the refined full-space solve starts. In its residual form, one PhyRes-GNN operator maps the coarse solution directly to the refined grid by combining fixed-stencil aggregation with bounded learned corrections. At a refined point 𝑝 , define the objective-gradient diagnostic in the Darcy transfer coordinates by 
+
+𝑔 D,phys  
+
+> 𝑝
+
+= ∇ (𝑈 1,𝑓 (𝑝 ),…,𝑈 𝑀,𝑓 (𝑝 ),𝜌 𝑓 (𝑝 )) Dws (𝜏 D 
+
+> 𝑓
+
+)|||𝜏 D 
+
+> 𝑓 =𝜏 D,𝑃 𝑓
+
+. (39) Because Dws evaluates the conservative fine-grid Darcy residual, this gradient contains the fixed adjacent-node coupling of the finite-difference stencil, as well as the local observation contribution. It is computed at the prolonged fields and supplied as a fixed diagnostic. It is not a message-passing operation and is not produced by a learned edge operator. The feature vector contains this objective-gradient diagnostic together with local coordinates, the transferred coefficient, transferred pressure states, source information, observation masks, and observed values: 
+
+𝜙 D 
+
+> 𝑝
+
+=
+
+(
+
+𝜉 𝑝, 1, 𝜉 𝑝, 2, 𝐾 𝑃 𝑝 , {𝑈 𝑃 𝑚,𝑝 , 𝑓 𝑚,𝑝 , 𝜒 obs  
+
+> 𝑚,𝑝
+
+, 𝑑 𝑚,𝑝 }𝑀 𝑚 =1 , 𝑔 D,phys 
+
+> 𝑝
+
+)
+
+. (40) The output has dimension 𝑀 + 1 : one correction for each pressure state and one correction for the raw coefficient parameter. With 𝑟 𝑝 = 𝐺 𝜔 (𝜙 D 
+
+> 𝑝
+
+), the componentwise update is 
+
+𝑈 0,𝜔 𝑚,𝑓 (𝑝 ) = 𝑢 𝑚,𝑓 
+
+(
+
+𝑈 𝑃 𝑚,𝑓 (𝑝 ) + 𝜖 𝑢 tanh 𝑟 𝑢 𝑚,𝑝 
+
+)
+
+, (41) 
+
+𝜌 0,𝜔 𝑓 (𝑝 ) = 𝜌 𝑃 𝑓 (𝑝 ) + 𝜖 𝐾 tanh 𝑟 𝜌 𝑝 , (42) 
+
+𝐾 0,𝜔 𝑓 (𝑝 ) = 𝐾 min + sof tplus( 𝜌 0,𝜔 𝑓 (𝑝 )) , (43) where 𝑢 𝑚,𝑓 restores the prescribed pressure boundary values. 
+
+Lu et al.: Preprint submitted to Elsevier Page 13 of 22 PhyRes-MDNF for Inverse Problems 
+
+The Darcy transfer is fitted using only quantities available in the inverse problem: 
+
+Dws (𝜏 D 
+
+> 𝑓
+
+) = 𝑤 pde 𝐸 pde + 𝑤 obs 𝐸 obs . (44) This is the Darcy instance of the abstract transfer-stage objective: tr  
+
+> 𝑓
+
+= Dws . It uses the fine-grid PDE and observation blocks but omits the coefficient regularizer 𝑅 𝐾 used by the subsequent DNF reconstruction objective (38). Thus the transfer fit constructs an initialization; after it is frozen, the refined DNF solve returns to the complete Darcy objective. Here 𝐸 pde is the normalized Darcy residual in (38), and 𝐸 obs measures mismatch only at the observed pressure entries. Neither the unknown fine-grid state 𝑈 ⋆ nor the unknown permeability 𝐾 ⋆ appears in the transfer loss. Reference fields in synthetic tests are used only after optimization to report errors. The zero-initialized final layer makes the complete transfer operator initially equal to deterministic interpolation; fitting activates its bounded residual component. In the reported Darcy experiments, a new objective-only corrector is fitted for each Darcy target. The experiments therefore evaluate per-instance optimization-path correction, not a corrector pretrained on separate geologies. 
+
+4.3. KTC2023 CEM-EIT realization 
+
+KTC2023 EIT uses the complete electrode model (CEM). Let 𝜎 (𝑥 ) > 0 be the conductivity, 𝐸 𝑒 the electrodes, 
+
+𝜁 𝑒 the contact impedances, 𝐼 𝑚,𝑒 the injected currents, and 𝑉 𝑚,𝑒 the electrode voltages. For each current pattern 𝑚 , the CEM is 
+
+∇ ⋅ (𝜎 ∇𝑢 𝑚 ) = 0 in Ω, (45) 
+
+𝑢 𝑚 + 𝜁 𝑒 𝜎𝜕 𝑛 𝑢 𝑚 = 𝑉 𝑚,𝑒 on 𝐸 𝑒 , (46) 
+
+∫𝐸 𝑒 
+
+𝜎𝜕 𝑛 𝑢 𝑚 𝑑𝑠 = 𝐼 𝑚,𝑒 𝑒 = 1 , … , 𝐸, (47) 
+
+𝜎𝜕 𝑛 𝑢 𝑚 = 0 on 𝜕 Ω ⧵ ⋃
+
+> 𝑒
+
+𝐸 𝑒 , (48) 
+
+> 𝐸
+
+∑
+
+> 𝑒 =1
+
+𝑉 𝑚,𝑒 = 0 . (49) The CEM forward model returns electrode voltages; we denote this map by 𝑦 𝑚 (𝜎 ). KTC2023 is treated in difference-imaging form around the homogeneous reference 𝜎 0:
+
+𝑦 𝑚 (𝜎 0 + 𝛿𝜎 ) − 𝑦 𝑚 (𝜎 0) ≈ 𝐽 𝑚,ℎ 𝛿𝜎, (50) where 𝐽 𝑚,ℎ is the CEM sensitivity matrix supplied by the official finite-element code. After the active voltage mask is applied and all current patterns are stacked, we write the linearized observation model as 
+
+𝐽 𝛿𝜎 ≈ Δ 𝑈 , 
+
+where Δ𝑈 denotes the stacked difference of the active electrode voltage measurements. The reported EIT path has two DNF levels and one auxiliary transfer representation. The coarse DNF variable 
+
+ΘE 
+
+> 𝑐
+
+= 𝜗 𝑐 is stored on the 32 2 reconstruction grid, and its outgoing transfer coordinate is 
+
+𝜏 E 
+
+> 𝑐
+
+= E 
+
+> 𝑐
+
+(Θ E 
+
+> 𝑐
+
+) = 𝜗 𝑐 , 𝑧 E 
+
+> 𝑐
+
+= 𝛿𝜎 𝑐 = Π 𝑐 𝜗 𝑐 .
+
+PhyRes-GNN maps this field to an incoming representation ̄𝜏 E 
+
+> 𝑚
+
+on an auxiliary 64 2 grid. This auxiliary grid is not a third DNF level. Instead, the initialization map samples the corrected grid field to the official FEM mesh, 
+
+Θ0 
+
+> 𝑚
+
+= E
+
+> 𝑚
+
+(̄𝜏 E,0,𝜔 𝑚 ) = Π 64 →𝑚 ̄𝜏 E,0,𝜔 𝑚 ,
+
+and the next DNF solve optimizes the mesh-node variable ΘE 
+
+> 𝑚
+
+= 𝑧 E 
+
+> 𝑚
+
+= 𝛿𝜎 𝑚 directly. Thus the complete transition is coarse-grid DNF → auxiliary-grid PhyRes-GNN transfer → mesh DNF, exactly as in Algorithm 1.   
+
+> Lu et al.: Preprint submitted to Elsevier Page 14 of 22
+
+PhyRes-MDNF for Inverse Problems 
+
+For a common definition of the three objective stages below, let 𝜗 𝓁 denote the active coordinate and Π𝓁 its map to the FEM perturbation: (𝜗 𝑐 , Π𝑐 ) for the coarse DNF, (̄𝜏 E
+
+> 𝑚
+
+, Π64 →𝑚 ) for transfer fitting, and (𝛿𝜎 𝑚 , 𝐼 ) for the mesh DNF. We define the voltage, conductivity, and grid-smoothness blocks by 
+
+𝓁  
+
+> 𝑉
+
+(𝜗 𝓁 ) = 12𝑁 (𝐽 Π𝓁 𝜗 𝓁 − Δ 𝑈 )𝑇 𝑊 (𝐽 Π𝓁 𝜗 𝓁 − Δ 𝑈 ),
+
+𝓁  
+
+> 𝐾
+
+(𝜗 𝓁 ) = 12𝑁 node 
+
+‖𝐿 Π𝓁 𝜗 𝓁 ‖22,
+
+𝓁 
+
+> sm
+
+(𝜗 𝓁 ) = 𝑅 grid (𝜗 𝓁 ).
+
+(51) At the mesh DNF stage, 𝜗 𝓁 = 𝛿𝜎 𝑚 , Π𝓁 = 𝐼 , and the grid-smoothness block is omitted. Below, the level superscript is suppressed when the active stage is clear. The three implemented stages use these blocks as 
+
+coarse = 𝑉 + 𝐾 + 𝜆 sm sm ,
+
+tr = 𝑉 
+
+𝑠 tr 
+
+> 𝑉
+
++ 𝜆 𝐾 
+
+𝐾 + 𝜆 sm sm 
+
+𝑠 tr 
+
+> 𝐾
+
+,
+
+mesh = 𝑉 
+
+𝑠 mesh 
+
+> 𝑉
+
++ 𝜆 𝐾 
+
+𝐾 
+
+𝑠 mesh 
+
+> 𝐾
+
+.
+
+(52) In the notation of Section 3.4, the EIT transfer-stage objective is tr  
+
+> 𝑓
+
+= tr . The coarse-grid and mesh-level DNF reconstruction objectives are respectively coarse and mesh ; they are not identified with tr . For the mesh stage, symmetry of 𝑊 gives the explicit conductivity-contrast gradient 
+
+𝑔 mesh  
+
+> 𝑡
+
+= 𝐽 𝑇 𝑊 (𝐽 𝛿𝜎 𝑡 − Δ 𝑈 )
+
+𝑁𝑠 mesh 
+
+> 𝑉
+
++ 𝜆 𝐾 𝐿 𝑇 𝐿𝛿𝜎 𝑡 
+
+𝑁 node 𝑠 mesh 
+
+> 𝐾
+
+. (53) The reported mesh-LBFGS refinement updates the contrast by 
+
+𝛿𝜎 𝑡 +1 = 𝛿𝜎 𝑡 − 𝜂 𝑡 𝐵 𝑡 𝑔 mesh  
+
+> 𝑡
+
+, (54) where 𝐵 𝑡 is the limited-memory inverse-Hessian approximation and 𝜂 𝑡 is the LBFGS step length, set to 0.1 in the reported mesh refinement. On the coarse grid, 𝛿𝜎 = Π 𝑐 𝜗 𝑐 , so the gradient supplied to Adam is 
+
+𝑔 coarse  
+
+> 𝑡
+
+= Π 𝑇 𝑐 
+
+[ 𝐽 𝑇 𝑊 (𝐽 Π𝑐 𝜗 𝑐,𝑡 − Δ 𝑈 )
+
+𝑁 + 𝐿 𝑇 𝐿 Π𝑐 𝜗 𝑐,𝑡 
+
+𝑁 node 
+
+]
+
++ 𝜆 sm ∇𝜗 𝑐 𝑅 grid (𝜗 𝑐,𝑡 ),𝜗 𝑐,𝑡 +1 = Adam( 𝜗 𝑐,𝑡 , 𝑔 coarse  
+
+> 𝑡
+
+).
+
+(55) Here 𝑊 is the full measurement precision matrix, 𝐿 is the fixed conductivity regularization operator, 𝑁 is the number of active voltage measurements, 𝑁 node is the number of mesh nodes, and 𝑅 grid is used only while the perturbation is represented on a regular grid. The coarse solve uses the unnormalized blocks. For transfer correction, 𝑠 tr  
+
+> 𝑉
+
+is the interpolated-grid voltage block and 𝑠 tr  
+
+> 𝐾
+
+is the corresponding combined conductivity–smoothness block. For mesh refinement, 𝑠 mesh  
+
+> 𝑉
+
+and 𝑠 mesh  
+
+> 𝐾
+
+are the voltage and conductivity blocks after the interpolation baseline is mapped to the FEM mesh. Thus each normalized block starts at unit scale in the stage where it is used. The coefficient 𝜆 𝐾 weights the conductivity block in the transfer and mesh stages and is computed from the measured voltage difference rather than selected separately for each phantom. Specifically, 
+
+𝑆 data = 12𝑁 Δ𝑈 𝑇 𝑊 Δ𝑈 , 𝜆 𝐾 = clip (𝑐 𝑆 𝑆 data , 𝜆 min , 𝜆 max 
+
+) .
+
+(56) Here 𝑐 𝑆 = 8 .7228432763 × 10 −6 , 𝜆 min = 0 .01 , and 𝜆 max = 0 .3. The constant 𝑐 𝑆 is calibrated once so that the Data 1 measurement energy reaches the upper cap; the same fixed clipped-linear map is then applied to all four phantoms. No reconstruction or segmentation labels enter this calculation. The resulting energy-based assignment 
+
+Lu et al.: Preprint submitted to Elsevier Page 15 of 22 PhyRes-MDNF for Inverse Problems 
+
+gives 𝜆 𝐾 = 0 .3000 , 0.1464 , 0.1023 , 0.04195 for Data 1–4, respectively. This is the KTC2023 MDNF instance of (25). Its transfer and mesh stages jointly minimize the normalized 𝑉 -block for voltage consistency and the normalized 
+
+𝐾 -block for conductivity regularization. Both blocks update the common trainable contrast 𝛿𝜎 ; the electrical state variables are implicit rather than independent trainable arrays because of the CEM linearization. In the implemented KTC2023 realization, 𝛿𝜎 is an unconstrained signed contrast variable rather than a positive absolute conductivity field. No positivity or box projection is applied in the reconstruction-grid DNF, the PhyRes-GNN correction, or the mesh-level LBFGS refinement. This is consistent with the linearized difference-imaging setting: 𝐽 
+
+is assembled once at the positive homogeneous background 𝜎 0, negative and positive contrast values indicate resistive and conductive inclusions, respectively, and the optimized contrast is not inserted back into the nonlinear CEM forward model. Consequently, 𝜎 0 + 𝛿𝜎 is not guaranteed to remain positive, and the KTC2023 results are interpreted as signed contrast and inclusion-support reconstructions rather than admissible absolute conductivity fields. The KTC2023 literature includes complementary approaches based on spatial and level-set regularization, hierarchical Bayesian inversion, and multibang regularization [1, 6, 24]. These methods illustrate the importance of prior and segmentation structure in limited-data EIT. Our experiment below retains the official linearized CEM measurement model and studies instead how a multilevel discrete-field path and its transfer initialization affect the reconstruction. The official linearized reconstruction solves its linear inverse system once. Our MDNF path instead treats 𝛿𝜎 as a trainable field and uses coarse-to-fine parameter spaces to choose the optimization path. In the mesh-unlocked polish, the final variable is the FEM-node perturbation itself, and mesh in (52) is minimized with the full 𝑊 matrix. 
+
+4.4. EIT PhyRes-GNN transfer 
+
+For KTC2023, no continuous ground-truth conductivity field is used during GNN training. A new corrector is initialized and fitted separately for each phantom directly against the transfer-stage objective tr in (52); weights are not transferred from Darcy or between KTC2023 phantoms. The incoming transfer representation ̄𝜏 E 
+
+> 𝑚
+
+is stored on the auxiliary 64 2 grid and sampled to the official FEM mesh by Π64 →𝑚 when the loss is evaluated. We use 𝑎 and 𝑚 to denote the auxiliary grid and mesh, respectively. At an auxiliary-grid point 𝑝 , the EIT feature vector is 
+
+𝜙 EIT  
+
+> 𝑝
+
+=
+
+(
+
+𝑥 𝑝 , 𝑦 𝑝 ,̄𝜏 E,𝑃 𝑚 (𝑝 ), ∇̄𝜏 E
+
+> 𝑚 (𝑝 )
+
+tr 
+
+> 𝑚
+
+(̄𝜏 E,𝑃 𝑚 )
+
+)
+
+. (57) Equivalently, the prolonged value ̄ 𝜏 E,𝑃 𝑚 (𝑝 ) = ∑𝑞 ∈𝑐 →𝑎 (𝑝 ) 𝑤 𝑝𝑞 𝜏 E 
+
+> 𝑐
+
+(𝑞 ) is the coarse-layer message at 𝑝 , while the fourth feature channel is an objective-gradient diagnostic that contains the coupling induced by the mesh regularizer and global CEM map. It is not a message-passing operation. The learned scalar update and corrected incoming representation are 
+
+𝑟 𝜎 𝑝 = 𝐺 𝜔 (𝜙 EIT  
+
+> 𝑝
+
+),̄ 𝜏 E,0,𝜔 𝑚 (𝑝 ) = ̄𝜏 E,𝑃 𝑚 (𝑝 ) + 𝜖 𝜎 tanh 𝑟 𝜎 𝑝 . (58) The reported eight-step LBFGS corrector fit is therefore 
+
+𝜔 𝑘 +1 = 𝜔 𝑘 − 𝜂 𝑘 𝐵 𝜔 𝑘 ∇𝜔 tr 
+
+(̄𝜏 E,0,𝜔 𝑘 
+
+> 𝑚
+
+), 𝑘 = 0 , … , 7, (59) where 𝐵 𝜔 𝑘 is the corrector’s limited-memory inverse-Hessian approximation; the reported fit uses 𝜂 𝑘 = 0 .3. The GNN therefore maps the coarse perturbation to an objective-aware, prolonged-and-corrected auxiliary-grid representation. The fixed map E 
+
+> 𝑚
+
+= Π 64 →𝑚 then converts it into the mesh DNF initialization; there is no intervening 64 2 DNF solve. The transfer does not alter 𝐽 , 𝑊 , the active voltage mask, or the conductivity regularization operator. After correction, the corrector is frozen and the mesh-level LBFGS solve minimizes mesh in (52). 
+
+4.5. Summary of the two realizations 
+
+Both realizations follow PhyRes-MDNF: a single-level DNF solve is passed through one PhyRes-GNN transfer operator, which jointly prolongs and corrects an incoming representation before  initializes the refined DNF solve. In EIT, this representation is the auxiliary 64 2 grid and the refined DNF variable is the FEM-mesh contrast. The two realizations differ in their active fields, incoming transfer representations, and objective terms. Darcy uses a full-space objective that jointly updates pressure states and permeability. KTC2023 EIT jointly minimizes its voltage-consistency and conductivity blocks through a contrast field under the linearized CEM. In both cases, the GNN is restricted to the transfer interface, and the final inverse solution is produced by the fixed problem-specific objective.   
+
+> Lu et al.: Preprint submitted to Elsevier Page 16 of 22 PhyRes-MDNF for Inverse Problems
+
+## 5. Numerical Experiments 
+
+We evaluate the two components of PhyRes-MDNF separately and together. We first use a basic Darcy inverse problem to show that repeated single-level DNF optimization along a coarse-to-fine path attains higher final accuracy after the same number of final-grid updates. We then isolate the inter-level transfer on LUNDIsim and compare deterministic interpolation with PhyRes-GNN correction, followed by a longer two-dimensional multilevel realization. The section closes with KTC2023 EIT as a cross-physics test of framework-level generalizability, where the official complete electrode model linearized reconstruction provides a strong discrete inverse baseline. Throughout all experiments, the discrete physics operator is fixed. The learned component does not replace the finite-difference, finite-element, or complete electrode model operator. It only changes the initial point passed to the next refined inverse optimization. 
+
+5.1. Experimental setup 
+
+The Darcy experiments use a conservative finite-difference residual. The unknowns are the state field 𝑈 and the permeability coefficient 𝐾 , and both are represented directly as trainable discrete fields. The basic Darcy case uses a manufactured coefficient so that the role of the multilevel path can be observed without distribution shift. LUNDIsim replaces the manufactured coefficient by reservoir-like fields [7]. The hierarchy studies optimize only the stated MDNF objective. The Darcy transfer correctors are likewise fitted without access to fine-grid 𝑈 ⋆ or 𝐾 ⋆: their loss contains only the refined PDE residual and observed pressure mismatch. A new corrector is fitted for each target, so these are objective-only per-instance transfer ablations and do not test a corrector pretrained on separate LUNDIsim fields. We use 𝑤 pde = 1 , 𝑤 obs = 1000 , and 𝜖 𝑢 = 𝜖 𝐾 = 0 .1; the correctors are fitted for 3000 Adam steps. The KTC2023 EIT experiments use the official complete electrode model finite-element Jacobian and the official active voltage mask for category 1. For each of the four phantoms, we optimize the linearized difference objective defined in (52). We report the relative voltage residual relV = ‖𝐽 𝛿𝜎 − Δ 𝑈 ‖2∕‖Δ𝑈 ‖2 and the official two-threshold Otsu mIoU over background, resistive, and conductive classes. Since Otsu thresholding is a postprocessing step, we also use KTC2023 to inspect whether the refined continuous field and the final segmentation tell the same story. For every phantom, the transfer corrector is reinitialized and trained only through the fixed linearized objective. No conductivity truth is used for that training, and no learned weights are shared between phantoms or with the Darcy experiments. The coordinate-network PINN baseline uses all 76 current-injection patterns, a four-layer width-128 network, 10000 Adam updates, and GPU training. Its conductivity and state networks are fitted from the PDE, CEM boundary, current, and measured-voltage losses without the official FEM Jacobian. The same three-class IoU averaging convention is used for evaluation. On Data 3 and Data 4, however, the recovered field does not admit a valid two-threshold Otsu split. Those entries, and consequently the aggregate PINN mean, are reported as N/A rather than mixing a binary fallback with the required three-class metric. The direct single-level baseline starts from zero on one 64 2 reconstruction grid and performs 10000 Adam updates with the full measurement matrix 𝑊 and the conductivity-regularization setting used by the official reconstruction. It has no coarse solve, inter-level transfer, PhyRes-GNN, or mesh unlock. The complete PhyRes-MDNF pipeline has a 32 2 coarse-grid DNF level and a 1602-node FEM-mesh DNF level. It first performs 1200 Adam updates on the coarse grid. One PhyRes-GNN transfer, fitted with eight LBFGS iterations at learning rate 0.3, then constructs the incoming representation on an auxiliary 64 2 grid; the fixed initialization map samples this corrected field to the FEM mesh. There is no intervening 64 2 DNF solve. Finally, the mesh DNF performs 60 outer LBFGS updates with full 
+
+𝑊 . Thus the single-level row tests direct one-level DNF optimization, but it is not an equal-optimizer or equal-total-cost ablation of the complete pipeline. The causal transfer ablation is instead provided by the matched LUNDIsim experiment in Section 5.3; the KTC2023 experiment compares complete reconstruction pipelines across numerical, coordinate-network, single-level discrete-field, and PhyRes-MDNF approaches. 
+
+5.2. Basic Darcy: higher final accuracy under equal final-grid steps 
+
+Table 1 reports the cleanest basic Darcy hierarchy and a matched direct 128 2 solve. The two paths use the same final grid, 6000 Adam steps at 128 2, 16 sources, an observation fraction of 0.35, learning rate 5 × 10 −4 , objective weights, and coefficient-freeze schedule. The direct solve reaches coefficient and state errors of 5.4519 × 10 −3 and 
+
+4.7396 × 10 −4 , respectively. The 64 2 → 128 2 path instead reaches 8.0597 × 10 −4 and 4.5566 × 10 −5 , which are 6.76× 
+
+and 10 .4× lower. The later 256 2 and 512 2 levels mainly preserve the recovered coefficient while maintaining the state error at the same order.   
+
+> Lu et al.: Preprint submitted to Elsevier Page 17 of 22 PhyRes-MDNF for Inverse Problems
+
+## Path / level Transfer/initial 𝐾 rel. 𝐿 2 Final 𝐾 rel. 𝐿 2 Final 𝑈 rel. 𝐿 2
+
+## Direct 128 2 4.4744 × 10 −1 5.4519 × 10 −3 4.7396 × 10 −4 
+
+## Multilevel 64 2 4.4707 × 10 −1 8.7982 × 10 −3 1.3499 × 10 −3 
+
+## Multilevel 64 2 → 128 2 6.8516 × 10 −3 8.0597 × 10 −4 4.5566 × 10 −5 
+
+## Multilevel → 256 2 6.2484 × 10 −4 6.2484 × 10 −4 4.1190 × 10 −5 
+
+## Multilevel → 512 2 5.4385 × 10 −4 5.4385 × 10 −4 4.1763 × 10 −5   
+
+> Table 1
+> Basic Darcy direct and coarse-to-fine comparison. The direct and multilevel 128 2rows use the same fine-grid settings; each later refined level is initialized by the preceding multilevel solution.
+
+Fine-grid initialization Init. 𝑈 rel. 𝐿 2 Init. 𝐾 rel. 𝐿 2 Init. PDE loss Final 𝑈 rel. 𝐿 2 Final 𝐾 rel. 𝐿 2
+
+Bilinear interpolation 1.5730 × 10 −1 1.4294 × 10 −1 3.6991 × 10 −1 1.8092 × 10 −4 1.5031 × 10 −2 
+
+PhyRes-GNN correction 8.0387 × 10 −2 1.5110 × 10 −1 1.4137 × 10 −1 1.6644 × 10 −4 1.3982 × 10 −2     
+
+> Table 2
+> Transfer ablation on the two-dimensional LUNDIsim 64 2→128 2Darcy task. The refined objective is identical across rows; only the initialization changes.
+
+The matched 128 2 comparison changes the optimization path, not the final discretization or objective. The multilevel path does include an additional 6000-step 64 2 solve, so this experiment establishes a final-accuracy gain, not an equal-cost or wall-clock advantage. 
+
+5.3. Transfer ablation: objective-only residual correction improves the warm start 
+
+After the multilevel backbone is fixed, we isolate the transfer from a coarse solve to a refined solve. Table 2 compares two 64 2 → 128 2 LUNDIsim transfers with the high-level coefficient unlocked. The residual corrector is fitted to this target instance using the physics-and-observation warm-start loss in (44); the fine-grid reference fields are withheld until evaluation. Bilinear interpolation gives a valid geometric transfer, but it leaves a large initial residual on the refined grid. The objective-only PhyRes-GNN lowers the normalized PDE loss from 3.6991 × 10 −1 to 1.4137 × 10 −1 , a 2.62× 
+
+reduction. The observation loss falls from 6.2403 × 10 −3 to 1.6227 × 10 −3 . Residual correction roughly halves the initial state error, but its initial coefficient error increases slightly because 𝐾 ⋆ is not used for training. After the same refined optimization, it improves both final errors over interpolation; the final coefficient error is approximately 7% 
+
+lower. Figure 4 aligns the two branches by the number of target-grid DNF updates after their respective initializations have been constructed. The residual initialization starts with a lower state error but a slightly higher coefficient error. After the first recorded 500 fine-grid steps, however, both PhyRes-GNN curves are below their interpolation counterparts and retain this advantage through 10000 steps. At the common endpoint, Table 2 gives state errors of 1.6644 × 10 −4 
+
+versus 1.8092 × 10 −4 and coefficient errors of 1.3982 × 10 −2 versus 1.5031 × 10 −2 . Thus the learned correction yields a better refined optimization path under the same number of fine-grid updates. The 3000 correction-training steps occur before the axis in Figure 4; consequently, this figure is a fixed-fine-step comparison, not an equal-total-cost claim. This ablation clarifies the role of the GNN. It is not a learned PDE solver and it is not the final inverse objective. It fits the bounded residual component of the unified GNN transfer, and the fixed-operator MDNF solve then decides whether that initialization is physically useful. 
+
+5.4. LUNDIsim extension: multilevel complex field 
+
+The preceding transfer ablation establishes the matched two-dimensional comparison on a reservoir-like LUN-DIsim coefficient, so we do not repeat those numbers here. We next record a longer multilevel realization that extends the scope of the Darcy result. The 16 2 → 32 2 → 64 2 → 128 2 DNF hierarchy reaches a final coefficient error of 
+
+1.3646 × 10 −2 and a state error of 1.5990 × 10 −4 . This demonstrates that the multilevel optimization path can be applied to a sharper geological coefficient field; because no matched direct 128 2 LUNDIsim baseline is included, it is an applicability result rather than an additional causal comparison.                                                                
+
+> Lu et al.: Preprint submitted to Elsevier Page 18 of 22 PhyRes-MDNF for Inverse Problems Method Mean mIoU Mean relV data1 data2 data3 data4 Official linearized CEM baseline 0.603 –0.745 0.764 0.506 0.395
+> Coordinate-network PINN, 76 patterns N/A –0.201 0.159 N/A N/A Single-level DNF 0.533 0.1367 0.725 0.666 0.417 0.325
+> Complete PhyRes-MDNF, mesh-unlocked DNF, full 𝑊 0.623 0.1280 0.792 0.780 0.509 0.411
+> Table 3
+> KTC2023 EIT comparison among the official numerical reconstruction, the evaluated coordinate-network PINN, direct single-level DNF, and complete PhyRes-MDNF. For Data 1–4, the measurement-energy rule gives 𝜆 𝐾 =0.3000 ,0.1464 ,0.1023 ,0.04195 , respectively. This adaptive rule is a component of the complete multilevel construction; the direct single-level row follows the official reconstruction setting. The PhyRes-GNN corrector uses eight LBFGS iterations with learning rate 0.3. The PINN values use the same three-class IoU averaging convention on Data 1 and Data 2. Data 3, Data 4, and the PINN mean are N/A because a valid two-threshold Otsu split is unavailable.
+
+5.5. KTC2023 EIT: framework-level generalization across physics 
+
+KTC2023 changes both the inverse problem and the discretization: the forward model is the complete electrode model, and the official baseline is a linearized finite-element reconstruction. We use it here to test whether the complete PhyRes-MDNF construction generalizes at the framework level to a new physics, discretization, and observation geometry; it is not a transfer of Darcy-trained weights. Table 3 compares the official linearized CEM reconstruction, the evaluated coordinate-network PINN, direct single-level DNF, and the complete PhyRes-MDNF pipeline containing PhyRes-GNN transfer and mesh-unlocked refinement. The complete pipeline uses the full 𝑊 
+
+matrix and the measurement-energy rule in (56); no phantom-specific manual selection of 𝜆 𝐾 is performed. The transfer corrector uses eight LBFGS iterations with learning rate (0.3) for every phantom. The complete pipeline reaches 0.623 
+
+mean mIoU and 0.1280 mean relative voltage residual. The direct single-level DNF remains the official-setting baseline and is not part of this adaptive multilevel weighting strategy. Figure 6 shows the final Otsu segmentations underlying the official and complete-pipeline entries in Table 3. The complete PhyRes-MDNF reconstruction retains the correct anomaly classes in all four phantoms and improves the three-class mIoU in every case. The gains on Data 3 and Data 4 are modest, consistent with the sensitivity of their sharp square and cross supports to thresholding and boundary smoothing. The direct single-level DNF reaches 0.533 mean mIoU, compared with 0.623 for the complete multilevel pipeline. This gap remains even though the single-level baseline receives a deliberately generous 10000-step Adam budget, far more nominal optimizer updates than the 1200 coarse-grid Adam updates, eight corrector LBFGS iterations, and 60 outer mesh-LBFGS updates in the complete pipeline. Thus direct one-level optimization does not catch up with the multilevel construction under this enlarged single-level budget. This is still not a strict equal-cost or wall-clock claim because an Adam update and an LBFGS outer update have different numbers and costs of objective evaluations. The evaluated PINN reaches three-class mIoU values of 0.201 and 0.159 on Data 1 and Data 2, but does not produce a valid three-class Otsu split on Data 3 or Data 4; an aggregate PINN mean is therefore not reported. Relative to the official method, the complete pipeline improves all four cases, with the largest absolute gain occurring on Data 1. This comparison evaluates the complete KTC2023 pipeline; the matched LUNDIsim experiment in Section 5.3 isolates the causal effect of the PhyRes-GNN transfer. The official and DNF results use the official two-threshold Otsu protocol; as noted above, the PINN fails this three-class segmentation on Data 3 and Data 4. Ground-truth labels are used only for evaluation, not for computing 𝜆 𝐾 or fitting the corrector. 
+
+5.6. Summary of experimental evidence 
+
+The experiments provide three central comparisons. First, on a matched 128 2 final grid, the multilevel Darcy path attains lower coefficient and state errors than direct single-level optimization by factors of 6.76× and 10 .4× ,respectively. Second, on the two-dimensional LUNDIsim transfer, the objective-only PhyRes-GNN produces a more PDE-consistent warm start, reducing the initial PDE loss by 2.62× , and lowers the final coefficient error by approximately 7% relative to simple interpolation. Third, on KTC2023 EIT, the complete full-𝑊 PhyRes-MDNF pipeline reaches 0.623 mean Otsu mIoU, compared with 0.603 for the official linearized CEM reconstruction, 0.533 
+
+for direct single-level DNF. The evaluated PINN is reported only for Data 1 and Data 2, where a valid three-class score is available. This third comparison evaluates the complete pipeline rather than isolating the causal contribution of PhyRes-GNN alone. Together, the LUNDIsim and KTC2023 results support framework-level generalizability across coefficient structure, governing physics, discretization, and observation geometry. Across the correction experiments,   
+
+> Lu et al.: Preprint submitted to Elsevier Page 19 of 22
+
+PhyRes-MDNF for Inverse Problems 
+
+the correctors are fitted per instance rather than evaluated as held-out reusable models, so this is not a claim of weight-level generalization. 
+
+## 6. Conclusion 
+
+This paper presented PhyRes-MDNF for PDE inverse problems. The complete framework contains two compo-nents: single-level DNF optimization, repeated along a coarse-to-fine hierarchy, and a physics-coupled residual GNN (PhyRes-GNN) transfer that jointly prolongs and corrects between levels. The central design choice is to keep the problem-specific numerical operator fixed while prescribing separate reconstruction and transfer-stage objectives: the coarse-to-fine hierarchy is used as the main stabilization mechanism, and the GNN is used only at the transfer interface. One PhyRes-GNN operator maps a coarse solution to a prolonged-and-corrected incoming representation; a fixed initialization map converts it to the refined DNF variables, after which the normal single-level DNF optimizer resumes. The experiments support this decomposition. At the same manufactured Darcy 128 2 final grid, direct single-level optimization ends at a permeability error of 5.4519 × 10 −3 , whereas the 64 2 → 128 2 path reaches 8.0597 × 10 −4 ;the coefficient and state errors are respectively 6.76× and 10 .4× lower. This is a final-accuracy comparison rather than an equal-cost claim because the multilevel path also performs the coarse solve. The tuned LUNDIsim 16 2 →
+
+32 2 → 64 2 → 128 2 hierarchy reaches 1.3646 × 10 −2 , demonstrating the applicability of the longer multilevel path to a sharper geological field. In a separate matched 64 2 → 128 2 transfer ablation, PhyRes-GNN improves the refined initialization and the subsequent optimization path. In these Darcy tests, a separate corrector is trained for each target using only the refined PDE residual and observed pressures; reference fine-grid fields are reserved for evaluation. The results quantify per-instance objective fitting rather than cross-instance weight generalization. On two-dimensional LUNDIsim Darcy inversion, residual correction reduces the refined initial PDE loss by 2.62× and, with high-level 𝐾 
+
+unlocked, improves the final permeability error from 1.5031 × 10 −2 to 1.3982 × 10 −2 , a reduction of approximately 7% .On KTC2023 EIT, which changes both the PDE and measurement model, a new corrector is fitted for each phantom without conductivity truth. The PhyRes-MDNF pipeline with mesh-unlocked refinement exceeds the official linearized CEM baseline in mean Otsu IoU, reaching 0.623 compared with 0.603 , versus 0.533 for direct single-level DNF. The evaluated coordinate-network PINN yields valid three-class scores only on Data 1 and Data 2, so no aggregate PINN mean is reported. Together, the LUNDIsim Darcy and measured KTC2023 EIT results demonstrate framework-level generalizability across coefficient structures, governing physics, discretizations, and observation geometries. This claim concerns re-instantiation of the same algorithmic framework, not reuse of one trained corrector. The cross-problem result demonstrates localization and support recovery on measured data with complex anomaly geometries; it does not isolate the residual corrector from the subsequent mesh-level refinement or establish exact recovery of sharp corners. The same experiments also show the limits. On LUNDIsim, the large gain in initial residual consistency becomes a smaller coefficient-error gain after both initializations receive the same refined optimization. In KTC2023 EIT, the official linearized Tikhonov reconstruction remains close on several per-phantom IoU values, and the final ranking remains sensitive to thresholding of the continuous conductivity perturbation. Thus the current PhyRes-GNN should be viewed as the residual-correction component of PhyRes-MDNF, rather than a standalone reconstruction model or a learned replacement for the numerical operator. Future work should make the transfer cost model more explicit, comparing wall-clock time rather than optimizer steps across levels. For Darcy, the next step is to complement the present objective-only per-instance corrector with a model trained on separate geologies and evaluated on held-out fields and source configurations. For EIT, the most immediate improvement is to combine the continuous voltage objective with threshold-sensitivity or segmentation-aware losses, so that reductions in data residual translate more reliably into the classwise metrics used for KTC scoring. 
+
+## References       
+
+> [1] Alghamdi, A.M.A., Carøe, M.S., Everink, J.M., Jørgensen, J.S., Knudsen, K., Nielsen, J.T.K., Rasmussen, A.K., Sørensen, R.K.H., Zhang, C., 2024. Spatial regularization and level-set methods for experimental electrical impedance tomography with partial data. Applied Mathematics for Modern Challenges 2, 165–186. doi: 10.3934/ammc.2024013 .[2] Ascher, U.M., Haber, E., 2003. A multigrid method for distributed parameter estimation problems. Electronic Transactions on Numerical Analysis 15, 1–17. URL: https://etna.ricam.oeaw.ac.at/volumes/2001-2010/vol15/ .[3] Bornemann, F.A., Deuflhard, P., 1996. The cascadic multigrid method for elliptic problems. Numerische Mathematik 75, 135–152. doi: 10.1007/s002110050234 .
+
+Lu et al.: Preprint submitted to Elsevier Page 20 of 22 PhyRes-MDNF for Inverse Problems 
+
+[4] Borzì, A., Schulz, V., 2012. Computational Optimization of Systems Governed by Partial Differential Equations. volume 8 of Computational Science & Engineering . SIAM, Philadelphia. doi: 10.1137/1.9781611972054 .[5] Borzì, A., Schulz, V.H., 2009. Multigrid methods for PDE optimization. SIAM Review 51, 361–395. doi: 10.1137/060671590 .[6] Brandt, C., Do, T.B.T., Horn, P., 2024. Multibang regularization for electrical impedance tomography. Applied Mathematics for Modern Challenges 2, 208–227. doi: 10.3934/ammc.2024007 .[7] Duval, L., Payan, F., Preux, C., Bouard, L., 2025. Lundisim: Model meshes for flow simulation and scientific data compression benchmarks. Geoscience Data Journal 12, e70030. URL: https://rmets.onlinelibrary.wiley.com/doi/10.1002/gdj3.70030 , doi: 10.1002/ gdj3.70030 .[8] Gilmer, J., Schoenholz, S.S., Riley, P.F., Vinyals, O., Dahl, G.E., 2017. Neural message passing for quantum chemistry, in: Proceedings of the 34th International Conference on Machine Learning, PMLR. pp. 1263–1272. URL: https://proceedings.mlr.press/v70/gilmer17a. html .[9] Guo, Q., Zhao, Y., Lu, C., Luo, J., 2023. High-dimensional inverse modeling of hydraulic tomography by physics informed neural network. Journal of Hydrology 616, 128828. doi: 10.1016/j.jhydrol.2022.128828 .[10] He, Q., Barajas-Solano, D., Tartakovsky, G.D., Tartakovsky, A.M., 2020. Physics-informed neural networks for multiphysics data assimilation with application to subsurface transport. Advances in Water Resources 141, 103610. doi: 10.1016/j.advwatres.2020.103610 .[11] Hinze, M., Pinnau, R., Ulbrich, M., Ulbrich, S., 2009. Optimization with PDE Constraints. volume 23 of Mathematical Modelling: Theory and Applications . Springer, Dordrecht. doi: 10.1007/978-1-4020-8839-1 .[12] Jagtap, A.D., Kharazmi, E., Karniadakis, G.E., 2020. Conservative physics-informed neural networks on discrete domains for conservation laws: Applications to forward and inverse problems. Computer Methods in Applied Mechanics and Engineering 365, 113028. doi: 10.1016/ j.cma.2020.113028 .[13] Kaipio, J., Somersalo, E., 2005. Statistical and Computational Inverse Problems. volume 160 of Applied Mathematical Sciences . Springer, New York. doi: 10.1007/b138659 .[14] Kang, N., Lee, B., Hong, Y., Yun, S.B., Park, E., 2023. PIXEL: Physics-informed cell representations for fast and accurate PDE solvers, in: Proceedings of the AAAI Conference on Artificial Intelligence, pp. 8186–8194. doi: 10.1609/aaai.v37i7.25988 , arXiv:2207.12800 .[15] Karnakov, P., Litvinov, S., Koumoutsakos, P., 2024. Solving inverse problems in physics by optimizing a discrete loss: Fast and accurate learning without neural networks. PNAS Nexus 3, pgae005. doi: 10.1093/pnasnexus/pgae005 .[16] Karniadakis, G.E., Kevrekidis, I.G., Lu, L., Perdikaris, P., Wang, S., Yang, L., 2021. Physics-informed machine learning. Nature Reviews Physics 3, 422–440. doi: 10.1038/s42254-021-00314-5 .[17] Li, J., Tartakovsky, A.M., 2022. Physics-informed karhunen-loeve and neural network approximations for solving inverse differential equation problems. Journal of Computational Physics 462, 111230. doi: 10.1016/j.jcp.2022.111230 .[18] Li, Z., Kovachki, N.B., Azizzadenesheli, K., Liu, B., Bhattacharya, K., Stuart, A., Anandkumar, A., 2021. Fourier neural operator for parametric partial differential equations, in: International Conference on Learning Representations. URL: https://openreview.net/forum?id= c8P9NQVtmnO , arXiv:2010.08895 .[19] Lions, J.L., 1971. Optimal Control of Systems Governed by Partial Differential Equations. volume 170 of Grundlehren der mathematischen Wissenschaften . Springer, Berlin, Heidelberg. doi: 10.1007/978-3-642-65024-6 .[20] Lu, L., Jin, P., Pang, G., Zhang, Z., Karniadakis, G.E., 2021. Learning nonlinear operators via DeepONet based on the universal approximation theorem of operators. Nature Machine Intelligence 3, 218–229. doi: 10.1038/s42256-021-00302-5 .[21] Luz, I., Galun, M., Maron, H., Basri, R., Yavneh, I., 2020. Learning algebraic multigrid using graph neural networks, in: Proceedings of the 37th International Conference on Machine Learning, PMLR. pp. 6489–6499. URL: https://proceedings.mlr.press/v119/luz20a.html .[22] Nash, S.G., 2000. A multigrid approach to discretized optimization problems. Optimization Methods and Software 14, 99–116. doi: 10. 1080/10556780008805795 .[23] Pfaff, T., Fortunato, M., Sanchez-Gonzalez, A., Battaglia, P.W., 2021. Learning mesh-based simulation with graph networks, in: International Conference on Learning Representations. URL: https://openreview.net/forum?id=roNqYL0_XP .[24] Pragliola, M., Calvetti, D., Somersalo, E., 2024. An efficient hierarchical bayesian method for the kuopio tomography challenge 2023. Applied Mathematics for Modern Challenges 2, 187–207. doi: 10.3934/ammc.2024011 .[25] Raissi, M., Perdikaris, P., Karniadakis, G.E., 2019. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational physics 378, 686–707. doi: 10.1016/j.jcp. 2018.10.045 .[26] Räsänen, M., Kuusela, P., Jauhiainen, J., Arif, M., Scheel, K., Savolainen, T., Seppänen, A., 2024a. Kuopio tomography challenge 2023– electrical impedance tomography competition and open dataset. Applied Mathematics for Modern Challenges 2, 93–118. doi: 10.3934/ ammc.2024009 .[27] Räsänen, M., Kuusela, P., Jauhiainen, J., Arif, M., Scheel, K., Savolainen, T., Seppänen, A., 2024b. Kuopio tomography challenge 2023 open electrical impedance tomographic dataset (KTC 2023). URL: https://zenodo.org/records/10986692 , doi: 10.5281/zenodo. 10986692 .[28] Somersalo, E., Cheney, M., Isaacson, D., 1992. Existence and uniqueness for electrode models for electric current computed tomography. SIAM Journal on Applied Mathematics 52, 1023–1040. doi: 10.1137/0152060 .[29] Taghibakhshi, A., Nytko, N., Zaman, T.U., Maclachlan, S., Olson, L., West, M., 2023. MG-GNN: Multigrid graph neural networks for learning multilevel domain decomposition methods, in: Proceedings of the 40th International Conference on Machine Learning, PMLR. pp. 33381–33395. URL: https://proceedings.mlr.press/v202/taghibakhshi23a.html .[30] Tarantola, A., 2005. Inverse Problem Theory and Methods for Model Parameter Estimation. SIAM, Philadelphia. doi: 10.1137/1. 9780898717921 .[31] Vogel, C.R., 2002. Computational Methods for Inverse Problems. volume 23 of Frontiers in Applied Mathematics . SIAM, Philadelphia. doi: 10.1137/1.9780898717570 .
+
+Lu et al.: Preprint submitted to Elsevier Page 21 of 22 PhyRes-MDNF for Inverse Problems 
+
+[32] Wang, S., Yu, X., Perdikaris, P., 2022. When and why PINNs fail to train: A neural tangent kernel perspective. Journal of Computational Physics 449, 110768. doi: 10.1016/j.jcp.2021.110768 .[33] Weissmann, S., Wilson, A., Zech, J., 2022. Multilevel optimization for inverse problems, in: Proceedings of the 35th Conference on Learning Theory, PMLR. pp. 5489–5524. URL: https://proceedings.mlr.press/v178/weissmann22a.html .[34] Xu, J., 1992. Iterative methods by space decomposition and subspace correction. SIAM Review 34, 581–613. doi: 10.1137/1034116 .[35] Zhang, Z., 2022. A physics-informed deep convolutional neural network for simulating and predicting transient darcy flows in heterogeneous reservoirs without labeled data. Journal of Petroleum Science and Engineering 211, 110179. doi: 10.1016/j.petrol.2022.110179 .
+
+Lu et al.: Preprint submitted to Elsevier Page 22 of 22 PhyRes-MDNF for Inverse Problems 
+
+Figure 1: Algorithmic view of PhyRes-MDNF. Each level performs a single-level DNF optimization with a fixed physics-based objective, while one PhyRes-GNN transfer jointly prolongs and corrects the extracted coordinates and a fixed initialization map converts the result into the next DNF variables. The schematic green transition suppresses  and ; its incoming representation may lie on an auxiliary grid rather than on the next DNF discretization. 
+
+Figure 2: Idealized spectral interpretation of the multilevel DNF backbone. The coarse solve can reduce error components represented in the nested coarse space before both paths receive the same number of fine-grid updates. Lu et al.: Preprint submitted to Elsevier Page 23 of 22 PhyRes-MDNF for Inverse Problems 
+
+Figure 3: PhyRes-GNN transfer at one coarse-to-fine interface. Within a single operator, fixed coarse-to-fine stencils aggregate interpolation-weighted messages from coarse-layer neighbors and a shared pointwise map adds a bounded learned correction. A separate objective-gradient diagnostic exposes the coupling induced by the unchanged stencil, mesh regularizer, or measurement operator; it is a node feature, not a message-passing operation. Thus PhyRes-GNN jointly performs prolongation and correction without learning or replacing the numerical operator. 0 2000 4000 6000 8000 10000      
+
+> Fine-grid DNF step
+> 10 3
+> 10 2
+> 10 1
+> Relative  L2 error of  U
+> Final errors at step 10000
+> Interpolation: 1.8092 × 10 4
+> Residual GNN: 1.6644 × 10 4
+
+State-field convergence         
+
+> 02000 4000 6000 8000 10000
+> Fine-grid DNF step
+> 10 1
+> Relative  L2 error of  K
+> Final errors at step 10000
+> Interpolation: 1.5031 × 10 2
+> Residual GNN: 1.3982 × 10 2
+
+Permeability convergence  
+
+> Interpolation Physics-coupled residual GNN
+
+Figure 4: Aligned fine-grid convergence for interpolation and the PhyRes-GNN on the two-dimensional LUNDIsim transfer. Both branches receive the same 10000 target-grid DNF updates; step zero denotes the transferred initialization. The residual corrector’s preceding 3000 training steps are not included on this horizontal axis. Lu et al.: Preprint submitted to Elsevier Page 24 of 22 PhyRes-MDNF for Inverse Problems 
+
+(a) Target 𝐾 (b) Recovered 𝐾 (c) Absolute error 
+
+Figure 5: Representative two-dimensional LUNDIsim recovery obtained by the 16 2 → 32 2 → 64 2 → 128 2 DNF hierarchy. Ground truth 
+
+Data 1 Data 2 Data 3 Data 4          
+
+> Official
+> mIoU = 0.745 mIoU = 0.764 mIoU = 0.506 mIoU = 0.395
+> Complete
+> PhyRes-MDNF
+> mIoU = 0.792 mIoU = 0.780 mIoU = 0.509 mIoU = 0.411
+> Predicted resistive Predicted conductive Ground-truth underlay Ground-truth boundary
+
+Figure 6: Final KTC2023 three-class segmentations for the official linearized CEM reconstruction and the complete PhyRes-MDNF pipeline. Columns correspond to Data 1–4; rows show the ground truth, official reconstruction, and complete PhyRes-MDNF reconstruction. Solid blue and red regions are the predicted resistive and conductive classes. In the prediction rows, the pale underlay and dashed contours show the ground-truth support. The displayed mIoU values use the same official two-threshold Otsu protocol as Table 3; ground-truth labels are used only for this post-optimization evaluation. Lu et al.: Preprint submitted to Elsevier Page 25 of 22 PhyRes-MDNF for Inverse Problems 
+
+Figure 7: KTC2023 IoU comparison among the official linearized CEM baseline, the coordinate-network inverse PINN using all 76 patterns and the direct single-level DNF after 10000 Adam updates, and the complete PhyRes-MDNF with PhyRes-GNN transfer, mesh-unlocked DNF, and full 𝑊 . The signed annotations report the complete-pipeline difference from the official baseline. PINN mIoU uses the same three-class IoU averaging convention. The PINN cannot produce a valid three-class Otsu segmentation on Data 3 and Data 4; those cases and its aggregate mean are therefore marked N/A. Lu et al.: Preprint submitted to Elsevier Page 26 of 22
