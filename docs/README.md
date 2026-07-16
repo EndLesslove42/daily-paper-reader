@@ -6,35 +6,43 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-15
-- 运行时间：2026-07-15 20:53:11 UTC
+- 最新运行日期：2026-07-16
+- 运行时间：2026-07-16 21:29:04 UTC
 - 运行状态：成功
-- 本次总论文数：5
-- 精读区：2
-- 速读区：3
+- 本次总论文数：7
+- 精读区：1
+- 速读区：6
 
 ### 今日简报（AI）
-今日精读2篇、速读3篇，聚焦AI科学发现框架与深度学习代理建模。最值得关注的是8分精读《自动神经算子发现的智能体社区》和《多尺度问题的深度学习代理建模》。建议先看自动神经算子发现一文，理解AI如何自主驱动科学发现。
-- 详情：[/202607/15/README](/202607/15/README)
+今日精读1篇空气动力学架构评估（8.0分），速读3篇涉KAN、状态估计与大气对流论文。  
+最值得看深度学习在气动预测中的架构对比，以及KAN积分微分方程的新突破。  
+建议普通读者优先关注精读中的模型选型技巧，并可尝试KAN原理的入门学习。
+- 详情：[/202607/16/README](/202607/16/README)
 
 ### 精读区论文标签
-1. [An Agentic AI Scientific Community for Automated Neural Operator Discovery](/202607/15/2607.12122v1-an-agentic-ai-scientific-community-for-automated-neural-operator-discovery)  
+1. [Evaluation of State-of-the-Art Deep Learning Architectures for Aerodynamical Predictions](/202607/16/2607.13866v1-evaluation-of-state-of-the-art-deep-learning-architectures-for-aerodynamical-predictions)  
    标签：评分：8.0/10、query:aqac
-   evidence：自动神经算子发现，直接相关于神经算子替代模型需求
-2. [Deep Learning-based Surrogate Modelling of the LOD Method for Multiscale Problems](/202607/15/2607.12570v1-deep-learning-based-surrogate-modelling-of-the-lod-method-for-multiscale-problems)  
-   标签：评分：8.0/10、query:aqac
-   evidence：基于深度学习代理建模多尺度PDE，适用于化学传输模型
+   evidence：评估用于空气动力学预测的深度学习架构，使用算子学习代理模型，直接相关于神经算子代理模型
 
 ### 速读区论文标签
-1. [TSCoNet: A Two-Stage Copula CNN-LSTM for Uncertainty-Aware Spatio-Temporal Forecasting](/202607/15/2607.10410v1-tsconet-a-two-stage-copula-cnn-lstm-for-uncertainty-aware-spatio-temporal-forecasting)  
+1. [Neural Discovery of Memory and Nonlocal Kernels in Integro-Differential Equations with Constrained Kolmogorov--Arnold Networks](/202607/16/2607.11110v1-neural-discovery-of-memory-and-nonlocal-kernels-in-integro-differential-equations-with-constrained-kolmogorov--arnold-networks)  
    标签：评分：7.0/10、query:aqac
-   evidence：基于CNN-LSTM和Copula的时空预测及不确定性量化
-2. [Ensemble Controlled-Flow Filtering for Implicit Data Assimilation](/202607/15/2607.12975v1-ensemble-controlled-flow-filtering-for-implicit-data-assimilation)  
+   evidence：约束KAN用于发现积分微分方程中的非局部核，可应用于大气传输平流扩散和质量守恒
+2. [Dynamic Online Processor-Native Inference for State Estimation](/202607/16/2607.12095v1-dynamic-online-processor-native-inference-for-state-estimation)  
    标签：评分：7.0/10、query:aqac
-   evidence：隐式数据同化方法EnCF，适用于空气质量数据同化
-3. [PhyRes-MDNF: Physics-Coupled Residual GNN Correction for Multilevel Discrete Neural Field Inversion](/202607/15/2607.06237v1-phyres-mdnf-physics-coupled-residual-gnn-correction-for-multilevel-discrete-neural-field-inversion)  
+   evidence：贝叶斯滤波用于状态估计，可直接应用于空气质量预报中的数据同化
+3. [Data driven non-equilibrium moist phase exchanges for atmospheric convection within a discontinuous Galerkin model of the compressible Euler equations](/202607/16/2607.13360v1-data-driven-non-equilibrium-moist-phase-exchanges-for-atmospheric-convection-within-a-discontinuous-galerkin-model-of-the-compressible-euler-equations)  
+   标签：评分：7.0/10、query:aqac
+   evidence：神经网络学习大气对流中质量守恒的相交换
+4. [Change-Aware Self-Adaptive AI-Aided Kalman Filters With Neural Change Point Detection](/202607/16/2607.13387v1-change-aware-self-adaptive-ai-aided-kalman-filters-with-neural-change-point-detection)  
+   标签：评分：7.0/10、query:aqac
+   evidence：神经变化点检测用于自适应卡尔曼滤波，直接适用于空气质量数据同化
+5. [Discovering Latent Response Laws in Forced Physical Systems](/202607/16/2607.09801v1-discovering-latent-response-laws-in-forced-physical-systems)  
    标签：评分：6.0/10、query:aqac
-   evidence：物理耦合GNN校正用于PDE反问题，可用于环境模型参数反演
+   evidence：受迫物理系统的潜在自编码器，实现物理信息驱动的响应规律发现
+6. [Spectral-Informed Neural Networks Outperform Spectral Methods in High-dimensional PDEs](/202607/16/2607.13566v1-spectral-informed-neural-networks-outperform-spectral-methods-in-high-dimensional-pdes)  
+   标签：评分：6.0/10、query:aqac
+   evidence：物理信息机器学习用于PDE求解，可迁移至环境建模
 
 
 <div class="dpr-home-promo-card">

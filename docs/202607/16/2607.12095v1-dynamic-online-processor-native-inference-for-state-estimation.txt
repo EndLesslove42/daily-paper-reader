@@ -1,0 +1,819 @@
+Title: Dynamic Online Processor-Native Inference for State Estimation
+
+URL Source: https://arxiv.org/pdf/2607.12095v1
+
+Published Time: Wed, 15 Jul 2026 11:55:10 GMT
+
+Number of Pages: 29
+
+Markdown Content:
+# Dynamic Online Processor-Native Inference for State Estimation 
+
+## Orestis Kaparounakis July 15, 2026 
+
+Abstract 
+
+Sensor-rich data-driven applications increasingly use Bayesian approaches to infer latent states of dynamic systems from noisy sensor measurements and physical models. Yet the computation of the likelihood remains an essential bottleneck for accurate posteriors and performant inference. This paper presents a Bayesian filtering technique that uses processor-native uncertainty tracking for both uncertainty propagation and inference. The technique implements deterministic hierarchical importance restructuring through a native operation, giving deterministic latency and bounded memory use for arbitrary models written as program code. Benchmarks across three nonlinear state-space systems compare the approach against particle filters and Monte-Carlo-based likelihood estimators. The technique enables deterministic approximate filtering with as high as 805 × average speedup against direct Monte Carlo work at matched result quality for model evaluation, and Pareto-dominant accuracy–latency trade-offs for posterior inference while remaining competitive in RMSE with baseline particle filters. 
+
+Sensor-rich data-driven applications increasingly use Bayesian approaches to infer the latent states of dynamic systems from noisy sensor measurements and physical models for more reliable state estimation and control. Such systems rely more and more on nonlinear sensing technologies which, combined with highly-nonlinear dynamics, produce non-Gaussian posteriors and intractable likelihoods. The common approach for nonlinear non-Gaussian systems is particle filtering [10]. Yet the computation of the likelihood remains an essential bottleneck for accurate posteriors and performant inference, especially when the likelihood requires marginalisation over latent noise sources. This paper examines an enhancement to Bayesian filtering on uncertainty-extended processors that leverages a microarchitectural abstraction for Bayesian inference. More specifically, Section 3 contributes a tunably-approximative approach to Bayesian filtering with arbitrarily complex state space models. The approach builds on uncertainty-extended processors which perform deterministic arithmetic and inference on probability density functions, and enables simple system model formula-tion as transformations on random variables in conventional programming language syntax. The UxHw-based approach has deterministic output and latency, and does not rely on extraneous random sampling for model simulation, making it ideal for real-time systems. Section 1 revisits importance sampling which is the inference mechanism most common in particle filtering. Section 2 discusses the mechanism for real-time processor-native deterministic Bayesian inference that underpins the UxHw-based approach, and relates this mechanism to importance sampling and deterministic methods for inference. Section 4 experimentally validates the accuracy of proposed UxHw-based filtering approach compared 1arXiv:2607.12095v1 [stat.ML] 13 Jul 2026 to the particle filter for three stochastic system templates. The section also includes dissected experimental validation of processor-native uncertainty-tracking accuracy and bare-metal speed of the proposed approach examining the six constituent models. 
+
+# 1 Bayesian inference with importance sampling 
+
+Bayesian inference is the mathematical application of Bayes’ theorem to infer an updated posterior 
+
+random variable from a prior information random variable and an observation or evidence . Let 𝑋 
+
+denote the prior random variable with support 𝒳 , and let 𝑌 denote the observation random variable with realised value 𝑦 . Equation 1 is Bayes’ theorem for continuous random variables: 
+
+𝑝 𝑋 |𝑌 (𝑥 | 𝑦 ) = 𝑝 𝑌 |𝑋 (𝑦 | 𝑥 ) 𝑝 𝑋 (𝑥 )
+
+∫ 
+
+> 𝒳
+
+𝑝 𝑌 |𝑋 (𝑦 | 𝑥 ′) 𝑝 𝑋 (𝑥 ′) 𝑑𝑥 ′ . (1) The theorem states that the posterior density is proportional to the prior density times the likelihood. Values of 𝑥 that were plausible under the prior and that also explain the observation 𝑦 well receive greater posterior mass. In many practical systems the normalising integral in the denominator has no closed form, and even when it does, direct evaluation can be costly in high-dimensional or nonlinear settings. This difficulty motivates approximation methods such as importance sampling. Importance sampling approximates the posterior by sampling a proposal density which is easier to sample than the posterior itself and then assigning each sample a corrective weight. Let 𝑞 (𝑥 | 𝑦 )
+
+denote a proposal density on 𝒳 , and 𝑥 (𝑖 ) for 𝑖 = 1, . . . , 𝑁 iid samples from the proposal: 
+
+𝑥 (𝑖 ) ∼ 𝑞 (𝑥 | 𝑦 ), 𝑖 = 1, . . . , 𝑁. (2) The corresponding unnormalised importance weights are 
+
+˜𝑤 (𝑖 ) = 𝑝 𝑌 |𝑋 (𝑦 | 𝑥 (𝑖 )) 𝑝 𝑋 (𝑥 (𝑖 ))
+
+𝑞 (𝑥 (𝑖 ) | 𝑦 ) , 𝑖 = 1, . . . , 𝑁. (3) The normalised weights are 
+
+𝑤 (𝑖 ) = ˜𝑤 (𝑖 )
+
+Í𝑁 𝑗 =1 ˜𝑤 (𝑗 ) , 𝑖 = 1, . . . , 𝑁. (4) These weighted samples form a discrete approximation of the posterior. This is the idea that underpins the particle filter, where the proposal generates particles at each time step and the importance weights correct for the difference between the proposal and the target filtering distribution. Resampling the weighted set yields an unweighted set of posterior samples. For importance sampling to be valid, the proposal must assign positive density wherever the unnormalised posterior 𝑝 𝑌 |𝑋 (𝑦 | 𝑥 ) 𝑝 𝑋 (𝑥 ) is positive. In other words, the support of 𝑞 (𝑥 | 𝑦 ) must contain the support of the posterior. If this condition does not hold, the process never samples these regions of the posterior mass and the approximation becomes biased. In practice, engineers choose proposals that reasonably resemble the posterior, because a poor mismatch produces uneven weights and results in low-quality approximation [8]. As 𝑁 → ∞ , for a well-defined posterior and given that the proposal assigns positive density wherever the posterior has positive density, the weighted empirical distribution {𝑥 (𝑖 ) , 𝑤 (𝑖 )}𝑁 𝑖 =1 converges to the true posterior distribution. 2Other posterior-approximation methods Markov-chain Monte Carlo methods approximate the posterior by constructing a Markov chain whose stationary distribution is the posterior [17, 11]. Variational inference approximates the posterior by solving an optimisation problem over a tractable family of distributions [13, 5]. Laplace approximation replaces the posterior locally with a Gaussian approximation around a mode [21]. 
+
+# 2 Real-time processor-native deterministic Bayesian inference 
+
+Processors capable of native uncertainty tracking may also include native support for native probabilis-tic inference. The UxHw system includes the BayesLaplace operation: a native processor operation for Bayesian inference [19, 22] which implements deterministic importance restructuring .Inference algorithms using the UxHw system use the same programming interface for both the inference program and the modelling code. This contrasts probabilistic programming languages which typically have different syntaxes for modelling code and inference code [7]. 
+
+Gradual uncertainty specification Implementing Bayesian filtering with processor-native uncer-tainty tracking enables the specification of uncertainty for more parameters than conventionally typical for other filtering methods. During different stages of the design, engineers can tune the distribution specifications and also choose to model more program variables as uncertain variables. For example, using the UxHw system for filtering trivialises modelling the uncertainty of the transition model input (control input), and other model parameters, without having to readjust the whole filter. 
+
+Multi-model estimation at region boundaries Some estimation problems use different models in different regions of the state space. When the active model depends on the current state, an implementation can branch on uncertain state values and carry the resulting hypotheses jointly instead of using a point statistic to select a single model. This paper does not benchmark multi-model estimation directly. The same idea also appears in systems such as sensors that switch between different approximations across operating regions. 
+
+Empirical likelihoods Some Bayesian filtering problems lack an observation model in either analytic or programmatic form. In such cases, engineers may instead use prior labelled observations to build an empirical likelihood proxy. Processor-native uncertainty tracking makes this style of implementation a natural fit, because the filter can evaluate such proxies directly in code and combine them with uncertain state representations without requiring a parametric observation model. This paper does not evaluate empirical likelihoods directly, but they are another example of how the same programming model could support filtering designs beyond the standard closed-form setting. 
+
+## 2.1 Deterministic hierarchical importance restructuring 
+
+The particle filter algorithm uses weighted resampling which performs stochastic ancestor selection based on the particle weights [10, 9]. In contrast, in the BayesLaplace operation of the UxHw system, the representation restructuring step deterministically transforms a weighted empirical measure into another weighted empirical measure of fixed size using both the particle weights and state values [4]. This algorithm is conceptually close to importance sampling with the following distinctions: 
+
+• Determinism: The algorithm does not depend on random sampling. The same prior, likelihood, and evidence always yield the same posterior. 3• Importance: The underling UxHw representation enables the use of any sampling model as a likelihood function without needing to analytically derive a density function. 
+
+• Restructuring: The samples of the posterior adhere to a weight-position spacing rule [4]. The posterior positions do not only depend on the weight as in conventional importance sampling. In a moment-matching manner, the UxHw representation restructures the weighted particles using a recursive algorithm that splits the domain into regions of equal particle mass [3]. This approach resembles deterministic self-fission resampling [16] with the difference that UxHw does not require heuristic-dependent hyperparameters such as the starting position and density threshold. Instead of aiming for final positions of similar mass, UxHw splits existing bins in two and aims for a specific count 𝜂 of final positions. This 𝜂 is a configuration parameter of UxHw controlling the processor speed versus distribution arithmetic fidelity trade-off. Let x denote a UxHw program variable that encodes the prior, and let 𝑋 B rv (x) denote the corresponding ideal random variable with law 𝜇 𝑋 . Let 𝜂 denote the UxHw size configuration parameter. The UxHw system represents x by a weighted set of support points {𝑥 (𝑖 ) , 𝑤 (𝑖 )}𝜂  
+
+> 𝑖 =1
+
+that satisfies the telescoping-torques structural condition [4]. Let 
+
+ˆ𝜇 x B
+
+> 𝜂
+
+Õ
+
+> 𝑖 =1
+
+𝑤 (𝑖 ) 𝛿 𝑥 (𝑖 ) . (5) Then ˆ𝜇 x is the implementation-level law encoded by x:
+
+ˆ𝜇 x ≈ 𝜇 𝑋 . (6) Let ℎ denote the program function that encodes the observation model: for a given hypothesis 𝑥 , ℎ(𝑥 )
+
+is the distribution of probable observations. Let 𝑧 denote a realised observation. The BayesLaplace operation computes the posterior program variable x+ [19]: 
+
+x+ B BayesLaplace (ℎ, x, 𝑧, 1). (7) Let 𝑋 + B rv (x+) denote the corresponding ideal posterior random variable with law 𝜇 𝑋 + , and let 
+
+ˆ𝜇 x+ B
+
+> 𝜂
+
+Õ
+
+> 𝑖 =1
+
+ˆ𝑤 (𝑖 ) 𝛿 ˆ𝑥 (𝑖 ) (8) denote the law encoded by the UxHw representation { ˆ 𝑥 (𝑖 ) , ˆ𝑤 (𝑖 )}𝜂 
+
+> 𝑖 =1
+
+. Then 
+
+ˆ𝜇 x+ ≈ 𝜇 𝑋 + . (9) The following steps summarise the deterministic hierarchical restructuring that the BayesLaplace operation performs [19]: 1. For each prior support point 𝑥 (𝑖 ), compute the corresponding observation-predictive program variable 
+
+y(𝑖 ) B ℎ(𝑥 (𝑖 )), 𝑖 = 1, . . . , 𝜂 . (10) Let 𝑌 (𝑖 ) B rv (y(𝑖 )) denote the corresponding ideal observation random variable with law 𝜇 𝑌 (𝑖 ) ,and let ˆ𝜇 y(𝑖 ) denote the law encoded by y(𝑖 ). Each 𝑌 (𝑖 ) is conditioned on 𝑥 (𝑖 ). Each y(𝑖 ) has a 4representation inside the UxHw system of the following form: 
+
+ˆ𝜇 y(𝑖 ) B
+
+> 𝜂
+
+Õ
+
+> 𝑗 =1
+
+𝜔 (𝑖,𝑗 ) 𝛿 𝑦 (𝑖,𝑗 ) , 𝑖 = 1, . . . , 𝜂 . (11) This encoded law approximates the ideal conditional observation law: 
+
+ˆ𝜇 y(𝑖 ) ≈ 𝜇 𝑌 (𝑖 ) , 𝑖 = 1, . . . , 𝜂 . (12) At this stage, the collection of conditional observation laws forms a Dirac mixture, and does not satisfy the structural constraints of the UxHw representation [4]. 2. Update the prior weights using the likelihood of the realised observation 𝑧 :
+
+˜𝑤 (𝑖 ) B 𝑤 (𝑖 ) EvaluatePDF ★  y(𝑖 ) , 𝑧  , 𝑖 = 1, . . . , 𝜂 . (13) Here, EvaluatePDF ★ denotes the implementation-level density-evaluation logic of EvaluatePDF 
+
+as it operates internally on intermediate variables represented by Dirac mixtures. 3. Normalise the updated weights: 
+
+˜𝑤 (𝑖 ) ← ˜𝑤 (𝑖 )
+
+Í𝜂  
+
+> 𝑘 =1
+
+˜𝑤 (𝑘 ) , 𝑖 = 1, . . . , 𝜂 . (14) 4. This yields the deterministic-importance posterior, before restructuring, with encoded law of Equation 15: 
+
+˜𝜇 x+ B
+
+> 𝜂
+
+Õ
+
+> 𝑖 =1
+
+˜𝑤 (𝑖 ) 𝛿 𝑥 (𝑖 ) . (15) Equivalently, the support-point representation is {𝑥 (𝑖 ) , ˜𝑤 (𝑖 )}𝜂 
+
+> 𝑖 =1
+
+.5. Apply the telescoping-torques restructuring algorithm to enforce the structural constraints of the UxHw representation [4]: 
+
+{ ˆ 𝑥 (𝑖 ) , ˆ𝑤 (𝑖 )}𝜂  
+
+> 𝑖 =1
+
+B TTR  {𝑥 (𝑖 ) , ˜𝑤 (𝑖 )}𝜂 
+
+> 𝑖 =1
+
+. (16) Equation 17 is the law encoded by the posterior program variable x+:
+
+ˆ𝜇 x+ B
+
+> 𝜂
+
+Õ
+
+> 𝑖 =1
+
+ˆ𝑤 (𝑖 ) 𝛿 ˆ𝑥 (𝑖 ) . (17) 
+
+## 2.2 Empirical observation densities 
+
+The UxHw semantics of Bayesian inference allow the observation input to be an empirical observation law rather than a single realised value. This is useful when sensors sample at a higher frequency than the filter update rate, where conventional implementations often replace a measurement bundle by its average. Using an empirical observation law instead reduces modelling assumptions. Let the observation program variable z encode an empirical observation law. Let ˆ𝜇 z denote the corresponding encoded law with support-point representation ˆ𝜇 z B Í𝜂  
+
+> 𝑗 =1
+
+𝜔 (𝑗 ) 𝛿 𝑧 (𝑗 ) .Let 𝑚 ∈ N the count of iid observations from which z was created. The BayesLaplace operation also 5ⓑ UxHw  
+
+> ⓐSequential Monte Carlo
+> Model the system
+> (theoretical transition &
+> observation in state space)
+> Model the system
+> (theoretical transition &
+> observation in state space)
+> Implement
+> models in code
+> Implement
+> models in code
+> Derive likelihood
+> approximations
+> Implement
+> estimator in
+> code
+> Encode
+> estimation loop
+> Encode
+> estimation loop
+
+Figure 1: High-level view of the engineering process for implementing state estimation a⃝ with sequential Monte Carlo and b⃝ with UxHw. In sequential Monte Carlo approaches engineers must derive the likelihood function either by analytical derivation when possible or by computational approximation, and then must write the code for the inference mechanism that uses it. Conversely, in the UxHw approach the model code doubles as the likelihood function and the UxHw system provides the inference mechanism as a native operation. needs 𝑚 to know the amount of independent observations that z represents. Equation 18 shows the application of the BayesLaplace operation in this multi-observation distribution scenario: 
+
+x+ B BayesLaplace (ℎ, x, z, 𝑚 ). (18) For this multi-observation case, the weight update of Equation 13 scales the encoded empirical law to represent a bundle of size 𝑚 . At the representation level, this gives 
+
+˜𝑤 (𝑖 ) B 𝑤 (𝑖 )
+
+> 𝜂
+
+Ö
+
+> 𝑗 =1
+
+
+
+EvaluatePDF ★  y(𝑖 ) , 𝑧 (𝑗 )𝑚 𝜔 (𝑗 )
+
+, 𝑖 = 1, . . . , 𝜂 . (19) Equation 19 expresses the fact that z encodes an empirical distribution with 𝜂 support points, while the parameter 𝑚 scales that distribution so that it contributes the joint likelihood of 𝑚 independent observations. The empirical observation density approach is attractive in situations where sensors generate samples in a frequency higher than what the system estimator wants. Conventionally, in such cases, the algorithm implementation averages the a sequence of samples before passing them to the estimator. 
+
+# 3 The UxHw BayesLaplace filter 
+
+This section introduces a Bayesian filtering technique which enables highly expressive filter imple-mentations while also offering better posteriors, increased performance, and avoiding extraneous random number generation. This approach builds on recent advances in hardware architectures for performing arithmetic on digital representations of probability density functions [23, 4]. This section proposes a Bayesian filtering method which leverages processor-native Bayesian inference [19] provided by the UxHw system. Figure 1 shows a high-level view of the typical engineering process for implementing state estimation for a stochastic system: a⃝ for the conventional approach (particle filtering [10, 18] and Kalman filtering [14]), and b⃝ for the UxHw-based approach. In the conventional approach, after modelling the system and implementing it in code, engineers must derive the likelihood function either by 6analytical derivation when possible or by computational approximation, and then must write the code for the inference mechanism that uses it. Conversely, in the UxHw approach the model code doubles as the likelihood function and UxHw provides the inference mechanism as a native operation and no further work necessary other than the outer estimation loop. Let x𝑘 represent the system state at time step 𝑘 . In the state transition (Equation 20), the function 𝑓 
+
+models the state transition dynamics and takes into account the system input vector u𝑘 . The vector 
+
+w𝑘 represents latent system perturbations ( process noise ). In the measurement (Equation 21), function 
+
+ℎ models the conversion of the measurand to the measurement, and the vector v𝑘 represents latent 
+
+measurement noise .
+
+x𝑘 = 𝑓 (x𝑘 −1 , u𝑘 ) + w𝑘 , (20) 
+
+z𝑘 = ℎ(x𝑘 ) + v𝑘 . (21) Let 𝐿 ⟨· , ·⟩ represent computation on hardware with native uncertainty tracking. Let BL represent processor-native Bayesian inference. Equation 22 and 23 summarise the form of Bayesian inference in this setting: 
+
+Predict: ˆx𝑘 |𝑘 −1 = 𝐿 ⟨ 𝑓 , (ˆ x𝑘 −1|𝑘 −1 , u𝑘 )⟩ (22) 
+
+Update: ˆx𝑘 |𝑘 = BL  𝐿 ⟨ℎ, ˆx𝑘 |𝑘 −1⟩, z𝑘 
+
+ (23) The action 𝐿 lifts endomorphisms from the real domain to the domain of probability measures on the real line and applies the argument. 
+
+## 3.1 1D BayesLaplace filter implementation in C for the UxHw system 
+
+Listing 1 gives source code in C for a generic 1D implementation of the processor-native-inference BayesLaplace filter of Equations 22 and 23 targeting the UxHw system. In the framework of the BayesLaplace filter both the transition and observation models are functions that resemble samplers for the respective model. When running on UxHw, the noise models produce fresh variables with associated uncertainty information, and the system model functions yield predictive distributions of the respective quantity. I.e., transition_model yields the state-predictive distribution and observation_model yields the observation-predictive distribution conditioned on the passed  
+
+> point_hypothesis
+
+value. The state-predictive distribution serves as the prior in the BayesLaplace operation, and the microarchitectural implementation breaks it into point hypotheses which it passes into the observation model. This process produces updated weights for the prior model based also on the likelihood of the observation data which ultimately yields the posterior distribution as the output of the BayesLaplace operation. This implementation includes simple guardrails for improved memory usage and correctness. The implementation uses the IndependentCopy operation to decorrelate program variables no longer necessary. Applying this operation lines up with the expected Markov property of systems this works examines. For processes with more memory, the filter would need a mechanism to apply the operation at the memory horizon variables, and at the same time to leave all variables within the filter memory properly correlated. The BayesLaplace operation adheres to the dogmatic property of Bayesian inference whereby areas of the domain where the prior assigns zero density cannot have non-zero density in the posterior. In other words, Bayes’ rule cannot create belief from nothing even if there is evidence. This makes it 7Listing 1: Source code in C for the 1D UxHw BayesLaplace filter. In the BayesLaplace filter, the transition and observation models are both C functions that implement a model sampler which, when run on UxHw, produces the predictive distribution of each model conditional on the input uncertainties. To improve memory usage, this implementation uses the IndependentCopy operation to decorrelate program variables no longer necessary.                                      
+
+> 1double observation_model(void * optional_extra_args, double point_hypothesis);
+> 2double transition_model(double previous_state, double transition_noise, /* ...extra arguments */);
+> 34/* Initial state estimate as Gaussian(x_0, sqrt(init_variance)) */
+> 5predicted_state[0] = GaussDist(true_state[0], sqrt(init_variance));
+> 67/* UxHw BayesLaplace filter main loop */
+> 8for (size_t t = 0; t < state_history_len; ++t) {
+> 9double predictive_state_dist, updated_state;
+> 10 if (t > 0) { /* The first observation is of the initial state */
+> 11 12 predictive_state_dist = transition_model(
+> 13 estimated_state[t-1],
+> 14 transition_noise_model(),
+> 15 /* ... any extra arguments */
+> 16 );
+> 17 18 predicted_state[t] = IndependentCopy(predictive_state_dist); /* Memory conservation */
+> 19 }
+> 20 21 updated_state = BayesLaplace(
+> 22 observation_model, /* Function pointer to the observation model */
+> 23 &optional_extra_args,
+> 24 predicted_state[t], /* Prior distribution */
+> 25 observed_state[t], /* Observed data (point value or distribution) */
+> 26 1/* Observations count */
+> 27 );
+> 28 if (isnan(updated_state)) {
+> 29 updated_state = predicted_state[t];
+> 30 }
+> 31 32 estimated_state[t] = IndependentCopy(updated_state); /* Memory conservation */
+> 33 }
+
+important for the prior to accurately capture the underlying distribution of possible states. In the context of UxHw, distribution representations have finite support which can create a problem for extreme outlier observations—although to smaller extend than random-sampling approaches such as the particle filter with bounded observation models. To address this error mode, the implementation checks the result of the BayesLaplace operation and, on detected failure, sets the posterior from the prior to keep the filter running. Figure 2 shows a illustrative timing diagram for a single inference step using the Monte Carlo method (importance sampling) and using UxHw 8. To perform the weighting step, the particle filter must compute the likelihood of the observation for every particle. This operation scales with the number of particles and can become expensive for intractable-likelihoods which also require marginalisation over more than one noise sources. When the particles count is in the hundreds or low thousands, the likelihood model dominates the compute budget of the particle filter. Conversely, the UxHw approach computes observation-predictive distributions whose count scales with the UxHw representation size. With processor-native uncertainty tracking, UxHw is able to glean more information from fewer points at expedient rate. 8ISR 
+
+UxHw 
+
+BayesLaplace 
+
+Likelihood model evaluation 
+
+TMC 
+
+TUxHw 
+
+TMCModel TISR 
+
+> Likelihood evaluations scale
+> with UxHw fidelity tuning
+> η1
+> …
+
+Figure 2: Illustrative timing diagram of importance sampling and deterministic hierarchical importance restructuring via BayesLaplace. To perform the weighting step, the particle filter must compute the likelihood of the observation for every particle. This operation scales with the number of particles and can become expensive for intractable-likelihoods which also require marginalisation over noise sources. With processor-native uncertainty tracking, UxHw is able to glean more information from computations which scale with the UxHw representation size. Table 1: Summary of systems under test and constituent models for Bayesian filtering using the UxHw system. The systems all have additive transition uncertainty specification while the observation uncertainty differs.           
+
+> Transition noise Transition model Observation model Observation noise Additive Stochastic volatility system (Eq. 24, 25) Multiplicative Additive Gordon–Salmond–Smith system (Eq. 37, 38) Additive Additive Cubic mean-reverting (Eq. 43) Beer–Lambert (Eq. 44) Multiplicative and heteroscedastic
+
+# 4 Benchmarks 
+
+This paper benchmarks the UxHw approach on three nonlinear systems stemming from practical application scenarios. The benchmarks test the filtering accuracy of proposed UxHw-based approach compared to the particle filter for three stochastic system templates across 150 traces. Each section also includes dissected experimental validation of uncertainty-quantification accuracy and bare-metal speed of the proposed approach examining the six constituent transition models and observation models running on a commercially-available uncertainty-tracking system-on-module across 273 distinct configurations. They also include experimental validation of the posterior-accuracy and bare-metal speed of the UxHw inference mechanism against the importance sampling of particle filters. Table 1 lists the system configurations with which this paper benchmarks the UxHw-based BayesLaplace filtering approach. Because the UxHw-based filters shown here and standard particle filters both evaluate the observation model more times than the transition model, because of the likelihood computation, the observation model has more impact in the overall accuracy and latency of the filter compared to the transition model. (As a counter-example, the auxiliary particle filter additionally evaluates the transition model when computing the likelihood.) In the following sections, 𝑥 𝑘 denotes the system state at time index 𝑘 , and 𝑦 𝑘 the observation. 
+
+## 4.1 Stochastic volatility system 
+
+A discrete stochastic-volatility model links a hidden log-volatility process to observations whose noise scale changes over time [18, 12]. Let 𝑥 𝑘 be the latent log-variance at time step 𝑘 , and 𝑦 𝑘 be the observed return. Let 𝑐 ∈ R be the drift, and let 𝜎 𝜂 > 0 represent the volatility of log-volatility, and 𝜙 ∈ (− 1, 1)
+
+the persistence. Also, let the shock term 𝜂 𝑘 with law 𝜇 𝜂 (𝜎 𝜂 ) and 𝜀 𝑘 each denote iid noise. Equations 24 9Table 2: Estimation accuracy of different configuration sizes of the UxHw BayesLaplace filter and the bootstrap particle filter for the stochastic volatility system of Equations 24 and 25 with noise distributions 𝜂 𝑘 ∼ 𝒩 ( 0, 0.22), 𝜀 𝑘 ∼ 𝒩 ( 0, 12), and initial estimate 𝑥 0 ∼ 𝒩 ( 0, 2.25 2).                                                      
+
+> Method #Traces RMSE ➞ Per-trace RMSE Std NLL CRPS
+> UxHw 64 50 0.495 185 0.000 000 0.743 210 0.282 312
+> UxHw 32 50 0.495 827 0.000 000 0.763 453 0.283 125
+> BPF 1000 50 0.496 254 0.010 016 0.728 420 0.283 270
+> BPF 500 50 0.498 984 0.014 842 0.738 632 0.285 158
+> UxHw 16 50 0.499 267 0.000 000 0.819 344 0.286 394
+> BPF 100 50 0.511 004 0.032 625 0.815 526 0.294 365
+> UxHw 8 50 0.526 074 0.000 000 0.902 752 0.306 625
+> BPF 50 50 0.526 232 0.045 955 0.962 281 0.306 609
+> BPF 20 50 0.572 537 0.077 646 1.691 358 0.343 519
+> BPF 10 50 0.645 772 0.115 810 4.467 825 0.404 854
+
+10 4 10 5
+
+Per-iteration latency (us) 
+
+0.50 
+
+0.55 
+
+0.60 
+
+0.65 
+
+> RMSE
+> BPF 10
+> BPF 100
+> BPF 1000
+> BPF 20
+> BPF 50
+> BPF 500 UxHw 16
+> UxHw 32
+> UxHw 8
+> Pareto frontier
+
+Figure 3: Pareto frontier plot for filtering RMSE and latency of the stochastic volatility system. Green circles are the BayesLaplace filter and blue squares are the bootstrap particle filter. The UxHw-based filters achieve dominating positions in the pareto frontier. Particle filters beyond 100 particles converge to a better RMSE–latency coefficient and the 1000-particle filter dominates at latency 270 ms .and 25 are the standard stochastic volatility model: 
+
+𝑥 𝑘 = 𝜙 𝑥 𝑡 −1 + 𝑐 (1 − 𝜙 ) + 𝜂 𝑘 , (24) 
+
+𝑦 𝑘 = 𝜀 𝑘 𝑒 0.5𝑥 𝑘 . (25) This benchmark tests the conventional configuration of the stochastic volatility system with 𝜂 𝑘 ∼𝒩 ( 0, 0.22), 𝜀 𝑘 ∼ 𝒩 ( 0, 12), 𝑐 = 0, 𝜙 = 0.98 using the UxHw BayesLaplace filter of Section 3 for configuration sizes 𝜂 ∈ { 8, 16 , 32 , 64 } against an assortment of particle filters with particle counts 
+
+𝑛 ∈ { 10 , 20 , 50 , 100 , 500 , 1000 }. The benchmark generates 50 traces of the stochastic volatility system and each filter runs on each trace 100 times. The benchmark computes the average root mean square error (RMSE) across all runs and traces as a metric of estimation error, the average per-trace RMSE standard deviation as a metric of estimator stability, and the negative log-likelihood score (NLL) and the continuous rank probability score (CRPS) as posterior quality metrics. Table 2 presents the filtering benchmark results sorted by ascending RMSE. The lowest estimation error comes from UxHw 64, which achieves a cross-trace cross-run average RMSE of 0.495 185 .UxHw 32 follows with RMSE 0.495 827 , and the 1000-particle bootstrap filter reaches 0.496 254 . The 500-particle bootstrap filter and UxHw 16 follow closely with 0.498 984 and 0.499 267 , respectively. UxHw 8 reaches 0.526 074 , which places it essentially alongside BPF 50 at 0.526 232 . As expected, the particle filter improves monotonically with particle count, and the returns diminish at the largest sizes. The UxHw filters also improve monotonically with configuration size in this benchmark, with 10 UxHw 64 giving the strongest point-estimate accuracy. Figure 3 shows that the UxHw-based filters occupy dominating positions on the RMSE–latency frontier, while the larger particle filters beyond 100 particles converge to a stronger RMSE–latency coefficient, with BPF 1000 dominating at a latency of 270 ms .The per-trace RMSE standard deviation indicates estimation stability. The UxHw filters rely on deterministic distributional arithmetic, so repeated runs on the same trace yield identical estimates up to numerical precision in the order of 10 −17 . In contrast, the particle filters exhibit run-to-run variability from stochastic propagation and resampling. This variability increases as the particle count decreases, with per-trace RMSE standard deviation rising from 0.010 016 at 1000 particles to 0.115 810 
+
+at 10 particles. This contrast makes the UxHw filters attractive when repeatability is an important requirement. The negative log-likelihood score measures the probability density that the posterior assigns to the true latent state, and lower is better. BPF 1000 achieves the best NLL of 0.728 420 , followed by BPF 500 at 0.738 632 . UxHw 64 and UxHw 32 follow closely with 0.743 210 and 0.763 453 , respectively. Among the remaining methods, BPF 100 reaches 0.815 526 , UxHw 16 reaches 0.819 344 , UxHw 8 reaches 
+
+0.902 752 , and BPF 50 reaches 0.962 281 . The lower-particle bootstrap filters then degrade more clearly, reaching 1.691 358 at 20 particles and 4.467 825 at 10 particles. For NLL, both method families improve monotonically with configuration size, and the strongest particle-filter configurations remain slightly ahead of the strongest UxHw configurations. The continuous ranked probability score measures calibration and sharpness around the true latent state, penalising over-spread posteriors, and lower is better. UxHw 64 achieves the best CRPS of 
+
+0.282 312 , followed by UxHw 32 at 0.283 125 . BPF 1000 follows closely with 0.283 270 , and BPF 500 reaches 0.285 158 . UxHw 16 remains competitive at 0.286 394 . Among the lower-fidelity methods, BPF 100 reaches 0.294 365 , while BPF 50 and UxHw 8 are nearly identical at 0.306 609 and 0.306 625 ,respectively. The ranking by CRPS broadly tracks the ranking by RMSE for the strongest methods. Overall, UxHw 64, UxHw 32, and BPF 1000 are the strongest methods in this benchmark, with the UxHw filters giving the best accuracy at the lowest latencies, and BPF 1000 providing the strongest high-latency point on the RMSE–latency frontier. The following subsections dive deeper into the constituent parts of the BayesLaplace filter: the transition model, the observation model, and the inference mechanism, and make side-by-side benchmarking with the corresponding parts of the particle filter algorithm. 
+
+4.1.1 Stochastic volatility transition model benchmark 
+
+The dissected model benchmark tests the speed and quality of UxHw uncertainty tracking for the stochastic volatility transition model (Equation 24) on the UxHw-FPGA-17k hardware module. Let 
+
+𝑋 𝑘 denote the state uncertainty at step 𝑘 , and let 𝐻 𝑘 denote the random variable of the shock term 
+
+𝜂 𝑘 . The benchmark tests for the usual Gaussian shock and also for a heavier-tailed shock [2, 12], modelled here as an additive Laplace-distributed term. Let (𝜆 𝑥 , 𝑠 𝑥 ) denote the location and scale of 
+
+𝑋 𝑘 . Let 𝜇 denote the parametric family used for 𝐻 𝑘 . Let 𝐻 𝑘 denote the random variable of the additive noise. The benchmark tests accuracy of the uncertainty propagation result for nine hand-picked 11 Table 3: UxHw configuration benchmarks against corresponding equal-accuracy and equal-speed Monte Carlo simulation for the stochastic volatility transition model (Equation 24). The UxHw configurations in this benchmark use the Autocorrelation correlation-tracking subsystem.                                                         
+
+> UxHw Iso-quality Monte Carlo Iso-time Monte Carlo
+> Avg †Runtime Avg Iter. Runtime Speedup Avg Att. Iter. Avg %𝑊 1change Method 𝑊 1(𝜇 s) Count Avg ( 𝜇 s) (MC →UxHw) ⌈Count ⌉𝑊 1(MC →UxHw) UxHw 8 0.009896 814 18513.85 655094 ×805.18 23 0.259526 -96.19% UxHw 16 0.005762 3708 55028.43 1947126 ×525.16 105 0.122203 -95.28% UxHw 32 0.003702 16124 133661.02 4729462 ×293.32 456 0.059227 -93.75%
+> (90-th percentile values) (90-th percentile values)
+> 32273.26 1141957 ×1403.58 0.385836 -97.44% 95949.39 3395073 ×915.68 0.180736 -96.81% 232929.04 8241961 ×511.16 0.086084 -95.70% Avg: average. Iter: iteration. Att: attainable. †UxHw is deterministic and the same inputs always yield the same output; the column represents the average across benchmark inputs.
+
+high-likelihood state locations 𝜆 𝑥 . Equations 26–31 summarise this benchmark configuration space: 
+
+𝑋 𝑘 ∼ 𝒩 ( 𝜆 𝑥 , 𝑠 𝑥 ), (26) 
+
+𝜆 𝑥 ∈ {− 2, −1, −0.5, −0.25 , 0, 0.25 , 0.5, 1, 2}, and (27) 
+
+𝐻 𝑘 ∼ 𝜇 (0, 𝜎 𝜂 ), 𝜇 ∈ {𝒩 , ℒ( 𝑏 )} , with (28) 
+
+𝑏 = 𝜎 𝜂 /√2 when 𝜇 = ℒ so that Var (𝐻 𝑘 ) = 𝜎 2 
+
+> 𝜂
+
+, (29) 
+
+𝑠 𝑥 ∈ { 1, 𝑠 0} , with 𝑠 0 B 𝜎 𝜂 
+
+p1 − 𝜙 2 , and (30) 
+
+𝑐 = 0, 𝜙 = 0.98 , 𝜎 𝜂 = 0.2. (31) The 𝑠 0 value is a common configuration in literature using the stationary standard deviation of the system. When 𝜇 = ℒ the benchmark sets the beta parameter as 𝜎 𝜂 to maintain the same stationary variance between the Gaussian and Laplace cases. The benchmark propagates uncertainty through the transition model and compares the result against a Monte Carlo ground truth using the Wasserstein distance. The benchmark evaluates 36 distinct configurations, and it uses the Autocorrelation correlation-tracking subsystem for all UxHw configurations. Table 3 lists the benchmark results. UxHw 8 achieves an average ×805.18 speedup against the corresponding iso-quality Monte Carlo simulations, and as much as ×1403.58 in the worst-performing 10% of Monte Carlo batches. UxHw 16 and UxHw 32 achieve ×525.16 and ×293.32 speedup on average, and as much as ×915.68 and ×511.16. The speedup decreases with UxHw representation size, which is consistent with increased representation and correlation-tracking overhead. The comparison against the iso-time Monte Carlo simulations shows smaller (better) Wasserstein distance for UxHw across all configurations, with a decreasing relative gap as UxHw runtime increases. UxHw 8 achieves on average -96.19% Wasserstein distance in the same latency as the iso-time Monte Carlo simulations, and as much as -97.44% in the worst-performing 10% of Monte Carlo batches. UxHw 16 and UxHw 32 achieve -95.28% and -93.75% Wasserstein distances on average, and as much as -96.81% and -95.70%. This pattern is consistent with the larger UxHw runtimes at higher representation sizes permitting a larger attainable Monte Carlo particle count, which reduces the iso-time Monte Carlo distance and narrows the percentage improvement. The absolute 𝑊 1 values decrease with representation size, with average 𝑊 1 equal to 0.009 896 , 0.005 762 , and 0.003 702 for UxHw 8, UxHw 16, and UxHw 32. 12 Table 4: UxHw configuration benchmarks against corresponding equal-accuracy and equal-speed Monte Carlo simulation for the stochastic volatility observation model (Equation 25).                                                         
+
+> UxHw Iso-quality Monte Carlo Iso-time Monte Carlo
+> Avg †Runtime Avg Iter. Runtime Speedup Avg Att. Iter. Avg %𝑊 1change Method 𝑊 1(𝜇 s) Count Avg ( 𝜇 s) (MC →UxHw) ⌈Count ⌉𝑊 1(MC →UxHw) UxHw 8 0.074508 8985 1106.36 222156 ×24.73 45 0.319584 -76.69% UxHw 16 0.030924 37386 6462.86 1297737 ×34.71 187 0.163129 -81.04% UxHw 32 0.012192 165221 41448.50 8322826 ×50.37 823 0.079618 -84.69%
+> (90-th percentile values) (90-th percentile values)
+> 1745.70 350535 ×39.01 0.597771 -87.54% 10204.05 2048965 ×54.81 0.302697 -89.78% 65406.59 13133591 ×79.49 0.149387 -91.84% Avg: average. Iter: iteration. Att: attainable. †UxHw is deterministic and the same inputs always yield the same output; the column represents the average across benchmark inputs.
+
+These results show that processor-native uncertainty tracking attains large speedups and smaller Wasserstein distance for this transition update across the tested shock families, and that increasing UxHw representation size improves absolute accuracy while reducing the relative advantage in the iso-time regime when longer UxHw latency increases the attainable Monte Carlo fidelity. 
+
+4.1.2 Stochastic volatility observation model benchmark 
+
+This benchmark tests the speed and quality of processor-native uncertainty tracking for the stochastic volatility observation model (Equation 25) on the UxHw-FPGA-17k hardware module. Let 𝑋 𝑘 denote the state uncertainty at step 𝑘 , and let 𝐸 𝑘 denote the observation noise term 𝜀 𝑘 in the multiplicative update 𝑌 𝑘 B exp (𝑋 𝑘 /2) 𝐸 𝑘 . The benchmark uses the configuration ofEquations 26–31 but fixes 𝑋 𝑘 to a Gaussian family. It tests the usual Gaussian assumption for 𝐸 𝑘 and a heavier-tailed alternative [2] modelled here as Laplace noise with matched innovation variance. Equation 32–36 summarise the benchmark configuration space: 
+
+𝑋 𝑘 ∼ 𝒩 ( 𝜆 𝑥 , 𝑠 𝑥 ), (32) 
+
+𝜆 𝑥 ∈ {− 2, −1, −0.5, −0.25 , 0, 0.25 , 0.5, 1, 2}, and (33) 
+
+𝑠 𝑥 ∈ { 1, 𝑠 0}, and (34) 
+
+𝐸 𝑘 ∼ 𝜇 (0, 𝜎 𝜀 ), 𝜇 ∈ {𝒩 , ℒ( 𝑏 )} , with (35) 
+
+𝑏 = 𝜎 𝜀 /√2 when 𝜇 = ℒ so that Var (𝐸 𝑘 ) = 𝜎 2 
+
+> 𝜀
+
+. (36) The benchmark propagates uncertainty through the observation update and compares the resulting law against a Monte Carlo ground truth using the Wasserstein distance. The benchmark evaluates 36 distinct configurations. The UxHw configurations use the Autocorrelation subsystem. Table 4 shows a consistent trade-off between the UxHw tuning parameter 𝜂 and accuracy for the stochastic volatility observation update. Larger UxHw configurations reduce the average Wasserstein distance. Against the corresponding iso-quality Monte Carlo simulations, UxHw achieves average speedups of ×24.7, ×34.7, and ×50.4, and as much as ×39.0, ×54.8, and ×79.5 for the worst-performing 10% MC batches. The iso-time comparison gives the complementary view, where Monte Carlo uses the largest attainable iteration budget within the UxHw runtime. Under the corresponding time budget, UxHw achieves an average 𝑊 1 distance reduction by -76.7%, -81.0%, and -84.7%. Larger UxHw configurations yield better efficiency because the Monte Carlo iteration count required to match UxHw accuracy grows faster 13 Table 5: Stochastic volatility likelihood model inference benchmark latency and accuracy results for importance sampling (MC) and BayesLaplace (UxHw).                                           
+
+> Method Fidelity Latency ( 𝜇 s) ➞ Mean 𝑊 1𝑊 1Std MC 10 5 793 0.482 255 0.190 635
+> MC 20 11 651 0.351 222 0.137 857
+> UxHw 820 803 0.058 566 0.019 230
+> MC 50 29 617 0.228 117 0.089 055
+> MC 100 59 722 0.163 482 0.062 948
+> UxHw 16 72 104 0.030 325 0.009 997
+> UxHw 32 254 353 0.022 761 0.007 901
+> MC 500 313 324 0.075 388 0.028 843
+> MC 1000 631 903 0.054 679 0.020 856 10 410 5
+
+Computation Time ( s) 
+
+> 10 1
+> Wasserstein-1 Distance
+> MC 10
+> MC 100
+> MC 1000
+> MC 20
+> MC 50
+> MC 500
+> UxHw 16
+> UxHw 32
+> UxHw 8
+
+Stochastic volatility inference accuracy latency Pareto frontier 
+
+Figure 4: Pareto frontier plot for accuracy and latency of the inference mechanism for the Stochastic Volatility system. Green circles are UxHw BayesLaplace inference and blue squares are inference via importance sampling. than the UxHw runtime across the same sweep. For the worst-performing 10% MC batches, UxHw achieves distance -87.54%, -89.78%, and -91.84% for UxHw 8, UxHw 16, and UxHw 32, respectively. These results suggest that the observation update, which combines an exponential with a multiplicative noise term, produces configurations where Monte Carlo needs large sample counts to control tail effects, while UxHw maintains predictable runtime and improves accuracy monotonically with 𝜂 .
+
+4.1.3 Stochastic volatility inference benchmark 
+
+This benchmark tests the speed and accuracy of inference using UxHw BayesLaplace against the importance sampling algorithm of the particle filter for different sizes. This benchmark does not use explicit iso-time and iso-quality Monte Carlo adversaries and instead computes the latency (speed) and accuracy ( 𝑊 1) for importance sampling inference with specific particle counts. Table 5 lists the measured latency and mean Wasserstein distance error, and Figure 4 shows the resulting accuracy-latency Pareto frontier. The benchmark compares each inferred posterior against a Monte Carlo ground truth posterior using the Wasserstein distance and reports the mean and standard deviation of 𝑊 1 across all tested instances. UxHw 8 attains Wasserstein distance 0.058 566 within 20 803 μs, which dominates importance sampling at 50 and 100 particles by improving both latency and accuracy. UxHw 16 further reduces the distance to 0.030 325 within 72 104 μs, moving the frontier downward relative to all tested importance sampling sizes. UxHw 32 attains the lowest average 𝑊 1 distance, 0.022 761 within 254 353 μs, and remains both faster and more accurate than importance sampling at 500 and 1000 particles. The 𝑊 1 standard 14 Table 6: Estimation accuracy of different configuration sizes of the UxHw BayesLaplace filter and the bootstrap particle filter for the Gordon–Salmond–Smith system of Equations 37 and 38 with 
+
+𝜐 𝑘 ∼ 𝒩 ( 0, 32), 𝜈 𝑘 ∼ 𝒩 ( 0, 12), and initial estimate 𝑥 0 ∼ 𝒩 ( 0, 52).                                                      
+
+> Method #Traces RMSE ➞ Per-trace RMSE Std NLL CRPS
+> UxHw 64 50 4.554 662 0.000 000 2.385 085 1.722 927
+> BPF 1000 50 4.631 633 0.121 110 2.743 835 1.753 481
+> BPF 500 50 4.649 263 0.166 242 3.125 517 1.765 093
+> UxHw 32 50 4.657 051 0.000 000 2.811 172 1.775 729
+> UxHw 16 50 4.994 060 0.000 000 4.308 073 1.968 334
+> BPF 100 50 5.016 186 0.635 257 9.264 011 1.964 372
+> BPF 50 50 5.643 520 1.073 605 23 .979 015 2.330 302
+> UxHw 8 50 6.271 464 0.000 000 8.375 627 2.754 201
+> BPF 20 50 7.202 361 1.487 972 77 .521 031 3.467 684
+> BPF 10 50 8.617 990 1.539 336 150 .995 513 4.790 006
+
+deviation follows the same trend: importance sampling shows high variability at low particle counts, whereas UxHw reduces variability as 𝜂 increases. These results show that UxHw BayesLaplace shifts the stochastic volatility inference frontier downward, with UxHw 8 covering the mid-latency regime while substantially reducing distance, and with UxHw 16 and UxHw 32 achieving high-accuracy posteriors at lower latency than high particle counts. 
+
+## 4.2 Gordon–Salmond–Smith system 
+
+Let 𝜐 𝑘 and 𝜈 𝑘 each denote iid noise. Equations 37 and 38 are a non-linear time-varying system commonly used as a reference system in Bayesian filtering benchmarking [10, 15]. This work refers to it as the Gordon–Salmond–Smith system. 
+
+𝑥 𝑘 = 𝑥 𝑘 −1
+
+2 + 25 𝑥 𝑘 −1
+
+1 + 𝑥 2
+
+> 𝑘 −1
+
++ 8 cos (1.2𝑘 ) + 𝜐 𝑘 , (37) 
+
+𝑧 𝑘 = 𝑥 2
+
+> 𝑘
+
+20 + 𝜈 𝑘 . (38) This section benchmarks the conventional configuration of the Gordon–Salmond–Smith system of 
+
+𝜐 𝑘 ∼ 𝒩 ( 0, 32), 𝜈 𝑘 ∼ 𝒩 ( 0, 12), and initial estimate 𝑥 0 ∼ 𝒩 ( 0, 52). The benchmark uses the UxHw BayesLaplace filter (Section 3) for configuration sizes 𝜂 ∈ { 8, 16 , 32 , 64 } against particle filters with counts 𝑛 ∈ { 10 , 20 , 50 , 100 , 500 , 1000 }. The benchmark generates 50 traces of the system and each filter runs on each trace 100 times. It then computes the RMSE across all runs and traces as a metric of estimation error, the average per-trace RMSE Std as a metric of estimator stability, and the NLL and the CRPS as posterior quality metrics. Table 6 presents the filtering benchmark results sorted by ascending RMSE. The lowest estimation error comes from UxHw 64, which achieves a cross-trace cross-run average RMSE of 4.554 662 .The 1000-particle bootstrap filter follows with RMSE 4.631 633 , and the 500-particle variant reaches 
+
+4.649 263 . UxHw 32 achieves RMSE 4.657 051 , which places it close to the largest particle filters. UxHw 16 and UxHw 8 degrade more clearly, with RMSE 4.994 060 and 6.271 464 , respectively. As expected, the particle filter improves monotonically with particle count, and the returns diminish between 500 and 1000 particles. The UxHw filters also improve monotonically with configuration size in this benchmark, with UxHw 64 giving the strongest point-estimate accuracy. Figure 5 shows the same head-to-head behaviour on the RMSE–latency frontier, where the strongest UxHw and particle-filter configurations lie close in raw point-estimate error. 15 10 4 10 5
+
+> Per-iteration latency (us)
+> 4
+> 5
+> 6
+> 7
+> 8
+> 9
+> RMSE
+> BPF 10
+> BPF 100
+> BPF 1000
+> BPF 20
+> BPF 50
+> BPF 500
+> UxHw 16
+> UxHw 32
+> UxHw 8
+> Pareto frontier
+
+Figure 5: Pareto frontier plot for filtering RMSE and latency of the Gordon–Salmond–Smith system. Green circles are the BayesLaplace filter and blue squares are the bootstrap particle filter. The UxHw-based filter achieves head-to-head performance with the particle filter in raw point-estimate error. The per-trace RMSE standard deviation indicates estimation stability. The UxHw filters rely on deterministic distributional arithmetic, so repeated runs on the same trace yield identical estimates up to numerical precision in the order of 10 −17 . In contrast, the particle filters exhibit run-to-run variability from stochastic propagation and resampling. This variability increases as the particle count decreases, with per-trace RMSE standard deviation rising from 0.121 110 at 1000 particles to 1.539 336 
+
+at 10 particles. This contrast makes the UxHw filters attractive when repeatability is an important requirement. The negative log-likelihood score measures the probability density that the posterior assigns to the true latent state, and lower is better. UxHw 64 achieves the best NLL of 2.385 085 . The next best results come from BPF 1000 at 2.743 835 , UxHw 32 at 2.811 172 , and BPF 500 at 3.125 517 . Smaller filters degrade more clearly. UxHw 16 reaches 4.308 073 , and UxHw 8 reaches 8.375 627 . In contrast, the particle-filter variants below 100 particles deteriorate strongly, with NLL 9.264 011 at 100 particles, 
+
+23 .979 015 at 50 particles, 77 .521 031 at 20 particles, and 150 .995 513 at 10 particles. These results show that the largest UxHw configuration gives the sharpest posterior at the true state in this benchmark and that the smallest UxHw configuration retains strong information compared to similar-latency particle filter configurations. The continuous ranked probability score measures calibration and sharpness around the true latent state, penalising over-spread posteriors, and lower is better. UxHw 64 again achieves the best result, with CRPS 1.722 927 . The 1000-particle and 500-particle bootstrap filters follow with 1.753 481 and 
+
+1.765 093 , and UxHw 32 reaches 1.775 729 . BPF 100 and UxHw 16 are very close, with CRPS 1.964 372 
+
+and 1.968 334 , respectively. The lower-fidelity methods degrade more clearly, reaching 2.330 302 for BPF 50, 2.754 201 for UxHw 8, 3.467 684 for BPF 20, and 4.790 006 for BPF 10. The ranking by CRPS broadly tracks the ranking by RMSE for the strongest methods. Overall, UxHw 64 and BPF 1000 are the strongest methods in this benchmark, with UxHw 64 giving the best accuracy while also preserving deterministic repeatability. The following subsections dive deeper into the constituent parts of the BayesLaplace filter: the transition model, the observation model, and the inference mechanism, and make side-by-side benchmarking with the corresponding parts of the particle filter algorithm. 16 Table 7: UxHw configuration benchmarks against corresponding equal-accuracy and equal-speed Monte Carlo simulation for the Gordon–Salmond–Smith transition model (Equation 37). The UxHw configurations in this benchmark use the Autocorrelation correlation-tracking subsystem. 
+
+UxHw Iso-quality Monte Carlo Iso-time Monte Carlo 
+
+Avg † Runtime Avg Iter. Runtime Speedup Avg Att. Iter. Avg %𝑊 1 change Method 𝑊 1 (𝜇 s) Count Avg ( 𝜇 s) (MC →UxHw) ⌈Count ⌉ 𝑊 1 (MC →UxHw) UxHw 8 0.133420 991 5521.90 414776 ×418.59 14 1.749511 -92.37% UxHw 16 0.046058 3719 34942.25 2624680 ×705.83 50 0.936065 -95.08% UxHw 32 0.017634 16226 169966.90 12767030 ×786.82 217 0.451648 -96.10% 
+
+(90-th percentile values) (90-th percentile values) 
+
+9778.33 734497 ×741.25 3.308902 -95.97% 62433.98 4689716 ×1261.16 1.804655 -97.45% 307733.59 23115347 ×1424.58 0.862063 -97.95% Avg: average. Iter: iteration. Att: attainable. †UxHw is deterministic and the same inputs always yield the same output; the column represents the average across benchmark inputs. 20 10 0 10 20 30 
+
+> Value
+> 0.00
+> 0.02
+> 0.04
+> 0.06
+> 0.08
+> 0.10
+> Density
+
+UxHw 8      
+
+> Ground Truth
+> UxHw 8 Autocorrelation
+> 20 10 010 20 30
+> Value
+
+UxHw 16      
+
+> Ground Truth
+> UxHw 16 Autocorrelation
+> 20 10 010 20 30
+> Value
+
+UxHw 32 
+
+> Ground Truth
+> UxHw 32 Autocorrelation
+> Benchmark gss_transition Histogram (Args #15)
+> a0: Laplace(loc=1, scale=1) | a1: Gaussian(loc=0, scale=3)
+
+Figure 6: Comparison of uncertainty-tracking output for Gordon–Salmond–Smith transition of Equation 37 using the UxHw with 𝜂 ∈ { 8, 16 , 32 } and with the Autocorrelation subsystem, for 
+
+𝑋 𝑘 −1 ∼ ℒ( 1, 1) and Υ𝑘 ∼ 𝒩 ( 0, 32).
+
+4.2.1 Gordon–Salmond–Smith transition model benchmark 
+
+This benchmark tests the speed and quality of processor-native uncertainty tracking for the Gordon– Salmond–Smith transition equation using the UxHw-FPGA-17k hardware module. The benchmark tests the Wasserstein distance of the uncertainty propagation result for nine hand-picked high-likelihood state locations. Let 𝑋 𝑘 −1 denote the random variable representing the previous state. For each state location value, Equations 39–42 summarise the benchmark configuration space: 
+
+𝑋 𝑘 −1 ∼ 𝜇 (𝜆 𝑥 , 1), with (39) 
+
+𝜆 𝑥 ∈ {− 15 , −12 , −1, −0.5, 0, 0.5, 1, 12 , 15 }, and (40) 
+
+𝜇 ∈ {𝒩 , 𝒰 , ℒ} , and (41) 
+
+Υ𝑘 ∼ 𝒩 ( 0, 3). (42) The benchmark evaluates three parametric distribution families for the state uncertainty and adds an independent Gaussian perturbation term consistent with the reference model. The benchmark then propagates uncertainty through the transition equation under test using (𝑋 𝑘 −1 , Υ𝑘 ) as inputs, and compares the resulting law against an Monte Carlo ground truth using the Wasserstein distance. Overall, the benchmark evaluates 27 distinct configurations. Table 7 shows the results for the Gordon–Salmond–Smith transition model benchmark. Figure 6 shows the uncertainty-tracking output of the transition model for 𝑋 𝑘 −1 ∼ ℒ( 1, 1) and Υ𝑘 ∼ 𝒩 ( 0, 32). UxHw 8 17 Table 8: UxHw configuration benchmarks against corresponding equal-accuracy and equal-speed Monte Carlo simulation for the Gordon–Salmond–Smith observation model (Equation 38). The UxHw configurations in this benchmark use the Autocorrelation correlation-tracking subsystem.                                                         
+
+> UxHw Iso-quality Monte Carlo Iso-time Monte Carlo
+> Avg †Runtime Avg Iter. Runtime Speedup Avg Att. Iter. Avg %𝑊 1change Method 𝑊 1(𝜇 s) Count Avg ( 𝜇 s) (MC →UxHw) ⌈Count ⌉𝑊 1(MC →UxHw) UxHw 8 0.116502 317 4707.53 190378 ×601.11 81.118450 -89.58% UxHw 16 0.056425 1061 12968.77 524473 ×494.34 27 0.638450 -91.16% UxHw 32 0.026762 4223 50872.34 2057338 ×487.17 105 0.330842 -91.91%
+> (90-th percentile values) (90-th percentile values)
+> 8192.65 331321 ×1046.14 2.444436 -95.23% 22648.12 915917 ×863.30 1.402285 -95.98% 88604.08 3583255 ×848.50 0.725952 -96.31% Avg: average. Iter: iteration. Att: attainable. †UxHw is deterministic and the same inputs always yield the same output; the column represents the average across benchmark inputs.
+
+achieves an average ×418.59 speedup against the corresponding iso-quality Monte Carlo simulations, and as much as ×741.25 in 10% of the benchmark cases. UxHw 16 and UxHw 32 achieve ×705.83 and ×786.82 speedup on average, and as much as ×1261.16 and ×1424.58 in 10% of the benchmark cases where Monte Carlo performs worst. The speedup grows with representation size because the benchmark transition equation increases both nonlinearity and correlation between intermediate quantities, and the Autocorrelation subsystem keeps this dependence information within the UxHw execution. The comparison against the iso-time Monte Carlo simulations follows the same ordering across UxHw configurations. UxHw 8 achieves on average -92.37% Wasserstein distance in the same latency as the iso-time Monte Carlo simulations, and as much as -95.97% for 10% of the benchmark cases. UxHw 16 and UxHw 32 achieve -95.08% and -96.10% Wasserstein distances on average, and as much as -97.45% and -97.95% for the worst-performing 10% of the Monte Carlo cases. The absolute 𝑊 1
+
+values decrease with representation size, with average 𝑊 1 equal to 0.133 420 , 0.046 058 , and 0.017 634 
+
+for UxHw 8, UxHw 16, and UxHw 32, which matches the additional resolution available for capturing the multimodality and tail mass induced by the transition equation. The result show the highest improvement coefficient between UxHw 8 and UxHw 16 which signals that this change in UxHw representation size allowed the system to better capture the nonlinearity of the model. 
+
+4.2.2 Gordon–Salmon–Smith observation model benchmark 
+
+This benchmark tests the speed and quality of UxHw-based uncertainty tracking for the Gordon– Salmond–Smith observation equation using the UxHw-FPGA-17k hardware module. Let 𝑋 𝑘 denote the state uncertainty input to the observation model. The benchmark evaluates the same nine state locations from the specification in Equations 39–42. Let 𝜇 denote a distribution family in {𝒩 , 𝒰 , ℒ} ,and let 𝑠 𝑥 denote the scale parameter. The benchmark sets 
+
+𝑋 𝑘 ∼ 𝜇 (𝜆 𝑥 , 𝑠 𝑥 ), 𝑠 𝑥 = 3, and 
+
+𝜈 𝑘 ∼ 𝒩 ( 0, 1),
+
+and propagates uncertainty through the observation equation. The benchmark compares the resulting law against a Monte Carlo ground truth using the Wasserstein distance, and it evaluates 27 distinct configurations. 18 Table 9: Gordon–Salmon–Smith likelihood model inference benchmark latency and accuracy results for importance sampling (MC) and BayesLaplace (UxHw).                                          
+
+> Method Fidelity Latency ( 𝜇 s) ➞ Mean 𝑊 1𝑊 1Std MC 10 4 298 0.918 780 0.600 507
+> MC 20 8 915 0.655 264 0.425 093
+> UxHw 819 110 0.226 054 0.101 888
+> MC 50 22 286 0.419 784 0.270 830
+> MC 100 44 573 0.301 244 0.191 753
+> UxHw 16 69 406 0.096 282 0.048 861
+> MC 500 222 863 0.140 070 0.087 858
+> UxHw 32 247 796 0.052 341 0.037 639
+> MC 1000 479 288 0.101 370 0.063 020
+
+Table 8 reports the benchmark results. UxHw 8 achieves an average ×601.11 speedup against the corresponding iso-quality Monte Carlo simulations, and as much as ×1046.14 in 10% of the benchmark cases. UxHw 16 and UxHw 32 achieve ×494.34 and ×487.17 speedup on average, and as much as 
+
+×863.30 and ×848.50 in 10% of the benchmark cases where Monte Carlo performs worst. The average speedup decreases with representation size because the observation equation has low arithmetic depth while the runtime increases with UxHw representation size. The comparison against the iso-time Monte Carlo simulations shows consistently better output quality for UxHw across configurations. UxHw 8 achieves on average -89.58% Wasserstein distance in the same latency as the iso-time Monte Carlo simulations, and as much as -95.23% in 10% of the MC batches. UxHw 16 and UxHw 32 achieve -91.16% and -91.91% Wasserstein distances on average, and as much as -95.98% and -96.31% for the worst-performing 10% of the Monte Carlo cases. The absolute 𝑊 1 values decrease with representation size, with average 𝑊 1 equal to 0.116 502 , 0.056 425 ,and 0.026 762 for UxHw 8, UxHw 16, and UxHw 32, respectively. These results show that processor-native uncertainty tracking achieves large speedups and smaller Wasserstein distance for the observation equation across all tested input families, and the quality gain increases modestly with UxHw representation size while the speedup saturates when the kernel cost becomes small relative to representation and correlation-tracking overhead. 
+
+4.2.3 Gordon–Salmon–Smith inference benchmark 
+
+This benchmark tests the speed and accuracy of inference using UxHw BayesLaplace against the importance sampling algorithm from the particle filter for different sizes. This benchmark does not use explicit iso-time and iso-quality Monte Carlo adversaries and instead computes the latency (speed) and accuracy ( 𝑊 1) for importance sampling inference with specific particle counts. The benchmark constructs inference inputs from a trace of the Gordon–Salmond–Smith system with 50 times steps and static random seed for reproducibility. Let {𝑥 𝑘 }50  
+
+> 𝑘 =1
+
+denote the resulting state sequence obtained by iterating the ideal transition equation and adding an independent Gaussian perturbation term with scale 𝑠 𝑥 . The benchmark rounds each 𝑥 𝑘 to one decimal place to use it as a prior location parameter. For each such prior location, the benchmark draws five observations using Gordon–Salmond–Smith observation model, retaining observations whose likelihood under the corresponding prior exceeds a fixed threshold 0.1. This keeps the benchmark focused on high-likelihood inference cases. Let {{ 𝑧 𝑘,𝑖 }5
+
+> 𝑖 =1
+
+}50  
+
+> 𝑘 =1
+
+denote observation values. The benchmark defines the input as a prior law 𝑋 𝑘 as either Gaussian or Laplace with location 𝑥 𝑘 and scale 𝑠 𝑥 , with the observations {𝑧 𝑘,𝑖 }5
+
+> 𝑖 =1
+
+. This benchmark configuration yields 500 distinct inference instances across the two prior families. 19 10 4 10 5  
+
+> Computation Time ( s)
+> 10 1
+> 10 0
+> Wasserstein-1 Distance
+> MC 10
+> MC 100
+> MC 1000
+> UxHw 16
+> UxHw 32
+> UxHw 8
+> MC 20
+> MC 50
+> MC 500
+
+Gordon-Salmond-Smith Accuracy-Latency Pareto Frontier Figure 7: Pareto frontier plot for accuracy and latency of the inference mechanism for the Gordon– Salmond–Smith system. Green circles are UxHw BayesLaplace inference and blue squares are inference via importance sampling. For each inference instance, the benchmark computes the posterior law using the BayesLaplace operation and using importance sampling with fidelity of 𝑛 ∈ [ 10 , 20 , 50 , 100 , 500 , 1000 ] (particles). Table 9 lists the results for the tested configurations, and Figure 7 shows the resulting accuracy-latency Pareto frontier. The benchmark compares each inferred posterior against a Monte Carlo ground truth posterior using the Wasserstein distance and reports the mean and standard deviation of 𝑊 1
+
+across all instances alongside the measured latency. UxHw 8 attains 0.226 054 with 19 110 μs latency, which improves both accuracy and latency relative to importance sampling with 50 and 100 particles. UxHw 16 attains 0.096 282 within 69 406 μs, which dominates the high-fidelity importance sampling cases, with lower distance than 1000 particles at much lower latency. UxHw 32 further reduces the average distance to 0.052 341 within 247 796 μs, which improves accuracy relative to all tested importance sampling fidelities while remaining faster than 1000 particles. The standard deviation of 𝑊 1 follows the same trend, with importance sampling exhibiting larger variability at low 𝑛 and UxHw reducing variability as 𝜂 increases. These results show that BayesLaplace pushes the inference accuracy-latency frontier downward for this benchmark, with UxHw 8 matching the latency regime of mid-fidelity importance sampling while achieving lower 𝑊 1, and with UxHw 16 and UxHw 32 attaining accuracy comparable to, or better than, high particle counts but with better latency. The UxHw BayesLaplace inference approach dominates the importance sampling points and the trend suggests that BayesLaplace is more efficient at approximating the posterior distribution. 
+
+## 4.3 Mean-reverting process with exponential heteroscedastic observation 
+
+Mean-reverting processes are common in modelling variables that fluctuate around an equilibrium on short to medium timescales. This includes homeostatic physiological variables, thermal dynamics around steady operating points in electronics, and communications link-quality metrics [1, 6]. This section uses an abstracted formulation of a mean-reverting process with cubic feedback as a benchmark for the UxHw BayesLaplace filter. Let 𝑥 𝑘 be the current at time index 𝑘 and let 𝑐 be the system-equilibrium target. Let 𝛼 and 𝛽 be parameters controlling the mean-reverting feedback effect of the model, for the linear and the cubic component, respectively. And, let 𝜐 𝑘 ∼ 𝜇 𝜐 denote additive noise. Let 𝑦 𝑘 denote the observation and let 𝑚 𝑘 ∼ 𝜇 𝑚 be a multiplicative noise source. Let ℎ𝑘 ∼ 𝜇 ℎ (𝑥 𝑘 , 𝑚 𝑘 ) be heteroscedastic additive noise whose scale 𝜎 ℎ is dependent on the signal value, with base scale 𝜎 base . Equations 43 and 44 give the 20 Table 10: Estimation accuracy of different configuration sizes of the UxHw BayesLaplace filter and the bootstrap particle filter for the mean-reverting–exponential system of Equations 43 and 44 with 
+
+𝜐 𝑘 ∼ 𝒩 ( 0, 0.05 2), 𝑚 𝑘 ∼ 𝒩 ( 0, 0.05 2), ℎ𝑘 ∼ ℒ( 0, 𝜎 ℎ𝑘 ), 𝜎 base = 0.01 , and initial estimate 𝑥 0 ∼ 𝒩 ( 0, 0.12).                                                      
+
+> Method #Traces RMSE ➞ Per-trace RMSE Std NLL CRPS
+> BPF 1000 50 0.109 398 0.002 258 −0.772 228 0.062 809
+> UxHw 64 50 0.109 505 0.000 000 −0.723 642 0.062 816
+> BPF 500 50 0.109 620 0.003 112 −0.766 055 0.062 968
+> BPF 100 50 0.111 778 0.006 678 −0.714 208 0.064 579
+> UxHw 32 50 0.111 926 0.000 000 −0.547 223 0.064 762
+> UxHw 16 50 0.114 206 0.000 000 −0.404 290 0.066 548
+> BPF 50 50 0.114 322 0.009 559 −0.643 363 0.066 502
+> UxHw 8 50 0.114 852 0.000 000 −0.595 478 0.067 312
+> BPF 20 50 0.121 551 0.014 104 −0.291 816 0.072 266
+> BPF 10 50 0.129 010 0.017 815 0.781 573 0.079 262
+
+10 4 10 5 10 6 10 7
+
+Per-iteration latency (us) 
+
+0.110 
+
+0.115 
+
+0.120 
+
+0.125 
+
+0.130 
+
+> RMSE
+> BPF 10
+> BPF 100
+> BPF 1000
+> BPF 20
+> BPF 50
+> BPF 500
+> UxHw 16
+> UxHw 32
+> UxHw 8
+> Pareto frontier
+
+Figure 8: Pareto frontier plot for filtering RMSE and latency of the cubic mean-reverting transition and exponential observation system. Green circles are the BayesLaplace filter and blue squares are the bootstrap particle filter. The small latency of UxHw 8 allows it to stay competitive with the particle filter. state-space equations for this system: 
+
+𝑥 𝑘 = 𝑥 𝑘 −1 + 𝛼 (𝑐 − 𝑥 𝑘 −1) − 𝛼𝛽 (𝑐 − 𝑥 𝑘 −1)3 + 𝜐 𝑘 , (43) 
+
+𝑦 𝑘 = 𝑒 −𝑥 𝑘 (1 + 𝑚 𝑘 ) + ℎ𝑘 , where (44) 
+
+𝜎 ℎ𝑘 B
+
+q
+
+𝜎 2base + 𝑒 −𝑥 𝑘 (1 + 𝑚 𝑘 )
+
+The scale of the uncertain term ℎ𝑘 is bigger when the rest of the observation value is bigger. This benchmark uses this system to compare UxHw BayesLaplace filter against conventional bootstrap particle filtering. The following sections examine the uncertainty-tracking performance of UxHw for the transition model, the observation model, and the inference step of this system. This filtering benchmark initially tests this mean-reverting–exponential system with 𝜐 𝑘 ∼ 𝒩 ( 0, 0.05 2),
+
+𝑚 𝑘 ∼ 𝒩 ( 0, 0.05 2), ℎ𝑘 ∼ ℒ( 0, 𝜎 ℎ𝑘 ), 𝜎 base = 0.01 𝑐 = 0.95 , 𝛼 = 0.1, and 𝛽 = 0.05 using the UxHw BayesLaplace filter of Section 3 for configuration sizes 𝜂 ∈ { 8, 16 , 32 , 64 } against particle filters with particle counts 𝑛 ∈ { 10 , 20 , 50 , 100 , 500 , 1000 }. The benchmark generates 50 traces of the system and each filter runs on each trace 100 times. The benchmark computes the average RMSE across all runs and traces as a metric of estimation error, the average per-trace RMSE standard deviation as a metric of estimator stability, and NLL and the CRPS as posterior quality metrics. Table 10 presents the filtering benchmark results sorted by RMSE. The lowest estimation error comes from the 1000-particle bootstrap filter, which achieves a cross-trace cross-run average RMSE of 21 0.109 398 . UxHw 64 follows close with RMSE 0.109 505 , and the 500-particle bootstrap filter reaches 
+
+0.109 620 . The next pair is BPF 100 at 0.111 778 and UxHw 32 at 0.111 926 . UxHw 16 reaches 0.114 206 ,slightly ahead of BPF 50 at 0.114 322 , while UxHw 8 reaches 0.114 852 . As expected for the particle filter, RMSE improves monotonically with particle count. The UxHw filters also improve with configuration size in this benchmark, with UxHw 64 giving the strongest result among the UxHw configurations. Figure 8 shows the Pareto frontier plot for the RMSE and per-iteration latency of the benchmarked filters. For this system, in raw point-estimate accuracy via RMSE, the particle filter maintains accuracy–latency coefficient better than the UxHw-based approach. The small latency of UxHw 8 enables it to stay competitive the region around RMSE 0.115 and per-iteration latency 17 ms .The per-trace RMSE standard deviation indicates estimation stability. The UxHw filters rely on deterministic distributional arithmetic, so repeated runs on the same trace yield identical estimates up to numerical precision. The results are in the order of 1 × 10 −16 to 1 × 10 −17 . The particle filter shows visible run-to-run variation, with per-trace RMSE standard deviation increasing as the particle count decreases. This contrast makes the UxHw filters attractive when repeatability is an important requirement. In terms of negative log-likelihood, the 1000-particle bootstrap filter achieves the best NLL of −0.772 228 ,followed by the 500-particle filter at −0.766 055 . UxHw 64 is the strongest UxHw configuration with NLL −0.723 642 , and BPF 100 follows closely at −0.714 208 . Among the remaining methods, BPF 50 reaches −0.643 363 , UxHw 8 reaches −0.595 478 , UxHw 32 reaches −0.547 223 , and UxHw 16 reaches 
+
+−0.404 290 . These results show that the particle filter gives sharper posterior density at the true state in this benchmark, while UxHw 64 remains competitive with the stronger particle-filter configurations. The continuous ranked probability score measures calibration and sharpness around the true latent state, penalising over-spread posteriors, and lower is better. The 1000-particle bootstrap filter achieves the best CRPS of 0.062 809 , with UxHw 64 essentially tied at 0.062 816 . The next best results come from BPF 500 at 0.062 968 , BPF 100 at 0.064 579 , and UxHw 32 at 0.064 762 . UxHw 16 and BPF 50 remain close at 0.066 548 and 0.066 502 , respectively, while UxHw 8 reaches 0.067 312 . The ranking by CRPS broadly follows the ranking by RMSE for the strongest methods. Overall, the results identify BPF 1000 and UxHw 64 as the strongest configurations in this benchmark, with UxHw 64 remaining close to the best particle-filter result while preserving deterministic repeatability. The following subsections dive deeper into the constituent parts of the UxHw-based BayesLaplace filter: the transition model, the observation model, and the inference mechanism, and make side-by-side benchmarking with the corresponding parts of the particle filter algorithm. 
+
+4.3.1 Cubic mean-reverting transition model benchmark 
+
+Let 𝑋 𝑘 be the random variable corresponding to 𝑥 𝑘 , and Υ𝑘 to 𝜐 𝑘 . The benchmark tests the speed and quality of UxHw uncertainty tracking for the cubic mean-reverting transition model of Equation 45 on the UxHw-FPGA-17k hardware module. This is Equation 43 adapted for better uncertainty tracking on the UxHw system by rewriting the double subtraction from 𝑐 .
+
+𝑋 𝑘 = 𝑋 𝑘 −1 + 𝛼 (𝑐 − 𝑋 𝑘 −1)  1.0 + 𝛽 (𝑐 − 𝑋 𝑘 −1)2 + Υ𝑘 . (45) 22 Table 11: UxHw configuration benchmarks against corresponding equal-accuracy and equal-speed Monte Carlo simulation for the cubic mean-reverting transition model (Equation 43). The benchmark uses the Autocorrelation subsystem.                                                         
+
+> UxHw Iso-quality Monte Carlo Iso-time Monte Carlo
+> Avg †Runtime Avg Iter. Runtime Speedup Avg Att. Iter. Avg %𝑊 1change Method 𝑊 1(𝜇 s) Count Avg ( 𝜇 s) (MC →UxHw) ⌈Count ⌉𝑊 1(MC →UxHw) UxHw 8 0.004554 814 2329.42 199341 ×192.36 13 0.047317 -90.38% UxHw 16 0.001514 3708 20146.60 1724049 ×466.24 44 0.026404 -94.27% UxHw 32 0.000551 16124 137254.45 11745577 ×715.84 192 0.012744 -95.68%
+> (90-th percentile values) (90-th percentile values)
+> 4056.72 347155 ×334.99 0.071936 -93.67% 34930.35 2989172 ×808.37 0.040429 -96.26% 238171.64 20381586 ×1242.17 0.019462 -97.17% Avg: average. Iter: iteration. Att: attainable. †UxHw is deterministic and the same inputs always yield the same output; the column represents the average across benchmark inputs.
+
+Equations 46–52 summarise the benchmark configuration space: 
+
+𝑋 𝑘 −1 ∼ 𝒩 ( 𝜆 𝑥 , 𝑠 𝑥 ), (46) 
+
+𝜆 𝑥 ∈ { 0.55 , 0.8, 0.9, 0.95 , 1.0, 1.1, 1.45 }, and (47) 
+
+𝑠 𝑥 ∈ { 0.1, 0.15 }, and (48) 
+
+Υ𝑘 ∼ 𝜇 Υ(0, 𝜎 𝜐 ), 𝜇 Υ ∈ {𝒩 , ℒ( 𝑏 ), 𝒰 ( 𝑤 )} , with (49) 
+
+𝜎 𝜐 ∈ { 0.05 , 0.10 }, and (50) 
+
+𝑏 = 𝜎 𝜐 /√2 when 𝜇 Υ = ℒ so that Var (Υ𝑘 ) = 𝜎 2 
+
+> 𝜐
+
+, and (51) 
+
+𝑤 = 2√3 𝜎 𝜐 when 𝜇 Υ = 𝒰 so that Var (Υ𝑘 ) = 𝜎 2
+
+> 𝜐
+
+. (52) The benchmark fixes 𝑋 𝑘 −1 to a Gaussian family across all configurations and sweeps high-likelihood state locations near the mean-reversion point 𝑐 . It tests Gaussian process noise and two non-Gaussian alternatives with matched innovation variance. The benchmark uses 𝑐 = 0.95 , 𝛼 = 0.1, and 𝛽 = 0.005 .It propagates uncertainty through one transition step and compares the resulting law against a Monte Carlo ground truth using the Wasserstein distance. The benchmark evaluates 84 distinct configurations. The UxHw configurations use the Autocorrelation subsystem because 𝑋 𝑘 −1 appears multiple times in Equation 45. Table 11 shows the results for this cubic mean-reverting transition model benchmark. UxHw 8 achieves an average ×192.36 speedup against the corresponding iso-quality Monte Carlo simulations, and as much as ×334.99 in the worst-performing 10% of the MC batches. UxHw 16 and UxHw 32 achieve ×466.24 and ×715.84 speedup on average, and as much as ×808.37 and ×1242.17 in 10% of the benchmark cases where Monte Carlo performs worst. The speedup grows with representation size, which matches the higher resolution available for tracking the nonlinear cubic drift and its induced dependence structure under the Autocorrelation subsystem. The comparison against the iso-time Monte Carlo simulations for each UxHw configuration follows a pattern similar with that of the speedup above. UxHw 8 achieves on average -90.38% Wasserstein distance in the same latency as the iso-time Monte Carlo simulation, and by as much as -93.67% for the worst-performing 10% of the MC batches. Similarly, UxHw 16 and UxHw 32 achieve -94.27% and -95.68% Wasserstein distances to the ground truth on average, and by as much as -96.26% and -97.17%. These results show that processor-native uncertainty tracking on UxHw yields better quality distribu-tions than the Monte Carlo alternative within the same time constraint. 23 4.3.2 Exponential observation model benchmark 
+
+Exponential laws arise whenever a quantity changes at a rate proportional to its current value. Such models show up often in radiation intensity modelling, electrical circuits, and medical devices [20]. One example is the Beer–Lambert law which is frequently employed in pulse oximetry observation models. Let 𝑌 𝑘 denote the random variable corresponding to 𝑦 𝑘 , 𝑀 𝑘 to 𝑚 𝑘 , and 𝐻 𝑘 to ℎ𝑘 . Equation 53 gives the transformation this benchmark tests: 
+
+𝑌 𝑘 = 𝑒 −𝑋 𝑘 (1 + 𝑀 𝑘 ) + 𝐻 𝑘 . (53) This benchmark treats 𝐻 𝑘 as iid additive noise, even though ℎ𝑘 represents heteroscedastic noise in Equation 44 and in the corresponding state estimation filter benchmarks. This benchmark reuses the input specification of Equations 46–52, while testing for single scale 𝑠 𝑥 :
+
+𝑋 𝑘 ∼ 𝒩 ( 𝜆 𝑥 , 𝑠 𝑥 ), (54) 
+
+𝜆 𝑥 ∈ { 0.55 , 0.8, 0.9, 0.95 , 1.0, 1.1, 1.45 }, and (55) 
+
+𝑠 𝑥 = 0.1. (56) It then tests three noise families for each of the multiplicative term 𝑀 𝑘 and the additive term 𝐻 𝑘 , with matched variance across families. Let 𝜎 𝑚 denote the target standard deviation for 𝑀 𝑘 , and let 𝜎 ℎ
+
+denote the target standard deviation for 𝐻 𝑘 , with (𝜎 𝑚 , 𝜎 ℎ ) = (0.05 , 0.01 ). Equations 57–60 summarise the benchmark configuration space: 
+
+𝑀 𝑘 ∼ 𝜇 𝑀 (0, 𝜎 𝑚 ), 𝜇 𝑀 ∈ {𝒩 , ℒ( 𝑏 𝑚 ), 𝒰 ( 𝑤 𝑚 )} , (57) 
+
+𝐻 𝑘 ∼ 𝜇 𝐻 (0, 𝜎 ℎ ), 𝜇 𝐻 ∈ {𝒩 , ℒ( 𝑏 ℎ ), 𝒰 ( 𝑤 ℎ )} , with (58) 
+
+𝑏 𝑚 = 𝜎 𝑚 /√2, 𝑏 ℎ = 𝜎 ℎ /√2, and (59) 
+
+𝑤 𝑚 = 2√3 𝜎 𝑚 , 𝑤 ℎ = 2√3 𝜎 ℎ . (60) The benchmark propagates uncertainty through application of Equation 53 and compares the resulting law against a Monte Carlo ground truth using the Wasserstein distance. The benchmark evaluates 63 distinct configurations. Table 11 lists the benchmark results of uncertainty tracking for this simplified Beer–Lambert model. The largest tested UxHw 32 configuration delivers the highest average speedup ( ×61.26) compared to the latency of the iso-quality Monte Carlo simulation. UxHw 16 achieves ×44.81, while UxHw 8 achieves an average speedup of ×25.01. In contrast with the cubic mean-reverting model of Section 4.3.1, while UxHw achieves clear speedups compared to the corresponding iso-quality Monte Caro simulations, the UxHw delivers less efficient uncertainty tracking for this benchmark. The iso-time Monte Carlo simulation in Table 12 limits the iteration count to match each UxHw configuration runtime. Compared to the Wasserstein distance achieved by the corresponding iso-time Monte Carlo simulations, UxHw 8, UxHw 16, and UxHw 32 achieve smaller 𝑊 1 on average: -77.21%, -83.96%, and -86.10% at matched latency, and as much as -85.35%, -89.83%, and -91.11% for the 10% worst-performing MC batches. The smaller speedups, and the larger iso-time accuracy gap, suggest that the exponential observation map imposes a difficult uncertainty transform. The model applies an exponential nonlinearity and 24 Table 12: UxHw configuration benchmarks against corresponding equal-accuracy and equal-speed Monte Carlo simulation for the simplified exponential observation model (Beer–Lambert) with heteroscedastic uncertainty (Equation 44). The UxHw configurations use the Autocorrelation subsystem.                                                         
+
+> UxHw Iso-quality Monte Carlo Iso-time Monte Carlo
+> Avg †Runtime Avg Iter. Runtime Speedup Avg Att. Iter. Avg %𝑊 1change Method 𝑊 1(𝜇 s) Count Avg ( 𝜇 s) (MC →UxHw) ⌈Count ⌉𝑊 1(MC →UxHw) UxHw 8 0.001572 16603 1765.76 415282 ×25.01 71 0.006897 -77.21% UxHw 16 0.000539 72614 13836.73 3254205 ×44.81 309 0.003361 -83.96% UxHw 32 0.000219 326058 84928.40 19973971 ×61.26 1387 0.001575 -86.10%
+> (90-th percentile values) (90-th percentile values)
+> 3052.75 717964 ×43.24 0.010728 -85.35% 23892.33 5619142 ×77.38 0.005302 -89.83% 146651.76 34490441 ×105.78 0.002463 -91.11% Avg: average. Iter: iteration. Att: attainable. †UxHw is deterministic and the same inputs always yield the same output; the column represents the average across benchmark inputs.
+
+Table 13: Exponential likelihood model inference benchmark latency and accuracy results for importance sampling (MC) and BayesLaplace (UxHw).                                          
+
+> Method Fidelity Latency ( 𝜇 s) ➞ Mean 𝑊 1𝑊 1Std MC 10 6 875 0.026 141 0.010 015
+> MC 20 13 856 0.019 122 0.007 059
+> MC 50 35 254 0.012 480 0.004 477
+> MC 100 70 714 0.008 948 0.003 143
+> UxHw 889 663 0.002 206 0.001 898
+> MC 500 367 572 0.004 123 0.001 430
+> UxHw 16 659 346 0.001 489 0.000 487
+> MC 1000 739 641 0.002 991 0.001 035
+> UxHw 32 20 257 900 0.001 329 0.000 529
+
+composes two independent noise sources. This structure increases the approximation burden on the finite UxHw uncertainty representation and reduces the accuracy gained per unit of UxHw compute, relative to the cubic mean-reverting benchmark, even though UxHw remains more accurate than Monte Carlo at equal runtime. 
+
+4.3.3 Exponential likelihood inference benchmark 
+
+This section benchmarks the inference speed and accuracy of UxHw BayesLaplace against importance sampling in particle filtering. The exponential observation model of Equation 44 includes two noise terms, so the importance-sampling baseline must marginalise over latent observation noise when it evaluates particle weights. For this model, that marginalisation is stable enough that the baseline remains well-behaved. For each inference instance, the benchmark computes the posterior law using UxHw BayesLaplace on UxHw 8, UxHw 16, and UxHw 32, and using importance sampling with particle count 𝑛 ∈{10 , 20 , 50 , 100 , 500 , 1000 }. Table 13 lists the mean and standard deviation of the Wasserstein distance against a Monte Carlo ground-truth posterior together with the measured latency, and Figure 9 shows the corresponding accuracy–latency Pareto frontier. UxHw 8 attains Wasserstein distance 0.002 206 with 89 663 μs latency, which is more accurate than all tested importance-sampling configurations, including 1000 particles, which reaches distance 0.002 991 
+
+at 739 641 μs. UxHw 16 reduces the mean distance further to 0.001 489 at 659 346 μs. UxHw 32 improves the mean again to 0.001 329 , but raises latency to 20 257 900 μs. For this model, larger UxHw 25 10 4 10 5 10 6 10 7   
+
+> Computation Time ( s)
+> 10 3
+> 10 2
+> Wasserstein-1 Distance
+> MC 10
+> MC 100
+> MC 1000
+> MC 20
+> MC 50
+> MC 500
+> UxHw 16
+> UxHw 32
+> UxHw 8
+
+Beer-Lambert inference accuracy latency Pareto frontier Figure 9: Pareto frontier plot for the distributional accuracy and latency of the inference mechanism for the exponential likelihood system. Green circles are UxHw BayesLaplace inference and blue squares are inference via importance sampling. configurations therefore give smaller gains in accuracy than the extra runtime they require. The importance-sampling results improve steadily as the particle count increases, but remain behind UxHw in accuracy across the tested range. The Pareto frontier in Figure 9 therefore favours UxHw 8 and UxHw 16 over the tested importance-sampling baselines. These results show that, for this benchmark, UxHw BayesLaplace gives a better accuracy–latency trade-off than importance sampling for the latency regimes of 100 ms to 20 s . The Monte Carlo alternative remains a flexible alternative able to address lower latency requirements at the expense of lower distributional accuracy. 
+
+# 5 Summary of results 
+
+This paper presents a Bayesian filtering technique that uses processor-native uncertainty tracking for both uncertainty propagation and inference, and compares it to particle-based methods via the particle filter. The technique uses UxHw to construct approximate encoded laws for forward uncertainty propagation, and it implements inference via deterministic hierarchical importance restructuring. In this way, UxHw uses deterministic distributional arithmetic to compute model outputs and Bayesian posteriors with deterministic latency and memory for arbitrary models written as program code, without relying on extra random sampling. Across the three common nonlinear systems in this paper, the UxHw approach yields competitive estimation RMSE against particle filters while also maintaining smaller latencies when noise terms follow Gaussian distributions. The UxHw-based filters are deterministic, so they produce the same result for the same input data. In tests involving inputs with both Gaussian and non-Gaussian distributions, for the same distribution accuracy measured by Wasserstein distance, the UxHw approach consistently outperforms the Monte-Carlo-based estimator of the particle filters. In the average Monte Carlo cases, it achieves at least ×24.73 speedup against the iso-quality Monte Carlo in the stochastic volatility observation model, and as much as ×805.18 for UxHw 8 in the stochastic volatility transition model. For the worst-performing 10% of Monte Carlo batches, the UxHw approach achieves speedup as high as ×1424.58 against the iso-quality Monte Carlo, for UxHw 32 in the Gordon–Salmond–Smith transition model. The UxHw approach also achieves significant 𝑊 1-accuracy improvements over Monte Carlo in the same latency budget. In the average Monte Carlo cases, UxHw achieves at least -76.69% Wasserstein distance, for UxHw 8 in the stochastic volatility observation model, and as much as -96.10% for 26 UxHw 32 in the Gordon–Salmond–Smith transition model. For the worst-performing 10% of the Monte Carlo batches, UxHw achieves as much as -97.95% Wasserstein distance against the iso-time Monte Carlo simulation. For posterior inference computation, the Pareto-frontier plots show that UxHw consistently dominates Monte Carlo in both 𝑊 1 accuracy and computation latency for the three observation models in this paper. In the stochastic volatility and Gordon–Salmond–Smith systems, UxHw 8 dominates Monte Carlo with 50 samples and with 100 samples. In the Beer–Lambert system, Monte Carlo is faster per sample, so UxHw 8 dominates MC 500 and MC 1000. The results also show that the scaling of the UxHw approach depends on model structure. The stochastic volatility transition model and the Gordon–Salmond–Smith observation model yield comparatively worse results for higher UxHw 𝜂 than for UxHw 8, while still remaining better than the Monte Carlo alternative. The other four models all improve progressively with higher UxHw fidelity. The performance results are also not smooth across models. While some models yield UxHw speedup in the hundreds, the stochastic volatility observation and exponential observation models yield speedup in the decades, which suggests degraded UxHw performance in these configurations, while still remaining better than Monte Carlo. UxHw representations with 𝜂 = 16 and 𝜂 = 32 remain performant and yield results competitive with, or better than, the Monte Carlo alternative. However, the speed of UxHw 8 makes it the most attractive choice for dynamic online Bayesian filtering in resource-constrained systems. In systems with greater processing or memory capacity, engineers can choose a higher UxHw representation size and trade latency for distributional accuracy. This trade-off becomes important in applications that depend on tail accuracy in the estimate distribution. 
+
+# References 
+
+[1] O. O. Aalen and H. K. Gjessing, “Survival models based on the Ornstein–Uhlenbeck process,” 
+
+Lifetime data analysis , vol. 10, no. 4, pp. 407–423, 2004. [2] M. Asai, “Bayesian analysis of stochastic volatility models with mixture-of-normal distributions,” 
+
+Mathematics and Computers in Simulation , vol. 79, no. 8, pp. 2579–2596, 2009. [3] B. A. Bilgin, O. H. Elias, M. Selby, and P. Stanley-Marbell, “Quantization of probability distributions via divide-and-conquer: Convergence and error propagation under distributional arithmetic operations,” arXiv preprint arXiv:2505.15283 , 2025. [4] B. A. Bilgin, K. O. Hallqvist Elias, M. Selby, and P. Stanley-Marbell, “Quantization of probability distributions via divide-and-conquer: Convergence and error propagation under distributional arithmetic operations,” Methodology and Computing in Applied Probability , vol. 28, no. 2, p. 32, 2026. [5] D. M. Blei, A. Kucukelbir, and J. D. McAuliffe, “Variational inference: A review for statisticians,” 
+
+Journal of the American statistical Association , vol. 112, no. 518, pp. 859–877, 2017. [6] E. Chin, D. Chieng, V. Teh, M. Natkaniec, K. Loziak, and J. Gozdecki, “Wireless link prediction and triggering using modified Ornstein–Uhlenbeck jump diffusion process,” Wireless networks ,vol. 20, no. 3, pp. 379–396, 2014. 27 [7] M. F. Cusumano-Towner, F. A. Saad, A. K. Lew, and V. K. Mansinghka, “Gen: A general-purpose probabilistic programming system with programmable inference,” in Proceedings of the 40th acm sigplan conference on programming language design and implementation , 2019, pp. 221–236. [8] A. Doucet, S. Godsill, and C. Andrieu, “On sequential Monte Carlo sampling methods for Bayesian filtering,” Statistics and computing , vol. 10, no. 3, pp. 197–208, 2000. [9] A. Doucet and A. Johansen, A tutorial on particle filtering and smoothing: Fifteen years later , 2009. [10] N. J. Gordon, D. J. Salmond, and A. F. Smith, “Novel approach to nonlinear/non-Gaussian Bayesian state estimation,” in IEE proceedings F (radar and signal processing) , IET, vol. 140, 1993, pp. 107–113. [11] W. K. Hastings, “Monte Carlo sampling methods using Markov chains and their applications,” 1970. [12] E. Jacquier, N. G. Polson, and P. E. Rossi, “Bayesian analysis of stochastic volatility models with fat-tails and correlated errors,” Journal of econometrics , vol. 122, no. 1, pp. 185–212, 2004. [13] M. I. Jordan, Z. Ghahramani, T. S. Jaakkola, and L. K. Saul, “An introduction to variational methods for graphical models,” Machine learning , vol. 37, no. 2, pp. 183–233, 1999. [14] R. E. Kalman and R. S. Bucy, “New results in linear filtering and prediction theory,” 1961. [15] G. Kitagawa, “Monte Carlo filter and smoother for non-Gaussian nonlinear state space models,” 
+
+Journal of computational and graphical statistics , vol. 5, no. 1, pp. 1–25, 1996. [16] T. Li, T. P. Sattar, and S. Sun, “Deterministic resampling: Unbiased sampling to avoid sample impoverishment in particle filters,” Signal Processing , vol. 92, no. 7, pp. 1637–1645, 2012. [17] N. Metropolis, A. W. Rosenbluth, M. N. Rosenbluth, A. H. Teller, and E. Teller, “Equation of state calculations by fast computing machines,” The journal of chemical physics , vol. 21, no. 6, pp. 1087–1092, 1953. [18] M. K. Pitt and N. Shephard, “Filtering via simulation: Auxiliary particle filters,” Journal of the American statistical association , vol. 94, no. 446, pp. 590–599, 1999. [19] Signaloid, Bayes-Laplace rule (Signaloid developer documentation) , Archived: 2026-01-15. https: //web.archive.org/web/20260119081236/https://docs.signaloid.io/docs/uxhw-api/bayesian-inference/bayes-laplace/ , Signaloid, 2023. Accessed: May 4, 2025. [Online]. Available: https : / / docs . signaloid . io / docs / hardware - api / bayesian - inference / bayes-laplace/ 
+
+[20] I. Smal, K. Draegestein, N. Galjart, W. Niessen, and E. Meĳering, “Particle filtering for multiple object tracking in dynamic fluorescence microscopy images: Application to microtubule growth analysis,” IEEE transactions on medical imaging , vol. 27, no. 6, pp. 789–804, 2008. [21] L. Tierney and J. B. Kadane, “Accurate approximations for posterior moments and marginal densities,” Journal of the american statistical association , vol. 81, no. 393, pp. 82–86, 1986. [22] V. Tsoutsouras, O. Kaparounakis, B. Bilgin, C. Samarakoon, J. Meech, J. Heck, and P. Stanley-Marbell, “The Laplace microarchitecture for tracking data uncertainty and its implementation in a RISC-V processor,” in MICRO-54: 54th Annual IEEE/ACM International Symposium on Microarchitecture , ser. MICRO ’21, New York, NY, USA: Association for Computing Machinery, 2021, 1254–1269, isbn : 9781450385572. doi : 10.1145/3466752.3480131 [Online]. Available: 
+
+> https://doi.org/10.1145/3466752.3480131
+
+28 [23] V. Tsoutsouras, O. Kaparounakis, C. Samarakoon, B. Bilgin, J. Meech, J. Heck, and P. Stanley-Marbell, “The Laplace microarchitecture for tracking data uncertainty,” IEEE Micro , vol. 42, no. 4, pp. 78–86, 2022. doi : 10.1109/MM.2022.3166067 
+
+29

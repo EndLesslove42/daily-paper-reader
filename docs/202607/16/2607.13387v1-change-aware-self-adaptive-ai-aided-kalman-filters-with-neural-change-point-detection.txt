@@ -1,0 +1,976 @@
+Title: Change-Aware Self-Adaptive AI-Aided Kalman Filters With Neural Change Point Detection
+
+URL Source: https://arxiv.org/pdf/2607.13387v1
+
+Published Time: Thu, 16 Jul 2026 00:27:31 GMT
+
+Number of Pages: 15
+
+Markdown Content:
+> 1
+
+# Change-Aware Self-Adaptive AI-Aided Kalman Filters With Neural Change Point Detection 
+
+Wenyi Zhang, Xiaoyong Ni, Nir Shlezinger, and Zengfu Wang* 
+
+Abstract —Reliable state estimation in dynamical systems is often challenged by model mismatches, unknown noise statistics, and temporal variations. While AI-aided Kalman filters such as KalmanNet leverage deep learning to enhance classical estimation, they remain vulnerable to distribution shifts and lack mechanisms for autonomous adaptation. This work introduces Change-Aware Self-Adaptive KalmanNet ( CASA-KalmanNet ), an online adaptation framework that integrates a dedicated neural module, termed 
+
+CPDNet , to monitor the interpretable internal features of KalmanNet and provide soft indicators of reliability degradation. These indicators dynamically regulate an online learning process, enabling data-efficient and timely adaptation to both abrupt and gradual changes in the system without requiring additional state labels from the changed regime. Numerical experiments on linear and nonlinear state-space models show that CASA-KalmanNet consistently outperforms existing learning-based filters under model mismatch, while approaching the accuracy of optimal classical methods with full domain knowledge. 
+
+Index Terms —Kalman filter, state-space model, model-based deep learning, recursive estimation. 
+
+I. I NTRODUCTION 
+
+# STATE estimation in dynamical systems is a fundamental task in signal processing, with a broad spectrum of applications such as tracking, navigation, and control [1], [2]. Such systems are commonly described using state space ( SS ) models, which provide a probabilistic framework that captures the evolution of hidden states over time based on noisy observations [3]. This formulation naturally leads to the Kalman filter (KF) and its variants [4], which form one of the most widely used families of algorithms in signal processing due to their simple recursive structure, interpretability, and computational efficiency. The classical KF assumes that the SS model is known and accurately described by a linear-Gaussian system [5]. When the dynamics or the observations are nonlinear, extensions such as the extended KF ( EKF ) [6] and the unscented KF (UKF ) [7] are com-monly employed. These methods still rely on precise characteriza-tion of the system model and on the assumption of Gaussian noise. However, in many practical scenarios, these models are only coarse approximations of the true underlying processes. When the actual system deviates from the assumed model, the performance of conventional filtering methods can degrade substantially. 
+
+W. Zhang and Z. Wang are with the School of Automation, Northwestern Polytechnical University, Xi’an 710072, China (e-mail: zhangwenyi@mail.nwpu.edu.cn, wangzengfu@nwpu.edu.cn). X. Ni is with the Neuro-X Institute, École Polytechnique Fédérale de Lausanne, CH-1202 Geneva, Switzerland (e-mail: xiaoyong.ni@epfl.ch). N. Shlezinger is with the School of Electrical and Computer Engineering, Ben-Gurion University of the Negev, Be’er-Sheva 8410501, Israel (e-mail: nirshl@bgu.ac.il). This work was supported in part by the National Natural Science Foundation of China (Grants No. 62473317, U21B2008). (Corresponding author: Zengfu Wang.) 
+
+With the growing popularity of deep learning, recent years have witnessed the emergence of artificial intelligence ( AI )-aided KF s [8]. These approaches use deep learning tools to enhance classical filtering methods by leveraging data-driven models as a form of model-based deep learning [9]. Various approaches have been proposed in this domain, including hybrid methods that combine deep learning tools for system identification with classical model-based estimation [10]–[14]; the incorporation of learned correction terms operating in parallel to a KF -type algorithm [15], [16]; and methods that learn to parameterize the state evolution from data [17], [18]. A notable class of AI -aided KFs, which is particularly suitable for tracking in partially known SS models, is KalmanNet [19] and its variants [20]–[25]. The KalmanNet methodology recasts the EKF as a discriminative machine learning architecture [26] with a deep neural network (DNN ) that augments the Kalman gain computation, enabling robust tracking in partially known environments. While KalmanNet has demonstrated the ability to generalize to some extent across variations in the SS model [19], it inherits the common vulnerability of machine learning models to distribution shifts [27]. In practice, changes in the underlying dynamics, which can be due to abrupt structural changes or gradual drift, may degrade the learned filter. The work [28] proposed to tackle this by incorporating hypernetworks that enable adapting to some limited level of variations without having to retrain. The work [29] combined learned Kalman filtering with the expectation maximization (EM) algorithm, focusing on smoothing tasks and assuming knowledge of which parameter changes in time, while [30] incorporated meta-learning tools to facilitate rapid retraining from supervised data. However, these works are either limited to specific variations [28], [29], or require a set of labeled trajectories from the new regime at inference time [30], an all assume knowledge on when adaptation is needed. Consequently, existing AI-aided Kalman variants have yet to achieve the full flexibility required to operate in time-varying SS models without online labeled data or exact model knowledge .Classical model-driven methods provide tools for handling changes in SS models when the underlying parametric structure is explicitly available [31]. If the changed quantities, such as noise covariances or system matrices, are known or can be reliably esti-mated, they can be incorporated into the KF recursion through co-variance adaptation, parameter re-estimation, or model switching. For example, EM-based and variational Bayesian inference (VBI)-based KF s update unknown noise statistics through iterative or posterior estimation under parametric assumptions [32]–[36]. These model-driven methods are preferable when the transition and observation functions are known, differentiable, and accompa-nied by suitable noise models or priors. Nevertheless, extending arXiv:2607.13387v1 [eess.SY] 15 Jul 2026 2
+
+these principled adaptive strategies to discriminative AI -aided KF s is non-trivial. In DNN-aided algorithms like KalmanNet, the statistical structure of the SS model, and especially the noise distributions, is not explicitly encoded; instead, it is implicitly learned from data and embedded within the DNN weights. In this case, the changing quantity is not only an explicit covariance matrix, but also the learned filtering rule itself. Consequently, adapting the model in response to a distributional shift not observed during offline training calls for some form of online learning or fine-tuning . Further, the demonstrated robustness of AI -aided KF s to moderate variations suggests that not every change in the dynamics warrants adaptation, and that the extent of adaptation required is dependent on the nature and severity of the variation. This observation motivates developing an online adaptation method tailored for AI -aided KF s, which facilitates rapid and data-efficient learning-based adaptation with limited computational overhead and without additional labeled data. In this work, we introduce a novel online test-time adaptation framework termed Change-Aware Self-Adaptive KalmanNet (CASA-KalmanNet ), designed to enable such AI -aided KF s to operate effectively in time-varying dynamical environments. Our approach addresses the challenge of adapting discriminative neural architectures, and particularly KalmanNet, to shifts in the underlying SS model without requiring explicit knowledge of the changing system parameters or access to labeled data. Therefore, CASA-KalmanNet is complementary to model-driven adaptive filters: model-driven methods remain natural choices under accurate parametric knowledge, whereas the proposed method targets partially known and neural-filter-based settings where reliability monitoring and label-free online correction are required. In particular, drawing inspiration from recent advances in asynchronous online learning for wireless communications [37], our key insight is that effective adaptation need not rely on detecting changes in the dynamics themselves, but rather on monitoring the reliability of the filter. Specifically, we propose to observe the degradation in performance of the AI -aided KF as an 
+
+implicit indicator of a distributional mismatch, thereby enabling data-efficient and computationally lightweight adaptation. To realize this, CASA-KalmanNet incorporates two core innovations. First, we design an independent DNN -based module, termed CPDNet , which continuously monitors KalmanNet during operation and generates an online measure indicating whether the filter remains valid for the current dynamical regime. CPDNet particularly leverages the interpretable EKF -based architecture of KalmanNet, utilizing its internal prediction of the observation for obtaining features that are informative on potential degradation without requiring ground-truth state labels. Second, we integrate this indicator into a tailored online adaptation mechanism mechanism, which is selectively activated based on the output of CPDNet. Once triggered, this adaptation mechanism leverages the magnitude of the detected change to guide the intensity (and con-sequently, the duration) of the adaptation process. This enables rapid, reliable, and ground-truth-free adaptation of AI -aided KF sto changing environments with limited computational burden. Our main contributions are summarized as follows:  
+
+> •
+
+We formulate a change-aware online test-time adaptation framework for AI-aided KFs under partial model knowledge and nonstationary noise statistics.  
+
+> •
+
+We develop CPDNet , an independent reliability-monitoring network that exploits the interpretable innovation-related internal features of KalmanNet to estimate whether the deployed filter has become misaligned with the current dynamics. CPDNet does not modify the KalmanNet gain architecture; instead, it provides an additional self-diagnostic capability that standard KalmanNet lacks.  
+
+> •
+
+We propose a closed-loop change-aware online adaptation mechanism in which the CPDNet score gates and scales a KalmanNet update based on the innovation loss, without requiring additional state labels from the changed regime. Unlike continuously updated unsupervised KalmanNet, which may update indiscriminately and over-adapt, the proposed mechanism selectively regulates adaptation in response to detected changes.  
+
+> •
+
+We validate the proposed framework under abrupt and gradual changes in noise statistics and model parameters, showing that the proposed method improves robustness over KalmanNet and its unsupervised online-update counterpart while approaching model-aware classical filters when full post-change information is available. We further validate the method on a real robot trajectory using the NCLT dataset [38] under controlled observation-noise nonstationarity, showing improved full-state tracking among learned baselines without access to the covariance change, with substantially fewer online updates. The rest of this paper is organized as follows: Section II briefly reviews SS models and the EKF. CPDNet is detailed in Section III, and is incorporated into the CASA-KalmanNet online self-adaptation framework in Section IV. Section V details our numerical study, and Section VI provides concluding remarks. Throughout this paper, we use boldface lowercase for vectors, e.g., x, and boldface uppercase letters, e.g., MMM , for matrices. The ith element of some vector x is denoted [x]i. Similarly, 
+
+[MMM ]i,j is the (i, j )th element of a matrix MMM . We use R for the set of real numbers. The operations (·)⊤ and ∥ · ∥ are used for transpose and ℓ2 norm, respectively. II. S YSTEM MODEL AND PRELIMINARIES 
+
+In this section we introduce the system model and recall some preliminaries. We first present the SS model in Subsection II-A and formulate the state estimation problem in Subsection II-B .Then, we review necessary preliminaries in model-based and AI-aided Kalman filtering in Subsection II-C. 
+
+A. System Model 
+
+We consider a general discrete-time dynamical system described by a time-varying nonlinear SS model: 
+
+xt = f (xt−1) + wt, wt ∼ Pt(w), xt ∈ Rm, (1a) 
+
+yt = h(xt) + vt, vt ∼ Pt(v), yt ∈ Rn. (1b) In (1), xt denotes the latent state vector at time t, and yt
+
+is the corresponding observed measurement. The functions 
+
+f (·) and h(·) describe the (possibly nonlinear) state transition dynamics and the observation model, respectively. The process noise wt and the observation noise vt are drawn from 3
+
+temporally independent distributions, denoted Pt(w) and Pt(v),respectively, that may vary over time to capture non-stationarities. A widely used special case of (1) is the linear Gaussian SS model , where both f (·) and h(·) are linear functions, represented by the matrices F ∈ Rm×m, and H ∈ Rn×m, and the noises are Gaussian. In this case, (1) becomes 
+
+xt = Fx t−1 + wt, (2a) 
+
+yt = Hx t + vt. (2b) Gaussianity implies that Pt(w) and Pt(v) are zero-mean Gaussian distributions with time-varying covariance matrices 
+
+Qt and Rt, respectively. The general model in (1) encompasses a broad class of dynamical systems. In this work, we allow the system to exhibit both nonlinear dynamics and non-stationary noise statistics, which presents a significant challenge for reliable and efficient state estimation, as detailed next. 
+
+B. Problem Formulation 
+
+We consider the filtering task (i.e., online state estimation) in a dynamical system governed by the SS model of (1). Given a sequence of noisy observations {yτ }tτ =1 up to time 
+
+t and knowledge of the initial state x0, the goal is to generate an accurate estimate of the latent state xt at each time step. Formally, the filtering problem aims to compute a mapping 
+
+ˆxt = Ft
+
+ {yτ }tτ =1 
+
+ , (3) where Ft(·) denotes the filtering rule at time t, which outputs the estimate ˆxt of the true latent state xt.We focus on scenarios where the filtering task is challenged by various sources of uncertainty and mismatch between the assumed model and the true system behavior. In particular, we identify the following key challenges: 
+
+C1 Model Approximation: The state evolution function f (·)
+
+and the observation function h(·) are often only coarse approximations of the true underlying dynamics. 
+
+C2 Unknown Noise Distributions: The statistical properties of the process noise wt and observation noise vt, i.e., 
+
+Pt(w) and Pt(v), are unknown, and may deviate from the Gaussian assumptions typically made in classical filtering. 
+
+C3 Non-Stationarity: The noise distributions Pt(w), P t(v)
+
+may change over time without prior knowledge of when or how these changes occur. To facilitate the design of filtering mechanisms that can cope with C1 -C3 , we assume access to a labeled offline dataset D
+
+consisting of input-output pairs, i.e., 
+
+D = {({y(i) 
+
+> τ
+
+, x(i) 
+
+> τ
+
+}Tτ =1 )}|D| 
+
+> i=1
+
+, (4) generated under a known time horizon T . This dataset is used for learning purposes prior to deployment. The offline data is assumed to be decomposable into two subsets:  
+
+> •
+
+A stationary set Ds, originating from a single system regime, in which the noise signals follow (unknown) stationary distributions denoted by P0(w) and P0(v). 
+
+> •
+
+A nonstationary set Dv, where in each input-output trajectory the distribution of the noises can change in an unknown manner. During inference, the system may encounter different nonsta-tionary dynamics, but no labeled data or prior knowledge of the change point from these distributions are assumed to be available. Specifically, in our numerical experiments (in Section V), a separate nonstationary dataset Dv is generated for each type of SS model variation considered, such as changes in the noise statistics or selected SS model parameters. The training and testing trajectories are disjoint. They share the same type of parameter variation, but use independently generated trajectories and different change times. 
+
+C. Preliminaries 1) Model-Based Kalman Filtering: When the SS model is fully known and the noises are Gaussian, state estimation can be reliably performed using model-based filtering algorithms based on variants of the KF for nonlinear dynamics, such as the EKF. Kalman-type filters track the first and second-order moments of the state, which at time t are respectively denoted 
+
+ˆxt and Σt, via recursive prediction and update steps. Specifically, at each time t, the EKF propagates the first-order moments of the state and observations via 
+
+ˆxt|t−1 = f (ˆ xt−1), (5a) 
+
+ˆyt|t−1 = h(ˆ xt|t−1). (5b) This is followed by the computation of the Kalman gain ( KG )based on linearizations of the transition and observation models as Ft = ∂f ∂x ˆxt−1
+
+and Ht = ∂h ∂x ˆxt|t−1
+
+, such that 
+
+Σt|t−1 = FtΣt−1F⊤ 
+
+> t
+
++ Qt, (6a) 
+
+St = HtΣt|t−1H⊤ 
+
+> t
+
++ Rt, (6b) 
+
+Kt = Σt|t−1H⊤ 
+
+> t
+
+S−1 
+
+> t
+
+. (6c) The state estimate and its error covariance are updated as 
+
+ˆxt = ˆ xt|t−1 + Kt∆yt, (7a) 
+
+Σt = ( I − KtHt)Σt|t−1, (7b) where ∆yt = yt − ˆyt|t−1 is the innovation process .Alternative variants of the KF for nonlinear dynamics, such as the UKF [7] and the Cubature KF [39], differ in how they approximate the propagation of means and covariances in nonlin-ear models, but all rely on a faithful and complete specification of the model dynamics and noise distributions. Consequently, model-based filters are limited when facing model mismatches and uncharacterized noise, i.e., under challenges C1 and C2 .
+
+2) AI-Aided Kalman Filtering: To address the limitations of model-based filtering under partial or mismatched knowledge, AI -aided Kalman filters integrate deep learning with classical state estimation principles. A representative architecture in this family, that is the focus of the current work, is KalmanNet [19], which adopts a model-based deep learning approach [40] by embedding the structure of the EKF with a trainable DNN. KalmanNet operates by replacing the KG computation of the EKF with a DNN, typically an recurrent neural network (RNN ) [19] or a connection of RNN s [21], with alternative ar-chitectures using attention mechanisms [23]. Letting θ denote the DNN parameters, at each time step t, the architecture receives as 4
+
+input engineered features derived from the filtering pipeline, such as the predicted innovations and changes in observations, and outputs a learned KG ˆKt(θ). The learned KG is then used in the classical correction step. The resulting mapping of (3) becomes 
+
+ˆxt(yt; θ) = ˆ xt|t−1 + ˆKt(θ)∆ yt. (8) Training is performed in a supervised manner using a dataset 
+
+D consisting of observation sequences and their corresponding ground-truth state trajectories as in (4) . The DNN parameters are typically learned by minimizing the empirical mean squared error (MSE) between the true and estimated states, 
+
+LMSE  
+
+> D
+
+(θ) = 1
+
+|D| T
+
+> |D|
+
+X
+
+> i=1
+> T
+
+X
+
+> t=1
+
+x(i) 
+
+> t
+
+− ˆxt(y(i) 
+
+> t
+
+; θ) 2
+
+. (9) This discriminative training paradigm enables KalmanNet to learn from data how to correct state estimates, without explicit modeling of the noise distributions or exact system dynamics. As a result, KalmanNet is well-suited for scenarios where only partial domain knowledge is available, successfully addressing 
+
+C1 and C2 . However, the learned model remains specialized to the distributional regime encountered during training. While empirical results demonstrate that KalmanNet can generalize to moderate variations in the dynamics [19], substantial changes in the underlying distributions necessitate adaptation. This is because KalmanNet does not include mechanisms for online adaptation, and thus cannot autonomously cope with C3 .III. N EURAL CHANGE POINT DETECTION 
+
+This section introduces a key ingredient of our online adaptation framework, which is the DNN -based algorithm for monitoring deviations in AI -aided KF s. We begin by explaining our design rationale in Subsection III-A . Then, we present the DNN-based change point detection (CPD) algorithm termed 
+
+CPDNet in Subsection III-B, and explain how it is trained in Subsection III-C. 
+
+A. Rationale 
+
+Our first step toward addressing the core challenges outlined in 
+
+C1 -C3 is the integration of CPD mechanisms into AI -aided KF s. While CPD traditionally refers to the task of identifying abrupt changes in the statistical properties of a sequence [41], applying conventional CPD methods directly to our setting does not leverage a critical property of KalmanNet: its ability to generalize across moderate variations in the system dynamics [19]. As a result, standard CPD approaches, which rely on detecting shifts in the data distribution (e.g., via statistical divergences or kernel-based techniques [42]–[45]), may trigger unnecessary adaptation events and do not distinguish benign fluctuations from distributional shifts that truly compromise filter reliability. An alternative perspective emerges from the machine learning paradigm of concept drift [46]. These works propose tools to assess whether a learned model remains suitable over time, and include methods such as the Drift Detection Method of [47] and model-based statistical tests like Hotelling’s test [48]. However, these approaches are typically designed for performance evaluation rather than real-time decision-making. Moreover, they often assume access to ground-truth labels or performance feedback, which are not available in our setting, as state trajectories during inference remain unknown. Nevertheless, a unique opportunity for unlabeled CPD arises from the structure of KalmanNet itself. While KalmanNet is a hybrid-driven architecture, it inherits its formulation from the EKF , whose internal features (e.g., the innovation process) implicitly encode information related to the confidence of the filter and its alignment with the true dynamics. Consequently, by monitoring such internal features and outputs, one can potentially detect when KalmanNet begins to diverge from reliable operation. However, unlike the model-based setting, where the relationship between these features and model validity is tractable and analytically understood, the mapping in KalmanNet is far more intricate and entangled with the learned network weights. This motivates the use of deep learning architectures to capture and learn the complex relationships between observed behavior and the need for adaptation. 
+
+B. Change Point Detection Algorithm 
+
+Based on the above rationale, we design CPDNet , a neural CPD module specifically designed to operate alongside Kalman-Net. CPDNet monitors the reliability of KalmanNet by detecting the need for model adaptation. It is formulated as a neural module with parameters ϕ that receives at each time instance t a sequence of processed filtering features, denoted zt, and produces a soft prediction ˆpϕ(zt) ∈ [0 , 1] representing a reliability-degradation score indicating whether the filter is no longer aligned with the current dynamics. A high value serves as a data-driven trigger for initiating adaptation in the filtering model. Specifically, 
+
+ˆpϕ(zt) is a data-driven reliability score calibrated into [0 , 1] 
+
+via the sigmoid-tanh mapping and the training procedure (detailed in Subsection III-C). While it behaves analogously to a probability measure, it serves as a heuristic indicator of filter misalignment rather than a strict Kolmogorov probability. We next present CPDNet by detailing the construction of its input features zt and its neural architecture. The overall procedure is illustrated in Fig. 1. 
+
+1) Input Feature Design: Based on the rationale outlined in Subsection III-A, we use the innovation process ∆yt as indicative features for detecting variations. To facilitate learning, we further compress these multivariate quantities into scalar features in the range [0 , 1] . This is achieved through handcrafted extraction of the form 
+
+zt = tanh ( γ · (σ (∥∆yt∥) − 0.5)) , (10) where σ(·) is the sigmoid function and γ is a hyperparameter. The feature construction in (10) enables a decoupled, sequen-tial non-linear mapping: the initial σ(∥∆yt∥) − 0.5 transforms the ℓ2 norm into a normalized "influence" score within [0 , 0.5) .This first stage specifically captures the non-linear behavior of the innovation process magnitude, while establishing a zero influence for zero input. Subsequently, the tanh( ·) function operates on this pre-processed "influence" (scaled by γ), performing a second-stage non-linear compression to a bounded score range. This two-step process allows the model to capture distinct non-linearities in mapping the innovation magnitude into an influence 5RNN   
+
+> Batch Norm
+> ReLU
+> tanh( )
+> CPDNet
+> Sequence Buffer
+> Scalarization &Normalization
+
+Fig. 1: Overall architecture of CPDNet framework. KalmanNet’s predict step computes the innovation ∆yt, which is then passed to the Data Process module. This module applies a nonlinear transformation to generate the normalized feature zt, which is stored in the sequence buffer and subsequently used by CPDNet. score, which is then used as the input feature for CPDNet. To reduce sensitivity to isolated anomalies, we aggregate the transformed features over a sliding window of length δ ≥ 1,such that the features processed by the CPDNet are given by: 
+
+zt = [ zt−δ+1 , . . . , z t]. (11) The window length δ determines the temporal receptive field of CPDNet. It should be selected according to the expected time scale of the nonstationarity: a larger δ improves robustness to isolated fluctuations but may delay the response to abrupt changes, while a smaller δ improves responsiveness but may be more sensitive to noise. If the underlying drift is much slower than δ and only induces very weak local changes in the innovation statistics, CPDNet may delay or miss the adaptation trigger. Thus, 
+
+δ should be interpreted as a detection-time-scale hyperparameter rather than a universal guarantee for all drift rates. 
+
+2) Neural Architecture: CPDNet is structured to be able to learn to exploit temporal dependencies between the entries of the input stream zt, with an output layer designed to produce a non-negative bounded reliability score. As such, it consists of an inter-connection of an RNN , applied to the windowed time sequence 
+
+zt in a many-to-one fashion, and a fully-connected layer that produces scalar outputs, with an output ReLU activation followed by a scaled tanh to ensure bounded score outputs in [0 , 1] . The ReLU activation suppresses negative pre-activation values and therefore biases weak evidence of model mismatch toward a zero CPDNet score, while the final decision of whether to update is explicitly controlled by the thresholding rule in (15) . This design leverages the sequential modeling capabilities of RNN s while en-suring that the output is well-calibrated and robust to fluctuations. 
+
+C. Training CPDNet 
+
+CPDNet is designed to enable online adaptation of KalmanNet. However, while the adaptive processing of KalmanNet that uses CPDNet (detailed in the following section) is done online, CPDNet itself is trained in advance using the data in (4) and by formulating a supervised loss measure. This training procedure is comprised of two stages: (i) Stationary reference pre-training; and (ii ) Nonstationary change-detect training. We next elaborate on these stages. 
+
+1) Stationary Reference Pre-Training: The first stage involves training a reference KalmanNet model using a stationary dataset Ds. The purpose of introducing this auxiliary DNN is to facilitate both the generation of training data and the construction of a supervised-style loss function, which can then be leveraged to train and evaluate CPDNet. This design choice is inspired by strategies commonly adopted in adversarial learning [49], where an additional network is employed to provide informative feedback signals during model optimization. Letting θ denote the parameters of the reference KalmanNet, these parameters are trained guided by the standard MSE loss of (9) based on the stationary Ds, i.e., this learning stage aims at recovering 
+
+θ⋆ = arg min 
+
+> θ
+
+L MSE  
+
+> Ds
+
+(θ). (12) 
+
+2) Nonstationary Change-Detect Training: Next, we fix the reference KalmanNet, and train CPDNet to monitor its behavior when applied to the nonstationary data Dv. Since this dataset contains both observations and state trajectories, we can evaluate the accuracy of KalmanNet, and in turn evaluate CPDNet during training based on its ability to identify when KalmanNet becomes inaccurate. To convert the error of KalmanNet, i.e., x(i) 
+
+> t
+
+− ˆxt(y(i) 
+
+> t
+
+; θ) ,into a bounded degradation target comparable to the CPDNet output, we repeat the feature conversion used in (10) , and set 
+
+p(i) 
+
+> t
+
+(θ) = tanh 
+
+
+
+γ
+
+
+
+σ
+
+
+
+∥x(i) 
+
+> t
+
+− ˆxt(y(i) 
+
+> t
+
+; θ)∥
+
+
+
+−0.5
+
+ 
+
+. (13) The same γ is used in (10) and (13) to consistently scale both mappings into [0 , 1] . The probabilistic quantities in (13) approach one when the ℓ2 error of KalmanNet is large, and are thus used as labels for signaling that adaptation is required. Since Dv contains time-varying noise distributions, the application of KalmanNet trained on the stationary data Ds is expected to lead to fluctu-ations in its performance, which CPDNet should learn to detect. To formulate the resulting loss measure used, we write the input features to CPDNet based on the innovation process produced by KalmanNet with parameters θ applied to measurements y(i) 
+
+> t
+
+as z(i) 
+
+> t
+
+(θ). We can now treat CPDNet as a binary detection network, and train it based on the binary cross-entropy (BCE) loss evaluated over Dv, namely 
+
+L BCE  
+
+> Dv
+
+(ϕ; θ) = −1
+
+|D v|(T −δ+1)  
+
+> |D v|
+
+X
+
+> i=1
+> T
+
+X
+
+> t=δ
+
+p(i) 
+
+> t
+
+(θ) log ˆ pϕ(z(i) 
+
+> t
+
+(θ)) + (1 −p(i) 
+
+> t
+
+(θ)) log(1 − ˆpϕ(z(i) 
+
+> t
+
+(θ))) . (14) The overall training procedure using stochastic gradient descent (SGD)-based learning is summarized as Algorithm 1. IV. CASA-K ALMAN NET 
+
+The neural CPD algorithm detailed in the previous section enables monitoring a trained KalmanNet. It provides a soft estimate which is indicative of both when KalmanNet starts 6
+
+Algorithm 1: CPDNet Training using SGD 
+
+Init : Dataset D = Ds ∪ D v; Hyperparameters δ, γ 
+
+Step-size ˜η, batches L, epochs emax ; Initial ϕ
+
+// Stationary Reference Pre-Training  
+
+> 1
+
+Initialize reference KalmanNet θ; 
+
+> 2
+
+for epoch = 0 , 1, . . . , e max do  
+
+> 3
+
+Randomly divide Ds into L batches {D l
+
+> s
+
+}Ll=1 ; 
+
+> 4
+
+for l = 1 , . . . , L do  
+
+> 5
+
+Compute KalmanNet MSE loss (9) on Dl
+
+> s
+
+; 
+
+> 6
+
+Update θ ← θ − ˜η∇θ L MSE 
+
+> Dl
+> s
+
+(θ) ;
+
+// Nonstationary Training  
+
+> 7
+
+for epoch = 0 , 1, . . . , e max do  
+
+> 8
+
+Randomly divide Dv into L batches {D l
+
+> v
+
+}Ll=1 ; 
+
+> 9
+
+for l = 1 , . . . , L do  
+
+> 10
+
+Compute CPDNet BCE loss (14) on Dl
+
+> v
+
+; 
+
+> 11
+
+Update ϕ ← ϕ − ˜η∇ϕL BCE 
+
+> Dl
+> v
+
+(ϕ; θ) ;
+
+Output: Trained CPDNet ϕ.producing errors, as well as of how large these errors are. In this section we show how the change awareness induced by CPDNet enables KalmanNet to be self-adaptive. We next present the resulting CASA-KalmanNet framework and its complexity, after which we provide a discussion. 
+
+A. Self-Adaptive KalmanNet 1) Change Awareness: In our self-adaptive framework, CPDNet is integrated into the overall KalmanNet processing chain, rather than act simply as an external monitoring mecha-nism. Specifically, on each incoming observation yt, KalmanNet computes the innovation process ∆yt, which allows CPDNet to compute the features zt and produce its soft estimate ˆpϕ(zt). This soft estimate is used to both detect whether adaptation should be activated and modulate the magnitude of the online update. We formulate this mathematically by setting a time-varying learning-rate, denote ηt, which governs the adaptation of Kalman-Net’s parameters at time instance t. This learning rate is set as 
+
+ηt = ϵ · max(ˆ pϕ(zt) − thresh , 0) , (15) where ϵ > 0 is a hyperparameter representing an upper bound on the maximal learning rate, and thresh is a threshold hyperpa-rameter. When ˆpϕ(zt) ≤ thresh , the instantaneous learning rate is set to zero, which implies that no adaptation is carried out. In this work, an update is regarded as unnecessary in the operational sense when the CPDNet reliability-degradation score does not ex-ceed this threshold. The ReLU– tanh output layer and the thresh-old in (15) therefore play different roles: the former constrains and biases the CPDNet score to the range [0 , 1] , whereas the latter is an explicit decision rule that converts the score into a zero or positive online learning rate. The resulting learning rate should thus be interpreted as a CPDNet-gated heuristic adaptation mag-nitude, rather than a theoretically guaranteed optimal update size. 
+
+2) Online Learning: We proceed to formulate the loss function that guides the instantaneous adaptation using the change-aware learning rate of (15) . Having identified the innovation process 
+
+∆yt (and particularly its magnitude) as a ground-truth-free indicator on the usefulness of KalmanNet to the underlying dynamics, we construct an unsupervised empirical loss based on this quantity. The resulting loss evaluated for KalmanNet with parameters θ at time instance t is given by the ℓ2 regularized form 
+
+L unsup  
+
+> t
+
+(θ) = ∥∆yt(θ)∥2 + ρ∥θ∥2, (16) where ∆yt(θ) represents the innovation process computed by KalmanNet with parameters θ at time t, and ρ is a regularization coefficient. The loss employs the raw innovation magnitude rather than a normalized form, as the true noise covariances are unknown and time-varying in the online setting, rendering the innovation covariance intractable. KalmanNet’s offline pre-training implicitly encodes scale-awareness, and the adaptive learning rate ηt in (15) absorbs residual magnitude discrepancies. In formulating (16) , we draw inspiration from the previous work [50], which also proposed an unsupervised loss measure based on the innovation process. It is noted, however, that [50] considered offline learning from a complete unsupervised dataset using multiple iterations of SGD -based optimization. In contrast, we consider online adaptation of a supervised pretrained KalmanNet, where the trainable parameters are updated from streaming observations using a single gradient step based on (16) and (15), i.e., the update rule at time t is given by 
+
+θ ← θ − ηt∇θ L unsup  
+
+> t
+
+(θ). (17) Computing the gradient in (17) employs backpropagation-through-time (BPTT). To maintain low complexity and avoid complexity growth with t, we employ the truncated version with τmax time steps [51]. The resulting online update is not intended to train KalmanNet from scratch, but rather to continuously adapt it to changes in the underlying dynamics. Its effect is constrained by three practical safeguards: the update is triggered only when CPDNet indicates a sufficiently large reliability degradation, the learning rate is bounded by the CPDNet score, and the unsupervised loss includes regularization to prevent excessive parameter drift. 
+
+3) Algorithm Summary: The overall CASA-KalmanNet, which extends KalmanNet to be self-adaptive by integrating CPDNet, is summarized as Algorithm 2, and illustrated in Fig. 2. 
+
+B. Complexity Analysis 
+
+We analyze the computational complexity of the proposed Algorithm 2. Specifically, the operation of CASA-KalmanNet includes three main compute stages at each time instance t:
+
+(i) applying CPDNet; (ii ) single-step training of KalmanNet (if needed); and (iii ) applying KalmanNet. By letting CCPD inf ,
+
+CKNet upd , and CKNet inf respectively denote the computational burden of (i) − (iii ), the overall per-time step complexity is given by 
+
+CCASA = CKNet inf + CCPD inf + Pr( ηt > 0) · C KNet upd (18) To obtain a meaningful and tractable description of the excessive latency induced by CASA-KalmanNet compared to standard KalmanNet, i.e., ∆C ≜ CCASA − C KNet inf , we note that the complexity of truncated BPTT scales linearly with the number of trainable parameters times the (truncated) sequence length [52], and thus we write CKNet upd = γupd · τmax · len( θ) for some 7
+
+Algorithm 2: CASA-KalmanNet at time t
+
+Init : Hyperparameters δ, γ, α, ρ, ϵ, τ max ;SS model functions f (·), h(·);CPDNet ϕ, KalmanNet θ
+
+Input : Observation yt; previous estimate ˆxt−1
+
+// KalmanNet predict  
+
+> 1
+
+Predict prior state ˆxt|t−1 = f (ˆ xt−1); 
+
+> 2
+
+Compute innovation process ∆yt = yt − h(ˆ xt|t−1);
+
+// CPDNet  
+
+> 3
+
+Construct CPDNet features zt from ∆yt via (10);  
+
+> 4
+
+Compute learning rate ηt from ˆpϕ(zt) via (15); 
+
+// Unsupervised update of KalmanNet  
+
+> 5
+
+if ηt > 0 then  
+
+> 6
+
+Compute unsupervised loss L unsup  
+
+> t
+
+(θ) via (16);  
+
+> 7
+
+Adapt KalmanNet θ ← θ − ηt∇θ L unsup  
+
+> t
+
+(θ);
+
+// KalmanNet update  
+
+> 8
+
+Compute posterior: ˆxt = ˆ xt|t−1 + ˆKt(θ)∆ yt; 
+
+> 9
+
+return ˆxt-1    
+
+> KalmanNet Update
+> 𝛉
+> Learned
+> Kalman Gain
+> 𝛉
+> 𝛉
+> -1
+> Predict
+> 𝛟
+> CPNet 𝛟 𝛟
+> Continual learning
+> 𝛉 𝛉
+> CASA-KalmanNet
+
+Fig. 2: CASA-KalmanNet illustration.The framework combines KalmanNet with CPDNet-based online adaptation, where CPDNet extracts statistical features from the innovation to adjust the learning rate for updating KalmanNet parameters. 
+
+Z−1 denotes the unit delay operator. 
+
+γupd > 0, where len( ·) applied to a vector returns its length. Using this introduced notation, the excessive complexity becomes 
+
+∆C = CCPD inf + Pr( ηt > 0) · γupd · τmax · len( θ). (19) While the excessive latency in (19) is given in parametric form, it allows to qualitatively assess the overhead induced by CASA-KalmanNet . Specifically, CPDNet is comprised of a single-layer RNN applied to a sequence with limited length δ, and thus the overhead associated with CCPD inf is limited. The complex-ity of updating KalmanNet depends on the predefined τmax and on the probability of triggering an update, which can be controlled by the threshold hyperparameter thresh . Here, δ and τmax have different meanings. The former is the CPDNet detection window, while the latter is the truncated backpropagation horizon used to bound the computational cost of each online KalmanNet update. In practice, both should be chosen to be shorter than the expected duration of a stationary regime, so that CPDNet can detect local reliability degradation and the update remains localized to the current regime. A larger τmax allows the update to use longer temporal information but increases latency, whereas a smaller τmax reduces overhead at the cost of a more myopic correction. This results in (19) often translating to limited and even negligible excessive latency while providing self-adaptivity. 
+
+C. Discussion 
+
+The proposed CASA-KalmanNet framework is designed to address the key challenges C1 –C3 associated with non-stationary dynamical environments, as formulated in Subsection II-B . By integrating a neural-based CPD module (CPDNet) with an online adaptation learning strategy, CASA-KalmanNet preserves the capability of KalmanNet to handle approximate models ( C1 ) and unknown noise distributions ( C2 ), while further enabling timely and efficient adaptation ( C3 ). Unlike conventional pre-trained AI -aided Kalman filters, the integration of CPDNet allows the system to actively monitor its own reliability and autonomously determine when and to what extent adaptation should occur, thereby effectively mitigating both under- and over-adaptation. The current design of CASA-KalmanNet is tailored towards the KalmanNet AI-aided framework, where the dominant source of variability arises from changes in the noise statistics. Moreover, our numerical experiments in Section V demonstrate that CASA-KalmanNet can also cope with some level of variations in the state-transition and observation functions. This capability leverages KalmanNet’s established robustness to moderate model mismatches. Nevertheless, extending the methodology to scenarios involving significant structural changes in the system dynamics would likely require an additional layer of system identification, since KalmanNet relies on accurate state-transition and observation models to compute the innovation term ∆yt, which is central to our unsupervised loss formulation. Furthermore, while CASA-KalmanNet is inherently suited for AI-aided Kalman filters due to their interpretable internal structure, the proposed methodology could potentially inspire adaptations to other neural-based architectures. Achieving this, however, would require redesigning the feature-monitoring mechanism and rethinking the loss formulation to exploit the internal representations specific to those models. Finally, this work opens several promising research directions. First, incorporating Bayesian deep learning into CASA-KalmanNet may provide principled uncertainty quantification [53], which can be leveraged for more reliable and calibrated self-adaptation. Second, dynamically adjusting the number of gradient steps and the observation window length based on the severity of the detected change could better balance adaptation responsiveness with computational overhead. These extensions are left for future investigation. V. N UMERICAL STUDY 
+
+In this section, we numerically evaluate the effectiveness of our self-adaptive methodology, assessing the ability of 8
+
+CPDNet to detect reliability degradation and how well CASA-KalmanNet adapts to abrupt and gradual changes in the underlying SS model. To that aim, we first evaluate only CPDNet, focusing on linear Gaussian systems, where changes in the SS model are manually injected at unknown time steps to simulate non-stationary environments. Then we proceed to evaluate the overall online adaptation framework in both linear settings as well as nonlinear dynamics, using the Lorenz attractor SS model. We also evaluate our method on the real-world NCLT robot dataset [38]. Unless otherwise specified, all filters are initialized with the same state estimate and covariance matrix for fair comparison. Specifically, we set the initial state estimate as 
+
+ˆx0|0 = 0 and use the same fixed positive definite matrix Σ0|0 as the initial error covariance for all filters that require covariance initialization. The simulated trajectories are also generated from a zero initial state, assuring that the reported performance differences are not caused by different initialization choices across methods. Throughout our experiments, we use KalmanNet based on Architecture 2 of [19], and our source code is available online at https://github.com/ZhangWenyi01/CASA-KalmanNet. 
+
+A. Change Point Detection Evaluation 1) Setup: To thoroughly evaluate the robustness and adaptive capability of CPDNet under varying conditions, we design experiments involving abrupt changes or gradual changes in different system parameters. Specifically, we simulate a linear SS models as in (2) with Gaussian noises. The state transition matrix F and the observation matrix H are assumed to be known, while changes are introduced in the noise covariances 
+
+Q and R, and optionally in the system matrices themselves. The simulated SS model is given by 
+
+F =
+
+1 ∆t 12 ∆t2
+
+0 1 ∆t
+
+0 0 1
+
+ , H = 1 0 0 ,
+
+Q1 =
+
+ 
+
+> 120
+
+∆t5 18 ∆t4 16 ∆t318 ∆t4 13 ∆t3 12 ∆t216 ∆t3 12 ∆t2 ∆t
+
+ , R1 = 1 .
+
+(20) This SS model represents one-dimensional target movement based on the constant acceleration model [1]. The state elements represent position, velocity, and acceleration. In (20) , the term ∆t represents the sampling interval, which is set to 0.01 s for this experiment. This SS model represents one-dimensional target movement based on the constant acceleration model [1], with the state elements representing position, velocity, and acceleration. We simulate two forms of changes:  
+
+> •
+
+Abrupt changes , where in a sequence of length equals T ,we insert a random change point tchange ∼ U [1 , T ] within each generated sequence. The change point separates the pre-change stationary regime t ≤ tchange from the post-change stationary regime t > t change , where the varying parameter scales by a coefficient λ across the boundary. For example, abrupt changes in Q are set as 
+
+Qt =
+
+(
+
+Q1 t ≤ tchange 
+
+λ · Q1 t > t change 
+
+. (21) TABLE I: Discrepancy between CPDNet predictions and KalmanNet errors                  
+
+> Time-varying parameter λMSE (dB)
+> Q
+> 100 -26.255 300 -22.203 500 -18.175 Gradually -20.661
+> R
+> 1.2 -23.753 1.3 -23.055 1.5 -20.668 Gradually -19.712
+> F1.01 -23.333 0.95 -17.858
+> H1.01 -25.731 0.95 -17.858
+> •
+
+Gradual changes , where the varying parameter scales on each time instance. For example, gradual changes in Q are 
+
+Qt =
+
+(
+
+Q1 t ≤ tchange 
+
+λt−tchange · Q1 t > t change 
+
+. (22) We note that the entries of Q1 are numerically small mainly due to the discretization of the constant-acceleration model with a small sampling interval ∆t = 0 .01 , where the covariance terms scale with powers of ∆t. Therefore, the absolute entries of Q1
+
+should not be interpreted as a direct scalar comparison with the observation covariance R = [1] , since the two matrices act on different spaces and have different physical units. Although the nominal process noise is smaller than the observation noise in this discretized setting, the post-change regimes considered in Table I include large process-noise scalings, which produce a clear mismatch relative to the stationary training regime. 
+
+2) Results: We evaluate CPDNet by comparing its predictions with the error signals obtained from KalmanNet. Note that these errors are not actual probabilities, but rather probabilistic repre-sentations of the state estimation error produced by KalmanNet. For clarity, we refer to them as KalmanNet errors throughout the paper. In our experiments, the process noise covariance ( Q) is adjusted by setting λ ∈ { 100 , 300 , 500 }, representing dominant abrupt changes, as well as by gradual changes. Similarly, the measurement noise covariance ( R) is varied with less dominant variations λ ∈ { 1.2, 1.3, 1.5} and also with gradual transitions. These settings allow us to assess how sensitively CPDNet detects changes when the noise characteristics vary. For the state transition matrix ( F) and observation matrix ( H), we introduce minor but impactful deviations by scaling them with factors λ ∈{1.01 , 0.95 } for F and λ ∈ { 1.01 , 0.95 } for H, respectively, modeling practical cases with minor unknown shifts in the model. The overall MSE results listed in Table I illustrate CPDNet’s effectiveness and stability, explicitly demonstrating its ability to maintain high accuracy and quickly adapt in the presence of abrupt parameter changes. Specifically, the results reveal how accurately CPDNet identifies the introduced change points and predicts the estimation performance, with only minor errors in the predicted error. Moreover, Figs. 3 and 4 depict representative scenarios of CPD at specific trajectories. These figures corre-spond to selected parameter changes from Table I. In each figure, the upper sub-figure shows the predicted error produced by CPDNet compared to the actual error (mapped into probabilistic 90 20 40 60 80     
+
+> Time(s)
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> CPD Probability
+> CPDNet Prediction - Q = Gradually
+> Predicted CPD probability
+> Actual CPD probability
+> Changepoint (55)
+> 020 40 60 80
+> Time(s)
+> 0.2
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> Value (Dimension 1)  KalmanNet Output and True State - Q = Gradually
+> Estimation state
+> True state
+> Estimation y
+> True y
+> Changepoint (55)
+
+Fig. 3: Performance of CPDNet under gradual changes in process noise covariance Q. The top panel shows the predicted and actual CPD probabilities, together with the ground-truth change point. The bottom panel compares the KalmanNet estimation and the true state/output for the first component of the state vector, plotted in arbitrary units (a.u.) to indicate that no fixed physical units are associated with the values. 0 20 40 60 80     
+
+> Time(s)
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> CPD Probability
+> CPDNet Prediction - F = 1.01
+> Predicted CPD probability
+> Actual CPD probability
+> Changepoint (41)
+> 020 40 60 80
+> Time(s)
+> 4.0
+> 3.5
+> 3.0
+> 2.5
+> 2.0
+> Value (Dimension 1)  KalmanNet Output and True State - F = 1.01
+> Estimation state
+> True state
+> Estimation y
+> True y
+> Changepoint (41)
+
+Fig. 4: Performance of CPDNet under λ = 1 .01 change in state transition matrix F, with the same plotting format as in Fig. 3. value via (13) ), while the lower sub-figure depicts the temporal behavior of the state (estimated by KalmanNet and true state) as well as the observation yt (both the observation predicted by KalmanNet and the true value). These figures systematically shows that CPDNet spikes in the time step where the error of KalmanNet becomes dominant and necessitates adaptation. 
+
+B. Linear Gaussian State-Space Model 1) Setup: Having numerically asserted the ability of CPDNet to reliably predict the error behavior of KalmanNet, we proceed to evaluate its integration into the overall online adaptation framework of CASA-KalmanNet . We again consider the linear SS model as in Subsection V-A . Here, the main evaluation metric is the MSE between the estimated states and the ground truth: MSE (dB) = 10 log 10 
+
+1
+
+T
+
+> T
+
+X
+
+> t=1
+
+∥ˆxt − xt∥2
+
+!
+
+. (23) The time-averaged MSE (23) is used in following experiments to compactly compare the overall estimation accuracy across multiple change scenarios and competing methods. Time-varying behavior is illustrated through the CPDNet output and the corresponding KalmanNet error in Fig. 4, while averaged MSE is used for concise cross-scenario comparison. All experiments are conducted on sequences of length T = 100 , with change points randomly inserted. This controlled design enables a fair comparison across methods and highlights the benefits of online adaptation for online state estimation. We compare the following algorithms:  
+
+> •
+
+KalmanNet (Supervised) : This model is pre-trained with full supervision on trajectories generated from a static SS model, which does not contain change points. It is deployed in a fixed manner without any subsequent online training or adaptation.  
+
+> •
+
+KalmanNet (Unsupervised) : This variant is also pre-trained on trajectories from a static system without change points. However, during the inference phase, it continuously adapts its parameters online on each time instance by minimizing the one-step prediction error, without requiring access to the ground truth state.  
+
+> •
+
+CASA-KalmanNet (Ours) : Integrates CPDNet to dynamically adjust the learning rate of the unsupervised KalmanNet, guided by detected change points.  
+
+> •
+
+KF : The standard KF operating based on pre-defined SS model parameters, which can be accurate (full information) or mismatched (partial information).  
+
+> •
+
+Expectation-Maximization Kalman Filter (EM-KF) :The EM-KF [32] is employed to address inaccuracies in the state noise covariance matrix Q and is only included in the experiments involving changes in Q.All methods provide causal estimates of xt at time t, except EM-KF, which is a smoothing-based adaptive reference. Specif-ically, EM-KF is given the change time tchange and estimates the post-change trajectory only after observing the segment 
+
+[tchange , T ]. Thus, EM-KF is not a strictly causal competitor, but a strong model-based reference for assessing the gap between neural online adaptation and explicit parameter re-estimation. 
+
+2) Full information results: We first consider the setting where the parameters of the SS model are fully known. We simulate abrupt changes in the system, specifically in the process noise covariance Q, measurement noise covariance R, state transition matrix F, and observation matrix H, as in Subsection V-A . The change time is assumed to be known to both the KF and the EM-KF. However, while the KF is provided with the updated parameter values after the change, KalmanNet and the EM-KF do not have access to these new values, with CASA-KalmanNet autonomously learning to adapt to such variations, while EM-KF instead estimates them online via the EM procedure. The MSE across all dimensions of the state vector, including position, velocity, and acceleration, are shown in Table II. Here, 
+
+1/r 2 denotes the inverse observation noise variance in dB, where the observation noise covariance is parameterized as R = r2I.Therefore, 1/r 2 = 0 dB corresponds to r2 = 1 ; in the one-dimensional observation setting of Subsection V-A , this reduces to R = [1] . As expected, the KF and EM-KF with full parameter knowledge achieve the best overall performance among all 10 
+
+TABLE II: Algorithm MSE on all dimensions                          
+
+> 1/r 2[dB ]−10 −505
+> KalmanNet 37.74 39.52 13.37 27.27 Unsupervised 61.64 27.33 22.61 24.10 CASA-KalmanNet 28.04 18.30 12.54 20.03 KF 24.48 15.01 11.35 18.98 EM-KF 23.09 14.37 10.78 19.53
+
+tested methods, with the EM-KF demonstrating superior results compared to the standard KF due to its additional smoothing capabilities. Meanwhile, our proposed CASA-KalmanNet significantly outperforms all other hybrid-driven methods and approaches the performance of these theoretically optimal full-information filters. Precisely, CASA-KalmanNet achieves an MSE of 12 .54 dB at 0 dB signal- to-noise ratios(SNR), substantially outperforming KalmanNet ( 13 .37 dB) and Unsu-pervised KalmanNet ( 22 .61 dB), demonstrating the effectiveness of our approach even without access to full system parameters. We proceed to evaluate additional forms of variations in the SS model. For ease of presentation, in the subsequent experiments, we focus exclusively on the position dimension (first state element) MSE. The experimental results are presented in Table III and Figs. 5 and 6. These figures report the MSE performance metrics across various conditions, including abrupt and gradual changes in Q and R matrices, as well as rotational transforma-tions of the F and H matrices. Specifically, for F and H, we introduce a 2D rotation matrix T around a fixed axis, defined as 
+
+T =
+
+
+
+cos ψ − sin ψ 0sin ψ cos ψ 00 0 1
+
+ ,
+
+where ψ denotes the rotation angle. The transformed matrices are then obtained via Frot = TFT ⊤ and Hrot = HT ⊤. The performance is evaluated under different noise conditions, characterized by the inverse noise variance parameter 1 
+
+> r2
+
+ranging from −10 dB to 5 dB. The results in Table III and Figs. 5 and 6 demonstrate that given full domain knowledge, the KF and EM-KF with full parameter knowledge achieve superior performance across all experimental scenarios. Among the hybrid-driven approaches, CASA-KalmanNet consistently outperforms the competing methods across all tested conditions. The method demonstrates robust performance with relatively stable error metrics, particularly in scenarios involving parameter changes and matrix rotations. Under gradual changes in Q scenario at 0 dB, CASA-KalmanNet achieves −13 .40 dB compared to EM-KF’s 
+
+−24 .19 dB and KF’s −23 .13 dB, retaining over 55% of the performance gap between hybrid-driven and optimal methods. These findings indicate that the proposed CASA-KalmanNet achieves superior adaptability and robustness compared to existing hybrid-driven filtering approaches while maintaining competitive performance relative to classical methods that operate with full domain knowledge in the setting for which they are designed, of linear Gaussian dynamics. The consistent per-formance advantage over other hybrid-driven methods, combined with the ability to approach theoretically optimal full-information filters, demonstrates the effectiveness of our proposed approach. -10 -5 0 5 
+
+> 1/ r2(dB)
+> 30
+> 20
+> 10
+> 0
+> 10
+> 20
+> 30
+> MSE(dB)
+> KF
+> KalmanNet
+> CASA-KalmanNet
+> Unsupervised-KalmanNet
+
+Fig. 5: Linear model result on H rotate after change −10 −5 0 5
+
+> −30
+> −20
+> −10
+> 0
+> 10
+> 20
+> 30
+> MSE(dB)
+> (dB)
+> KF
+> KalmanNet
+> CASA-KalmanNet
+> Unsupervised-KalmanNet
+> EM-KF
+
+Fig. 6: Linear model result on Q change gradually after change 
+
+3) Partial information results: We proceed to evaluate CASA-KalmanNet and the baseline methods under partial information settings, where the generative parameters are only partially known to the filtering algorithms. Two experimental con-figurations are considered, both assuming that the process noise covariance matrix Q undergoes an abrupt change at the change point. In the first experiment ( Case 1 ), all models are assumed to have exact knowledge of the initial parameters Q, R, F, and H,but they are unaware of the change point location and the post-change parameter values. This setting examines the ability of each method to adapt to unexpected and significant process noise changes without prior knowledge of when or how these changes occur. As shown in Fig. 7, CASA-KalmanNet consistently out-performs the other hybrid-driven approaches across all SNR lev-els. For instance, at 0 dB, CASA-KalmanNet achieves an MSE of −8.71 dB, surpassing Supervised KalmanNet ( −5.33 dB) and the Unsupervised KalmanNet ( −3.12 dB), while remaining close to the partial information KF ( −4.76 dB). At high-noise conditions ( −10 dB), CASA-KalmanNet reaches 8.71 dB compared to 13 .96 dB for KF and 23 .66 dB for KalmanNet, demonstrating strong robustness in severe noise environments. In the second experiment ( Case 2 ), we extend the difficulty by introducing an additional mismatch in the initial observation model. Specifically, all models are initialized with an observation matrix H rotated by 20 ◦ relative to the true matrix. This simulates a practical scenario where the sensor orientation is imperfectly calibrated at the beginning of operation, in addition to the sudden process noise change at the change point. As shown in Fig. 8, 11 
+
+TABLE III: Time-averaged MSE across various non-stationarities 
+
+Method Q Change Abruptly Q Change Gradually -10 -5 0 5 -10 -5 0 5
+
+KF −0.86 −14 .62 −17 .87 −6.33 −5.44 −11 .58 −23 .13 −27 .95 
+
+KalmanNet 16 .68 18 .23 −6.40 8.08 12 .63 2.00 4.11 −17 .79 
+
+CASA KalmanNet 6.57 −2.72 −11 .44 −2.84 8.03 −2.82 −13 .40 −22 .62 
+
+Unsupervised 39 .12 5.74 0.88 7.00 18 .47 8.12 −1.23 −13 .96 
+
+EM-KF −3.79 −16 .22 −19 .15 −5.76 −7.67 −12 .66 −24 .19 −29 .82 
+
+Method R Change Abruptly R Change Gradually -10 -5 0 5 -10 -5 0 5
+
+KF −7.16 −14 .11 −22 .19 −28 .23 −6.63 −11 .86 −18 .48 −28 .56 
+
+KalmanNet 15 .56 15 .76 24 .08 −14 .06 22 .12 60 .75 −2.20 −8.95 
+
+CASA KalmanNet 7.42 −2.10 −13 .04 −22 .96 15 .47 2.36 −12 .72 −20 .98 
+
+Unsupervised 15 .76 4.71 2.39 31 .72 26 .14 26 .00 10 .12 −12 .77 
+
+Method F Rotated H Rotated -10 -5 0 5 -10 -5 0 5
+
+KF −18 .02 −19 .96 −26 .52 −30 .99 −23 .37 −23 .78 −23 .61 −22 .75 
+
+KalmanNet 17 .44 8.22 −6.84 −10 .15 0.9178 −7.64 −8.04 0.73 
+
+CASA KalmanNet 6.94 −2.32 −11 .61 −21 .05 −13 .97 −15 .3 −15 .25 −14 .22 
+
+Unsupervised 36 .60 3.93 −3.81 −15 .04 −6.93 −7.36 −4.02 −4.99 −10 −8 −6 −4 −2 0 2
+
+> −10
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> MSE(dB)
+> (dB)
+> KF
+> KalmanNet
+> CASA-KalmanNet
+> Unsupervised-KalmanNet
+
+Fig. 7: Position MSE performance under partial information scenario (Case 1), where the change point and post-change parameters are unknown. degradation is observed for all methods, but CASA-KalmanNet maintains superior robustness. At 0 dB, CASA-KalmanNet achieves −9.03 dB, significantly outperforming KalmanNet (13 .72 dB) , Unsupervised KalmanNet ( −2.99 dB), and partial information KF ( −7.32 dB). Under the more challenging low-SNR setting of −10 dB, CASA-KalmanNet attains 
+
+10 .33 dB, remaining better than KalmanNet ( 31 .17 dB) and Unsupervised KalmanNet ( 15 .70 dB). Overall, the results indicate that CASA-KalmanNet maintains a consistent advantage over other hybrid-driven methods in both scenarios, demonstrating its ability to handle abrupt parameter changes without explicit CPD or parameter reinitialization. The quantitative comparisons confirm that CASA-KalmanNet not only narrows the gap with full-information classical methods but, in certain configurations, even surpasses them, highlighting its adaptability to practical situations where both parameter drift and model mismatch occur simultaneously. −10 −8 −6 −4 −2 0
+
+> −10
+> 0
+> 10
+> 20
+> 30
+> MSE(dB)
+> (dB)
+> KF
+> KalmanNet
+> CASA-KalmanNet
+> Unsupervised-KalmanNet
+
+Fig. 8: Position MSE performance under partial information scenario (Case 2), with both observation model mismatch and unknown change point. 
+
+C. Non-Linear State Space Model : Lorenz Attractor 1) Setup: Next, we consider non-linear and chaotic dynamics, using the Lorenz attractor as a benchmark. The Lorenz attractor is a three-dimensional system derived from a simplified model of atmospheric convection, described by a set of continuous-time ordinary differential equations. We discretize the continuous-time process to form an SS model. The state evolution is approximated using a Taylor series expansion of the matrix exponential, which is given by: 
+
+F(xt) ≈ I +
+
+> J
+
+X
+
+> j=1
+
+(A(xt) · ∆t)j
+
+j! ,
+
+where A(xt) is the state-dependent dynamics matrix (see [19]), 
+
+∆t is the sampling interval, and J is the order of the Taylor series approximation. For our experiments, we set the approximation order J = 5 and the sampling interval ∆t = 0 .02 s, consistent with the setup for generating the ground truth trajectory. 12 −10 −8 −6 −4 −2 0 2 4 6 8 10 12 14 16 18 20 
+
+> −20
+> −10
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> MSE(dB)
+> (dB)
+> EKF
+> UKF
+> CASA-KalmanNet
+> KalmanNet
+> Unsupervised-KalmanNet
+> PF
+
+Fig. 9: Performance comparison on the Lorenz attractor under the full information scenario. As the SS model is non-linear, we do not use the KF and the EM-KF here. Instead, we compare our proposed CASA-KalmanNet against several established filters for non-linear dynamics: EKF, UKF, the Particle Filter (PF), as well as the original KalmanNet and an unsupervised variant. All experiments are conducted with a process noise variance of v = −20 dB, with Q = v2I.
+
+2) Full information results: In the full information scenario, we assume that all filtering algorithms have access to the accurate state-space model, including the correct state-evolution function. The observations are noisy measurements of the true state, where the observation function h(·) is an identity mapping. The performance is evaluated in terms of MSE and its standard deviation (STD) across various observation noise levels, using the same 1/r 2 notation defined above. The results are summarized in Table IV. At lower SNRs, such as at -10 dB, our proposed method demonstrates competitive performance with an MSE of 18.41 dB. As the SNR increases, the EKF, leveraging its precise model knowledge, achieves the best performance, reaching an MSE of -23.19 dB at an SNR of 20 dB. Our method also shows strong performance in this high-SNR regime with an MSE of -13.89 dB. Notably, our approach cachieves lower MSE than the UKF, KalmanNet, Unsupervised, and PF methods across all tested noise levels, indicating its effectiveness even with perfect model knowledge. 
+
+3) Partial information results: To simulate more realistic conditions, we evaluate the robustness of the filters to model mismatch. In these partial information scenarios, the filters do not have perfect knowledge of the system dynamics. We consider two distinct cases of model uncertainty. 
+
+Case 1: Correct initial parameters, unknown dynamics Change. 
+
+In this setup, filters are initialized with the correct model parameters but are unaware of a subsequent change in the system dynamics (e.g., a change point in the process noise covariance Q). This tests the adaptability of each filter to unforeseen variations. Table V presents the results. Under this model mismatch condition, our proposed method demonstrates superior performance and robustness, achieving the lowest MSE across all tested SNRs. For example, at an SNR of 20 dB, our method achieves an MSE of -14.18 dB. This marks a considerable improvement over the EKF (-5.91dB) and KalmanNet (-5.08dB), whose performance degrades due to limited adaptation mechanisms. The UKF and PF are also −8 −6 −4 −2 0 2 4 6 8 10 12 14 16 18 20 
+
+> −20
+> −10
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> MSE(dB)
+> (dB)
+> EKF
+> UKF
+> CASA-KalmanNet
+> KalmanNet
+> Unsupervised-KalmanNet
+> PF
+
+Fig. 10: Performance comparison on the Lorenz attractor under partial information scenarios with exact initial parameters. −10 −8 −6 −4 −2 0 2 4 6 8 10 12 14 16 18 20 
+
+> −10
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> MSE(dB)
+> (dB)
+> EKF
+> CASA-KalmanNet
+> KalmanNet
+> Unsupervised-KalmanNet
+> PF
+
+Fig. 11: Performance comparison on the Lorenz attractor under partial information scenarios with inaccurate initial parameters. affected, reflecting their sensitivity to model inaccuracies. 
+
+Case 2: Incorrect initial parameters and unknown dynamics change. This case presents a more challenging scenario where filters are initialized with incorrect model parameters from the start and remain unaware of the true system dynamics throughout the estimation process. This evaluates the filters’ performance under severe and persistent model mismatch. The results for this highly mismatched scenario are detailed in Table VI. Our method continues to exhibit remarkable robustness, achieving the lowest MSE in all conditions, such as -7.31 dB at an SNR of 20 dB. In this setup, the UKF failed to produce stable estimates and often diverged (hence it is not reported), which highlights the severity of the model mismatch for conventional methods for non-linear SS models. In contrast, our CASA-KalmanNet not only remains stable but also decisively outperforms all other competing methods, including the EKF (-5.20 dB) and KalmanNet (-3.87 dB), proving its resilience in challenging, ill-specified environments. The present experiments focus on controlled single-change sce-narios with finite sequence length, which allows us to isolate the response of CPDNet-guided adaptation to a clearly defined state-space model mismatch. The proposed mechanism itself is applied at every time step and is therefore not inherently limited to a single change point. In principle, it can respond to multiple abrupt changes when they induce detectable degradation in the filtering behavior. Nevertheless, repeated changes and longer sequences may introduce additional error-accumulation effects, and a sys-tematic evaluation under such conditions is left for future work. 13 
+
+TABLE IV: MSE [dB] and STD for the Lorenz attractor with full information and noisy state observations.                                                            
+
+> Method -10 dB 0 dB 10 dB 20 dB MSE STD MSE STD MSE STD MSE STD
+> EKF 6.63 0.52 -1.43 0.43 -13.47 0.43 -23.19 0.54 UKF 41.72 10.41 15.99 9.08 45.97 10.41 9.01 8.94
+> CASA KalmanNet 18.41 4.39 5.83 3.83 -5.20 3.15 -13.89 3.19
+> KalmanNet 28.39 2.52 16.89 2.82 5.66 2.18 -5.62 1.21 Unsupervised 22.54 3.66 9.45 2.85 -1.53 2.31 -10.71 2.86 PF 37.49 5.05 23.05 1.75 23.66 0.97 25.58 0.24
+
+TABLE V: MSE [dB] and STD under partial information with correct initial parameters.                                                            
+
+> Method -7 dB 0 dB 10 dB 20 dB MSE STD MSE STD MSE STD MSE STD
+> EKF 23.11 2.57 12.85 1.61 4.60 1.06 -5.91 1.74 UKF 17.98 3.15 16.15 5.16 15.93 3.91 8.77 2.96
+> CASA KalmanNet 12.41 3.41 4.02 3.04 -3.75 2.75 -14.18 3.14
+> KalmanNet 24.08 2.58 15.24 2.46 10.27 2.12 -5.08 1.87 Unsupervised 16.07 3.16 7.28 2.10 -0.68 2.11 -11.05 2.44 PF 16.07 3.16 23.94 1.40 25.37 0.51 25.64 0.12
+
+TABLE VI: MSE [dB] and STD under partial information with incorrect initial parameters.                                                    
+
+> Method -10 dB 0 dB 10 dB 20 dB MSE STD MSE STD MSE STD MSE STD
+> EKF 28.87 2.14 12.07 1.04 2.54 1.36 -5.20 1.51
+> CASA KalmanNet 20.19 3.62 3.35 2.32 -3.72 2.02 -7.31 0.97
+> KalmanNet 35.44 5.38 15.47 3.16 3.08 1.45 -3.87 3.87 Unsupervised 23.77 3.11 6.42 1.78 -1.85 2.10 -6.94 1.59 PF 44.11 5.67 23.08 1.57 24.22 0.53 25.60 0.16
+
+TABLE VII: Controlled R-abrupt state estimation results on the NCLT ground-truth trajectory. The state is [px, p y , v x, v y ], and the observation is synthetic noisy position. An abrupt observation-noise increase is introduced at the midpoint of each test window. 
+
+Method MSE(dB) Updates 
+
+KF −4.15 0
+
+KalmanNet 9.12 0
+
+Unsupervised-KalmanNet −1.12 22200 
+
+CASA-KalmanNet −10 .36 10705 
+
+D. Real-World Ground Robot Trajectory: NCLT 
+
+We further evaluate CASA-KalmanNet on a controlled-change experiment constructed from the NCLT ground-robot dataset [38]. The NCLT ground-truth trajectory is used as the real motion source, and the filtering state is defined as xt = [ px, p y , v x, v y ]⊤,where velocity is obtained from smoothed finite differences of the ground-truth position. The observation is a synthetic noisy position measurement, yt = [ px, p y ]⊤ + vt, under a 2D constant-velocity model. To evaluate label-free adaptation under controlled nonstationarity, the observation-noise covariance Rt
+
+is abruptly increased at the midpoint of each test window from 
+
+= 0 .01 I2 to 5.0I2, corresponding to a 500 × covariance increase. All compared methods are unaware of this change, and no test-time ground-truth state labels are used for online adaptation. Table VII presents the results of the controlled observation-noise abrupt-change experiment driven by the NCLT ground-robot trajectory. Since the nominal KF has no access to the unannounced covariance change and continues to use the pre-change observation-noise statistics, its performance is degraded under the resulting model mismatch. The degradation is more pronounced for frozen KalmanNet, whose learned filtering rule is trained under the source-domain noise statistics but deployed in a shifted test-time parameter regime, leading to a substantially larger MSE of 9.12 dB. Although continuously updated Unsupervised KalmanNet performs label-free online adaptation, it applies updates indiscriminately at every time step, without assessing whether the current observation is beneficial for adaptation under the increased-noise regime. Consequently, it incurs over 2 · 10 4 online updates and still underperforms the nominal KF, indicating that continuous unsupervised adaptation may introduce unnecessary parameter drift and substantial adaptation overhead. In contrast, CASA-KalmanNet exploits CPDNet to monitor reliability degradation and selectively regulate online adaptation. This change-aware update strategy achieves the lowest MSE of −10 .36 dB, while reducing the number of updates by 51 .8% relative to continuous unsupervised updating. These results demonstrate that CASA-KalmanNet provides more robust state estimation under unknown observation-noise nonstationarity while requiring substantially fewer online parameter updates. VI. C ONCLUSION 
+
+We presented an online adaptation framework for AI-aided Kalman filtering in nonstationary dynamical systems. We introduced CPDNet, a neural change-point detection module that monitors internal features of KalmanNet to provide indicators of reliability degradation, and integrated it into CASA-KalmanNet ,a self-adaptive architecture that adjusts its online adaptation learning effort based on the severity of detected shifts. This design enables real-time, data-efficient, and autonomous adaptation without requiring additional state labels from the changed regime, while preserving the interpretability and structure of classical filters. Extensive experiments on both linear Gaussian and nonlinear SS models demonstrated that CASA-KalmanNet 14 
+
+consistently outperforms existing learning-based methods under model mismatch and approaches optimal model-based filters. REFERENCES [1] Y. Bar-Shalom, X. R. Li, and T. Kirubarajan, Estimation With Applications to Tracking and Navigation: Theory Algorithms and Software . John Wiley & Sons, 2004. [2] P.-O. Gutman and M. Velger, “Tracking targets using adaptive kalman filter-ing,” IEEE Trans. Aerosp. Electron. Syst. , vol. 26, no. 5, pp. 691–699, 1990. [3] J. Durbin and S. J. Koopman, Time Series Analysis by State Space Methods . Oxford University Press, 2012. [4] S. Gannot and A. Yeredor, “The Kalman filter,” Springer Handbook of Speech Processing , pp. 135–160, 2008. [5] R. E. Kalman, “A new approach to linear filtering and prediction problems,” 
+
+J. Basic Eng. , vol. 82, no. 1, pp. 35–45, 1960. [6] S. F. Schmidt, “The Kalman filter-its recognition and development for aerospace applications,” J. Guid. Control Dyn. , vol. 4, no. 1, pp. 4–7, 1981. [7] S. J. Julier and J. K. Uhlmann, “Unscented filtering and nonlinear estimation,” Proc. IEEE , vol. 92, no. 3, pp. 401–422, 2004. [8] N. Shlezinger, G. Revach, A. Ghosh, S. Chatterjee, S. Tang, T. Imbiriba, J. Dunik, O. Straka, P. Closas, and Y. C. Eldar, “Artificial intelligence-aided Kalman filters: AI-augmented designs for Kalman-type algorithms,” IEEE Signal Process. Mag. , 2025, early access. [9] N. Shlezinger, J. Whang, Y. C. Eldar, and A. G. Dimakis, “Model-based deep learning,” Proc. IEEE , vol. 111, no. 5, pp. 465–499, 2023. [10] T. Imbiriba, O. Straka, J. Duník, and P. Closas, “Augmented physics-based machine learning for navigation and tracking,” IEEE Trans. Aerosp. Electron. Syst. , vol. 60, no. 3, pp. 2692–2704, 2024. [11] D. Masti and A. Bemporad, “Learning nonlinear state–space models using autoencoders,” Automatica , vol. 129, p. 5–1098, 2021. [12] S. Jouaber, S. Bonnabel, S. Velasco-Forero, and M. Pilte, “NNAKF: A neural network adapted Kalman filter for target tracking,” in Proc. IEEE Int. Conf. Acoust. Speech Signal Process. , 2021, pp. 4075–4079. [13] L. Xu and R. Niu, “EKFNet: Learning system noise covariance parameters for nonlinear tracking,” IEEE Trans. Signal Process. , vol. 72, pp. 3139–3152, 2024. [14] N. Cohen and I. Klein, “Adaptive Kalman-informed transformer,” Eng. Appl. Artif. Intell. , vol. 146, p. 110221, 2025. [15] V. G. Satorras, Z. Akata, and M. Welling, “Combining generative and discriminative models for hybrid inference,” in Proc. Adv. Neural Inf. Process. , 2019, pp. 13 802–13 812. [16] K. Pratik, R. A. Amjad, A. Behboodi, J. B. Soriaga, and M. Welling, “Neural augmentation of Kalman filter with hypernetwork for channel tracking,” in Proc. IEEE Glob. Commun. Conf. , 2021. [17] A. Ghosh, A. Honoré, and S. Chatterjee, “DANSE: Data-driven non-linear state estimation of model-free process in unsupervised learning setup,” 
+
+IEEE Trans. Signal Process. , vol. 72, pp. 1824–1838, 2024. [18] A. Ghosh, M. Abdalmoaty, S. Chatterjee, and H. Hjalmarsson, “DeepBayes—an estimator for parameter estimation in stochastic nonlinear dynamical models,” Automatica , vol. 159, p. 111327, 2024. [19] G. Revach, N. Shlezinger, X. Ni, A. L. Escoriza, R. J. Van Sloun, and Y. C. Eldar, “KalmanNet: Neural network aided Kalman filtering for partially known dynamics,” IEEE Trans. Signal Process. , vol. 70, pp. 1532–1547, 2022. [20] G. Revach, X. Ni, N. Shlezinger, R. J. van Sloun, and Y. C. Eldar, “RTSNet: Learning to smooth in partially known state-space models,” 
+
+IEEE Trans. Signal Process. , vol. 71, pp. 4441–4456, 2023. [21] G. Choi, J. Park, N. Shlezinger, Y. C. Eldar, and N. Lee, “Split-KalmanNet: A robust model-based deep learning approach for state estimation,” IEEE Trans. Veh. Technol. , vol. 72, no. 9, pp. 12 326–12 331, 2023. [22] I. Buchnik, G. Revach, D. Steger, R. J. Van Sloun, T. Routtenberg, and N. Shlezinger, “Latent-KalmanNet: Learned Kalman filtering for tracking from high-dimensional signals,” IEEE Trans. Signal Process. , vol. 72, pp. 352–367, 2023. [23] J. Wang, X. Geng, and J. Xu, “Nonlinear Kalman filtering based on self-attention mechanism and lattice trajectory piecewise linear approximation,” arXiv preprint arXiv:2404.03915 , 2024. [24] I. Buchnik, G. Sagi, N. Leinwand, Y. Loya, N. Shlezinger, and T. Routten-berg, “GSP-KalmanNet: Tracking graph signals via neural-aided Kalman filtering,” IEEE Trans. Signal Process. , vol. 72, pp. 3700–3716, 2024. [25] C. Jung, T. Ha, H. Kim, and J. Park, “State estimation with 1-bit observations and imperfect models: Bussgang meets Kalman in neural networks,” arXiv preprint arXiv:2507.17284 , 2025. [26] N. Shlezinger and T. Routtenberg, “Discriminative and generative learning for linear estimation of random signals [lecture notes],” IEEE Signal Process. Mag. , vol. 40, no. 6, pp. 75–82, 2023. [27] J. Liu, Z. Shen, Y. He, X. Zhang, R. Xu, H. Yu, and P. Cui, “Towards out-of-distribution generalization: A survey,” arXiv preprint arXiv:2108.13624 ,2021. [28] X. Ni, G. Revach, and N. Shlezinger, “Adaptive KalmanNet: Data-driven Kalman filter with fast adaptation,” in Proc. IEEE Int. Conf. Acoust. Speech Signal Process. , 2024, pp. 5970–5974. [29] O. Cohen, X. Ni, N. Shlezinger, and T. Routtenberg, “EM-Kalmannet: AI-aided kalman tracking in partially known time-varying state-space models,” in IEEE Sensor Array and Multichannel Signal Processing Workshop (SAM) , 2026. [30] S. Chen, Y. Zheng, D. Lin, P. Cai, Y. Xiao, and S. Wang, “MAML-KalmanNet: A neural network-assisted Kalman filter based on model-agnostic meta-learning,” IEEE Trans. Signal Process. , vol. 73, pp. 988–1003, 2025. [31] R. Mehra, “Approaches to adaptive filtering,” IEEE Trans. Autom. Control ,vol. 17, no. 5, pp. 693–698, 1972. [32] R. H. Shumway and D. S. Stoffer, “An approach to time series smoothing and forecasting using the EM algorithm,” J. Time Ser. Anal. , vol. 3, no. 4, pp. 253–264, 1982. [33] Y. Huang, Y. Zhang, P. Shi, and J. Chambers, “Variational adaptive Kalman filter with Gaussian-Inverse-Wishart mixture distribution,” IEEE Trans. Automat. Contr. , vol. 66, no. 4, pp. 1786–1793, 2021. [34] M. Bai, Y. Huang, B. Chen, and Y. Zhang, “A novel robust Kalman filtering framework based on normal-skew mixture distribution,” IEEE Trans. Syst. Man Cybern. Syst. , vol. 52, no. 11, pp. 6789–6805, 2022. [35] J. He, G. Wang, Z. Feng, S. Zhong, P. Zhang, and B. Peng, “Distributed generalized minimum error entropy unscented Kalman filter under hybrid attacks without prior knowledge,” IEEE Trans. Instrum. Meas. , vol. 74, pp. 1–12, 2025. [36] H. Lan, J. Hu, Z. Wang, and Q. Cheng, “Variational nonlinear Kalman filtering with unknown process noise covariance,” IEEE Trans. Aerosp. Electron. Syst. , vol. 59, no. 6, pp. 9177–9190, 2023. [37] N. Uzlaner, T. Raviv, N. Shlezinger, and K. Todros, “Asynchronous online adaptation via modular drift detection for deep receivers,” IEEE Trans. Wireless Commun. , vol. 24, no. 5, pp. 4454–4468, 2025. [38] N. Carlevaris-Bianco, A. K. Ushani, and R. M. Eustice, “University of Michigan north campus long-term vision and lidar dataset,” Int. J. Robot. Res. , vol. 35, no. 9, pp. 1023–1035, 2015. [39] I. Arasaratnam and S. Haykin, “Cubature Kalman filters,” IEEE Trans. Autom. Control , vol. 54, no. 6, pp. 1254–1269, 2009. [40] N. Shlezinger and Y. C. Eldar, “Model-based deep learning,” Found. Trends Signal Process. , vol. 17, no. 4, pp. 291–416, 2023. [41] S. Aminikhanghahi and D. J. Cook, “A survey of methods for time series change point detection,” Knowl. Inf. Syst. , vol. 51, no. 2, pp. 339–367, 2017. [42] R. P. Adams and D. J. MacKay, “Bayesian online change point detection,” 
+
+arXiv preprint arXiv:0710.3742 , 2007. [43] R. Alami, O. Maillard, and R. Féraud, “Restarted Bayesian online change-point detector achieves optimal detection delay,” in Proc. Int. Conf. Mach. Learn. PMLR, 2020, pp. 211–221. [44] Z. Harchaoui, E. Moulines, and F. Bach, “Kernel change-point analysis,” 
+
+Proc. Adv. Neural Inf. Process. , vol. 21, 2008. [45] H. Song and H. Chen, “Practical and powerful kernel-based change-point detection,” IEEE Trans. Signal Process. , vol. 72, pp. 5174–5186, 2024. [46] J. Lu, A. Liu, F. Dong, F. Gu, J. Gama, and G. Zhang, “Learning under concept drift: A review,” IEEE Trans. Knowl. Data Eng. , vol. 31, no. 12, pp. 2346–2363, 2018. [47] J. Gama, P. Medas, G. Castillo, and P. Rodrigues, “Learning with drift detection,” in Brazilian Symposium on Artificial Intelligence . Springer, 2004, pp. 286–295. [48] N. Uzlaner, T. Raviv, N. Shlezinger, and K. Todros, “Concept drift detection for deep learning aided receivers in dynamic channels,” in Proc. IEEE Workshop Signal Process. Adv. Wirel. , 2024, pp. 371–375. [49] D. J. Miller, Z. Xiang, and G. Kesidis, “Adversarial learning targeting deep neural network classification: A comprehensive review of defenses against attacks,” Proc. IEEE , vol. 108, no. 3, pp. 402–433, 2020. [50] G. Revach, N. Shlezinger, T. Locher, X. Ni, R. J. van Sloun, and Y. C. Eldar, “Unsupervised learned Kalman filtering,” in Proc. Eur. Signal Process. Conf. IEEE, 2022, pp. 1571–1575. [51] I. Sutskever, “Training recurrent neural networks,” Ph.D. dissertation, 2013. [52] A. Gruslys, R. Munos, I. Danihelka, M. Lanctot, and A. Graves, “Memory-efficient backpropagation through time,” Proc. Adv. Neural Inf. Process. , vol. 29, 2016. 15 
+
+[53] Y. Dahan, G. Revach, J. Dunik, and N. Shlezinger, “Uncertainty quantification in deep learning based Kalman filters,” in Proc. IEEE Int. Conf. Acoust. Speech Signal Process. , 2024, pp. 13 121–13 125.
