@@ -1,0 +1,4014 @@
+Title: Multiscale Mixed-Dimensional Simulation via Domain Decomposition and Non-Intrusive Neural Model Order Reduction
+
+URL Source: https://arxiv.org/pdf/2607.15171v1
+
+Published Time: Fri, 17 Jul 2026 01:43:12 GMT
+
+Number of Pages: 43
+
+Markdown Content:
+# Multiscale Mixed-Dimensional Simulation via Domain Decomposition and Non-Intrusive Neural Model Order Reduction 
+
+Nunzio Dimola a, Piermario Vitullo a, Paolo Zunino a
+
+> aMOX, Department of Mathematics, Politecnico di Milano, Milan, Italy
+
+Abstract 
+
+Many computational models arising in science and engineering exhibit a multiscale structure that makes the assembly or direct solution of the global problem computationally prohibitive. Domain Decomposition (DD) methods overcome this limitation by replacing the global problem with a sequence of coupled local problems, whose iterative solution reconstructs the global response. This work introduces a method in the family of Domain Decomposition Reduced Order Models (DD-ROMs), based on the observation that DD naturally localizes not only the solution operator but also its geometric and parametric dependence. The central idea is that DD transforms a globally intractable solution map into a family of locally representable operators learnable from affordable local data after identification with a common reference configuration, a concept that we formalize through the notion of local representability .Non-intrusive neural surrogates are then trained to approximate the fine-scale local opera-tions and embedded into the iterative solver. The training algorithm is based on a cascaded strategy designed to match the distributions encountered by the deployed surrogate iteration. We interpret the resulting DD method as a perturbed fixed-point iteration and establish that the global error remains bounded by the surrogate approximation error. The framework is instantiated for mixed-dimensional elliptic problems coupling three-dimensional bulk domains with embedded one-dimensional inclusions, using a two-level non-overlapping Robin–Robin method. Numerical experiments show that the resulting DD-ROM is stable, achieves accurate approximation on unseen microscale geometries and features good scalability properties with respect to the number of subdomains, scaling to large size global problems while avoiding fine-scale operator assembly and local high-fidelity solvers in the online stage. 
+
+1. Introduction 
+
+Many problems in science and engineering involve localized fine-scale structures interacting through a much larger surrounding domain. Examples include fractured porous media [ 1, 2], plant root systems [ 3, 4], vascularized biological tissues [ 5, 6, 7, 8], and composite materials [9, 10 , 11 ]. Their numerical simulation leads to extremely large multiscale systems whose repeated solution is computationally prohibitive. In many cases, neither globally resolved training simulations nor the assembly of the global fine-scale operator are computationally affordable. Several complementary methodologies have been developed to address this challenge. Multiscale discretization techniques, including homogenization [ 12 ], multiscale finite element methods [ 13 ], heterogeneous multiscale methods [ 14 ], localized orthogonal decomposition [ 15 ], and numerical upscaling strategies [ 11 ], derive effective coarse-scale models while retaining arXiv:2607.15171v1 [math.NA] 16 Jul 2026 the influence of unresolved fine structures. Projection-based model order reduction [ 16 , 17 ]instead exploits the low-dimensional structure of solution manifolds to accelerate repeated simulations. More recently, data-driven and operator-learning approaches have demonstrated the ability to approximate solution operators directly from data [ 18 , 19 , 20 , 21 ]. Despite their differences, these approaches generally rely on either problem-specific multiscale constructions or on globally resolved high-fidelity datasets generated during an expensive offline stage. For very large multiscale systems, this offline cost may itself become the dominant computational bottleneck. Domain decomposition provides a natural mechanism to shift the reduction task from the global system to a family of local problems [ 22 , 23 ]. This idea is well established in localized and component-based model reduction. Classical approaches construct reduced spaces for subdomains or reusable archetype components and couple them through Lagrange multipliers, static condensation, reduced interfaces, discontinuous formulations, optimization principles, or Schwarz-type iterations. A recent survey [ 24 ] organizes these methods, generally called DD-ROMs into intrusive projection-based and non-intrusive data-driven classes and emphasizes the central roles of spatial localization, local parameterization, local basis construction, and interface coupling. Examples of these ideas are for instance provided in [ 25 , 26 , 27 ], showing that the combination of domain decomposition and local model reduction is an active research direction. More generally, the rise of scientific machine learning is fostering an increasingly close interaction between domain-decomposition techniques and data-driven modeling, leading to hybrid reduced-order frameworks that combine algorithmic structure with learned local representations [28]. The contribution of the present work lies in an operator-level realization of DD-ROM designed for multiscale mixed-dimensional problems. We decompose the fine-scale operations entering a two-level non-overlapping Robin–Robin iteration and approximate them by intro-ducing three local surrogates. These are the transmission map Trom , the local solution map 
+
+Srom , and the local contribution Crom to the coarse residual. Their combined use replaces all fine-scale operator evaluations required by the online domain-decomposition iteration. A surrogate for the local subproblem alone would still require high-fidelity evaluations of interface transmission quantities and coarse-residual contributions during the online phase. By learning these additional local algorithmic maps, the proposed method removes the remaining depen-dence on fine-scale local operators. At the same time, retaining an explicit coarse correction preserves a global communication mechanism, whose role becomes increasingly important as the number of subdomains grows. The resulting approach is both non-intrusive and scalable. We refer to this two-level operator-surrogate construction as the multiscale DD-ROM framework, or MS-DD-ROM. Localization also changes the nature of the parameter space. Each local problem depends on physical and geometric information, including the embedded one-dimensional microstructure, as well as on interface data generated by the iterative solver. The localized parameter is therefore partly physical and partly algorithmic, and its distribution evolves when exact local operators are progressively replaced by learned ones. This motivates the local representability 
+
+viewpoint developed in this paper: after mapping all subdomains to a common reference configuration, the corresponding local solution maps are assumed to belong to a common parametrized family. It also motivates a cascaded training strategy in which the surrogates are introduced sequentially and each successive model is trained on states generated by the already deployed approximations. 2Replacing the exact local operators by neural surrogates perturbs the fixed-point iteration underlying the domain decomposition method. We address this issue by interpreting the MS-DD-ROM as an inexact contraction and by relating the asymptotic global error to the contraction factor of the exact method and to the local surrogate errors. This analysis provides the conceptual link between local approximation quality, the training distribution, and the stagnation level of the global iteration. The framework is instantiated for a class of mixed-dimensional elliptic problems coupling a three-dimensional continuum with an embedded one-dimensional network. The three-dimensional problem is solved by a two-level non-overlapping Robin–Robin method, while the one-dimensional structure enters the local parameterization and drives the microstructure-informed surrogate models. Although this setting is motivated by oxygen transport and perfusion in vascularized tissue [ 6], the methodology is formulated at an abstract level and is applicable more broadly to parametrized multiscale PDEs admitting reusable local decomposi-tions. 
+
+2. A localized learning framework for multiscale parametrized PDEs 
+
+We consider a particular family of problems governed by parametrized PDEs whose coefficients and source terms exhibit a small-scale structure (or microscale) , namely fine heterogeneities that induce the coexistence of multiple characteristic length scales in the solution. Let Ω ⊂ Rd
+
+denote the global domain (or macroscale) , with a characteristic size L = diam (Ω) , encompassing a structure Λ characterized by a local feature , that is, a geometric variation occurring on a smaller scale ℓ ≪ L.Our aim is to develop an efficient solution strategy capable of accurately capturing both the global and local features of the solution in a parametrized setting. We define a parametrized problem pμ posed in the two-scale configuration (Ω , Λ) , where the parameter μ ∈ P encodes the variability induced by the underlying structures Λ, represented by a parameterization associated with the parameter space P. We focus on steady elliptic problems of the form: find uμ ∈ V (Ω) such that pμ(uμ) = 0 . (1) At fixed μ ∈ P , the corresponding solution map is defined as s : P → V (Ω) , s(μ) = uμ.The global discretization of (1) generally requires resolving the fine-scale structures through-out Ω, making both the assembly of the discrete operator and the repeated solution of the resulting high-fidelity system prohibitively expensive. The purpose of this section is therefore to formulate an abstract framework in which the global solution operator is replaced by a collection of localized operators that can be learned from affordable local simulations. 
+
+2.1. Localized operator decomposition 
+
+Domain decomposition replaces the direct evaluation of the global solution map by an iterative composition of local parametrized operators coupled through interface conditions. Let Ω = ∪i∈I Ωi, I := {1, . . . , N sub }, be a partition of the computational domain into non-overlapping subdomains. At an abstract level, the corresponding domain decomposition iteration is written as u(k+1) = DD μ u(k) , k = 0 , 1, . . . , where DD μ : V(Ω) → V (Ω) denotes the iteration operator associated with the global problem pμ. Under standard assumptions on the transmission conditions, the fixed point of DD μ coincides with the solution uμ = s(μ).
+
+3The action of DD μ is completely determined by a collection of local solution operators. Denoting by u(k) 
+
+> i
+
+:= u(k)|Ωi the local state on Ωi, the update is obtained by solving a localized problem depending on a local parameter bμ(k) 
+
+> i
+
+, which contains both the restriction of the physical data and the interface information generated by the current DD iteration. The corresponding exact local solution operator is written as u(k+1)  
+
+> i
+
+= si(bμ(k) 
+
+> i
+
+), i ∈ I , and we denote the associated localized problem by pbμi .
+
+The central idea of this work is to replace these exact local operators by surrogate models, 
+
+eu(k+1)  
+
+> i
+
+= esi(bμ(k) 
+
+> i
+
+), while retaining the global DD iteration as the computational framework, 
+
+eu(k+1) = gDD μ(eu(k)), where gDD μ is obtained by replacing the exact local operators si with their surrogate counterparts esi. Domain decomposition therefore plays a dual role: it provides the localization required to generate affordable high-fidelity training data, and it supplies the iterative computational framework in which the learned operators are subsequently deployed. 
+
+> Figure 1: Schematic representation of the proposed framework. Domain decomposition localizes the global multiscale problem into reusable local operators, which are learned on a common reference configuration and subsequently embedded into the global iterative solver.
+
+This construction raises two fundamental questions addressed in the remainder of this section. First, replacing exact local operators by surrogate models perturbs the underlying DD iteration, requiring an analysis of the resulting convergence and stability properties. Second, although localization makes the generation of training data computationally affordable, the corresponding local parameter space must represent not only the variability of the physical configurations but also the interface states generated during the DD iteration. This motivates the introduction of an enlarged localized parameter space bP and the notion of local representability , which constitute the foundation of the proposed MS-DD-ROM framework. 42.2. Representability on a reference local problem 
+
+The localization of the solution operator naturally induces a localization of its parameter dependence. Unlike the global problem, however, a local subproblem is not completely characterized by the restriction of the global parameter μ ∈ P . It also depends on the interface information generated during the DD iteration. Consequently, each local problem is identified by a localized parameter bμ(k) 
+
+> i
+
+= ( λi, ν (k) 
+
+> i
+
+) ∈ bP, where λi describes the local physical configuration (geometry, coefficients, source terms and fine-scale structure), while ν(k) 
+
+> i
+
+collects the algorithmic quantities exchanged with neighboring subdomains at iteration k. The localized parameter space bP therefore extends the original physical parameter space P by incorporating the algorithmic states generated by the DD iteration. A second consequence of localization is that all local problems become geometrically similar. We therefore introduce a reference domain Ω⋆ = (0 , 1) d, and assume that each subdomain Ωi
+
+is obtained from Ω⋆ through a bijective mapping Φi : Ω ⋆ → Ωi. The corresponding pullback 
+
+Ti : V(Ω i) → V (Ω ⋆), Tiv = v ◦ Φi, transports every local solution to the reference domain. This leads to the following notion. 
+
+Assumption 1 (Local representability) . A family of parametrized problems {pμ : μ ∈ P} is said to satisfy the local representability property if there exist: (i) a reference domain Ω⋆; (ii) 
+
+a localized parameter space bP; (iii) a reference family of local problems {pbμ⋆ : bμ ∈ bP} , with associated solution operator s⋆ : bP → V (Ω ⋆), such that, for every subdomain i, every DD iteration k, and every global parameter μ ∈ P , there exists a localized parameter bμ(k) 
+
+> i
+
+∈ bP
+
+satisfying 
+
+Tisi
+
+bμ(k)
+
+> i
+
+
+
+= s⋆
+
+bμ(k)
+
+> i
+
+
+
+or equivalently si
+
+bμ(k)
+
+> i
+
+
+
+= T −1 
+
+> i
+
+s⋆
+
+bμ(k)
+
+> i
+
+
+
+.
+
+The local representability property states that every local problem arising during the DD iteration can be interpreted as one realization of a single reference parametrized problem posed on Ω⋆. Consequently, instead of approximating a different solution operator on each subdomain, one can learn a unique surrogate 
+
+es⋆ : bP → V (Ω ⋆),
+
+which is subsequently reused throughout the DD iteration after pullback to the physical subdomains. The effectiveness of the proposed MS-DD-ROM framework therefore relies on constructing a localized parameter space bP sufficiently rich to represent both the physical variability of the local configurations and the algorithmic states generated during the DD iterations. 
+
+2.3. Stability of the surrogate-perturbed DD iterations 
+
+Replacement of exact local solution maps si by surrogate approximations esi introduces an approximation error directly within the domain decomposition iteration. We therefore interpret the surrogate-based DD algorithm as a perturbed fixed-point iteration and study the propagation of such perturbations at an abstract level. We assume that the operator DD μ is contractive in a norm ∥ · ∥ ⋆, namely that there exists q ∈ [0 , 1) such that 
+
+∥DD μ(v) − DD μ(w)∥⋆ ≤ q∥v − w∥⋆, ∀v, w ∈ V (Ω) .
+
+The exact solution uμ = s(μ) is assumed to be the unique fixed point uμ = DD μ(uμ).5Let gDD μ denote the perturbed iteration operator obtained by replacing one or more exact local solution maps si with their surrogate counterparts esi. The corresponding iteration reads 
+
+eu(k+1) = gDD μ(eu(k)). Equivalently, we write 
+
+eu(k+1) = DD μ eu(k)
+
++ δ(k), where δ(k) := gDD μ eu(k)
+
+− DD μ eu(k)
+
+.
+
+Note that δ(k) is the perturbation induced at iteration k by the surrogate local solvers and can be made explicit using the representation introduced in Section 2.2. For each subdomain i ∈ I ,we define the local surrogate error 
+
+ei(bμ) := si(bμ) − esi(bμ) ∈ V (Ω i).
+
+By local representability, the same error can be expressed on the reference domain as 
+
+e⋆(bμ) := s⋆(bμ) − es⋆(bμ) ∈ V (Ω ⋆).
+
+The stability of the DD algorithm under the perturbations induced by the surrogate models is based on the following assumptions. We first assume a uniform approximation bound on the reference surrogate. 
+
+Assumption 2 (Uniform approximation property) . The reference surrogate satisfies 
+
+sup  
+
+> bμ∈bP
+
+∥e⋆(bμ)∥V(Ω ⋆) ≤ ε. 
+
+Moreover, we assume that the composition of the local solution maps with the interface exchange and global assembly operations is stable with respect to local perturbations. 
+
+Assumption 3 (Stability of the DD iterations) . There exists a constant CDD > 0 such that 
+
+δ(k) 
+
+> ⋆
+
+≤ CDD max  
+
+> i∈I
+
+e⋆
+
+bμ(k)
+
+> i
+
+ 
+
+> V(Ω ⋆)
+
+.
+
+The assumption 3 is a Lipschitz continuity assumption of the DD operator with respect to perturbations of the local solvers. In optimized Schwarz methods [ 29 ], global iterations are obtained through the composition of a bounded trace, Robin transmission, restriction, prolongation, and coarse-assembly operators. Consequently, perturbations of local solution maps propagate continuously to the global iteration, giving an estimate as in the assumption 3, where CDD depends only on the stability constants of the underlying domain decomposition operators. We can now quantify the effect of the surrogate perturbations on the DD iteration. 
+
+Proposition 1 (Stability under surrogate perturbations) . Let DD μ be a contraction with constant 
+
+q < 1 in the norm ∥ · ∥ ⋆, and assume that the perturbations induced by the surrogate local solvers satisfy Assumption 3. Then, the surrogate-perturbed DD iterates satisfy 
+
+lim sup 
+
+> k→∞
+
+uμ − eu(k) 
+
+> ⋆
+
+≤ CDD 
+
+1 − q ε. 
+
+The proof of this property is reported in the Appendix, where a more formal version of Proposition 1 is formulated. Proposition 1 establishes a direct quantitative relation between 6the approximation accuracy of the local surrogate and the global accuracy of the resulting DD iteration. The exact contraction mechanism is preserved up to an error floor proportional to the surrogate approximation error. The amplification factor depends on two distinct properties of the algorithm: the contraction factor q, which determines how perturbations accumulate across iterations, and the stability constant CDD , which measures how local surrogate errors are transferred through the interface exchange and global assembly operations. This observation has a direct implication for the design of the training strategy. Under the assumptions above, uniform accuracy of the reference surrogate over the localized parameter space bP is sufficient to control the perturbation of the global iterative solver. Hence, the training set must represent not only the variability of the local physical configurations, but also the algorithmic states bμ(k) 
+
+> i
+
+generated along the DD trajectories. This requirement motivates the cascaded training strategy introduced in Section 4.2. 
+
+3. A domain decomposition framework for mixed-dimensional problems 
+
+We now instantiate the abstract framework of Section 2 on a mixed-dimensional elliptic problem coupling a three-dimensional bulk domain with an embedded one-dimensional structure. We address a coupled problem defined by an exterior domain Ω ⊂ R3 and an interior domain 
+
+Σ ⊂ Ω. We assume Σ to be a generalized cylinder with a centerline Λ, the latter being a 1D domain with arc length parameter s ∈ (0 , S ). An analogous formulation holds when the low-dimensional structure is given by the union of multiple substructures Σ = ∪iΣi and 
+
+Λ = ∪iΛi, each being a generalized cylinder. In this case, Λ becomes a 1D graph embedded within a 3D domain. We assume that each cylinder has a constant radius ε > 0, which is small compared to the diameter of Ω.The dimensionality reduction process consists of replacing Σ with Λ while keeping some information about its original 3D structure and its interaction with the external domain Ω.Let Υ := ∂Σ be the interface of the coupled problem in the full 3D representation and let TΛ
+
+be the restriction operator from Ω to Λ. In [ 30 , 31 , 32 ] it is defined as the composition of the trace operator on Υ combined with a projection operator from Υ to Λ based on cross-sectional averages. We note that the averaging procedure plays a regularizing role: the ill-posed trace of a 3D function onto a 1D manifold (which is not defined in the usual Sobolev spaces) is replaced by the well-defined operator TΛ. Then, the continuous 3D-1D coupled problem can be formulated as follows, 
+
+
+
+Kμ
+
+> Ω
+
+(u) + M μ
+
+> ΩΩ
+
+(u) − M μ
+
+> ΩΛ
+
+(uΛ) = 0 in Ω,Kμ
+
+> Λ
+
+(uΛ) + M μ
+
+> ΛΛ
+
+(uΛ) − M μ
+
+> ΛΩ
+
+(u) = 0 in Λ,Bμ
+
+> Ω
+
+(u) = gμ 
+
+> Ω
+
+on ∂Ω,Bμ
+
+> Λ
+
+(μ)( uΛ) = gμ 
+
+> Λ
+
+on ∂Λ,
+
+(2) where: 
+
+Kμ
+
+> Ω
+
+(u) := ∇ · (−kΩ∇u) ; M μ
+
+> ΩΩ
+
+(u) := 2 πϵ (TΛu) δΛ, M μ
+
+> ΩΛ
+
+(uΛ) := 2 πϵ (uΛ) δΛ;
+
+Kμ
+
+> Λ
+
+(uΛ) := ds
+
+ −πϵ 2kΛdsuΛ
+
+ ; M μ
+
+> ΛΛ
+
+(uΛ) := 2 πϵ (uΛ) ; M μ
+
+> ΛΩ
+
+(u) := 2 πϵ (TΛu) ; 
+
+Bμ
+
+> Ω
+
+(u) := −k∂Ω∇u · n + βu ; Bμ
+
+> Λ
+
+(μ)( uΛ) := uΛ|∂Λ.
+
+7For notational convenience and for coherence with the abstract problem formulation (1) , we denote the parametrization of the 1D graph Λ as μ. We note that problem (2) contains some abuse of notation as Kμ
+
+> Ω
+
+(u) does not actually depend on the parameter μ, while the notation 
+
+Kμ
+
+> Λ
+
+(uΛ) is redundant since μ and Λ both refer to the 1D graph. The functions u, u Λ are coupled unknowns in the 3D and 1D domains, respectively, and 
+
+kΩ, σ Ω, k Λ represent the coefficients of the elliptic operators. We note that the first equation of (2) is only formally defined in its strong form, as the symbol δΛ denotes the Dirac distribution supported on the one-dimensional manifold Λ ⊂ Ω. The coupling term 2πϵ (TΛu − uΛ) δΛ is obtained by averaging on Υ the coupling condition −kΩ∇u · n = u − uΛ, similar to the one adopted in [ 30 ]. In fact, the coefficients 2πϵ and πϵ 2 represent the cross-sectional measures of 
+
+Υ and Σ, respectively. We are interested in solving multiple instances of this problem for different configurations of the low-dimensional structure, including, for example, changes in the topology or density of the 1D graph Λ. To formalize this fact, it is useful to define a suitable parameter space P, which collects all configurations of interest. There are many ways to define this parameterization, the choice depending on the surrogate model architecture, as will be discussed later on. The first step toward an efficient solution is to reformulate the coupled problem (2) into a 
+
+weakly coupled algorithm , where the 3D and 1D problems are solved separately. This algorithm reads as follows: given an initial guess u0Λ, for k = 1 , 2 . . . solve sequentially the following two sub-problems until a suitable convergence criterion is satisfied: 
+
+pμ
+
+> Ω
+
+(u(k)) := 
+
+
+
+Kμ
+
+> Ω
+
+(u(k)) + M μ
+
+> ΩΩ
+
+(u(k)) = M μ
+
+> ΩΛ
+
+(u(k−1) Λ ) in Ω,Bμ
+
+> Ω
+
+(u(k)) = gΩ on ∂Ω, (3) and 
+
+pμ
+
+> Λ
+
+(u(k)Λ ) := 
+
+
+
+Kμ
+
+> Λ
+
+(u(k)Λ ) + MΛΛ (u(k)Λ ) = MΛΩ (u(k)) in Λ,BΛ(u(k)Λ ) = gΛ on ∂Λ.
+
+(4) In the present work, the DD reduction is applied only to the three-dimensional bulk problem pμ
+
+> Ω
+
+, which is the computationally dominant component of the coupled system. The one-dimensional problem pμ 
+
+> Λ
+
+is retained as a global solve within the staggered iteration. For simplicity of notation, we omit the subscript Ω, since it is now understood without ambiguity that Ω is the reference domain. In the following section, we detail the formulation of this solver, explaining how the global problem is decomposed, how the local problems are specified, and how the interface conditions ensure consistency between subdomains. 
+
+3.1. A non-overlapping domain decomposition algorithm 
+
+We now proceed to a detailed presentation of the domain decomposition solver. We adopt a non-overlapping domain decomposition formulation, although the localized learning framework is not intrinsically restricted to this setting. Overlapping formulations provide a natural alternative and their comparison with the present approach is left for future investigation. Concerning the transmission conditions, we employ Robin conditions on all internal interfaces, leading to a Robin-Robin (RR) optimized Schwarz method. This choice provides a uniform interface treatment, in which the same type of transmission operator acts on every subdomain interface, and is therefore particularly well suited to the construction of reusable local surrogate models. 8We assume that Ω ⊂ R3 is a tensor-product domain and consider a partition into congruent Cartesian subdomains, Ω = ∪i∈I Ωi, Ωi ∩ Ωj = ∅ for i̸ = j. The interface between two subdomains Ωi and Ωj is written as Γij := ∂Ωi ∩ ∂Ωj . For any quantity x defined on Ω, its restriction to Ωi is denoted by x|Ωi =: xi.To simplify the exposition, let us focus on a pair of neighboring subdomains (Ω i, Ωj ). Given a global solution u defined on Ω, the following continuity conditions must hold across the common interface Γij :
+
+ui|Γij = uj |Γij , kΩ∇ui · ni = −kΩ∇uj · nj on Γij , (5) where ni and nj denote the outward unit normal vectors to ∂Ωi and ∂Ωj , respectively, and for notational simplicity kΩ is assumed to be constant. Let Kμ
+
+> Ω,i
+
+, M μ
+
+> ΩΩ ,i
+
+, M μ 
+
+> ΩΛ ,i
+
+be the restrictions of the operators of problem (3) on Ωi and for notational convenience, we set 
+
+Aμi := Kμ 
+
+> Ω,i
+
++ MΩΩ ,i , bμi := M μ
+
+> ΩΛ ,i
+
+(uΛ,i ), (6) so that the i-th local subproblem reads 
+
+pμi (ui) := 
+
+
+
+Aμi (ui) = bi in Ωi,BΩi (ui) = gi on ∂Ω ∩ ∂Ωi,
+
+−kΩ∇ui · ni + ρ u i|Γij = −kΩ∇uj · nj + ρ u j |Γij on Γij ,
+
+(7) where ρ > 0 is an acceleration parameter and it can be tuned to optimize the convergence rate of the algorithm [29]. As already noted, the formulation and parametrization of the general local problem (7) differ from those of the global problem. Therefore, we denote the collection of local problems by 
+
+{pˆμi }i∈I , where ˆμ ∈ bP belongs to a modified parameter space with respect to the global one. This space accounts for a larger variability at the microscale and for different configurations of the boundary conditions, so as to represent internal boundaries between subdomains. Consequently, we can recall the notion of local representability applied to the mixed-dimensional 3D subproblem: for each global 3D problem pμ
+
+> Ω
+
+(u) defined in (3) there exists a parameter ˆμ ∈ ˆP such that the collection of discrete Robin subproblems {pˆμi (ui)}i∈I defined by (7) is equivalent to pμ
+
+> Ω
+
+(u).
+
+3.2. Numerical discretization by the finite element method 
+
+The domain Ω is equipped with a uniform conforming mesh T Ω 
+
+> h
+
+, aligned with the subdomain interfaces. Hence, the restriction of T Ω 
+
+> h
+
+to each Ωi defines a local mesh Th,i , and the local meshes match across every interface Γij := ∂Ωi ∩ ∂Ωj . The uniform partition and mesh are chosen such that Φ−1 
+
+> i
+
+(Th,i ) = Th,⋆ , ∀i ∈ I , where Th,⋆ is a common reference mesh on Ω⋆. In the Cartesian decompositions considered here, Φi is simply an affine transformation. Thus, all local meshes and finite element spaces are affine-equivalent to the same reference discretization. Let Vh,i ⊂ H1(Ω i) denote the local finite element space. We then introduce the broken finite element space Vh := Vh,i ⊕ V h,j .The weak formulation of the problem reads as follows: find uh = ( uh,i , u h,j ) ∈ V h such that 
+
+(ai(uh,i , v h,i ) − (kΩ∇uh,i · ni, v h,i )Γij = bi(vh,i ), for all vh,i ∈ V h(Ω i)(kΩ∇uh,i · ni, v h,i )Γij + ρ(uh,i , v h,i )Γij = −(kΩ∇uh,j · nj , v h,i )Γij + ρ(uh,j , v h,i )Γij 
+
+9and 
+
+(aj (uh,j , v h,j ) − (kΩ∇uh,j · nj , v h,j )Γij = bj (vh,j ) for all vh,j ∈ V h(Ω j )(kΩ∇uh,j · nj , v h,j )Γij + ρ(uh,j , v h,j )Γij = −(kΩ∇uh,i · ni, v h,j )Γij + ρ(uh,i , v h,j )Γij 
+
+where 
+
+ai(uh,i , v h,i ) := ( kΩ∇uh,i , ∇vh,i )Ωi + 2 πϵ (T Λi uh,i , T Λi vh,i )Λi ,
+
+and 
+
+bi(vh,i ) := 2 πϵ (uΛ,i , T Λi vh,i )Λi .
+
+Let Li denote the lifting operator from Vh,j to Vh,i , defined so that (Livh,j )|Γij = vh,j |Γij .The operator Li establishes a correspondence between the basis functions of the two subdomains that share the same degrees of freedom along the interface. Since (·, ·)Γij depends only on traces, we have 
+
+(kΩ∇uh,i · ni, v h,j )Γij = ( kΩ∇uh,i · ni, Livh,j )Γij ,
+
+therefore, 
+
+(kΩ∇uh,i · ni, v h,j )Γij = ai
+
+ uh,i , Livh,j 
+
+ − bi(Livh,j ).
+
+An analogous relation holds for the flux term (∇uh,j · nj , v h,i )Γij .The continuity of Robin traces implies the subspace equation on Ωi
+
+ai(uh,i , v h,i ) + ρ(uh,i , v h,i )Γ = bi(vh,i ) + bj (Lj vh,i ) − aj (uh,j , Lj vh,i ) + ρ(uh,j , Lj vh,i )Γ; (8) and similarly, for subdomain Ωj ,
+
+aj (uh,j , v h,j ) + ρ(uh,j , v h,j )Γ = bj (vh,j ) + bi(Li vh,j ) − ai(uh,i , Li vh,j ) + ρ(uh,i , Li vh,j )Γ. (9) Here, we refer to 
+
+fh,j (vh,i ) := bj (Lj vh,i ) − aj (uh,j , Lj vh,i ) + ρ(uh,j , Lj vh,i )Γij 
+
+as the discrete Robin transmission data from domain Ωj to domain Ωi (the definition is entirely analogous to that of fj ). As a result, the variational form of the local problem in Ωi reads as follows, 
+
+ai(uh,i , v h,i ) + ρ(uh,i , v h,i )Γ = bi(vh,i ) + fh,j (vh,i ) ∀vh,i ∈ V h,i . (10) To define the iterative domain decomposition algorithm, we adopt a block-Jacobi strategy. Let k ≥ 0 denote the iteration index. Given the previous iterate u(k) 
+
+> h
+
+∈ V h,i ⊕ V h,j , the new iterate u(k+1)  
+
+> h
+
+:= u(k+1)  
+
+> h,i
+
+⊕ u(k+1)  
+
+> h,j
+
+is obtained by solving, in parallel, the local subproblems 
+
+
+
+ai(u(k+1)  
+
+> h,i
+
+, v h,i ) + ρ(u(k+1)  
+
+> h,i
+
+, v h,i )Γ = bi(vh,i ) + f (k) 
+
+> h,j
+
+(vh,i ); 
+
+aj (u(k+1)  
+
+> h,j
+
+, v h,j ) + ρ(u(k+1)  
+
+> h,j
+
+, v h,j )Γ = bj (vh,j ) + f (k) 
+
+> h,i
+
+(vh,j ).
+
+(11) where the incoming Robin data from Ωj at iteration k are defined by 
+
+f (k) 
+
+> h,j
+
+(vh,i ) := bj (Lj vh,i ) − aj (u(k) 
+
+> h,j
+
+, Lj vh,i ) + ρ(u(k) 
+
+> h,j
+
+, Lj vh,i )Γij ,
+
+10 and f (k) 
+
+> h,i
+
+is defined analogously by exchanging the roles of i and j.Under standard assumptions on the finite element discretization, the non-overlapping Robin–Robin iteration satisfies the contraction property assumed in Section 2.3. More precisely, let Wh ⊂ H1(Ω) denote the global conforming finite element space associated with T Ω 
+
+> h
+
+, whose functions are continuous across the subdomain interfaces, and let uh ∈ W h be the solution of the direct finite element discretization of the three-dimensional problem (2) . The following proposition holds. 
+
+Proposition 2 (Contraction of the discrete Robin–Robin iteration) . Assume that the hypotheses in the detailed formulation of Proposition 2 reported in the Appendix are satisfied. Let 
+
+u(k) 
+
+> h,i
+
+∈ V h,i denote the local Robin–Robin iterate on Ωi at iteration k ≥ 1, and define e(k) 
+
+> h,i
+
+:= 
+
+u(k) 
+
+> h,i
+
+− uh|Ωi . Moreover, having set ∥v∥2 
+
+> a,i
+
+:= ai(v, v ), let 
+
+∥eh∥⋆ := 
+
+X
+
+> i∈I
+
+∥eh,i ∥2 
+
+> a,i
+
++ X
+
+> i∈I
+
+X  
+
+> j∈N (i)12
+> γh
+
+∥eh,i ∥2 
+
+> L2(Γ ij )
+
+
+
+> 1/2
+
+.
+
+Then the Robin–Robin iteration is a contraction in the norm ∥ · ∥ ⋆. More precisely, there exists a constant q ∈ (0 , 1) such that, for every k ≥ 1,
+
+∥e(k) 
+
+> h
+
+∥⋆ ≤ q ∥e(k−1)  
+
+> h
+
+∥⋆.
+
+The proof of this result is reported in the Appendix, where a more formal version of Proposition 2 is available. Hence, the discrete DD iteration provides a concrete realization of the contractive map introduced in Section 2.3, with uh as its unique fixed point. The perturbation analysis developed there therefore applies directly when the exact local finite element solves are replaced by surrogate approximations. 
+
+3.3. Matrix Formulation of the domain decomposition algorithm 
+
+Now, let Ai be the matrix representation of the bilinear form ai(φh,i , φ h,i ), and let bi := 
+
+bi(φh,i )Ωi be the corresponding load vector with vh,i ∈ V h,i . Analogously, we define Aj and 
+
+bj, and let ui and uj denote the vectors of solution coefficients associated with uh,i and uh,j ,respectively. Finally, let GΓij denote the matrix representation of the inner product (·, ·)Γij 
+
+along the virtual interface Γij . Note that from now on we use the typesetting style A, v to denote algebraic operators and the vector representation of discrete functions. Consider a partition of local basis functions into two sets: the basis functions associated with the interior degrees of freedom of Ωi, indexed by I, and those associated with the degrees of freedom lying on the internal interfaces of ∂Ωi, indexed by Γ. Here, Γ denotes the union of possibly multiple interfaces shared by Ωi with its neighboring subdomains. This partition induces the corresponding block decomposition of the local matrices and vectors. At the algebraic level, the local Robin problem can then be written as 
+
+pμi (ui) := 
+
+" AII  
+
+> i
+
+AIΓ
+
+> i
+
+AΓI 
+
+> i
+
+AΓΓ  
+
+> i
+
++ ρ GΓ
+
+> i
+
+# " uI
+
+> i
+
+uΓ
+
+> i
+
+#
+
+=
+
+" bI
+
+> i
+
+bΓ 
+
+> i
+
++ P  
+
+> j̸=i
+
+Li L⊤ 
+
+> j
+
+fj
+
+#
+
+, (12) where fj := bj − Aj uj + ρGΓij  
+
+> j
+
+uΓj 
+
+> j
+
+is the discrete Robin transmission vector generated by subdomain Ωj . The sum in (12) collects the Robin data transferred from all neighboring subdomains to Ωi.11 Due to the assumptions of uniformity and conformity in the computational mesh, the 
+
+restriction matrix Li maps the global degrees of freedom of T Ω 
+
+> h
+
+to the local degrees of freedom of T Ωi 
+
+> h
+
+. It is a Boolean matrix of size Ni × N , with entries Li(m, n ) = 1 if the m-th local and 
+
+n-th global degrees of freedom coincide, and Li(m, n ) = 0 otherwise. Thus, Li restricts global coefficient vectors to Ωi, while Li⊤ extends local vectors to the global space by zero-padding. Consequently, LiLj⊤ transfers the degrees of freedom shared by Ωj and Ωi and represents the discrete counterpart of the continuous lifting operator Li. The discrete Robin trace transferred from Ωj to Ωi is therefore given by LiLj⊤fj.To define the iterative DD solver, accordingly to equation 11, for k ≥ 1, the discrete local problem on Ωi reads 
+
+pμi (u(k) 
+
+> i
+
+) := 
+
+" AII  
+
+> i
+
+AIΓ
+
+> i
+
+AΓI 
+
+> i
+
+AΓΓ  
+
+> i
+
++ ρ GΓ
+
+> i
+
+#  uI, (k)
+
+> i
+
+uΓ,(k)
+
+> i
+
+ =
+
+ bI
+
+> i
+
+bΓ 
+
+> i
+
++ P  
+
+> j̸=i
+
+Li L⊤ 
+
+> j
+
+f(k−1) 
+
+> j
+
+ . (13) This choice yields mutually independent subdomain solves at each DD iteration and is therefore naturally parallelizable. A block Gauss–Seidel strategy, in which the most recently updated Robin data are used as soon as they become available, could be adopted within the same formulation. 
+
+3.4. A two-level domain decomposition method 
+
+The convergence of one-level DD methods generally deteriorates as the number of subdo-mains increases, since global error components are not efficiently reduced by local iterations. We therefore introduce a coarse correction in the conforming finite element space Vc ⊂ W h ⊂ V h.Let T Ω 
+
+> H
+
+be a coarse triangulation conforming with the subdomain partition and nested in T Ω 
+
+> h
+
+.We define 
+
+Vc := v ∈ C0(Ω) : v|K ∈ P1(K), K ∈ T Ω 
+
+> H
+
+.
+
+More sophisticated coarse spaces could be considered [ 33 ], but the present geometric coarse space is sufficient for the purpose of this work. Let P : Vc → W h denote the canonical coarse-to-fine prolongation. In algebraic form, the Galerkin coarse operator is Ac := P⊤AP . Given the current iterate u(k), the coarse correction is obtained from 
+
+Ace(k) 
+
+> c
+
+= P⊤r(k), r(k) := b − Au (k),
+
+and the corrected iterate is u(k)corr = u(k) + Pe (k) 
+
+> c
+
+. Thus, the coarse solve removes the component of the current error represented in the prolonged coarse space. Note that the global notation above is only expository. Neither the global fine matrix A nor the global residual r(k) needs to be assembled. The coarse matrix Ac is assembled directly on Vc,while the residual is evaluated from local contributions. If Pi denotes the local coarse-to-fine prolongation on Ωi and the diagonal weighting matrices Di satisfy 
+
+X
+
+> i∈I
+
+L⊤ 
+
+> i
+
+DiLi = I, then P⊤r(k) = X
+
+> i∈I
+
+P⊤ 
+
+> i
+
+Dir(k) 
+
+> i
+
+.
+
+Hence, the coarse residual is assembled entirely from local residual contributions and local fine-to-coarse transfers, without assembling the global fine-scale operator. This local decomposition of the coarse residual will provide the basis for the coarse surrogate introduced in the following. 12 3.5. The 3D-1D coupled domain decomposition algorithm 
+
+The resulting domain decomposition algorithm combines the weakly coupled 3D–1D iter-ation with the two-level non-overlapping DD solver for the three-dimensional problem. The corresponding high-fidelity formulation, hereafter denoted as MS-DD-FOM, is summarized in Algorithm 1. 
+
+Algorithm 1 Two-level DD for the coupled 3D–1D problem  
+
+> 1:
+
+Choose an initial guess (u(0) , u(0) Λ ) 
+
+> 2:
+
+Assemble the global 1D problem, Ac and {Ai, GΓ 
+
+> i
+
+}i∈I  
+
+> 3:
+
+for k = 1 , 2, . . . until convergence do 
+
+▷ Coarse correction  
+
+> 4:
+
+Compute local residuals {r(k−1)  
+
+> i
+
+}i∈I ▷ local residual evaluation  
+
+> 5:
+
+r(k−1)  
+
+> c
+
+← X
+
+> i∈I
+
+P⊤ 
+
+> i
+
+Dir(k−1)  
+
+> i
+
+▷ coarse residual  
+
+> 6:
+
+e(k−1)  
+
+> c
+
+← A−1 
+
+> c
+
+r(k−1)  
+
+> c
+
+▷ coarse solve  
+
+> 7:
+
+u(k−1) ← u(k−1) + Pe (k−1)  
+
+> c
+
+▷ coarse update 
+
+▷ Local DD iteration  
+
+> 8:
+
+for i ∈ I do  
+
+> 9:
+
+u(k−1)  
+
+> i
+
+← Liu(k−1) ▷ restriction to Ωi 
+
+> 10:
+
+f(k−1)  
+
+> i
+
+← b(k−1)  
+
+> i
+
+− Aiu(k−1)  
+
+> i
+
++ ρ GΓ 
+
+> i
+
+uΓi,(k−1)  
+
+> i
+
+▷ Robin residual evaluation  
+
+> 11:
+
+f(k−1) agg ,i ← X 
+
+> j̸=i
+
+LiL⊤ 
+
+> j
+
+f(k−1)  
+
+> j
+
+▷ interface aggregation  
+
+> 12:
+
+Set ˆμ(k−1)  
+
+> i
+
+:= ( μi, f(k−1) agg ,i ) ▷ localized parameter with Robin interface data  
+
+> 13:
+
+u(k) 
+
+> i
+
+← sh,i (ˆ μ(k−1)  
+
+> i
+
+) ▷ local 3D solve  
+
+> 14:
+
+end for 
+
+▷ Global reconstruction and 1D update  
+
+> 15:
+
+Reconstruct u(k) from {u(k) 
+
+> i
+
+}i∈I ▷ global 3D field  
+
+> 16:
+
+u(k)Λ ← sΛ(u(k), μ ) ▷ global 1D solve  
+
+> 17:
+
+end for  
+
+> 18:
+
+return (u(k), u(k)Λ )
+
+4. Neural model order reduction integrated with domain decomposition 
+
+The localized learning framework of Section 2.2 relies on the assumption that, after identification of the subdomains with the common reference configuration Ω⋆, the local solution maps belong to a common parametrized family. The domain decomposition formulation of Section 3.2 provides a concrete realization of this setting for the mixed-dimensional problem 13 considered here. We now exploit this local representability property to construct neural surrogates acting on the common reference discretization. The surrogate architecture is determined by two structural features of the localized DD operators. First, their inputs and outputs are spatially distributed finite element quantities defined on the reference mesh. Second, the localized physical parameter contains fine-scale geometric information associated with the embedded one-dimensional structure. These ob-servations motivate the use of mesh-informed neural architectures and, for the local solution map, a reduced representation specifically designed to retain microstructure-induced solution components. In what follows, we will introduce three surrogate models to replace key steps of the MS-DD-FOM algorithm. First, the local solution surrogate Srom plays a central role, as it directly approximates the reference local solution map s⋆ introduced in Section 2.2, which is the main object of the localized learning framework. However, replacing the local solver alone would still require fine-scale operator evaluations to compute the Robin transmission data and the local contributions to the coarse residual. For this reason, Srom is complemented by transmission and coarse-residual surrogates Trom and Crom , respectively. Denoting by bμ(k) 
+
+> i
+
+∈ bP the localized parameter associated with the i-th DD subproblem at iteration k, that collects the local geometric information together with the external data induced by the DD iteration, we define below the three surrogate models that characterize the MS-DD-ROM algorithm. 
+
+Srom : the local solution surrogate is denoted by Srom , and approximates the solution of the local DD subproblem, provided the localized DD data and the boundary and interface data, through the operator: 
+
+Srom : bP −→ V h,i , Srom (bμ(k−1)  
+
+> i
+
+) ≈ u(k) 
+
+> i
+
+.Trom : we define the transmission surrogate as a non-intrusive operator approximating the state-to-transmission map: 
+
+Trom : bP × V h,i −→ V ′
+
+> h,i
+
+, Trom 
+
+bμ(k) 
+
+> i
+
+, u(k)
+
+> i
+
+
+
+≈ f(k) 
+
+> i
+
+.Crom : the coarse surrogate is associated with the two-level correction. Let r(k) 
+
+> c
+
+∈ V ′ 
+
+> c
+
+denote the coarse residual entering the Galerkin problem and let r(k) 
+
+> c
+
+= P 
+
+> i∈I
+
+r(k) 
+
+> c,i
+
+be its decomposition into local contributions. The surrogate Crom replaces the fine-scale operations required to evaluate and project each local residual onto the coarse space. More precisely, 
+
+Crom : bP × V h,i −→ V ′
+
+> c
+
+, Crom 
+
+bμ(k) 
+
+> i
+
+, u(k)
+
+> i
+
+
+
+≈ r(k) 
+
+> c,i
+
+, X
+
+> i∈I
+
+Crom 
+
+bμ(k) 
+
+> i
+
+, u(k)
+
+> i
+
+
+
+≈ r(k) 
+
+> c
+
+.
+
+The deterministic coarse problem on Vc is retained in the online algorithm. The combined use of the three surrogate operators yields a fully non-intrusive online MS-DD-ROM: high-fidelity local operators are queried only offline to generate training data, whereas the online DD iteration is advanced entirely through neural evaluations and the deterministic solution of the low-dimensional coarse Galerkin problem on Vc. Thus, the proposed MS-DD-ROM is not merely a surrogate of the local subproblem solver, but replaces all fine-scale operator evaluations entering the online DD iteration. 14 4.1. Neural architectures of the localized DD surrogates operators 
+
+Since the localized DD quantities are represented as finite element fields on the common reference mesh, we employ mesh-informed neural networks (MINNs) [ 34 ], whose connectivity is constrained by the spatial organization of the underlying degrees of freedom. For the local solution map, we combine this local representation with a POD-based reduced space through the POD-MINN+ construction [ 35 ]. The relevant architectural choices are specified below for each surrogate operator. 
+
+4.1.1. Parametrization of the discrete local problems 
+
+Here, we make explicit the algebraic representation of the parameter encoding the localized DD data bμ(k) 
+
+> i
+
+∈ bP. After fixing a finite element reference space in Ω⋆, the components of bμ(k)
+
+> i
+
+used by neural surrogates are represented by coefficient vectors. In particular, local geometric information is obtained from the embedded one-dimensional structure Λi. From a computational standpoint, Λi is represented as a metric graph whose vertices are points in the three-dimensional physical space. Since this graph representation is not directly suitable as an input for finite-element-based neural architectures, we transform it into a spatial field defined on the local three-dimensional mesh. To this purpose we use the function mapping each point in the 3D domain Ω⋆ to its distance from the closest point of the 1D graph. We represent this function as a linear and piecewise continuous finite element function in Vh,i . The corresponding vector of degrees of freedom is denoted by di ∈ RNh .The local embedded-dimensional state is transferred to the three-dimensional finite element mesh through the interpolation operator 
+
+u(k)Λ→h,i = EΛ
+
+> h,i
+
+u(k)Λ,i ∈ RNh ,
+
+where EΛ 
+
+> h,i
+
+∈ RNh×NΛ,i maps the local embedded-dimensional degrees of freedom onto the finite element mesh of the three-dimensional subdomain. Moreover, we define the aggregated contributions of Robin transmission data as 
+
+f(k)agg ,i = X 
+
+> j∈N (i)
+
+LiL⊤ 
+
+> j
+
+f(k) 
+
+> j
+
+∈ RNh .
+
+4.1.2. Local solution surrogate: a microstructure-informed reduced representation 
+
+Among the localized operators introduced above, the local solution map poses the main model-reduction challenge. Indeed, for a localized parameter bμ(k) 
+
+> i
+
+= ( di, u(k)Λ→h,i , f(k)agg ,i ), the corresponding Robin subproblem defines a map with values in the high-dimensional finite element space. Using the notation introduced in Section 2.2, we denote the discrete reference parameter-to-solution map by 
+
+s⋆ : bP −→ RN ⋆h , s⋆
+
+bμ(k)
+
+> i
+
+
+
+= u(k+1)  
+
+> i
+
+,
+
+with N ⋆h the number of degrees of freedom of the local finite element space. The local solution surrogate Srom is designed to approximate this reference solution map. We start from standard projection-based reduction seeking a fixed low-dimensional linear space capable of approximating the complete family of local solutions. Let V = [ φ1, . . . , φNrb ] ∈ RN ⋆h ×Nrb , denote the proper orthogonal decomposition (POD) basis obtained from local high-fidelity solution snapshots. 15 The orthogonal projection of a local solution onto Vrb := range (V) is Πrb ui = VV ⊤ui, with reduced coordinates ai := V⊤ui ∈ RNrb . A non-intrusive reduced model such as the POD-NN method presented in [ 36 ] then approximates the parameter-to-coefficient map by a neural operator 
+
+αθrb  
+
+> S
+
+: bP −→ RNrb ,
+
+yielding the POD reconstruction urb ,i ( bμi) = Vαθrb  
+
+> S
+
+( bμi). Since the POD basis is Euclidean-orthonormal, the approximation error admits the orthogonal decomposition 
+
+∥ui − Vαθrb  
+
+> S
+
+( bμi)∥22 = ∥ui − VV ⊤ui∥22 + ∥V⊤ui − αθrb  
+
+> S
+
+( bμi)∥22.
+
+Thus, increasing the expressive power of the reduced-coordinate regression can only reduce the second contribution. The first term is the irreducible projection error associated with the fixed space Vrb .This distinction is particularly important for the multiscale problems considered here. The embedded structure Λi induces localized solution features whose position and spatial organization vary with the local geometry. A fixed linear reduced space must represent all such configurations simultaneously. Consequently, microstructure-induced components may require a comparatively large number of POD modes even when, for each fixed geometry, the corresponding local feature is spatially localized and highly structured. In this regime, the limitation is not only the approximation of the reduced coefficients, but the use of a single geometry-independent approximation space. To address this issue, we enrich the POD reconstruction by a correction explicitly driven by the local microstructure descriptor, 
+
+cθc 
+
+> S
+
+: RNh −→ RNh , di 7 −→ cθc 
+
+> S
+
+(di).
+
+Denoting the trainable parameters as θS = ( θrb  
+
+> S
+
+, θ c 
+
+> S
+
+), the resulting local solution surrogate is 
+
+SθS
+
+> rom
+
+
+
+di, u(k)Λ→h,i , f(k)agg ,i 
+
+
+
+= V αθrb 
+
+> S
+
+
+
+di, u(k)Λ→h,i , f(k)agg ,i 
+
+
+
++ cθc 
+
+> S
+
+(di). (14) The representation in (14) admits a useful multiscale interpretation. The fixed POD space 
+
+Vrb captures solution components that are recurrent across the localized parameter family and can therefore be efficiently represented through a common linear basis. The closure term instead introduces a fine-scale correction whose spatial structure depends explicitly on the embedded geometry. Accordingly, for each admissible descriptor d, we may associate the enriched affine space 
+
+V+
+
+> rb
+
+(d) := Vrb + cθc 
+
+> S
+
+(d) = 
+
+n
+
+Va + cθc 
+
+> S
+
+(d) : a ∈ RNrb 
+
+o
+
+.
+
+As the microstructure varies, the correction displaces the fixed POD space and generates the nonlinear approximation manifold 
+
+Cθc 
+
+> S
+
+:= [
+
+> d∈D
+
+Vrb (d) = 
+
+n
+
+Va + cθc 
+
+> S
+
+(d) : a ∈ RNrb , d ∈ D 
+
+o
+
+⊂ RNh ,
+
+where D denotes the set of admissible local geometric descriptors. The nonlinear manifold Cθc
+
+> S
+
+therefore provides a microstructure-dependent enrichment of the fixed POD space. 16 This viewpoint creates a conceptual connection with multiscale numerical methods. In many classical multiscale constructions, unresolved local heterogeneities modify or enrich a coarse approximation through basis functions or correctors that depend on the fine-scale medium. Here, the role of the microstructure-dependent correction is learned non-intrusively from local high-fidelity data: the map d 7 −→ cθc 
+
+> S
+
+(d) associates the local geometric configuration with a fine-scale solution component not efficiently represented by the common POD space. We do not claim an equivalence with classical multiscale basis or corrector constructions; rather, the analogy provides an interpretation of the learned closure as a data-driven, microstructure-informed enrichment of a coarse reduced representation. The two components of Srom are implemented using mesh-informed neural networks. A mesh-informed layer can be interpreted as a trainable local operator between finite element coefficient spaces, with a strong inductive bias based on the connectivity of the underlying computational mesh. The interested reader is referred to [ 34 ] for additional details. The reduced coefficients are predicted through a three-branch POD-MINN architecture. Each branch acts on one of the finite element fields parametrizing the local Robin problem. More precisely, we introduce three mesh-informed encoders ϕ1, ϕ 2, ϕ 3 : RNh −→ RNrb , with architecture 
+
+ϕℓ : RNh MINN( rS 
+
+> 1)
+
+−−−−−−−→ RNaux MINN( rS 
+
+> 2)
+
+−−−−−−−→ RNaux Dense 
+
+−−−−→ RNrb , ℓ = 1 , 2, 3.
+
+Here Naux denotes the number of degrees of freedom of an auxiliary coarse mesh used internally by the mesh-informed layers and rS 
+
+> 1
+
+, r S 
+
+> 2
+
+denote the interaction radii defining the sparsity pattern of the mesh-informed layers. In the numerical implementation, both local encoder layers use radius rS 
+
+> 1
+
+= rS 
+
+> 2
+
+= 0 .3. The three encoders are applied as ϕ1(di), ϕ 2(u(k)Λ→h,i ), ϕ 3(f(k)agg ,i ), and their outputs are concatenated and passed to a dense decoder, 
+
+αθrb 
+
+> S
+
+
+
+di, u(k)Λ→h,i , f(k)agg ,i 
+
+
+
+:= decoder  ϕ1(di), ϕ 2(u(k)Λ→h,i ), ϕ 3(f(k)agg ,i ),
+
+where decoder : R3Nrb −→ RNrb has the architecture 
+
+R3Nrb Dense 
+
+−−−−→ R2Nrb Dense 
+
+−−−−→ R2Nrb Dense 
+
+−−−−→ RNrb .
+
+In the implementation considered here, the local encoder layers use hyperbolic tangent acti-vations and are followed by linear maps onto the POD-coordinate space. The decoder uses 
+
+0.1-leaky ReLU activations in the hidden layers and a linear output layer. The encoder weights are initialized according to the normalized initialization of [ 37 ], whereas the decoder weights are initialized at zero. The microstructure-informed closure is implemented as a local mesh-informed correction, 
+
+cθc 
+
+> S
+
+: RNh MINN(r Sc )
+
+−−−−−−→ RNh ,
+
+where the locality constraint is chosen such that changes in the descriptor of the embedded structure generate spatially localized corrections on the reference mesh. The radius rSc controls the spatial support of the geometry-driven correction. In the numerical implementation, we use 
+
+rSc = 0 .2. Finally, the closure is initialized at zero. Hence, the initial approximation manifold coincides with the fixed POD space, Cθc 
+
+> S
+
+= Vrb when cθc 
+
+> S
+
+= 0 . The reduced POD-MINN component is trained first and subsequently frozen. The closure is then trained to recover the solution component left unexplained by the learned POD reconstruction. In this sense, the training procedure progressively enriches the fixed reduced space with microstructure-dependent fine-scale information. 17 4.1.3. Transmission surrogate architecture 
+
+This surrogate model approximates the Robin transmission vector associated with the local state. T θT 
+
+> rom
+
+is implemented as the sum of a learned residual map and an explicit Robin mass term: 
+
+T θT
+
+> rom
+
+
+
+u(k)
+
+> i
+
+
+
+:= T θT
+
+> res
+
+
+
+u(k)
+
+> i
+
+
+
++ ρGΓ 
+
+> i
+
+uΓi,(k) 
+
+> i
+
+, T θT
+
+> rom
+
+
+
+u(k)
+
+> i
+
+
+
+≈ f(k) 
+
+> i
+
+.
+
+where θT refers to the set of trainable parameters of the neural architectures. The learned component satisfies 
+
+T θT 
+
+> res
+
+: RNh −→ RNh ,
+
+and is implemented as a mesh-informed neural network, with architecture 
+
+RNh MINN(r T1 )
+
+−−−−−−−→ RNaux MINN(r T2 )
+
+−−−−−−−→ RNaux MINN(r T3 )
+
+−−−−−−−→ RNh ,
+
+where Nh = dim Vh,i , Naux is the number of degrees of freedom of an auxiliary mesh and 
+
+rT 
+
+> 1
+
+, r T 
+
+> 2
+
+, r T 
+
+> 3
+
+denote the interaction radii defining the sparsity pattern of the transmission surrogate layers. In the numerical implementation, we consider rT 
+
+> 1
+
+= 0 .3, rT 
+
+> 2
+
+= 0 .2, and rT 
+
+> 3
+
+= 0 .15 . The local layers use hyperbolic tangent activations, while the last layer is linear so that the network can represent signed residual values [ 38 ]. The trainable parameters are collected in θT , and are initialized following the normalized initialization proposed in [ 37 ]. Although the operator-level map depends on the localized parameter bμ(k) 
+
+> i
+
+, in the present algebraic implementation the network is queried as a state-to-residual map. The dependence on the local microstructure and on the embedded-dimensional forcing is therefore encoded through the MS-DD-FOM trajectories used to generate the training distribution. 
+
+4.1.4. Coarse residual surrogate architecture 
+
+The third surrogate approximates the algebraic coarse residual contribution entering the two-level correction. We recall that the exact local contribution is given by 
+
+r(k) 
+
+> c,i
+
+= P⊤ 
+
+> i
+
+Di(b(k) 
+
+> i
+
+− Aiu(k) 
+
+> i
+
+).
+
+Thus, as previously defined, the coarse surrogate is trained to approximate the composed map from the local state to the local coarse residual contribution and the global coarse right-hand side is then assembled by summing the predicted local contributions, 
+
+CθC 
+
+> rom
+
+: RNh −→ RNc , CθC
+
+> rom
+
+
+
+u(k)
+
+> i
+
+
+
+≈ r(k) 
+
+> c,i
+
+, X
+
+> i∈I
+
+CθC
+
+> rom
+
+
+
+u(k)
+
+> i
+
+
+
+≈ r(k) 
+
+> c
+
+,
+
+where Nc = dim Vc is the dimension of the coarse residual coefficient vector. Denoting by θC the set of trainable parameters, the map CθC 
+
+> rom
+
+is implemented as a MINN encoder followed by dense layers. In abstract form, 
+
+RNh MINN(r C1 )
+
+−−−−−−−→ RNaux MINN(r C2 )
+
+−−−−−−−→ RNaux Dense 
+
+−−−−→ Rm1 Dense 
+
+−−−−→ Rm2 Dense 
+
+−−−−→ RNc ,
+
+where rC 
+
+> 1
+
+and rC 
+
+> 2
+
+define the supports of the local mesh-informed encoder layers. In the numerical implementation, these are set to rC 
+
+> 1
+
+= rC 
+
+> 2
+
+= 0 .3. As for the transmission map, the coarse surrogate is queried as a state-to-residual map. The dependence on the local geometry and on 18 Surrogate Inputs Outputs 
+
+Trom u(k) 
+
+> i
+
+local Robin transmission datum f(k)
+
+> i
+
+Srom (di, u(k)Λ→h,i , f(k)agg ,i ) next local state u(k+1) 
+
+> i
+
+Crom u(k) 
+
+> i
+
+local coarse residual r(k)
+
+> c,i
+> Table 1: Input-output structure of the three surrogate tasks.
+
+the embedded-dimensional forcing is therefore inherited through the MS-DD-ROM training trajectories. The input-output structure of the three surrogates is summarized in Table 1. The definition of the neural architectures alone is not sufficient to guarantee a reliable MS-DD-ROM iteration. The surrogate maps are data-driven approximations and should not be regarded as distribution-invariant operators: their accuracy is tied to the distribution of the local states, residuals, and interface data used during training. Since these quantities are themselves generated by an iterative DD algorithm, replacing one high-fidelity component by a surrogate changes the input distribution seen by the remaining components. The training procedure must therefore be designed at the algorithmic level, so that each surrogate is trained on data representative of the MS-DD-ROM regime in which it will be queried online, to reduce the offline-online distribution shift between the offline training data and the online MS-DD-ROM trajectories. This motivates the cascaded workflow described next. 
+
+4.2. Cascaded training strategy for the neural surrogates 
+
+The three neural surrogate operators are not trained independently on arbitrary local samples. They are trained in cascade, following the order in which the corresponding quantities are generated and used within the two-level DD iteration. This choice is motivated by the perturbation viewpoint introduced in Section 2.3. Once a surrogate is inserted into the DD loop, the subsequent states, interface data, and residual quantities are no longer those produced by the exact MS-DD-FOM, but by a perturbed iteration. Training the next surrogate on exact MS-DD-FOM data only would therefore control its error on the wrong input regime and would increase the effective surrogate-induced perturbation entering the local DD update. Therefore, each training set must be generated from the algorithmic configuration that matches the online use of the corresponding surrogate. The cascade training procedure is summarized in Figure 2 and detailed below, including the definition of training losses (see Subsection 4.2.1). The ordering is not meant to be unique; it is an incremental training choice in which the high-fidelity components are replaced one at a time and each surrogate is trained under the input regime induced by the components already deployed. Alternative training orderings, or even joint fine-tuning strategies, are in principle compatible with the same convergence argument, but are not investigated in this work. First, 
+
+Trom is trained on MS-DD-FOM data to approximate the Robin transmission datum f(k) 
+
+> i
+
+, by learning its Neumann/DtN residual component and retaining the Robin trace term explicitly as 
+
+ef(k) 
+
+> i
+
+= T θT
+
+> rom
+
+
+
+u(k)
+
+> i
+
+
+
+.
+
+Operationally, the deployed transmission map outputs the Robin datum f(k) 
+
+> i
+
+. Since the Robin trace contribution is deterministic, the trainable component is equivalently trained on the 19 Figure 2: Cascaded training workflow. The transmission surrogate is trained on MS-DD-FOM trajectories; the local solution surrogate is trained with the transmission surrogate already deployed; the coarse-residual surrogate is trained on MS-DD-ROM trajectories generated with both transmission and solution surrogates active. 
+
+residual contribution r(k) 
+
+> i
+
+. Taking into account data distributions induced by the corresponding DD trajectories, let PT denote the distribution of the transmission training pairs generated by the MS-DD-FOM, such that 
+
+u(k) 
+
+> i
+
+; f(k)
+
+> i
+
+
+
+∼ PT .
+
+Second, SθS 
+
+> rom
+
+is trained on data generated by a MS-DD-FOM in which T θT 
+
+> rom
+
+is already active, reconstructing the Robin transmission data as 
+
+ef(k)agg ,i = X 
+
+> j∈N (i)
+
+LiL⊤ 
+
+> j
+
+ef(k) 
+
+> j
+
+.
+
+Thus, the local solver surrogate SθS 
+
+> rom
+
+is exposed during training to aggregated Robin data already perturbed by the learned transmission map T θT
+
+> rom
+
+. The corresponding training pairs are then induced by the resulting distribution PTS ,
+
+
+
+di, u(k)Λ→h,i ,ef(k)agg ,i ; u(k+1) 
+
+> i
+
+
+
+∼ PTS .
+
+Finally, Crom is trained after both Trom and Srom have been deployed, because the coarse residual is evaluated on MS-DD-ROM states produced by the reduced transmission and local solution steps. This entails 
+
+r(k) 
+
+> c,i
+
+= P⊤ 
+
+> i
+
+Dier(k) 
+
+> i
+
+, er(k) 
+
+> i
+
+= b(k) 
+
+> i
+
+− Aieu(k) 
+
+> i
+
+.
+
+The MS-DD-ROM trajectory induces the coarse-residual distribution PT,S C , so that the corre-sponding training pairs are eu(k) 
+
+> i
+
+; P⊤ 
+
+> i
+
+Dier(k)
+
+> i
+
+
+
+∼ PT,S C .
+
+The empirical losses approximate risks associated with the distributions actually visited online. Training Srom or Crom only on exact MS-DD-FOM trajectories would control the error on 20 distributions that are not necessarily those encountered by the deployed MS-DD-ROM. The resulting cascade reduces the offline-online distribution shift between the offline training data and the online MS-DD-ROM trajectories. Equivalently, it aims at controlling the effective surrogate-induced perturbation entering the DD iteration, rather than only minimizing isolated regression errors on states produced by the fully assembled MS-DD-FOM. 
+
+4.2.1. Training losses of the neural surrogates 
+
+We now describe the loss functions used to train the neural surrogates. In the following, errors between finite element fields defined on the local subdomain are measured in a discrete 
+
+L2(Ω ⋆)-norm, 
+
+∥v∥2 
+
+> L2(Ω ⋆),h
+
+:= v⊤Gv ,
+
+where G is the local mass matrix. This convention is used for local solution fields, residual contributions, and Robin transmission vectors represented on the local finite element mesh. Euclidean norms are retained for reduced POD coefficients. The datasets are collected over local subdomains, DD iterations, and geometric realizations. We use i ∈ I to index the local subdomain, k ∈ K g to index the DD iteration along the trajectory associated with a given geometry, and g ∈ G to index the sampled embedded graph configuration. Accordingly, each sample is associated with a local graph Λ(g) 
+
+> i
+
+, its descriptor d(g) 
+
+> i
+
+, and the corresponding DD trajectory generated for that geometry. 
+
+Task 1: learning the transmission surrogate. Although the deployed transmission surrogate outputs the Robin datum f(k) 
+
+> i
+
+, only its residual component is learned. The deterministic Robin trace contribution is added after neural inference, as described in the architecture of Trom . The corresponding training set is 
+
+DT =
+
+n 
+
+u(k) 
+
+> i
+
+; f(k)
+
+> i
+
+o   
+
+> i∈I , k ∈K g, g ∈G
+
+.
+
+The empirical loss is 
+
+LT (θT ) = 1
+
+|D T |
+
+X
+
+> DT
+
+T θT
+
+> rom
+
+
+
+u(k)
+
+> i
+
+
+
+− f(k) 
+
+> i
+> 2
+> L2(Ω ⋆),h
+
+, (15) recalling that 
+
+T (θT )rom 
+
+
+
+u(k)
+
+> i
+
+
+
+= T (θT )res 
+
+
+
+u(k)
+
+> i
+
+
+
++ ρGΓ 
+
+> i
+
+uΓi,(k) 
+
+> i
+
+.
+
+The trained parameters are defined by 
+
+(θT )⋆ ∈ arg min 
+
+> θT
+
+LT (θT ).
+
+Task 2: learning the local solution operator. The local solution surrogate is trained on data generated by the cascaded DD configuration in which the transmission surrogate is already active: 
+
+DS =
+
+n 
+
+di, u(k)Λ→h,i ,ef(k)agg ,i ; u(k+1) 
+
+> i
+
+o   
+
+> i∈I , k ∈K g, g ∈G
+
+.
+
+The training of Srom is performed in two steps. First, the POD-MINN component is trained while the closure branch is inactive, namely cθc 
+
+> S
+
+= 0 . Here a(k+1)  
+
+> i
+
+:= V⊤u(k+1)  
+
+> i
+
+∈ RNrb denotes 21 the POD coefficient vector of the high-fidelity local solution. The data-fidelity term is imposed on the reduced coordinates: 
+
+LS
+
+> rb
+
+(θrb  
+
+> S
+
+) = 1
+
+|D S |
+
+X
+
+> DS
+
+αθrb 
+
+> S
+
+
+
+di, u(k)Λ→h,i ,ef(k)agg ,i 
+
+
+
+− a(k+1)  
+
+> i
+> 22
+
+.
+
+This reduced data-fidelity term is complemented by two local consistency losses involving the pretrained transmission surrogate T (θT )⋆ 
+
+> rom
+
+. During this stage, (θT )⋆ is kept fixed and only the parameters θrb  
+
+> S
+
+of the POD-MINN component are updated. Let 
+
+bu(k+1)  
+
+> i, rb
+
+:= Vαθrb 
+
+> S
+
+
+
+di, u(k)Λ→h,i ,ef(k)agg ,i 
+
+
+
+be the reconstructed POD-MINN prediction. The associated Robin transmission datum is evaluated through the frozen transmission surrogate: 
+
+bf(k+1)  
+
+> i, rb
+
+= T (θT )⋆
+
+> rom
+
+bu(k+1) 
+
+> i, rb
+
+
+
+.
+
+The first consistency term enforces compatibility in the direction 
+
+ef(k)agg ,i Sθrb 
+
+> S
+> rom
+
+−−−−→ bu(k+1)   
+
+> i, rb
+> T(θT)⋆
+> rom
+
+−−−−−→ bf(k+1)  
+
+> i, rb
+
+.
+
+It is defined as 
+
+LT S (θrb  
+
+> S
+
+; ( θT )⋆) = 1
+
+|D S |
+
+X
+
+> DS
+
+bf(k+1)  
+
+> i, rb
+
+− f(k+1)  
+
+> i
+> 2
+> L2(Ω ⋆),h
+
+.
+
+The second consistency term acts in the reverse direction. Starting from the high-fidelity local state u(k) 
+
+> i
+
+, we evaluate the frozen transmission surrogate 
+
+f(k) 
+
+> i
+
+= T (θT )⋆
+
+> rom
+
+
+
+u(k)
+
+> i
+
+
+
+.
+
+After aggregation, 
+
+f(k)agg ,i = X 
+
+> j∈N (i)
+
+LiL⊤ 
+
+> j
+
+f(k) 
+
+> j
+
+,
+
+the reverse consistency loss is defined as 
+
+LST (θrb  
+
+> S
+
+; ( θT )⋆) = 1
+
+|D S |
+
+X
+
+> DS
+
+Vαθrb 
+
+> S
+
+
+
+di, u(k)Λ→h,i , f(k)agg ,i 
+
+
+
+− u(k+1)  
+
+> i
+> 2
+> L2(Ω ⋆),h
+
+.
+
+The first training step is therefore defined by 
+
+
+
+θrb 
+
+> S
+
+⋆
+
+∈ arg min 
+
+> θrb
+> S
+
+Ltot 
+
+> S, rb
+
+
+
+θrb  
+
+> S
+
+; ( θT )⋆
+
+,
+
+with 
+
+Ltot 
+
+> S, rb
+
+
+
+θrb  
+
+> S
+
+; ( θT )⋆
+
+= ωrb LS
+
+> rb
+
+(θrb  
+
+> S
+
+) + ωT S LT S 
+
+
+
+θrb  
+
+> S
+
+; ( θT )⋆
+
++ ωST LST 
+
+
+
+θrb  
+
+> S
+
+; ( θT )⋆
+
+. (16) The two consistency contributions act as local compatibility constraints between the learned reduced solution operator and the pretrained transmission surrogate, rather than as a joint 22 training of the two maps. Once the POD-MINN component has been trained, its parameters are frozen and a second training step is performed for the closure branch. The closure is trained to recover the component of the high-fidelity local solution not represented by the learned POD reconstruction, using the local geometric descriptor as input. For each training sample, we define the closure target as 
+
+c(k+1)  
+
+> i
+
+:= u(k+1)  
+
+> i
+
+− Vα(θrb  
+
+> S)⋆
+
+
+
+di, u(k)Λ→h,i ,ef(k)agg ,i 
+
+
+
+.
+
+The closure loss is 
+
+LS 
+
+> c
+
+(θc 
+
+> S
+
+) = 1
+
+|D S |
+
+X
+
+> DS
+
+cθc 
+
+> S
+
+(di) − c(k+1)  
+
+> i
+> 2
+> L2(Ω ⋆),h
+
+. (17) The closure parameters are defined by 
+
+(θc 
+
+> S
+
+)⋆ ∈ arg min 
+
+> θc
+> S
+
+LS 
+
+> c
+
+(θc 
+
+> S
+
+),
+
+with  θrb 
+
+> S
+
+⋆ kept fixed. After the two training steps, the deployed local solver surrogate is 
+
+Sθ⋆S
+
+> rom
+
+
+
+di, u(k)Λ→h,i ,ef(k)agg ,i 
+
+
+
+= Vα(θrb  
+
+> S)⋆
+
+
+
+di, u(k)Λ→h,i ,ef(k)agg ,i 
+
+
+
++ c(θc  
+
+> S)⋆
+
+(di) ,
+
+where 
+
+θ⋆S := 
+
+
+
+(θrb  
+
+> S
+
+)⋆, (θc 
+
+> S
+
+)⋆
+
+.
+
+Task 3: learning the coarse residual operator. The third surrogate approximates the local contribution to the algebraic coarse residual entering the two-level correction. The training set is 
+
+DC =
+
+n eu(k) 
+
+> i
+
+; r(k)
+
+> c,i
+
+o   
+
+> i∈I , k ∈K g, g ∈G
+
+,
+
+with 
+
+er(k) 
+
+> i
+
+= b(k) 
+
+> i
+
+− Aieu(k) 
+
+> i
+
+, r(k) 
+
+> c,i
+
+= P⊤ 
+
+> i
+
+Dier(k) 
+
+> i
+
+.
+
+Here eu(k) 
+
+> i
+
+denotes a local state generated by the MS-DD-ROM trajectory with the trained Trom 
+
+and Srom already deployed. The corresponding target in the training set is computed offline by applying the exact local residual evaluation and the exact coarse projection. The empirical loss is imposed on the local coarse residual contributions: 
+
+LC (θC ) = 1
+
+|D C |
+
+X
+
+> DC
+
+CθC
+
+> rom
+
+eu(k)
+
+> i
+
+
+
+− r(k) 
+
+> c,i
+> 22
+
+. (18) The training of the coarse residual surrogate is therefore defined by 
+
+(θC )⋆ ∈ arg min 
+
+> θC
+
+LC (θC ).
+
+After training, the deployed coarse residual surrogate is denoted by C(θC )⋆ 
+
+> rom
+
+. When no ambiguity arises, we keep the lighter notation CθC
+
+> rom
+
+. During the online stage, the coarse right-hand side is assembled from the predicted local contributions, 
+
+er(k) 
+
+> c
+
+= X
+
+> i∈I
+
+C(θC )⋆
+
+> rom
+
+eu(k)
+
+> i
+
+
+
+,
+
+23 and the coarse correction is computed as 
+
+Acee(k) 
+
+> c
+
+= er(k) 
+
+> c
+
+, eu(k) ← eu(k) + Pee(k) 
+
+> c
+
+.
+
+Thus, Crom avoids both the fine-scale residual evaluation and the fine-scale residual projection required to form the coarse right-hand side, while retaining the deterministic coarse solve on 
+
+Vc. The three optimized parameter sets 
+
+(θT )⋆, θ⋆S := 
+
+
+
+(θrb  
+
+> S
+
+)⋆, (θc 
+
+> S
+
+)⋆
+
+, (θC )⋆
+
+define the deployed MS-DD-ROM operators used in the online iteration described below. 
+
+4.3. Online MS-DD-ROM algorithm 
+
+The online MS-DD-ROM algorithm is obtained by replacing the exact local Neumann/DtN residual evaluation, the local subdomain solve, and the local coarse-residual projection by Trom ,
+
+Srom , and Crom , respectively. The fine-scale local matrices Ai are used only offline to generate training data. During the online phase, local residuals and local solutions are produced by neural inference, while the coarse solve is retained as a small deterministic algebraic correction. The computational advantage of the presented algorithm is that all fine-scale matrix-dependent operations are replaced by neural inference. The only algebraic solve retained online is the coarse correction, whose dimension is dim (Vc) and is therefore independent of the local fine-scale discretization. The resulting MS-DD-ROM framework is therefore designed to be fast, accurate, and generalizable: fast, because online local solves and residual evaluations are replaced by neural evaluations; accurate, because the learned maps approximate the local high-fidelity operators in norms aligned with the DD stability estimate; and generalizable, because the same reference surrogate is trained on a localized parameter space representative of all subdomain configurations encountered by the global algorithm. 
+
+5. Validation of the MS-DD-ROM framework 
+
+We now assess the MS-DD-ROM framework on the mixed-dimensional oxygen-perfusion model introduced in Section 3. The purpose of this section is not only to evaluate the accuracy of the surrogate approximation, but also to verify the main methodological properties developed in the previous sections: reuse of a common local surrogate across unseen microstructures, stability of the surrogate-perturbed DD iteration, effectiveness of the two-level correction under increasing problem size, and reduction of the online computational cost. The 1D manifold Λ
+
+models the blood vessels, while the surrounding 3D region Ω represents the interstitial tissue through which oxygen diffuses. We use the problem definition previously proposed by Vidotto 
+
+et al [7]: 
+
+
+
+−∇ · 
+
+
+
+ρint 
+
+Kt
+
+μint 
+
+∇pt
+
+
+
+= (2 πϵ )Lcap ρint 
+
+ pV − T Λpt − (πp − πint ) δΛ in Ω,
+
+− dds 
+
+
+
+ρbl (πϵ 2) KV
+
+μbl 
+
+dp V
+
+ds 
+
+
+
+= (2 πϵ )Lcap ρint 
+
+ T Λpt − pV + ( πp − πint ) in Λ,
+
+−ρint 
+
+Kt
+
+μint 
+
+∇pt · n = β(pt − p0) on ∂Ω,pV = pV 
+
+> dir
+
+on ∂Λ,
+
+(19) 24 Algorithm 2 MS-DD-ROM framework for the coupled 3D–1D problem 
+
+Require: Trom , Srom , Crom ; {di}i∈I ; initial states (eu(0) , u(0) Λ ); coarse matrix Ac.
+
+1: for k = 1 , 2, . . . until convergence do 
+
+▷ Coarse correction 
+
+2: for i ∈ I do 
+
+3: eu(k−1)  
+
+> i
+
+← Lieu(k−1) ▷ restriction to Ωi
+
+4: er(k−1)  
+
+> c,i
+
+← Crom 
+
+eu(k−1) 
+
+> i
+
+
+
+▷ surrogate coarse-residual contribution 
+
+5: end for 
+
+6: er(k−1)  
+
+> c
+
+← X
+
+> i∈I
+
+er(k−1)  
+
+> c,i
+
+▷ coarse residual 
+
+7: ee(k−1)  
+
+> c
+
+← A−1 
+
+> c
+
+er(k−1)  
+
+> c
+
+▷ coarse solve 
+
+8: eu(k−1) ← eu(k−1) + Pee(k−1)  
+
+> c
+
+▷ coarse update 
+
+▷ Local DD iteration 
+
+9: for i ∈ I do 
+
+10: eu(k−1)  
+
+> i
+
+← Lieu(k−1) ▷ restriction to Ωi
+
+11: ef(k−1)  
+
+> i
+
+← Trom 
+
+eu(k−1) 
+
+> i
+
+
+
+▷ surrogate Robin datum 
+
+12: end for 
+
+13: for i ∈ I do 
+
+14: ef(k−1) agg ,i ← X 
+
+> j∈N (i)
+
+LiL⊤ 
+
+> j
+
+ef(k−1)  
+
+> j
+
+▷ interface aggregation 
+
+15: u(k−1) Λ→h,i ← EΛ
+
+> h,i
+
+u(k−1) Λ,i ▷ embedded-to-bulk interpolation 
+
+16: eu(k) 
+
+> i
+
+← Srom 
+
+
+
+di, u(k−1) Λ→h,i ,ef(k−1) agg ,i 
+
+
+
+▷ surrogate local 3D solve 
+
+17: end for 
+
+▷ Global reconstruction and 1D update 
+
+18: Reconstruct eu(k) from {eu(k) 
+
+> i
+
+}i∈I ▷ global 3D field 
+
+19: u(k)Λ ← sΛ
+
+eu(k), μ 
+
+
+
+▷ global 1D solve 
+
+20: end for 
+
+21: return (eu(k), u(k)Λ )
+
+25 where the unknowns are (pt, p V ), denoting respectively the tissue and vascular pressures. The physical constants involved in the model are summarized in Table 2. A visualization of the solution of the problem can be found in Fig 3.       
+
+> Figure 3: Visualization of the pressure fields for the coupled 3D–1D perfusion problem. Left: Vascular pressure
+> pV.Right: Corresponding slices of the tissue pressure field, pt, shown together with the embedded vasculature. Both pressure fields are expressed in bar.
+
+Parameter Value Description 
+
+ϵ 1 × 10 −2 Vessel radius (mm) 
+
+μint 1.3 × 10 −8 Plasma viscosity (bar ·s) 
+
+μbl 5 × 10 −9 Blood viscosity (bar ·s) 
+
+Kt 1 × 10 −12 Tissue permeability (mm 2)
+
+KV ϵ2/8 = 1 .25 × 10 −5 Vessel permeability (mm 2)
+
+ρint 1 × 10 −6 Tissue fluid density (kg/mm 3)
+
+ρbl 1.03 × 10 −6 Blood density (kg/mm 3)
+
+Lcap 1 × 10 −4 Capillary wall conductivity (mm/(bar ·s)) 
+
+πp − πint 0.03334 Osmotic pressure difference (bar) 
+
+β 0 Boundary exchange coefficient (kg/(bar ·mm 2·s)) 
+
+pVD, in 0.07 Inlet pressure (bar) 
+
+pVD, out 0.05 Outlet pressure (bar) 
+
+> Table 2: Physical parameters for the 3D–1D oxygen perfusion model.
+
+5.1. Computational setting and training data 
+
+The high-fidelity reference configuration is defined on Ω = [0 , 3] 3 mm 3, partitioned into 
+
+3 × 3 × 3 congruent subdomains of side length 1 mm . Each subdomain is identified with the reference configuration Ω⋆ = [0 , 1] 3 mm 3. The local three-dimensional problem is discretized using continuous piecewise linear finite elements on a structured tetrahedral mesh obtained from a 20 × 20 × 20 Cartesian partition. This corresponds to a mesh size h = 50 μm and approximately 9.3 × 10 3 degrees of freedom per local problem. The geometric variability is represented by a collection of 75 synthetic vascular networks 
+
+{Λ(g)}75 
+
+> g=1
+
+, generated from the same stochastic construction based on three-dimensional Voronoi 26 tessellations and shortest-path extraction. The dataset is divided into 65 training, 5 validation, and 5 test geometries. Each global network contains approximately 2.0 × 10 4 one-dimensional degrees of freedom and 2.5 × 10 4 edges on average. The test geometries are never used during training and are employed to assess generalization with respect to unseen embedded microstructures. The training samples are generated according to the cascaded procedure of Section 4.2. Data are collected over graph realizations, subdomains, and selected DD iterations. For each surrogate, the resulting dataset contains 65 × 27 × 5 = 8775 local samples. The recorded quantities are 
+
+di, u(k) 
+
+> i
+
+, u(k−1) Λ→h,i , f(k−1) agg ,i 
+
+
+
+, k ∈ { 1, . . . , 5}.
+
+The three training sets are not generated from the same algorithmic distribution. The transmission surrogate is trained on MS-DD-FOM trajectories, the local solution surrogate on trajectories with the trained transmission surrogate already active, and the coarse-residual surrogate on trajectories generated with both transmission and local-solution surrogates deployed. To account for the non-stationary character of the DD trajectories, iteration-dependent surrogate instances are used. A single transmission model is trained on samples from all selected iterations. For Srom , separate models are used for the first DD iteration and for subsequent iterations, while Crom uses three regimes corresponding to the first, second, and later iterations. During online execution, the surrogate associated with the current iteration regime is selected. All surrogate models are implemented in PyTorch [39 ] and trained using the L-BFGS 
+
+optimizer [ 40 ] with learning rate equal to 1.0. The network architectures and the corresponding training parameters are summarized in Table 3. Training was performed on a Lenovo Legion i9 laptop equipped with an Intel Core i9 processor and an NVIDIA GeForce RTX 4090 Laptop GPU with 16 GB of GDDR6 memory. The largest individual training run required approximately 600 s .The predictive performance of the three surrogate operators is reported in Table 4. For the transmission and local solution surrogates, Trom and Srom , the error is measured as the relative discrete L2(Ω ⋆)-error averaged over the corresponding dataset split. Since the output of Crom 
+
+is a coarse residual vector rather than a finite element field, its accuracy is quantified by the relative Euclidean mean-square error. 
+
+5.2. Global accuracy and stability of the MS-DD-ROM iteration 
+
+Having assessed the predictive accuracy of the individual surrogate operators, we now evaluate their coupled deployment within the complete MS-DD-ROM iteration. The purpose of this experiment is to determine whether the learned transmission, local-solution, and coarse-residual maps preserve the stability and interface consistency of the underlying two-level MS-DD-FOM on vascular geometries not used during training. The reported errors concern the three-dimensional component, which is the computationally dominant part of the coupled problem and the only component replaced by the MS-DD-ROM. The one-dimensional vascular problem remains an exact global solve within the staggered iteration. Its convergence was monitored in all experiments and remained consistent with that of the coupled three-dimensional iteration. We consider ten unseen vascular networks and compare the MS-DD-ROM iterates with both the corresponding MS-DD-FOM iterates and a reference finite element solution u⋆. The 27 Surrogate Quantity Description 
+
+Trom Architecture MINN 0.3 + MINN 0.2 + MINN 0.15 
+
+Trainable parameters 1,389 ,143 
+
+Training setup 200 epochs, L-BFGS optimizer, learning rate 1.0
+
+Srom (POD-MINN) Architecture 3 MINN encoders + dense decoder, 100 POD modes Trainable parameters 3,255 ,806 
+
+Training setup 100 epochs, L-BFGS optimizer, learning rate 1.0
+
+Srom (closure) Architecture MINN 0.2
+
+Trainable parameters 1,908 ,576 
+
+Training setup 25 epochs, L-BFGS optimizer, learning rate 1.0
+
+Crom Architecture MINN 0.3 + MINN 0.3 + Dense 256 + Dense 64 + Dense 8
+
+Trainable parameters 1,952 ,434 
+
+Training setup 50 epochs, L-BFGS optimizer, learning rate 1.0
+
+Table 3: Summary of the surrogate architectures and training configurations. Here, Local r denotes a mesh-informed local layer with interaction radius r, and Dense m denotes a dense layer with output dimension m.The local solution surrogate Srom is implemented as a POD-MINN+ architecture with a closure correction. 
+
+Model Training [%] Validation [%] Test [%] 
+
+Trom (Transmission) 1.03 1.02 1.04 
+
+Srom (Local solution) 4.55 5.06 5.58 
+
+Crom (Coarse residual) 7.33 8.82 9.47 
+
+Table 4: Training, validation, and test errors of the three surrogate maps. Errors for Trom and Srom are relative discrete L2(Ω ⋆)-errors, while errors for Crom are relative Euclidean mean-square errors on the coarse residual vectors. 
+
+local linear systems of the MS-DD-FOM are solved by preconditioned conjugate gradients using PETSc/Hypre AMG, with relative tolerance 10 −15 , so that the reported discrepancies are dominated by the surrogate approximation rather than by the local iterative solver. The comparison is based on three complementary quantities. The global field accuracy is measured by the relative L2-error 
+
+E(k) 
+
+> L2
+
+:= ∥u(k) 
+
+> h
+
+− u⋆∥L2(Ω) 
+
+∥u⋆∥L2(Ω) 
+
+.
+
+Since the MS-DD-ROM reconstructs the global field from independently predicted local states, interface consistency is monitored through 
+
+J(k)Γ := 
+
+X
+
+> Γij
+
+u(k) 
+
+> h,i
+
+− u(k) 
+
+> h,j
+> 2
+> L2(Γ ij )
+
+
+
+> 1/2
+
+.
+
+To measure local gradient errors together with the loss of inter-subdomain continuity, we also introduce the relative broken energy-type error 
+
+E(k)br := 
+
+P 
+
+> i∈I
+
+∥u(k) 
+
+> h,i
+
+− u⋆∥2 
+
+> H1(Ω i)
+
++ P 
+
+> Γij
+
+h−1 
+
+> ij
+
+∥u(k) 
+
+> h,i
+
+− u(k) 
+
+> h,j
+
+∥2 
+
+> L2(Γ ij )
+
+1/2
+
+∥u⋆∥H1(Ω) 
+
+.
+
+28 This broken norm is commonly used to combine elementwise energy errors and interface mismatches in nonconforming discretizations.    
+
+> Figure 4: Convergence curves of the MS-DD-FOM and MS-DD-ROM algorithms for the oxygen perfusion problem (19) . Dashed lines denote the convergence histories obtained with the exact RR local solves for ten unseen one-dimensional geometries Λ(g). Solid lines denote the corresponding convergence histories obtained by replacing the high-fidelity local operations with the surrogate RR maps. The reported errors include the relative L2-error, the relative broken-energy error, and the interface jump norm.
+
+k MS-DD-FOM MS-DD-ROM 
+
+EL2 [%] Ebr [%] ∥[[ u]] ∥L2(Γ) ∆ [%] EL2 [%] Ebr [%] ∥[[ u]] ∥L2(Γ) ∆ [%] 0 2.09E+2 2.07E+2 3.03E −4 1.14E+0 2.16E+2 2.14E+2 1.78E −3 3.81E+1 
+
+2 2.05E+0 4.12E+0 4.61E −4 8.00E −1 4.38E+0 1.63E+1 4.54E −3 1.17E+1 
+
+4 2.39E −1 1.63E+0 2.08E −4 1.59E −1 2.72E+0 8.85E+0 1.76E −3 1.92E+0 
+
+6 1.01E −1 9.63E −1 1.23E −4 8.34E −2 3.08E+0 8.84E+0 1.68E −3 1.24E+0 
+
+8 5.15E −2 6.30E −1 7.96E −5 5.07E −2 3.13E+0 8.85E+0 1.68E −3 1.22E+0  
+
+> Table 5:
+
+Convergence history comparing the three-dimensional MS-DD-FOM and MS-DD-ROM solutions for the representative global one-dimensional graph Λ1. At each iteration k, the relative L2-error 
+
+EL2 , the broken-energy error Ebr , and the interface jump norm ∥[[ u]] ∥L2(Γ) are reported for the three-dimensional solution. The corresponding relative increments ∆ are defined between two consecutive iterations as ∆ = u(k) − u(k−1) /∥u(k−1) ∥ and are reported in percentage. 
+
+Figure 4 reports the convergence histories over the ten unseen vascular geometries, while Table 5 provides detailed values for one representative configuration. The exact MS-DD-FOM converges toward the conforming reference solution, whereas the MS-DD-ROM enters a stable error plateau after approximately four iterations. Importantly, the surrogate iteration does not exhibit error growth or loss of interface stability. This behavior is consistent with Proposition 1: the learned local operators perturb the exact contraction, so that the iterates approach a neighborhood of the fixed point rather than the fixed point itself. The observed plateau therefore provides numerical evidence of the error-floor mechanism predicted by the abstract analysis. For the representative test geometry, the plateau corresponds to a relative L2-error of approximately 3.1% , a broken energy-type error of approximately 8.8% ,and an interface jump of order 10 −3.The spatial comparison in Figure 5 shows that the MS-DD-ROM reproduces the global pressure pattern and the localized variations induced by the embedded vascular network. The largest discrepancies are concentrated near the artificial subdomain interfaces, where pointwise 29 relative errors reach approximately 5% . This localized behavior aligns with the structure of 
+
+Srom : Robin data are supplied as input fields, but interface continuity and flux balance are not enforced exactly in its output. The result therefore identifies interface-aware constraints as a natural direction for improving the surrogate while preserving the present non-intrusive formulation.                    
+
+> Figure 5: Tissue pressure solution u≡pton the domain Ω = [0 mm ,3mm ]3. From top to bottom, the rows correspond to slices taken in the upper, central, and lower regions of the domain along the z-direction. Left column: reference solution u⋆.Center column: MS-DD-ROM solution at stagnation. Right column:
+> pointwise relative error |(u−u⋆)/u ⋆|between the MS-DD-ROM and reference solutions.
+
+5.2.1. Weak scalability of the MS-DD-ROM algorithm 
+
+We next investigate whether the MS-DD-ROM preserves the weak-scaling behavior of the underlying two-level domain decomposition method. The key question is whether surrogates trained on a fixed reference subdomain can be reused without retraining when the global domain is enlarged by increasing the number of subdomains. To this end, the physical size and fine-scale discretization of each local subdomain are kept fixed, while the global domain is enlarged. Each subdomain has volume |Ωi| = 1 mm 3 and is discretized exactly as in the training configuration. For n ∈ { 3, 4, 5}, we consider Cartesian decompositions with Nsub = n3 ∈ { 27 , 64 , 125 },
+
+corresponding to approximately 2.5 × 10 5, 5.9 × 10 5, 1.16 × 10 6 three-dimensional degrees of freedom, respectively. The local surrogate architectures, trained parameters, reference mesh, and coarse-space construction are unchanged across the three configurations. Only the number of instantiated subdomains and the size of the global vascular network increase. The embedded 30 Figure 6: Weak-scaling study for the MS-DD-ROM algorithm applied to the oxygen perfusion problem (19) .From left to right, both the top and bottom rows refer to the 33, 43, and 53 subdomain configurations, respectively. Top row: scaled representations, in millimeters, of the embedded one-dimensional geometries inside the three-dimensional domains, corresponding to global volumes of 27 mm 3, 64 mm 3, and 125 mm 3.   
+
+> Bottom row: convergence curves of the MS-DD-FOM and MS-DD-ROM algorithms. Dashed lines denote the convergence histories obtained with the exact RR local solves for ten different one-dimensional geometries Λi,while solid lines denote the corresponding histories obtained by replacing the high-fidelity local operations with the surrogate RR maps. The reported quantities are the relative L2-error, the relative broken-energy error, and the interface jump norm.
+
+vascular networks are sampled from the same generative model used for the training set, but the resulting global graphs and decompositions are not present in the offline data Here, weak scalability is understood in an algorithmic sense: the local computational problem remains fixed and we assess whether the convergence behavior and global accuracy remain controlled as the number of subdomains increases. Parallel wall-clock scalability is not considered in this experiment. Figure 6 reports the convergence histories of the MS-DD-FOM and MS-DD-ROM for the three decomposition sizes, while Table 6 provides representative quantitative values at selected iterations. The nearly overlapping MS-DD-FOM curves confirm that the two-level Robin–Robin method preserves its contraction behavior as the global domain grows. This demonstrates the effectiveness of the coarse correction in transmitting global information across increasingly large decompositions. The MS-DD-ROM exhibits the same qualitative stability mechanism. In all three configu-rations, the surrogate iteration decreases rapidly during the initial iterations and subsequently reaches a bounded error plateau, without evidence of instability or deterioration of the con-31 vergence rate. As expected, we see that the two-level DD mechanism controls the iterative propagation of the error, while the surrogate approximation determines the asymptotic neigh-borhood of the exact fixed point. The final accuracy nevertheless deteriorates moderately with the number of subdomains. The relative L2-error increases from approximately 2.7% for 27 subdomains to 5.8% for 125 
+
+subdomains, while the broken energy-type error increases from approximately 7.8% to 15 .8% .This degradation may result both from the accumulation of local surrogate errors over a larger decomposition and from localized DD states that are progressively less represented in the offline training distribution. Overall, the experiment demonstrates algorithmic weak scalability of the MS-DD-ROM over the tested range: the same reference surrogates can be deployed on global problems exceeding one million degrees of freedom without loss of iterative stability. The growth of the error plateau shows, however, that scalability in accuracy ultimately depends on the coverage of the localized parameter space. This observation suggests adaptive enrichment strategies in which additional high-fidelity local samples are generated only for the subdomains and DD states responsible for the largest residual or interface errors. 
+
+Problem size k EL2 [%] Ebr [%] ∥[u]∥L2(Γ) ∆ [%] 
+
+Nsub = 27 ;
+
+2.50E+5 DoFs 0 2.17E+2 2.14E+2 1.54E −3 2.54E+1 
+
+2 1.42E+1 3.84E+1 1.10E −2 2.17E+1 
+
+4 4.44E+0 9.52E+0 1.63E −3 4.12E+0 
+
+6 2.91E+0 7.85E+0 9.95E −4 9.75E −1
+
+8 2.67E+0 7.76E+0 9.87E −4 6.00E −1
+
+Nsub = 64 ;
+
+5.93E+5 DoFs 0 2.16E+2 2.13E+2 2.46E −3 2.45E+1 
+
+2 1.05E+1 2.70E+1 1.16E −2 1.37E+1 
+
+4 5.57E+0 1.35E+1 4.88E −3 4.31E+0 
+
+6 4.65E+0 1.29E+1 4.79E −3 3.16E+0 
+
+8 4.46E+0 1.29E+1 4.83E −3 3.01E+0 
+
+Nsub = 125 ;
+
+1.16E+6 DoFs 0 2.16E+2 2.14E+2 3.45E −3 2.14E+1 
+
+2 9.06E+0 2.64E+1 1.58E −2 1.10E+1 
+
+4 6.40E+0 1.66E+1 9.02E −3 4.69E+0 
+
+6 5.91E+0 1.59E+1 8.61E −3 4.50E+0 
+
+8 5.79E+0 1.58E+1 8.55E −3 4.46E+0                     
+
+> Table 6: Convergence history for the three-dimensional MS-DD-ROM solutions with 33,43, and
+> 53subdomain configurations. At each iteration k, the relative L2-error EL2, the broken-energy error Ebr , and the interface jump norm ∥[[ u]] ∥L2(Γ) are reported for the three-dimensional solution. The corresponding relative increments ∆are defined between two consecutive iterations as ∆ =
+> u(k)−u(k−1) /u(k−1) and are reported in percentage.
+
+5.2.2. Online computational performance 
+
+We finally assess the online computational cost of the MS-DD-ROM relative to MS-DD-FOM. Since the total execution time of a domain decomposition solver depends strongly on the parallel implementation and hardware architecture, we focus here on the principal operations performed on each subdomain. This comparison isolates the computational savings produced by replacing the fine-scale local operators with neural surrogates. 32 The measured operations comprise two parameter-dependent setup costs and three iteration-dependent operations. The former consist of (i) local matrix assembly and (ii) preconditioner construction; the latter are (iii) evaluation of the local coarse-residual contribution, (iv) 
+
+computation of the Robin transmission datum, and (v) solution of the local subproblem. Their execution frequencies and average costs are reported in Table 7, while Figure 7 provides a logarithmic comparison. The main computational advantage of the MS-DD-ROM is the elimination of the parameter-dependent fine-scale setup. In the MS-DD-FOM, assembling the local operator requires approximately 646 ms per subdomain and dominates the measured cost, while preconditioner setup requires an additional 49 ms . Neither operation is required online by the MS-DD-ROM, because the local matrices and preconditioners are used only during offline data generation. The elimination of assembly is particularly important in many-query settings involving changes in the embedded vascular geometry. In the MS-DD-FOM, each new parametrization generally requires reconstructing the local coupling operators and updating the associated solver setup. Once trained, the MS-DD-ROM replaces these repeated setup costs by evaluations of the same reusable reference surrogates. 
+
+> Figure 7: Average execution time per subdomain, reported in logarithmic scale, for the main computational operations: matrix assembly, preconditioner setup, flux evaluation, and subdomain solve. Dark bars correspond to the MS-DD-FOM algorithm, while light blue bars indicate the surrogate MS-DD-ROM algorithm.
+
+Among the iteration-dependent operations, neural inference reduces the local solution time from approximately 26 .8 ms for the AMG-preconditioned conjugate-gradient solve to 9.2 ms ,corresponding to a speedup of about 2.9. The surrogate transmission and coarse-residual evaluations are also faster than their exact counterparts, although the reductions are more modest because these operations are already inexpensive at the high-fidelity level. Summing the recurring operations yields an average cost of approximately 35 .5 ms per subdomain and iteration for the MS-DD-FOM and 15 .3 ms for the MS-DD-ROM, corresponding to a local online speedup of about 2.3. This comparison excludes the additional parameter-dependent assembly and preconditioner costs avoided by the surrogate method. These savings are obtained at the price of the surrogate error quantified previously. The present comparison is intentionally performed at the subdomain level and does not constitute an end-to-end parallel benchmark. The MS-DD-FOM and MS-DD-ROM also favor 33 Operation MS-DD-FOM MS-DD-ROM Frequency Time [ms] Frequency Time [ms]                                        
+
+> Assembly once per param. change 645.7 ±(190 ,180) not required -Prec. set-up once per param. change 48.90 ±(2 .60 ,2.00) not required -Coarse Res. once per iter. 4.403 ±(0 .90 ,0.40) once per iter. 3.211 ±(0 .57 ,0.40)
+> Robin Flux once per iter. 4.316 ±(0 .52 ,0.46) once per iter. 2.904 ±(0 .50 ,0.06)
+> Solve once per iter. 26.83 ±(2 .21 ,1.77) once per iter. 9.176 ±(6 .60 ,0.61)
+> Table 7: Execution time and frequency of the main operations in the MS-DD-FOM and MS-DD-ROM algorithms. Here, “param.” denotes the parametric configuration, “iter.” denotes one MS-DD-ROM iteration, “Prec. set-up” denotes preconditioner set-up, and “Coarse Res.” denotes coarse-residual evaluation. Times are reported in milliseconds.
+
+different execution models: conventional local assembly and iterative solves are naturally distributed across CPU processes, whereas the neural maps can evaluate batches of subdomains concurrently on a GPU [ 39 , 41 ]. The reported timings do not yet exploit this batched inference strategy. Consequently, a fair architecture-level comparison will require parallel implementations of both algorithms and is left for future work. In addition, the timings reported here concern the online stage and exclude data generation and network training. The value of the surrogate therefore depends on amortizing the offline cost over a sufficiently large number of parameter queries. A complete break-even analysis would additionally require accounting for high-fidelity dataset generation and for the parallel implementation of both solvers. 
+
+6. Conclusion and Perspectives 
+
+In this work, we introduced a computational framework that combines domain decomposition (DD) techniques with non-intrusive non-linear model order reduction for the development of scalable and computationally efficient solvers for multiscale and mixed-dimensional problems. We exploited localization and the definition of a reference local subproblem, defined by a local representability assumption, to confine at the local level the computationally intensive offline part of the solver and to accelerate the execution of the iterative method used to reconstruct the global solution. In addition, the orchestration of the three surrogate models introduced to achieve full non-intrusiveness, is implemented through a cascade-training procedure designed to generate reduced models compatible with iterative DD algorithms. Our analysis showed that reduced-order surrogates can be embedded within iterative DD schemes without altering the underlying convergence and stability mechanism, provided that appropriate uniform accuracy and stability properties are maintained throughout the iterative process. The numerical results for a 3D–1D blood perfusion problem illustrated the effectiveness of the proposed methodology in terms of accuracy, computational efficiency, and weak scalability. Several questions remain open and motivate further investigation. On the theoretical side, a detailed characterization of the error introduced by the surrogate and propagated through the DD iteration is still required. This analysis should clarify the impact of the reduced approximation on transmission conditions, coarse-space corrections, and local solutions. It should also support the design of corrective mechanisms based, for instance, on residual-based error indicators or online adaptive enrichment strategies. A further development in progress is the extension of this work beyond tensor product domains and uniform subdomain 34 decompositions. Addressing geometrically heterogeneous subdomains would require surrogate models capable of explicit geometric generalization. This direction will follow recent advances in geometry-aware reduced-order modeling and learning-based approximation methods. 
+
+Acknowledgments 
+
+PV and PZ acknowledge support from the MUR PRIN 2022 project 2022WKWZA8 
+
+Immersed methods for multiscale and multiphysics problems (IMMEDIATE), part of the Next Generation EU program Mission 4, Component 2, CUP D53D23006010006; the European Union’s Euratom research and training programme 2021–2027 under grant agreement No. 101166699 Radiation safety through biological extended models and digital twins (TETRIS); PZ acknowledges support from the Mathematical Challenges in Brain Mechanics project of the Center for Advanced Study (CAS), The Norwegian Academy of Science and Letters, Oslo, Norway; ND and PZ acknowledges support from the EP PerMed JTC2024 project 
+
+Targeting hypoxia with heavy ions to gain control of radioresistant cancers (Hi-ROC), funded for Politecnico di Milano by the Ministero dell’Università e della Ricerca (MUR). All authors acknowledge support from Dipartimento di Eccellenza 2023–2027, Department of Mathematics, Politecnico di Milano. All authors are members of the Gruppo Nazionale per il Calcolo Scientifico (GNCS) of the Istituto Nazionale di Alta Matematica (INdAM). 
+
+References 
+
+[1] D. W. Peaceman, Interpretation of well-block pressures in numerical reservoir simulation (includes associated paper 6988), Society of Petroleum Engineers Journal 18 (1978) 183–194. [2] J. Jaffré, J. Roberts, Modeling flow in porous media with fractures; discrete fracture models with matrix-fracture exchange, Numerical Analysis and Applications 5 (2012) 162–167. [3] T. Koch, K. Heck, N. Schröder, H. Class, R. Helmig, A new simulation framework for soil–root interaction, evaporation, root growth, and solute transport, Vadose zone journal 17 (2018) 1–21. [4] N. Schröder, M. Javaux, J. Vanderborght, B. Steffen, H. Vereecken, Effect of root water and solute uptake on apparent soil dispersivity: a simulation study, Vadose Zone Journal 11 (2012) vzj2012–0009. [5] L. Possenti, S. di Gregorio, F. M. Gerosa, G. Raimondi, G. Casagrande, M. L. Costantino, P. Zunino, A computational model for microcirculation including fahraeus-lindqvist effect, plasma skimming and fluid exchange with the tissue interstitium, International Journal for Numerical Methods in Biomedical Engineering 35 (2019). [6] L. Possenti, A. Cicchetti, R. Rosati, D. Cerroni, M. Costantino, T. Rancati, P. Zunino, A mesoscale computational model for microvascular oxygen transfer, Annals of Biomedical Engineering 49 (2021) 3356–3373. 35 [7] E. Vidotto, T. Koch, T. Koppl, R. Helmig, B. Wohlmuth, Hybrid models for simulating blood flow in microvascular networks, Multiscale Modeling & Simulation 17 (2019) 1076–1102. [8] J. Kremheller, A.-T. Vuong, B. A. Schrefler, W. A. Wall, An approach for vascular tumor growth based on a hybrid embedded/homogenized treatment of the vasculature within a multiphase porous medium model, International journal for numerical methods in biomedical engineering 35 (2019) e3253. [9] U. Khristenko, S. Schuß, M. Krüger, F. Schmidt, B. Wohlmuth, C. Hesch, Multidimensional coupling: A variationally consistent approach to fiber-reinforced materials, Computer Methods in Applied Mechanics and Engineering 382 (2021) 113869. [10] M. Firmbach, A. Popp, M. Mayr, I. Steinbrecher, Computational challenges in mixed-dimensional beam/solid coupling, in: Proceedings in Applied Mathematics & Mechanics, 2023. [11] F. Edelvik, M. Görtz, F. Hellman, G. Kettil, A. Målqvist, Numerical homogenization of spatial network models, Computer Methods in Applied Mechanics and Engineering 418 (2024) 116593. [12] A. Bensoussan, J. Lions, G. Papanicolaou, Asymptotic Analysis for Periodic Structures, AMS Chelsea Publishing Series, American Mathematical Society, 2011. [13] Y. Efendiev, T. Y. Hou, Multiscale finite element methods: theory and applications, volume 4, Springer Science & Business Media, 2009. [14] E. Weinan, B. Engquist, The heterognous multiscale methods, Communications in Mathematical Sciences 1 (2003) 87–132. [15] P. Henning, A. Målqvist, Localized orthogonal decomposition techniques for boundary value problems, SIAM Journal on Scientific Computing 36 (2014) A1609 – A1634. Cited by: 76; All Open Access, Green Open Access. [16] P. Benner, S. Gugercin, K. Willcox, A survey of projection-based model reduction methods for parametric dynamical systems, SIAM review 57 (2015) 483–531. [17] A. Quarteroni, A. Manzoni, F. Negri, Reduced basis methods for partial differential equations: an introduction, volume 92, Springer, 2015. [18] A. Quarteroni, P. Gervasio, F. Regazzoni, Combining physics-based and data-driven models: advancing the frontiers of research with scientific machine learning, arXiv preprint arXiv:2501.18708 (2025). [19] J. Berner, P. Grohs, G. Kutyniok, P. Petersen, The Modern Mathematics of Deep Learning, Cambridge University Press, 2022, p. 1–111. [20] N. B. Kovachki, S. Lanthaler, A. M. Stuart, Operator learning: Algorithms and analysis, Handbook of Numerical Analysis 25 (2024) 419–467. 36 [21] N. Boullé, A. Townsend, A mathematical guide to operator learning, in: Handbook of Numerical Analysis, volume 25, Elsevier, 2024, pp. 83–125. [22] A. Quarteroni, Domain decomposition methods, in: Numerical models for differential problems, Springer, 2017, pp. 555–612. [23] A. Toselli, O. Widlund, Domain Decomposition Methods: Algorithms and Theory, vol-ume 34 of Springer Series in Computational Mathematics , Springer, 2005. [24] S. Ruan, A. G. Class, G. Rozza, A structured review of reduced order modeling for domain decomposition problems: State of the art and perspectives, Archives of Computational Methods in Engineering (2026). [25] N. Discacciati, J. S. Hesthaven, Localized model order reduction and domain decomposition methods for coupled heterogeneous systems, International Journal for Numerical Methods in Engineering 124 (2023) 3964–3996. [26] T. Taddei, X. Xu, L. Zhang, A non-overlapping optimization-based domain decomposi-tion approach to component-based model reduction of incompressible flows, Journal of Computational Physics 509 (2024) 113038. [27] I.-G. Farcas, R. P. Gundevia, R. Munipalli, K. E. Willcox, Domain decomposition for data-driven reduced modeling of large-scale systems, AIAA Journal 62 (2024) 4071–4086. [28] A. Heinlein, A. Klawonn, M. Lanser, J. Weber, Combining machine learning and domain decomposition methods for the solution of partial differential equations—a review, GAMM-Mitteilungen 44 (2021) e202100001. [29] M. J. Gander, F. Kwok, Best robin parameters for optimized schwarz methods at cross points, SIAM Journal on Scientific Computing 34 (2012) A1849–A1879. [30] F. Laurino, P. Zunino, Derivation and analysis of coupled pdes on manifolds with high dimensionality gap arising from topological model reduction, ESAIM: Mathematical Modelling and Numerical Analysis 53 (2019) 2047 – 2080. [31] M. Kuchta, F. Laurino, K. A. Mardal, P. Zunino, Analysis and approximation of mixed-dimensional pdes on 3d-1d domains coupled with lagrange multipliers, SIAM Journal on Numerical Analysis 59 (2021) 558–582. [32] L. Heltai, P. Zunino, Reduced lagrange multiplier approach for non-matching coupling of mixed-dimensional domains, Mathematical Models and Methods in Applied Sciences 33 (2023) 2425 – 2462. [33] A. Klawonn, P. Radtke, O. Rheinbach, A comparison of adaptive coarse spaces for iterative substructuring in two dimensions, Electron. Trans. Numer. Anal 45 (2016) 75–106. [34] N. R. Franco, A. Manzoni, P. Zunino, Mesh-informed neural networks for operator learning in finite element spaces, Journal of Scientific Computing 97 (2023) 35. [35] P. Vitullo, A. Colombo, N. R. Franco, A. Manzoni, P. Zunino, Nonlinear model order reduction for problems with microstructure using mesh informed neural networks, Finite Elements in Analysis and Design 229 (2024) 104068. 37 [36] J. Hesthaven, S. Ubbiali, Non-intrusive reduced order modeling of nonlinear problems using neural networks, Journal of Computational Physics 363 (2018) 55–78. [37] X. Glorot, Y. Bengio, Understanding the difficulty of training deep feedforward neural networks, Journal of Machine Learning Research - Proceedings Track 9 (2010) 249–256. [38] G. Kutyniok, P. Petersen, M. Raslan, R. Schneider, A theoretical analysis of deep neural networks and parametric pdes, Constructive Approximation 55 (2022) 73–125. [39] A. Paszke, Pytorch: An imperative style, high-performance deep learning library, arXiv preprint arXiv:1912.01703 (2019). [40] D. C. Liu, J. Nocedal, On the limited memory bfgs method for large scale optimization, Mathematical programming 45 (1989) 503–528. [41] R. Raina, A. Madhavan, A. Y. Ng, Large-scale deep unsupervised learning using graphics processors, in: Proceedings of the 26th annual international conference on machine learning, 2009, pp. 873–880. 
+
+7. Appendix 
+
+Proposition 1 (Stability under surrogate perturbations) . Let (V, ∥ · ∥ ⋆) be a normed space and let DD : V → V be a contraction with constant q ∈ [0 , 1) , that is, 
+
+∥DD (v) − DD (w)∥⋆ ≤ q∥v − w∥⋆ ∀v, w ∈ V .
+
+Assume that u ∈ V is the unique fixed point of DD , namely 
+
+u = DD (u).
+
+Let (eu(k))k≥0 be the surrogate-perturbed DD iteration defined by 
+
+eu(k+1) = DD (eu(k)) + δ(k), k ≥ 0,
+
+where the perturbations satisfy 
+
+∥δ(k)∥⋆ ≤ CDD ε ∀k ≥ 0.
+
+Then, for every k ≥ 0,
+
+u − eu(k) 
+
+> ⋆
+
+≤ qk u − eu(0)  
+
+> ⋆
+
++ 1 − qk
+
+1 − q CDD ε. 
+
+In particular, 
+
+lim sup 
+
+> k→∞
+
+u − eu(k) 
+
+> ⋆
+
+≤ CDD 
+
+1 − q ε. 
+
+38 Proof. Define 
+
+e(k) := u − eu(k).
+
+Since u is the fixed point of DD , we have 
+
+u = DD (u).
+
+Using the perturbed iteration, we obtain 
+
+e(k+1) = u − eu(k+1) 
+
+= DD (u) − DD (eu(k)) − δ(k).
+
+Hence, by the triangle inequality and the contraction property, 
+
+∥e(k+1) ∥⋆ ≤ DD (u) − DD (eu(k)) ⋆ + ∥δ(k)∥⋆
+
+≤ q∥u − eu(k)∥⋆ + CDD ε
+
+= q∥e(k)∥⋆ + CDD ε. 
+
+Iterating this recurrence gives 
+
+∥e(k)∥⋆ ≤ qk∥e(0) ∥⋆ + CDD ε
+
+> k−1
+
+X
+
+> ℓ=0
+
+qℓ.
+
+Since k−1X
+
+> ℓ=0
+
+qℓ = 1 − qk
+
+1 − q ,
+
+we obtain 
+
+∥e(k)∥⋆ ≤ qk∥e(0) ∥⋆ + 1 − qk
+
+1 − q CDD ε. 
+
+Taking the limit superior as k → ∞ and using qk → 0 yields 
+
+lim sup 
+
+> k→∞
+
+∥e(k)∥⋆ ≤ CDD 
+
+1 − q ε. 
+
+This concludes the proof. 
+
+Proposition 2 (Contraction of the discrete Robin–Robin iteration) . Let uh be the global finite element solution of the discrete problem, and let u(k) 
+
+> h,l
+
+be the exact Robin–Robin iterate on Ωl,with l ∈ { i, j }, at iteration k ≥ 1.Assume that, for each l ∈ { i, j }, the bilinear form al(·, ·) is symmetric, continuous, and coercive on Vh,l . Moreover al(·, ·) induces the local energy norm 
+
+∥vl∥2 
+
+> a, Ωl
+
+:= al(vl, v l), vl ∈ V h,l ,
+
+39 which is uniformly equivalent to the H1(Ω l)-norm on Vh,l .Assume moreover that the discrete lifting operators Ll := El ◦ Tr Γij , l ∈ { i, j }, are uniformly stable with respect to the interface trace. More precisely, there exists constants ℓi , ℓ j > 0,independent of h, such that for every adjacent pair (Ω i, Ωj ),
+
+∥L j vi∥2 
+
+> a, Ωj
+
+≤ ℓj h−1∥vi∥2 
+
+> L2(Γ ij )
+
+, ∥L ivj ∥2 
+
+> a, Ωi
+
+≤ ℓih−1∥vj ∥2 
+
+> L2(Γ ij )
+
+,
+
+for all vi ∈ V h,i and vj ∈ V h,j .Define the local errors 
+
+e(k) 
+
+> h,l
+
+:= u(k) 
+
+> h,l
+
+− uh|Ωl , l ∈ { i, j }.
+
+and let the Robin parameter be defined by ρ := γh −1. If γ > 0 satisfies γ ≥ ℓj , then the Robin–Robin iteration is a contraction in the norm 
+
+∥eh∥⋆ := 
+
+ X
+
+> l∈{ i,j }
+
+∥eh,l ∥2 
+
+> a, Ωl
+
++ X
+
+> l∈{ i,j }
+
+γ
+
+2h ∥eh,l ∥2 
+
+> L2(Γ ij )
+
+
+
+> 1/2
+
+.
+
+That is, there exists q < 1 such that 
+
+∥e(k) 
+
+> h
+
+∥⋆ ≤ q ∥e(k−1)  
+
+> h
+
+∥⋆ ∀k ≥ 1.
+
+Consequently, 
+
+lim  
+
+> k→∞
+
+e(k) 
+
+> h,l
+
+= 0 , l ∈ { i, j },
+
+and the Robin–Robin iterates converge to the global finite element solution. 
+
+Proof . We start noting that the exact solution of the global problem, uh, is such that 
+
+ai(uh|Ωi , v h,i ) + γh −1(uh|Ωi , v h,i )Γij =
+
+bi(vh,i ) + bj (Lj vh,i ) − aj (uh|Ωj , Lj vh,i ) + γh −1(uh|Ωj , Lj vh,i )Γij 
+
+(20) and that a completely analogous relation holds for Ωj . Here, the Robin parameter has been written as ρ := γ/h . Now, subtract the previous identity from the variational equation on the subdomain Ωi induced by the RR iteration, namely 
+
+ai(u(k) 
+
+> h,i
+
+, v h,i ) + γh −1(u(k) 
+
+> h,i
+
+, v h,i )Γij =
+
+bi(vh,i ) + bj (Lj vh,i ) − aj (u(k−1)  
+
+> h,j
+
+, Lj vh,i ) + γh −1(u(k−1)  
+
+> h,j
+
+, Lj vh,i )Γij 
+
+(21) yielding 
+
+ai(e(k) 
+
+> h,i
+
+, v h,i ) + γh −1(e(k) 
+
+> h,i
+
+, v h,i )Γij = −aj (e(k−1)  
+
+> h,j
+
+, Lj vh,i ) + γh −1(e(k−1)  
+
+> h,j
+
+, Lj vh,i )Γij (22) We are interested in analyzing the evolution of the error between the iterative and exact solutions, e(k) 
+
+> h,i
+
+= u(k) 
+
+> h,i
+
+− uh|Ωi , as the iteration index k increases. By considering vh,i = e(k) 
+
+> h,i
+
+as particular test function, we write 
+
+ai
+
+ e(k) 
+
+> h,i
+
+, e (k)
+
+> h,i
+
+ + γ h −1 e(k) 
+
+> h,i
+
+− e(k−1)  
+
+> h,j
+
+, e (k)
+
+> h,i
+
+ 
+
+> Γij
+
++ aj
+
+ e(k−1)  
+
+> h,j
+
+, Lj e(k)
+
+> h,i
+
+ = 0 ; (23) 40 an analogous relation holds, in a specular manner, for the subdomain Ωj .At this stage, we recall the following identity, valid in any real inner product space: 
+
+⟨v − w, v ⟩ = 12 ∥v∥2 − 12 ∥w∥2 + 12 ∥v − w∥2, ∀ v, w ∈ V h.
+
+Subsequently, the second last term of (23) can be expressed by 
+
+γ h −1 e(k) 
+
+> h,i
+
+− e(k−1)  
+
+> h,j
+
+, e (k)
+
+> h,i
+
+ 
+
+> Γij
+
+= 12
+
+γh
+
+
+
+∥e(k) 
+
+> h,i
+
+∥2  
+
+> L2(Γ ij )
+
+− ∥ e(k−1)  
+
+> h,j
+
+∥2  
+
+> L2(Γ ij )
+
++ ∥e(k) 
+
+> h,i
+
+− e(k−1)  
+
+> h,j
+
+∥2 
+
+> L2(Γ ij )
+
+
+
+.
+
+For the last term of (23), we write 
+
+aj
+
+ e(k−1)  
+
+> h,j
+
+, Lj e(k)
+
+> h,i
+
+ = aj
+
+ e(k−1)  
+
+> h,j
+
+− L j e(k) 
+
+> h,i
+
+, Lj e(k)
+
+> h,i
+
+ + aj
+
+ Lj e(k) 
+
+> h,i
+
+, Lj e(k)
+
+> h,i
+
+
+
+= aj
+
+ Lj e(k−1)  
+
+> h,j
+
+− L j e(k) 
+
+> h,i
+
+, Lj e(k)
+
+> h,i
+
+ + aj
+
+ Lj e(k) 
+
+> h,i
+
+, Lj e(k)
+
+> h,i
+
+ + aj (( I − L j )e(k−1)  
+
+> h,j
+
+, Lj e(k) 
+
+> h,i
+
+)= 12 aj
+
+ Lj e(k−1)  
+
+> h,j
+
+, Lj e(k−1) 
+
+> h,j
+
+ − 12 aj
+
+ Lj e(k) 
+
+> h,i
+
+, Lj e(k)
+
+> h,i
+
+
+
++ 12 aj
+
+ Lj e(k−1)  
+
+> h,j
+
+− L j e(k) 
+
+> h,i
+
+, Lj e(k−1)  
+
+> h,j
+
+− L j e(k)
+
+> h,i
+
+
+
++ aj
+
+ Lj e(k) 
+
+> h,i
+
+, Lj e(k)
+
+> h,i
+
+ + aj (( I − L j )e(k−1)  
+
+> h,j
+
+, Lj e(k) 
+
+> h,i
+
+)= 12 aj
+
+ Lj e(k−1)  
+
+> h,j
+
+, Lj e(k−1) 
+
+> h,j
+
+ + 12 aj
+
+ Lj e(k) 
+
+> h,i
+
+, Lj e(k)
+
+> h,i
+
+
+
++ 12 aj
+
+ Lj e(k−1)  
+
+> h,j
+
+− L j e(k) 
+
+> h,i
+
+, Lj e(k−1)  
+
+> h,j
+
+− L j e(k)
+
+> h,i
+
+ + aj (( I − L j )e(k−1)  
+
+> h,j
+
+, Lj e(k) 
+
+> h,i
+
+)
+
+At this point, equality (23) reduces to 
+
+ai
+
+ e(k) 
+
+> h,i
+
+, e (k)
+
+> h,i
+
+ + 12
+
+> γh
+
+
+
+∥e(k) 
+
+> h,i
+
+∥2  
+
+> L2(Γ ij )
+
+− ∥ e(k−1)  
+
+> h,j
+
+∥2  
+
+> L2(Γ ij )
+
++ ∥e(k) 
+
+> h,i
+
+− e(k−1)  
+
+> h,j
+
+∥2 
+
+> L2(Γ ij )
+
+ 
+
+> 12
+
+aj
+
+ Lj e(k−1)  
+
+> h,j
+
+, Lj e(k−1) 
+
+> h,j
+
+ + 12 aj (Lj e(k) 
+
+> h,i
+
+, Lj e(k) 
+
+> h,i
+
+)+ 12 aj
+
+ Lj e(k−1)  
+
+> h,j
+
+− L j e(k) 
+
+> h,i
+
+, Lj e(k−1)  
+
+> h,j
+
+− L j e(k)
+
+> h,i
+
+ + aj (( I − L j )e(k−1)  
+
+> h,j
+
+, Lj e(k) 
+
+> h,i
+
+) = 0 .
+
+By the fact that the bilinear form aj (·, ·) is SPD (it defines the inner product ∥ · ∥ a, Ωj ) and the properties of the operator Lj , we can write the bounds  
+
+> 12
+
+aj
+
+ Lj e(k−1)  
+
+> h,j
+
+− L j e(k) 
+
+> h,i
+
+, Lj e(k−1)  
+
+> h,j
+
+− L j e(k)
+
+> h,i
+
+ = 12 ∥L j e(k−1)  
+
+> h,j
+
+− L j e(k) 
+
+> h,i
+
+∥2
+
+> a, Ωj
+
+≤ 12h ℓj ∥e(k−1)  
+
+> h,j
+
+− e(k) 
+
+> h,i
+
+∥2 
+
+> L2(Γ ij )
+
+and 
+
+|aj (( I − L j )e(k−1)  
+
+> h,j
+
+, Lj e(k) 
+
+> h,i
+
+)| ≤ ∥ (I − L j )e(k−1)  
+
+> h,j
+
+∥a, Ωj ∥L j e(k) 
+
+> h,i
+
+∥a, Ωj
+
+≤ ∥ e(k−1)  
+
+> h,j
+
+∥a, Ωj ∥L j e(k) 
+
+> h,i
+
+∥a, Ωj ≤ 12 ∥e(k−1)  
+
+> h,j
+
+∥2 
+
+> a, Ωj
+
++ 12 ∥L j e(k) 
+
+> h,i
+
+∥2
+
+> a, Ωj
+
+41 then 
+
+ai
+
+ e(k)
+
+h,i , e (k)
+
+h,i 
+
+ + 12
+
+γh
+
+
+
+∥e(k)
+
+h,i ∥2
+
+L2(Γ ij ) − ∥ e(k−1) 
+
+h,j ∥2
+
+L2(Γ ij ) + ∥e(k)
+
+h,i − e(k−1) 
+
+h,j ∥2
+
+L2(Γ ij )
+
+
+
++ 12 aj
+
+ Lj e(k−1) 
+
+h,j , Lj e(k−1) 
+
+h,j 
+
+ + 12 aj
+
+ Lj e(k)
+
+h,i , Lj e(k)
+
+h,i 
+
+
+
+≤ 121
+
+h ℓj ∥e(k−1) 
+
+h,j − e(k)
+
+h,i ∥2
+
+L2(Γ ij ) + 12 ∥e(k−1) 
+
+h,j ∥2
+
+a, Ωj + 12 ∥L j e(k)
+
+h,i ∥2
+
+a, Ωj .
+
+Now, if the parameter γ > 0 is chosen such that γ ≥ ℓj , then, expressing aj (v, v ) as ∥v∥2
+
+a, Ωj ,we obtain 
+
+∥e(k)
+
+h,i ∥2
+
+a, Ωi + 12 ∥L j e(k−1) 
+
+h,j ∥2
+
+a, Ωj + 12 ∥L j e(k)
+
+h,i ∥2
+
+a, Ωj + 12
+
+γh ∥e(k)
+
+h,i ∥2
+
+L2(Γ ij )
+
+≤ 12
+
+γh ∥e(k−1) 
+
+h,j ∥2
+
+L2(Γ ij ) + 12 ∥e(k−1) 
+
+h,j ∥2
+
+a, Ωj + 12 ∥L j e(k)
+
+h,i ∥2
+
+a, Ωj .
+
+By completely analogous steps, we obtain 
+
+∥e(k)
+
+h,j ∥2
+
+a, Ωj + 12 ∥L ie(k−1) 
+
+h,i ∥2
+
+a, Ωi + 12 ∥L ie(k)
+
+h,j ∥2
+
+a, Ωi + 12
+
+γh ∥e(k)
+
+h,j ∥2
+
+L2(Γ ij )
+
+≤ 12
+
+γh ∥e(k−1) 
+
+h,i ∥2
+
+L2(Γ ij ) + 12 ∥e(k−1) 
+
+h,i ∥2
+
+a, Ωi + 12 ∥L ie(k)
+
+h,j ∥2
+
+a, Ωi .
+
+At this point, estimates above-expressed respectively on Ωi and Ωj —are added together and like terms can be grouped, leading to 
+
+X
+
+l∈{ i,j }
+
+∥e(k)
+
+h,l ∥2
+
+a, Ωl + X
+
+l∈{ i,j }
+
+12
+
+γh ∥e(k)
+
+h,l ∥2
+
+L2(Γ ij ) ≤ X
+
+l∈{ i,j }
+
+12 ∥e(k−1) 
+
+h,l ∥2
+
+a, Ωl + 12
+
+γh ∥e(k−1) 
+
+h,l ∥2
+
+L2(Γ ij ). (24) Having defined the norm 
+
+∥v∥⋆, := 
+
+ X
+
+l∈{ i,j }
+
+∥vl∥2
+
+a, Ωl + X
+
+l∈{ i,j }
+
+12
+
+γh ∥vl∥2
+
+L2(Γ ij )
+
+
+
+1/2
+
+,
+
+it is noteworthy that the inequality above can be expresses as a contraction, namely: 
+
+∥e(k)
+
+h ∥⋆ ≤ q ∥e(k−1) 
+
+h ∥⋆, q ∈
+
+h 1√2 , 1
+
+
+
+(25) Indeed, inequality above can be expressed as 
+
+∥e(k)
+
+h ∥∗ ≤
+
+s 12
+
+X
+
+l∈{ i,j }
+
+∥e(k−1) 
+
+h,l ∥2
+
+a, Ωl + X
+
+l∈{ i,j }
+
+γ
+
+2h ∥e(k−1) 
+
+h,l ∥2
+
+L2(Γ ij ) =
+
+q 12 A + B, 
+
+having set 
+
+A := X
+
+l∈{ i,j }
+
+∥e(k−1) 
+
+h,l ∥2
+
+a, Ωl , B := X
+
+l∈{ i,j }
+
+γ
+
+2h ∥e(k−1) 
+
+h,l ∥2
+
+L2(Γ ij ).
+
+Given the identity 
+
+∥ek−1
+
+h ∥2
+
+∗ = A + B, 
+
+42 and introducing the parameter 
+
+θk−1 := AA + B ∈ (0 , 1] ,
+
+then:  
+
+> 12
+
+A + B =
+
+
+
+> 12
+
+AA + B + BA + B
+
+
+
+(A + B) = 
+
+
+
+1 − θk−1
+
+2
+
+
+
+∥ek−1 
+
+> h
+
+∥2
+
+> ∗
+
+.
+
+Substituting the equality above in into (25) gives 
+
+∥e(k) 
+
+> h
+
+∥∗ ≤
+
+r
+
+1 − θk−1
+
+2 ∥e(k−1)  
+
+> h
+
+∥∗. (3) Since 0 < θ k−1 ≤ 1, we have 1
+
+√2 ≤ q < 1.
+
+Having q < 1,implies that the error vanishes in the limit k → ∞ , thus concluding the proof. □
+
+43

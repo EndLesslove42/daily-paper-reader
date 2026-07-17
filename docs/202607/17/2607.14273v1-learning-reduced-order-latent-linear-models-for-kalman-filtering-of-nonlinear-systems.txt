@@ -1,0 +1,501 @@
+Title: Learning reduced-order latent linear models for Kalman filtering of nonlinear systems
+
+URL Source: https://arxiv.org/pdf/2607.14273v1
+
+Published Time: Fri, 17 Jul 2026 00:08:20 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+# Learning reduced-order latent linear models for Kalman filtering of nonlinear systems 
+
+Manas Mejari, Milad Banitalebi Dehkordi, Dario Piga 
+
+Abstract — We propose a filtering-oriented end-to-end learning framework to identify reduced-order models explicitly tailored for state estimation in high-dimensional nonlinear systems. An 
+
+autoencoder (AE) neural network learns a low-dimensional latent representation of the state together with a lifting map to the original space, while a reduced-order linear time-invariant 
+
+(RO-LTI) model describes the latent dynamics. The AE and RO-LTI model are trained jointly by minimizing a multi-objective loss that combines reconstruction error with a filtering objective based on a differentiable Kalman filter, ensuring that the reduced-order model is tailored for the downstream state estimation task. At inference, filtering is performed entirely in the latent space using the RO-LTI model, and the estimated state is mapped back to the original space via the decoder. Unlike conventional two-stage approaches, in which a reduced-order model is first identified for system approximation and a filter is subsequently designed on top of it, the proposed framework learns a task-oriented reduced-order model whose parameters are shaped entirely by filtering performance rather than system approximation accuracy alone. We further quantify probabilistic bounds on the performance gap between full-order and reduced-order filters using conformal predictions, which do not require assumption on data distribution. The approach is validated on a heat diffusion benchmark, where the full temperature field is reconstructed from sparse measurements. 
+
+I. INTRODUCTION State estimation for nonlinear dynamical systems is a fun-damental problem in control and signal processing. In many applications, including fluid dynamics, power systems, and robotics, the underlying systems are high-dimensional, mak-ing real-time state estimation computationally demanding. While the Kalman filter and its variants provide principled estimation frameworks [21], [22], their direct application to high-dimensional systems is often impractical in embedded applications due to the computational burden associated with propagating high-dimensional states and covariances. A common approach to mitigate this challenge is to obtain a reduced-order model (ROM) that captures the dominant system behavior in a low-dimensional space. Classical model reduction techniques, typically classified as SVD-based or Krylov-based methods [3], include balanced truncation [1], singular perturbation approximation [16], Hankel norm ap-proximations [12] etc. However, these approaches are pri-marily developed for linear systems and typically require explicit system models, limiting their applicability in data-driven settings.    
+
+> This work has been accepted for publication, to appear at the 65th IEEE Conference on Decision and Control (CDC 2026), Hawaii. The authors are with IDSIA Dalle Molle Institute for Artificial Intelligence, USI-SUPSI, Lugano, Switzerland.
+
+email: {manas.mejari, milad.banitalebi, dario.piga }@supsi.ch 
+
+To this end, data-driven model reduction methods have gained attention. Such methods include regularization-based system identification approaches [4], [11], [19], the Loewner framework [13], dynamic mode decomposition [20], which focus on identifying reduced-order dynamical models from data. Alternatively, methods such as principal component analysis-based approach [2] and autoencoder-based meth-ods [15], [17] learn linear or nonlinear embeddings from data which provide compact latent representations of states. While these approaches have demonstrated promising performance in modeling and prediction, they are typically optimized for data reconstruction or prediction accuracy, and do not explicitly account for state estimation performance. A rep-resentation that is optimal for reconstruction or prediction may not be optimal for filtering , as it does not account for the structure of the observation model or the noise characteristics of the estimation problem. For state estimation, reduced-order filtering techniques have been developed to enable tractable estimation in large-scale systems. For example, in [10], a balanced truncation method is used to obtain a reduced order model which is then employed in a reduced-order Kalman filter. The contribution [18] proposes a least-squares kernel Kalman filter that exploits the correlation between state components to obtain a computationally efficient approximate Kalman filter. However, these methods follow a two-stage pipeline, where the reduced-order model is learned independently without considering the filtering objective. Alternatively, a Monte Carlo–based variant of the Kalman filter, such as the ensemble Kalman filter (EnKF) [9] is developed for high dimensional systems. In the EnKF, instead of propagating a full state covariance matrix, a sample covariance is computed from an ensemble of states. But, it typically requires a large number of samples and is susceptible to sampling errors. In this work, we propose a filtering-oriented learning of reduced-order models of high-dimensional nonlinear sys-tems. In contrast to Koopman-based approaches [6], which lift nonlinear dynamics into high-dimensional linear repre-sentations for prediction, we take the opposite perspective: we learn a compressed low-dimensional latent space where the dynamics are linear and explicitly tailored for Kalman filtering. This task-oriented representation enables efficient and accurate state estimation in high-dimensional nonlinear systems. The main idea is to jointly learn a reduced-order LTI model (including its noise covariances) and a lifting map to the original state space via an autoencoder. By embedding the Kalman filter within the learning loop, the model is trained arXiv:2607.14273v1 [eess.SY] 15 Jul 2026 directly with respect to a filtering objective. The model parameters, covariances and the AE network parameters are learned by minimizing a multi-objective loss comprising reconstruction error, Kalman filter negative log-likelihood, decoded state estimation error in the original state space, and a latent alignment term. This stands in contrast to conventional model-order reduction, where system approxi-mation and state estimation are treated as separate objectives. Here, the two are unified: the reduced-order model is the filtering model, and its parameters are shaped entirely by the estimation task. Overall, this represents a shift from model-centric representations (typically optimized for prediction) to task-oriented latent representations explicitly designed for filtering. At inference, filtering is performed in the reduced-order latent space, and the estimated states are mapped back to the original space via the decoder. Finally, with conformal predictions, we provide probabilistic bounds on the performance gap between the full-order Kalman filter and reduced-order Kalman filters. To the best of our knowledge, incorporating the Kalman filter within the training loop has only recently been explored in the ROAD-EnKF framework [8]. However, our approach differs in several key aspects. First, [8] assumes a known 
+
+measurement model (including measurement matrix and noise covariance) of the high-dimensional systems, whereas we learn both the measurement matrix of the latent dynamics and noise covariance directly from data. Second, ROAD-EnKF employs a decoder-only architecture, while we use an autoencoder, enabling the encoder to capture spatial correlations in the state. Third, our training loss includes a decoded state estimation error in the original state space, in addition to the exact likelihood term, thereby explicitly optimizing for filtering accuracy, while [8] consider only an approximated likelihood term based on ensembles. Fourth, ROAD-EnKF relies on EnKF in the latent space, which requires sampling latent states from a prescribed prior for initialization and maintaining an ensemble. This introduces sampling-based approximation errors and makes inference-time complexity dependent on ensemble size. In contrast, our approach leverages a conventional Kalman filter in the latent space and, through the encoder, learns a determin-istic mapping from the original state to the reduced-order representation, thereby providing a coherent and data-driven initialization of the latent states without the need for prior sampling. II. PROBLEM SETTING Consider the discrete-time nonlinear dynamical system: 
+
+xk+1 = f (xk, u k) + wk, (1a) 
+
+yk = g(xk, u k) + vk, (1b) where xk ∈ Rnx denotes the state, yk ∈ Rny the measured output, and uk ∈ Rnu is the control input at time step k. The process and measurement noises, wk ∈ Rnx and vk ∈ Rny ,are assumed to be independent, identically distributed (i.i.d.) white noise sequences with finite variances. We consider the setting where the system (1) is high-dimensional (typically, having state dimension nx > 50 ) and 
+
+nx ≫ ny . Our objective is to design a filter for (1) to estimate the state xk from the measurement history (u0: k, y 0: k). For such high-dimensional systems, implementing an extended Kalman filter or a nonlinear observer using a full-order 
+
+model is often computationally prohibitive, particularly in resource-constrained or embedded applications. To address this challenge, we seek a reduced-order model for the system (1) that is well-suited for online state estimation via filtering algorithms. To this end, the objective of this work is twofold: (i) Learn a reduced-order linear time-invariant (RO-LTI) state-space model with states zk ∈ Rnz , where nz ≪
+
+nx, together with a state-lifting map Φ : Rnz → Rnx
+
+that reconstructs the full-order state from the latent state of the LTI model, i.e. , xk ≃ Φ( zk).(ii) Learn the RO-LTI model such that it is tailored for downstream filter design; that is, the model is opti-mized to enable accurate state estimation of the high-dimensional state xk, rather than merely describing the observed data. We refer to this approach as filtering-oriented reduced-order model identification. The problem addressed in this work is formalized in the following. Consider the RO-LTI state-space model: 
+
+zk+1 = Az k + Bu k + ˜ wk, ˜wk ∼ N (0 , Q ), (2a) 
+
+yk = Cz k +Du k +˜ vk, ˜vk ∼ N (0 , R ), (2b) where zk ∈ Rnz is the reduced-order state with nz ≪ nx.The noise terms ˜wk ∈ Rnz , ˜vk ∈ Rny are zero-mean Gaussian distributed with covariance matrices Q, R ⪰ 0,respectively. Let θ = {A, B, C, D, Q, R } ∈ Rnθ denote the parameters of the RO-LTI model (2). In the downstream filtering task, we first estimate the latent reduced-order state 
+
+zk using a Kalman filter applied to (2). In particular, let 
+
+μk|k := E[zk|y0: k, u 0: k],
+
+denote the posterior mean of zk, where the subscript (·| k)
+
+indicates conditioning on all measurements up to time k.The estimate of the full-order state ˆxk ∈ Rnx is then obtained by mapping the filtered latent state μk|k through the lifting map Φ( ·). Specifically, 
+
+μk|k = KF (θ, y 0: k, u 0: k), (3a) 
+
+ˆxk = Φ( μk|k), (3b) where KF (·) denotes the recursive Kalman filter (KF) that computes the posterior mean μk|k (and covariance Pk|k)of the RO-LTI model’s state zk given the model parame-ters θ and the observations (u0: k, y 0: k). Then, Φ( ·) maps the reduced-order state estimate μk|k to the original high-dimensional state ˆxk ∈ Rnx .Suppose we are given a dataset D = {xk, y k, u k}N −1
+
+> k=0
+
+consisting of N state-output-input samples generated from the nonlinear system (1). We now state the problem. 
+
+Problem 1: Given a dataset D = {xk, y k, u k}N −1 
+
+> k=0
+
+gener-ated from (1), estimate the parameters θ of the RO-LTI model (2) and learn a state-lifting map Φ( ·) in (3b) such that the reconstructed state estimate ˆxk in (3) matches as closely as possible to the true high-dimensional state xk. ■
+
+We thus seek the parameters θ of a reduced-order model (2), including both the state-space matrices (A, B, C, D )
+
+and the noise covariances (Q, R ), that are explicitly tailored to the downstream state estimation task. Once the model parameters θ and the lifting map Φ( ·) are learned by solving Problem 1, they are used for filtering on unseen data. 
+
+Remark 1: The full state xk is assumed to be available only during training, for the purpose of learning the RO-LTI model and the map Φ. During inference (filtering on unseen data), only input-output measurements are available, and the state is first estimated using the reduced-order Kalman filter (eq. (3a)) and then mapped to the original space via the lifting map Φ (eq. (3b)). ■
+
+III. METHODOLOGY 
+
+A. Learning the State-Lifting Map via Autoencoders 
+
+We aim to learn a state-lifting map Φ : Rnz → Rnx as introduced in (3b). To this end, we employ an Autoencoder 
+
+(AE) architecture [14] consisting of an encoder Enc ψ :
+
+Rnx → Rnz and a decoder network Dec ϕ : Rnz → Rnx . The weights of the encoder/decoder networks are denoted by ψ
+
+and ϕ, respectively. The encoder maps the high-dimensional state to a latent low-dimensional state, which is subsequently lifted back to the original space via the decoder: 
+
+ˆzk = Enc ψ (xk), ˆxk = Dec ϕ(ˆ zk). (4) The decoder Dec ϕ(ˆ zk) serves as a parametric model of the lifting map Φ( ·). Thus, learning Φ translates to computing the decoder parameters ϕ. We consider the following AE 
+
+reconstruction loss ,
+
+Lae (ψ, ϕ ) = 1
+
+N 
+
+> N−1
+
+X
+
+> k=0
+
+∥xk − Dec ϕ(Enc ψ (xk)) ∥22. (5) This loss is used to learn a lower-dimensional latent repre-sentation of the state, which is particularly effective when the components of xk are correlated. In the following, by considering the loss in (4) together with other filtering-oriented objectives, the AE parameters (ψ, ϕ ) are jointly learned with the RO-LTI model (2) parameters θ.
+
+B. Learning the Reduced-Order LTI Model 
+
+We aim to learn the parameters θ of the RO-LTI model (2), such that it is well-suited for the downstream filteing task. 
+
+1) Positive Semi-definite Parameterization Covariances: 
+
+The covariance matrices Q ∈ Rnz ×nz , R ∈ Rny ×ny are parameterized via their Choleksky factorizations: 
+
+Q = LQL⊤
+
+> Q
+
+, R = LRL⊤ 
+
+> R
+
+, (6) where LQ and LR are lower-triangular matrices treated as decision variables. This parameterization ensures that 
+
+Q, R ⪰ 0 by construction. We next recall the Kalman filter associated with the RO-LTI model, which will be used to define the learning objective to identify the parameters 
+
+θ = {A, B, C, D, L Q, L R}.
+
+2) Kalman Filter Recursions: The Kalman filter is initial-ized with μ0|0 = ˆ z0 = Enc ψ (x0), where ˆz0 is the encoded initial state and let P0|0 = P0 be the chosen initial latent state covariance. The KF recursions are given by: prediction: 
+
+(μk|k−1 = Aμ k−1|k−1 + Bu k,Pk|k−1 = AP k−1|k−1A⊤ + Q, (7a) 
+
+rk = yk − (Cμ k|k−1 + Du k), (7b) 
+
+Sk = CP k|k−1C⊤ + R, (7c) update: 
+
+(μk|k = μk|k−1 + Kkrk,Pk|k = ( I − KkC)Pk|k−1, (7d) where the Kalman gain is given by Kk = Pk|k−1C⊤S−1 
+
+> k
+
+.Here, μk|k−1 ∈ Rnz , P k|k−1 ∈ Rnz ×nz in (7a) denote the predicted mean and covariance of the latent state zk,respectively. The term rk ∈ Rny in (7b) is the innovation residual and Sk ∈ Rny ×ny in (7c) is the innovation co-variance. The filter’s posterior update based on the output measurements yk is given in (7d) where μk|k and Pk|k denote the updated mean and covariance of the state zk, respectively. Note that the posterior mean μk|k = E[zk|y0: k, u 0: k] given by the algorithm (7), depends on the model parameters θ and the measurements (y0: k, u 0: k) up to time k. We denote this dependence compactly as, 
+
+μk|k(θ) = KF (θ, y 0: k, u 0: k), (8) where KF (·) represents the recursion in (7). Based on the above formulation, we learn the model parameters θ by optimizing objectives tailored to the filtering task. To this end, we combine (i) the Kalman filter nega-tive log-likelihood and (ii) a state reconstruction loss that enforces the state estimate given by the KF, mapped into the original x-space via the decoder ˆxk = Dec ϕ(μk|k(θ)) to match the true states. In particular, we consider the following loss functions: 
+
+Lnll (θ) = 12N 
+
+> N−1
+
+X
+
+> k=0
+
+
+
+log det Sk + r⊤ 
+
+> k
+
+S−1 
+
+> k
+
+rk
+
+
+
+(9) 
+
+Lfilter (θ, ϕ ) = 1
+
+N 
+
+> N−1
+
+X
+
+> k=0
+
+∥xk − Dec ϕ(μk|k(θ)) ∥22 (10) The loss Lnll (θ) in (9) is the negative log-likelihood loss of the Kalman filter, computed from the innovation residuals rk
+
+in (7b) and their covariance Sk in (7c). This term encourages the learned model to be consistent with the measurements 
+
+y0: N . The loss Lfilter (θ, ϕ ) in (10) minimizes the mismatch between the true state xk and the reconstructed estimate obtained by decoding the filtered latent mean as Dec ϕ(μk).This term explicitly promotes accurate state estimation in the original high-dimensional space. 
+
+C. Latent Space Alignment 
+
+The latent representation ˆzk obtained from the autoencoder in (4) is, in general, not aligned with the latent state of the RO-LTI model (2). To enforce consistency between these representations, we introduce the following latent alignment loss: 
+
+Llatent (ϕ, θ ) = 1
+
+N 
+
+> N−1
+
+X
+
+> k=0
+
+∥ˆzk − μk|k(θ)∥22. (11) Intuitively, if the autoencoder learns a meaningful low-dimensional representation of the underlying system state, then ˆzk serves as a reference latent state trajectory. 
+
+D. Filtering-oriented Learning of the RO-LTI Model 
+
+We jointly learn the RO-LTI model parameters θ and the AE parameters ψ, ϕ by minimizing the composite objective: 
+
+L(θ, ψ, ϕ ) = λae Lae + λnll Lnll + λfilt Lfilt + λlatent Llatent ,
+
+(12) where λae , λ nll , λ filt , λ latent ≥ 0 are the tuning hyperparam-eters that balance the contribution of each term. The composite loss (12) embodies the task-oriented learn-ing idea of the proposed approach. In summary, the term 
+
+Lnll shapes the LTI model parameters and noise covari-ances through the Kalman filter likelihood, ensuring that the reduced-order model is optimized not merely for system approximation, but explicitly for filtering performance . The term Lfilt reinforces this by penalizing reconstruction error in the original state space after decoding, directly linking the latent filtering objective to the estimation quality in the original state space. The terms Lae and Llatent ensure geometric consistency of the latent space and alignment between the encoder outputs and the Kalman filter states, re-spectively. Critically, all terms are optimized simultaneously: the reduced-order model, noise covariances, and autoencoder parameters are learned jointly rather than sequentially. This is in contrast to the classical two-stage paradigm, in which a reduced-order model is first identified for system approxima-tion, and a filter is subsequently designed as a separate step. In the proposed formulation, no such separation exists-the reduced-order model is the filtering model, and its parameters are shaped entirely by the estimation task. Once the model and AE are trained, at the inference stage, we reconstruct the estimate of true state as described in (3). Note that only the reduced-order Kalman filter and the decoder are required, while the encoder is not needed 
+
+Remark 2 (Differentiation through the Kalman filter): 
+
+The Kalman filter recursions in (7) define a differentiable computational graph with respect to the model parameters θ.In particular, the loss functions (9), (10), and (11) depend on 
+
+μk(θ), r k, S k which are obtained via the recursive filtering equations. Automatic differentiation therefore applies the chain rule through the entire sequence of recursions, enabling the computation of the gradient of the total loss L(θ, ψ, ϕ ) with respect to θ. Standard gradient-based optimizers (e.g., Adam or SGD) are then used to update the parameters θ, ψ, ϕ . ■
+
+Remark 3 (Reduced-order System Identification): In aconventional system identification (SID) setup, we learn a reduced-order model by minimizing a prediction-based 
+
+objective of the form: 
+
+LSID (θ, ψ, ϕ ) = λae Lae + 1
+
+N 
+
+> N−1
+
+X
+
+> k=0
+
+∥xk+1 − Dec ϕ(˜ zk+1 )∥22
+
++ 1
+
+N 
+
+> N−1
+
+X
+
+> k=0
+
+∥˜zk+1 − ˆzk+1 ∥22
+
+s.t. ˆzk = Enc ψ (xk), k = 0 , . . . , N − 1,
+
+˜zk+1 = Aˆzk + Bu k, y k = Cz k + Du k. (13) This corresponds to jointly learning a reduced-order LTI model and a lifting map based on reconstruction and one-step prediction errors, similar to the approaches introduced in [15], [17]. A key distinction from the proposed approach is that (13) does not incorporate any filtering objective. As shown in the case study (Section V), models learned via (13) yield inferior filtering performance compared to the proposed filtering-oriented formulation. ■
+
+IV. G ENERALIZATION BOUNDS ON FILTERING 
+
+PERFORMANCE 
+
+The goal of this section is to establish probabilistic bounds that quantify the performance gap between filtering with the proposed reduced-order and a full-order model. Our analysis builds on the results developed in [7] by some of the authors, which are adapted here to the reduced-order filtering setting. 
+
+A. Definitions 
+
+Let ˜θ ∈ Θ ⊂ Rn˜θ denote both the parameters of the reduced-order latent LTI model θ and the decoder parameters 
+
+ϕ. Let θ⋆ ∈ Θ⋆ ⊂ Rnθ⋆ denote the parameters of the full-order state-space model of the system (1), including the process and measurement noise covariances. Let us denote the state estimates obtained from the reduced-order and full-order Kalman filters as ˆxk(˜θ, y 0: k) = 
+
+Dec ϕ(E[zk|θ, y 0: k]) and ˆx⋆k(θ⋆, y 0: k) = E[xk|θ⋆, y 0: k], re-spectively 1. To quantify estimation performance over a tra-jectory of length T , we define the root-mean-square error (RMSE) as, 
+
+f (x, ˆx(¯θ, y 0: T −1)) = 
+
+vuut 1
+
+T n xT −1X
+
+> k=0
+
+∥xk − ˆxk(¯θ, y 0: T −1)∥22,
+
+(14) where ¯θ denotes either the RO-LTI/decoder parameters ˜θ or the true full-order parameters θ⋆. Here, we denote the true state vector sequence as x := x⊤ 
+
+> 0
+
+· · · x⊤ 
+
+> T−1
+
+ ∈ RT n x and 
+
+ˆx(¯θ, y 0: T −1) := ˆx⊤ 
+
+> 0
+
+(¯θ, y 0) · · · ˆx⊤ 
+
+> T−1
+
+(¯θ, y 0: T −1) ∈ RT n x
+
+denotes the corresponding sequence of estimated states. We define the performance gap between reduced-order and full-order filtering as follows: 
+
+Ψ( ˜θ, θ ⋆|x, y ) := f (x, ˆx(˜θ, y 0: T −1)) −f (x, ˆx⋆(θ⋆), y 0: T −1).
+
+(15)   
+
+> 1The dependence on input sequence u0: kis dropped for brevity.
+
+Next, we formalize the data-generating process. For the data-generating system in (1), let p(u), p (x0), p (w) and p(v)
+
+denote the probability density functions over the inputs, initial state, process noise and measurement noise, respec-tively. Let p(D) := p(u) ⊗ p(x0) ⊗ p(w) ⊗ p(v) be the product measure denoting the data-generating distribution. Let {(u(i)0: T , x (i)0 , w (i)0: T , v (i)0: T )}mi denote a validation set of m
+
+independent realizations from p(D) and let {(x(i)0: T , y (i)0: T )}mi=1 
+
+be the corresponding states and measured outputs. In other words, the set {(x(i)0: T , y (i)0: T )}mi=1 denotes m independent validation datasets, where the i-th validation set contains 
+
+T samples of states and outputs generated by exciting the system (1) with the input sequence u(i)0: T −1, having an initial condition x(i)0 and the corresponding noise realization affect-ing the system are w(i)0: T , v (i)0: T . We write {(x(i)0: T , y (i)0: T )}mi=1 
+
+compactly as {(x(i), y (i))}mi=1 .For each trajectory, we define the corresponding estimation error and performance gap, namely, for i = 1 , . . . , m ,
+
+f (i) := f (x(i), x (¯θ, y (i))) , Ψ(i) := Ψ( ˜θ, θ ⋆|x(i), y (i)).
+
+(16) Let (xnew , y new ) denote an independent trajectory gener-ated from the underlying distribution p(D), not used during training or validation, with corresponding state-estimation error f new and the performance gap Ψnew .Finally, let PΨ be the probability measure of the random variable Ψ. Similarly, let S = {Ψ(i)}mi=1 denote the valida-tion samples and PS denote the probability distribution of 
+
+S.We now state a result that provides a probabilistic bound on the performance gap. 
+
+Theorem 1 (Generalization bounds [7]): For any α, δ ∈
+
+(0 , 1) , define 
+
+k⋆ := 
+
+l
+
+m (1 − α + εm)
+
+m
+
+, εm := 
+
+r log(2 /δ )2m .
+
+Assume that the number of validation samples m is suf-ficiently large such that α ≥ εm (equivalently, k⋆ ≤ m). Then, with probability at least 1 − δ over the validation set 
+
+S = Ψ(i) mi=1 , it holds that 
+
+PΨ
+
+ Ψ ≤ Ψ(k⋆)
+
+ ≥ 1 − α, (17) where Ψ(k) denotes the k-th order statistic of the validation values, i.e., 
+
+Ψ(1) ≤ Ψ(2) ≤ · · · ≤ Ψ(m), (18) with Ψ(k) being the k-th smallest value in the ordered sequence. Equivalently, 
+
+PS
+
+
+
+PΨ
+
+ Ψ ≤ Ψ(k⋆) S ≥ 1 − α
+
+
+
+≥ 1 − δ. (19) 
+
+■
+
+We refer to [7, Theorem 1] for details and proof. Intuitively, for any new independent trajectory 
+
+(xnew , y new ) ∼ p(D) with corresponding gap Ψnew ,Theorem 1 guarantees that 
+
+PΨ
+
+ Ψnew ≤ Ψ(k⋆) S ≥ 1 − α, (20) and this statement holds with probability at least 1 − δ with respect to the randomness of the validation set S. In other words, Ψ(k⋆) serves as a distribution-free upper bound on the performance degradation incurred by the reduced-order filter on unseen data. This bound does not require any assumptions on the underlying data distribution. V. C ASE STUDY 
+
+We demonstrate the proposed framework on a high-dimensional system arising from partial differential equations (PDEs), which are common in applications such as fluid dynamics, structural mechanics, and materials science. In particular, we consider a nonlinear heat diffusion problem in a one-dimensional rod. The state represents the temperature at 100 spatial locations along the rod, resulting in a system with state dimension nx = 100 .
+
+A. Heat diffusion in a metal rod 
+
+A central objective in heat conduction analysis is to determine the temperature distribution along the rod under given boundary conditions [5]. We consider a 1-D heat conduction problem in a steel rod of length L = 10 cm. Let T(x, t ) denote the temperature along the rod at position 
+
+x ∈ [0 L] m and time t, whose evolution is governed by the following heat conduction PDE: 
+
+ρc ∂T(x, t )
+
+∂t = ∂∂x
+
+
+
+¯k(T) ∂T(x, t )
+
+∂x
+
+
+
+, x ∈ [0 L], t > 0,
+
+(21) where ρ, c, k (·) characterize the material properties of the rod whose values are set as follows: mass den-sity ρ = 7800 kg /m3; specific heat capacity c =486 J /(kg K) ; temperature-dependent conductivity ¯k(T) = 
+
+k0(1 + αT) Wm −1K−1 with temperature coefficient α =
+
+−2×10 −4 K−1.A finite-element spatial discretization at 100 locations xj ∈
+
+[0 , L ], j = 1 , . . . , 100 , and a semi-implicit Euler integrator with sampling time ∆t = 2 s of the PDE (21), results in a sta-ble discrete-time nonlinear state-space model of the form (1) with dimensions nx = 100 , n u = 2 , n y = 5 . The state xk ∈
+
+R100 represents the temperatures at the discretized spatial nodes, i.e. , xk = T(x1, k ) · · · T(x100 , k )⊤. The outputs 
+
+yk ∈ R5 correspond to temperature measurements only at 5
+
+sensor locations, specifically at nodes yk = {T(xi, k )}, i =20 , 40 , 60 , 80 , 100 . The process and measurement noise are Gaussian distributed wk ∼ N (0 , 0.1 I100 ), vk ∼ N (0 , 0.1 I5).The two inputs uk ∈ R2 are the time-varying Dirichlet boundary temperatures uk = [ T(0 , k ) T(L, k )] ⊤ at the left-most and the right-most end of the rod. 
+
+B. Data 
+
+The training data are generated by exciting the nonlinear heating rod system with multi-sine boundary inputs. In particular, the left boundary temperature T(0 , k ) is a multi-sine signal consisting of four harmonics (periods between 360–7200 s) with an amplitude of 300 ± 50 ◦C representing furnace-like conditions. The right boundary input tempera-ture T(L, k ) is also a multi-sine signal with four harmonics (periods between 360–7200 s) and amplitude of 26 ± 4 ◦C,modeling heat exchange with ambient air. The temperature difference at the two ends creates a permanent temperature gradient across the rod from ∼ 300 ◦C to ∼ 25 ◦C.For the test dataset, we use single-sinusoidal boundary inputs with amplitudes (300 ±25 ◦C) , (25 ±2 ◦C) and periods of (1200 , 3600) s for the left and right boundary inputs, respectively. The number of training and test samples is 
+
+Ntr = Nte = 1000 . All signals are min-max normalized using training data statistics. Furthermore, to evaluate the probabilistic bounds on per-formance gap between the full-order and reduced-order filter (see Section IV), we generate m = 1000 independent valida-tion datasets, each consisting of T = 500 samples of state-input-output trajectory Dval = {{ x(i) 
+
+> k
+
+, y (i) 
+
+> k
+
+, u (i) 
+
+> k
+
+}500 
+
+> k=0
+
+}1000  
+
+> i=1
+
+.For each trajectory, the boundary inputs are single-sinusoidal signals with randomly sampled amplitudes, periods, and phases, ensuring i.i.d. validation conditions. 
+
+C. Model configuration and training 
+
+For the AE in (4) and RO-LTI model (2), we set the latent state dimension to nz = 8 . Thus, we are considering the compression of the state dimension from xk ∈ R100 to zk ∈
+
+R8. The encoder is a feedforward MLP with three hidden layers, and tanh activations, mapping the input to a latent representation. The decoder mirrors this architecture with the same layer sizes in reverse. We train the AE and RO-LTI model with a latent differen-tiable Kalman filter by minimizing the multi-objective loss (12), using the Adam optimizer with learning rate η = 10 −2
+
+over 350 epochs. The training proceeds in three phases: (i) during the first 150 epochs, λfilt = λlatent = λae = 1 and 
+
+λnll = 0 ; (ii) over the next 100 epochs, λfilt = λlatent = 1 ,
+
+λae = 0 , and λnll is linearly increased from 0 to 1; (iii) during the final 100 epochs, λfilt = λlatent = λnll = 1 
+
+and λae = 0 . This rationale behind the training procedure is to emphasize learning the encoder/decoder networks first, in the initial part of the training to guide the AE to obtain a correct latent representation. Once this is done, the weights 
+
+λae associated with learning the encoder are set to zero and the training is focused on learning the model and the KF. Similar training heuristics have also been reported in [17]. 
+
+D. Results 
+
+Figure 1 shows the ground-truth and estimated temperature fields T(xj , k ) of the rod on the test dataset at each node location xj (y-axis) and at time k (x-axis). The values of the temperature T(xj , k ) are represented by the color gradient. The figure also shows the RMSE errors for each node position xj . The proposed reduced-order Kalman filter 
+
+(ROKF) is able to reconstruct the full space–time field from five sparse observations with an average RMSE of about 2◦C
+
+across all nodes. Corresponding to the temperature fields in Fig. 1, we also depict the state estimation errors xk − ˆxk in         
+
+> Fig. 1. Temperature fields along the rod at different sampling times. (a) Ground-truth states. (b) ROKF-estimated states.
+> Fig. 2. (a) Estimation error xk−ˆxk; dotted lines show the sensor location on the rod. (b) Per-node RMSE (blue bars); dashed line is the average RMSE over 100 nodes.
+
+Fig. 2 over time at each node. We observe spatially uniform errors and no systematic bias at interior nodes. 
+
+Performance comparision 
+
+We compare the proposed ROKF against: (i) a full-order extended Kalman filter (FOEKF) using a true full-dimensional system model (1) and (ii) a system identification based KF (SIDKF), where first a RO-LTI model is obtained from data as detailed in Remark 3, without considering a differentiable Kalman filter in the architecture, minimizing the loss LSID as given in (13). In the FOEKF, we consider an EKF with full-state model 
+
+xk ∈ R100 , computing analytic Jacobians of the true model (1) and the true noise covariances, serving as the oracle . The FOEKF is also used to compute the performance gap Ψ( ·)
+
+in (15) w.r.t. to the proposed RO-LTI model filter. For SIDKF training, an identical encoder–decoder archi-tecture and latent dimension ( nz = 8 ) as in the proposed model is considered. At the inference, we run a Kalman Fig. 3. Performance comparison on test sets: RMSE computed for 1000 
+
+> Monte-Carlo trials for full-order (FOEKF), proposed reduced-order (ROKF), and system identification-based (SIDKF) Kalman filters.
+
+filter with the learned reduced-order model by setting the covariance matrices to Q = 0 .01 I8, R = 0 .01 I5, chosen by trial-and-error. We recall that the model in SIDKF is trained 
+
+without the Kalman filter in the loop and thus, Q, R are not optimized during the training. We compare the ROKF filtering performance quantified in terms of the RMSE as in (14) with FOEKF and SIDKF. The RMSEs are computed for m = 1000 independent Monte-Carlo runs, each with a new noise realization and indepen-dently randomized inputs. Fig. 3 shows the boxplots of the RMSEs for the three approaches. The FOEKF achieves the lowest RMSE as expected. The ROKF substantially outper-forms the SIDKF method, indicating that jointly optimizing the model and the decoder with the Kalman filter objective yields a latent model representation better matched to the state estimation task than one obtained by minimizing fitting error alone. 
+
+Probabilistic bounds on the performance gap 
+
+We now empirically test the probabilistic bounds derived in Theorem 1 on the performance gap between the FOEKF and the proposed ROKF. We set α = 0 .05 , δ = 0 .05 
+
+and consider m = 1000 independent validation samples. For each validation sample i = 1 , . . . , 1000 , we compute the performance gap Ψ(i) between FOEKF and ROKF, as defined in (15) and order the set {Ψ(i)}1000  
+
+> i=1
+
+as Ψ(1) ≤ · · · ≤ 
+
+Ψ(1000) . By applying Theorem 1, we obtain ε1000 = 0 .0429 
+
+and the bound index k⋆ = 993 . This corresponds to certified theoretical bound on the performance gap to be Ψ(k⋆) =3.23 ◦C. In other words, the theoretical bound implies that 
+
+PΨ(Ψ ≤ 3.23) ≥ 0.95 for a gap Ψ computed over a fresh test set, with probability at least 1 − δ over the validation set. To empirically validate the bound, we generate 500 inde-pendent test sets and compute the corresponding performance gaps {Ψ(j)}500 
+
+> j=1
+
+. We observe that 98 .8% (494 out of 500) of these satisfy Ψ(j) ≤ Ψ(k⋆), thus satisfying the theoretical guarantee of 1 − α = 0 .95 . Figure 4 shows the histogram of the test performance gaps together with the certified bound 
+
+Ψ(k⋆) = 3 .23 ◦C. Summarizing, with 1−δ = 0 .05 confidence over the draw of the validation set, the performance gap between the FOEKF and ROKF will be below 3.23 ◦C for a a new test sample with at least 1 − α = 0 .95 probability.                 
+
+> Fig. 4. Histogram of the performance gap Ψcomputed from 500 inde-pendent test sets. The dash-dotted red line indicates the theoretical bound
+> Ψ(k⋆)= 3 .23 ◦C(Theorem 1). The shaded green region corresponds to performance gaps below the bound Ψ≤Ψ(k⋆)(494 out of 500 ), while the shaded pink region represents those exceeding the bound ( 6out of 500 ).
+
+VI. C ONCLUSIONS 
+
+We presented a learning-based framework for identifying reduced-order models tailored to state estimation in high-dimensional nonlinear systems. By jointly learning a latent linear dynamical model and a lifting map through an autoen-coder, and embedding a differentiable Kalman filter within the training loop, the proposed approach enables accurate and computationally efficient state estimation entirely in a low-dimensional space. Furthermore, the integration of conformal prediction provides probabilistic guarantees on the perfor-mance gap between reduced-order and full-order filtering, without requiring assumptions on the data distribution. Overall, this work highlights a shift from model-centric representations, such as Koopman embeddings, to task-oriented latent representations explicitly designed for fil-tering. Future work will investigate extensions to linear parameter-varying latent models, as well as meta-filtering approaches for learning universal estimators across classes of dynamical systems. REFERENCES [1] U. M. Al-Saggaf and G. F. Franklin. Model reduction via balanced realizations: an extension and frequency weighting techniques. IEEE Transactions on Automatic Control , 33(7):687–692, 1988. [2] J. Annoni and P. Seiler. A method to construct reduced-order parameter-varying models. International Journal of Robust and Nonlinear Control , 27(4):582–597, 2017. [3] A. C. Antoulas. Approximation of Large-Scale Dynamical Systems .Society for Industrial and Applied Mathematics (SIAM), 2005. [4] A. Bemporad. An l-bfgs-b approach for linear and nonlinear system identification under ℓ1 and group-lasso regularization. IEEE Transac-tions on Automatic Control , 70(7):4857–4864, 2025. [5] T. L. Bergman, A. S. Lavine, F. P. Incropera, and D. P. DeWitt.          
+
+> Fundamentals of Heat and Mass Transfer . Wiley, 2016. [6] P. Bevanda, S. Sosnowski, and S. Hirche. Koopman operator dynami-cal models: Learning, analysis and control. Annual Reviews in Control ,52:197–212, 2021. [7] R. Busetto, M. Mejari, M. Forgione, A. Bemporad, and D. Piga. Learning low-dimensional embeddings for black-box optimization.
+> arXiv preprint arXiv:2505.01112 , 2025. [8] Y. Chen, D. Sanz-Alonso, and R. Willett. Reduced-order autodiffer-entiable ensemble kalman filters. Inverse Problems , 39(12):124001, 2023. [9] G. Evensen. The ensemble kalman filter: Theoretical formulation and practical implementation. Ocean Dynamics , 53(4):343–367, 2003. [10] B. F. Farrell and P. J. Ioannou. State estimation using a reduced-order kalman filter. Journal of the Atmospheric Sciences , 58(24):3666–3680, 2001.
+
+[11] M. Forgione, M. Mejari, and D. Piga. Model order reduction of deep structured state-space models: A system-theoretic approach. In proc. 63rd IEEE Conf. on Decision and Control (CDC) , pages 8620–8625, 2024. [12] K. Glover. All optimal hankel-norm approximations of linear multi-variable systems and their l∞-error bounds. International Journal of Control , 39(6):1115–1193, 1984. [13] I. V. Gosea, M. Petreczky, and A. C. Antoulas. Reduced-order modeling of LPV systems in the loewner framework. In proc. 60th IEEE Conference on Decision and Control (CDC) , pages 3299–3305, 2021. [14] G. E. Hinton and R. R. Salakhutdinov. Reducing the dimensionality of data with neural networks. Science , 313(5786):504–507, 2006. [15] P. J. W. Koelewijn, R. Singh, P. Seiler, and R. T´ oth. Learning reduced-order linear parameter-varying models of nonlinear systems. In proc. 20th IFAC Symposium on System Identification (SYSID) , pages 265– 270, 2024. [16] Y. Liu and B. D. O. Anderson. Singular perturbation approximation of balanced systems. International Journal of Control , 50(4):1379–1405, 1989. [17] D. Masti and A. Bemporad. Learning nonlinear state–space models using autoencoders. Automatica , 129:109666, 2021. [18] S. A. N. Nouwens, B. de Jager, M. M. Paulides, and W. P. M. H. Heemels. Approximate kalman filtering for large-scale systems with an application to hyperthermia cancer treatments. In proc. 61st IEEE Conf. on Decision and Control (CDC) , pages 6040–6045, 2022. [19] G. Pillonetto, T. Chen, A. Chiuso, G. De Nicolao, and L. Ljung. Regularized linear system identification using atomic, nuclear and kernel-based norms: The role of the stability constraint. Automatica ,69:137–149, 2016. [20] J. L. Proctor, S. L. Brunton, and J. N. Kutz. Dynamic mode decomposition with control. SIAM Journal on Applied Dynamical Systems , 15(1):142–161, 2016. [21] S. S¨ arkk¨ a. Bayesian Filtering and Smoothing . Cambridge University Press, Cambridge, UK, 2013. [22] M. Verhaegen and V. Verdult. Filtering and System Identification: A Least Squares Approach . Cambridge University Press, Cambridge, UK, 2007.

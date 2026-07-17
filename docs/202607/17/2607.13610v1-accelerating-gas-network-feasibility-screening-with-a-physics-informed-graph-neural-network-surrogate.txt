@@ -1,0 +1,803 @@
+Title: Accelerating gas-network feasibility screening with a physics-informed graph neural network surrogate
+
+URL Source: https://arxiv.org/pdf/2607.13610v1
+
+Published Time: Thu, 16 Jul 2026 01:06:28 GMT
+
+Number of Pages: 29
+
+Markdown Content:
+# Graphical Abstract 
+
+## Accelerating gas-network feasibility screening with a physics-informed graph neural network surrogate 
+
+Dongrui Jiang, Jochen Garcke, Okan Akca, Jeremias Hollnagel, Bernhard Klaassen, Mehrnaz Anvari, Joachim Müller-Kirchenbauer arXiv:2607.13610v1 [cs.CE] 15 Jul 2026 Highlights 
+
+## Accelerating gas-network feasibility screening with a physics-informed graph neural network surrogate 
+
+Dongrui Jiang, Jochen Garcke, Okan Akca, Jeremias Hollnagel, Bernhard Klaassen, Mehrnaz Anvari, Joachim Müller-Kirchenbauer 
+
+• Edge-centric PI-GNN predicts pipe-level pressure drops and gas flows 
+
+• Projection enforces mass balance; reconstruction improves pressure consistency 
+
+• Achieves 1.05 bar pressure MAE and 𝑅 2 = 0 .972 flow accuracy on GasLib-582 
+
+• OOD stress tests identify cases needing solver verification 
+
+• Enables millisecond-scale feasibility and bottleneck screening for planning Accelerating gas-network feasibility screening with a physics-informed graph neural network surrogate 
+
+## Dongrui Jiang a,b ,∗, Jochen Garcke b,c , Okan Akca a,b , Jeremias Hollnagel a, Bernhard Klaassen d,Mehrnaz Anvari b and Joachim Müller-Kirchenbauer a
+
+> a
+
+Technische Universität Berlin, Straße des 17. Juni 135, 10623, Berlin, Germany 
+
+> b
+
+Fraunhofer Institute for Algorithms and Scientific Computing SCAI, Schloss Birlinghoven 1, 53757, Sankt Augustin, Germany 
+
+> c
+
+Institut für Numerische Simulation, Universität Bonn, Friedrich-Hirzebruch-Allee 7, 53115, Bonn, Germany 
+
+> d
+
+Fraunhofer Research Institution for Energy Infrastructures and Geothermal Systems IEG, Am Hochschulcampus 1, 44801, Bochum, Germany 
+
+A R T I C L E I N F O 
+
+Keywords :Gas network simulation Graph neural networks Physics-informed learning Surrogate modeling Feasibility screening Energy systems planning 
+
+A B S T R A C T 
+
+Large-scale gas-network scenario evaluation is a computational bottleneck in integrated energy-system planning, particularly when gas infrastructure interacts with power, heat, hydrogen, and sector-coupling pathways. Conventional nonlinear hydraulic solvers provide reliable feasibility assessment but are costly for stochastic screening, whereas unconstrained learning-based surro-gates may produce hydraulically infeasible states. This study develops a physics-informed graph neural network surrogate for steady-state gas-network simulation and feasibility screening. The model uses an edge-centric architecture to predict pipe-level squared-pressure differences and flows. A differentiable projection layer enforces nodal mass conservation on predicted flows, while a Laplacian reconstruction maps edge pressure differences to topologically consistent nodal pressures. The framework is evaluated on GasLib-134, GasLib-135, and GasLib-582 using stochas-tically generated operating scenarios. On the meshed 582-node benchmark trained with 5000 scenarios, the surrogate achieves a pressure mean absolute error of 1.05 bar, corresponding to 1.3% of the realized pressure range, with 𝑅 2 = 0.981 . Projected-flow predictions reach 
+
+𝑅 2 = 0 .972 , and mass-balance residuals are reduced to numerical precision, on the order of 
+
+10 −5 –10 −4 Nm 3/s. Compared with the MYNTS reference solver, inference is reduced from seconds to milliseconds, with the largest benchmark evaluated in less than 40 ms. Loadability and out-of-distribution stress-test evaluations demonstrate robust feasibility screening under high-load conditions, while strongly localized demand concentrations are identified as cases requiring solver-based verification near feasibility limits. The framework provides a physically constrained planning accelerator for high-volume scenario screening and prioritization. 
+
+## 1. Introduction 
+
+Under deep decarbonization pathways, the long-term use of natural gas as a primary fossil fuel is expected to decline 1;2 . Nevertheless, existing gas transmission infrastructure is likely to remain relevant for future energy systems due to its large-scale transport capacity and storage flexibility, which are difficult to reproduce with electricity networks alone 3;4 . In integrated multi-energy systems, these assets may support hydrogen transport, power-to-gas (P2G) conversion, localized gas injection, and bidirectional coupling with the power sector 5–8 . The planning question is therefore not only whether gas infrastructure remains useful, but whether its hydraulic limits can be evaluated quickly across many uncertain operating conditions. This need builds on recent gas-network modeling efforts that embed spatially resolved simulation into larger energy-system workflows 9;10 . The planning question thus creates a computational bottleneck: conventional hydraulic solvers are too slow for screening thousands of scenarios, while unconstrained surrogates risk physical infeasibility. This requirement creates a computational bottleneck for planning studies. Uncertain demand and renewable generation 11;12 , supply allocation and infrastructure changes 13;14 , along with hydrogen blending and localized P2G injection 15–17 , can generate large ensembles of operating scenarios that must be screened for pressure feasibility and potential bottlenecks. In such workflows, individual hydraulic simulations are less important than the ability to evaluate thousands of scenarios consistently and to identify the cases or network regions that require detailed engineering 
+
+> ∗
+
+Corresponding author 
+
+dongrui.jiang@scai.fraunhofer.de (D. Jiang) 
+
+D. Jiang et al.: Preprint submitted to Elsevier Page 1 of 27 Accelerating gas-network feasibility screening 
+
+analysis. Efficient steady-state simulation is therefore a practical requirement for scenario-based stochastic planning, uncertainty analysis, and early-stage infrastructure assessment. Conventional steady-state gas network simulation relies on nodal mass conservation and pipeline momentum balance, which are typically represented by nonlinear pressure–flow relations such as Weymouth-type equations 18–20 .These physics-based formulations provide sufficient fidelity for steady-state hydraulic design, planning, and feasibility studies, and are widely used in gas-network simulation and assessment tools 21 . However, these nonlinear systems are commonly solved using iterative methods such as Newton–Raphson, whose computational burden can increase with network size, nonlinear coupling, and repeated solution of the linearized systems arising within each iteration 22;23 .Although such solvers are suitable for detailed single-case assessment, many-query analyses over large uncertainty or disruption scenario sets can become computationally prohibitive 21;24 . Because the solver output is defined implicitly by nonlinear residual equations rather than by a fixed explicit map, direct use in automatic-differentiation workflows can require implicit-differentiation or custom adjoint treatments for gradient-based sensitivity analysis and optimization 25;26 .Surrogate and reduced-order modeling offer a route to high-throughput assessment in many-query gas and energy-network analyses 24 . Similar trends toward AI-assisted surrogate modeling and physics-informed computational accel-eration are also emerging in hydrogen-energy technologies, including water-electrolyzer modeling, where machine-learning surrogates are increasingly used to complement computationally intensive multiphysics simulations 27 .Planning applications impose stricter requirements than fast regression alone: a surrogate used for feasibility screening must return hydraulic states that are physically admissible enough to support decisions about pressure limits, flow redistribution, and limiting components in gas-transportation planning and optimization 28 . Recent work in physics-informed machine learning and graph-based modeling provides useful building blocks for this purpose. Physics-informed neural networks incorporate governing equations through residual or constraint losses, while graph neural networks exploit graph-structured physical systems through localized message passing 29–34 . Hybrid and constraint-aware approaches further attempt to combine data-driven flexibility with physical structure 35;36 . GNN-based surrogates can accelerate simulation of meshed district-heating networks, yet they also reveal challenges in long-range coupling and receptive-field limitations for meshed energy networks 37 . In gas and energy networks, surrogate and reduced-order approaches have shown promise for accelerating many-query simulation and optimization, but maintaining strict hydraulic feasibility, robustness under off-design conditions, and scalability across meshed network structures remains challenging 21;24;28 .The remaining gap is specific to planning-oriented gas-network surrogates. Purely data-driven models can achieve low pointwise prediction errors while still producing states that violate nodal mass conservation, pressure–flow consistency, or other hydraulic feasibility requirements. Physics-informed models based primarily on soft residual penalties can reduce such violations, but they do not generally ensure conservation or constraint satisfaction to numerical precision, particularly in meshed networks where loop-induced coupling makes feasibility highly topology-dependent 35;36 . At the same time, many off-the-shelf message-passing surrogates are formulated mainly as node-state predictors, whereas steady-state gas hydraulics is intrinsically edge-mediated: pipe flows and pressure drops are defined on edges and coupled through nodal balance and network topology. These limitations leave a practical gap for surrogates that combine pipe-level representation, hard enforcement of nodal mass conservation, topologically consistent pressure reconstruction, and planning-oriented validation of feasibility margins and limiting components within a single differentiable graph-based workflow. To address this gap, this work proposes a physics-informed graph neural network surrogate for steady-state gas-network simulation and feasibility analysis. The model predicts squared-pressure differences and flows on network edges, aligning the learned representation with the governing pressure–flow relations. A differentiable projection layer enforces nodal mass conservation as a hard constraint, while a Laplacian-based reconstruction maps predicted pressure differences to globally consistent nodal pressures. This hybrid learning–physics formulation couples an edge-centric GNN with deterministic constraint operators, enabling fast forward simulation while preserving the physical structure required for planning-oriented assessment. The main contributions are: (i) an edge-centric GNN architecture aligned with gas-flow physics; (ii) exact enforcement of nodal mass conservation through a differentiable projection layer; (iii) deterministic reconstruction of topologically consistent pressure fields from learned edge quantities; and (iv) a planning-oriented validation on loadability assessment, feasibility screening, and sensitivity-based bottleneck identification for GasLib benchmarks. The remainder of the paper is organized as follows. Section 2 introduces the PI-GNN architecture, the training objective, and the feasibility-screening formulation. Section 3 evaluates predictive accuracy, physical consistency, and   
+
+> D. Jiang et al.: Preprint submitted to Elsevier Page 2 of 27 Accelerating gas-network feasibility screening
+
+runtime performance on GasLib benchmark networks, including an ablation study and a loadability analysis. Section 4 discusses the observed accuracy–consistency trade-offs and the practical scope of the surrogate. Section 5 summarizes the main findings, limitations, and implications for modern energy-system planning. 
+
+## 2. Methods 
+
+The proposed framework is a hybrid learning–physics surrogate for repeated steady-state gas-network simulation and feasibility evaluation. Each operating scenario is encoded as a graph input: nodes represent junctions, supply points, or demand points and carry operating and boundary-condition features, while edges represent physical pipes and carry static attributes such as length, diameter, and roughness. Reference pressure and flow labels are generated with MYNTS during training and evaluation; after training, inference requires only the encoded operating scenario and fixed network attributes. As summarized in Fig. 1, the forward pass consists of six connected blocks: graph input, edge-conditioned message passing, learned node embeddings, edge-level prediction, physics-constrained reconstruction, and final outputs. The GNN maps the graph input to node embeddings, which are then combined with pipe attributes to predict canonical-edge squared-pressure differences and preliminary flows. Reverse-edge quantities are imposed by antisymmetry. Differentiable physics operators then reconstruct nodal pressures through a Laplacian solve and project edge flows onto the nodal mass-balance constraint. The remainder of this section follows the same workflow. We first define the steady-state gas-flow problem and graph representation, then describe the edge-level GNN architecture, the pressure and flow reconstruction operators, the training loss, and finally the surrogate-based feasibility-screening and sensitivity-analysis procedure. 
+
+2.1. Problem statement and hydraulic constraints 
+
+We consider steady-state, isothermal gas flow on a network graph 𝐺 = ( 𝑉 , 𝐸 ), where nodes represent junctions, supply points, or demand points, and edges represent passive pipes. Each operating scenario 𝑠 specifies nodal injections or withdrawals 𝐝 (𝑠 ) ∈ ℝ𝑁 and one pressure-controlled reference node (slack node) 𝑟 (𝑠 ) with prescribed pressure setpoint 
+
+𝑝 (𝑠 )set . The sign convention is negative for supply and positive for demand. All generated scenarios satisfy global mass balance, 
+
+∑
+
+> 𝑖 ∈𝑉
+
+𝑑 (𝑠 ) 
+
+> 𝑖
+
+= 0 , (1) so the nodal operating conditions are balanced before they are passed to the surrogate. For graph-based prediction, each physical pipe {𝑢, 𝑣 } ∈ 𝐸 is assigned a canonical orientation 𝑒 = ( 𝑢 → 𝑣 ). Directed quantities on the reverse orientation are obtained by antisymmetry, 𝑞 𝑣 →𝑢 = − 𝑞 𝑢 →𝑣 and Δ𝑝 2 
+
+> 𝑣 →𝑢
+
+= −Δ 𝑝 2
+
+> 𝑢 →𝑣
+
+, so a single physical pipe state is represented consistently in both directions. We use the pressure-drop convention Δ𝑝 2 
+
+> 𝑢 →𝑣
+
+= 𝑝 2 
+
+> 𝑢
+
+−𝑝 2
+
+> 𝑣
+
+,so Δ𝑝 2 has the same sign as 𝑞 for dissipative passive pipes. The pressure-controlled reference node fixes the pressure level through 
+
+𝑝 2( 𝑠 ) 
+
+> 𝑟 (𝑠 )
+
+= 𝑝 2( 𝑠 )set . (2) Squared-pressure variables are used because steady-state gas-pipeline relations are naturally expressed in pressure-squared differences 18;20 .Let 𝐀 ∈ ℝ𝑁 ×𝑀 denote the node–edge incidence matrix of the physical pipe network under the canonical orientation, and let 𝐪 ∈ ℝ𝑀 be the corresponding vector of pipe flows. Nodal mass conservation is written as 
+
+𝐀𝐪 = 𝐝 , (3) which links pipe flows to the prescribed nodal injections and withdrawals. Along a passive pipe, steady-state momentum balance relates pressure loss to flow through a nonlinear friction law. In Weymouth-type form, 
+
+𝑝 2( 𝑠 ) 
+
+> 𝑢
+
+− 𝑝 2( 𝑠 ) 
+
+> 𝑣
+
+= 𝑅 𝑢𝑣 𝑞 (𝑠 )
+
+> 𝑢 →𝑣
+
+|||𝑞 (𝑠 )
+
+> 𝑢 →𝑣
+
+||| , (4)   
+
+> D. Jiang et al.: Preprint submitted to Elsevier Page 3 of 27 Accelerating gas-network feasibility screening
+
+where 𝑅 𝑢𝑣 is a pipe-specific resistance coefficient determined by static attributes such as length, diameter, roughness, and the friction-factor correlation used by the reference simulator 20;38 . Here 𝑝 2 
+
+> 𝑢
+
+− 𝑝 2 
+
+> 𝑣
+
+denotes the squared-pressure drop for positive flow from 𝑢 to 𝑣 , and we use this same convention for the directed edge variable Δ𝑝 2
+
+> 𝑢 →𝑣
+
+.
+
+2.2. Scenario-to-graph encoding 
+
+Each operating scenario is encoded on the fixed physical network topology. Scenario-dependent quantities are assigned to nodes, while static pipe properties are assigned to edges. This separates changing operating conditions from invariant network structure. 
+
+Node features. Each node 𝑖 ∈ 𝑉 receives features describing its local operating condition and pressure-boundary role. The nodal injection or withdrawal 𝑑 (𝑠 ) 
+
+> 𝑖
+
+is encoded as 
+
+𝑥 f low  
+
+> 𝑖
+
+= asinh 
+
+( 𝑑 (𝑠 )
+
+> 𝑖
+
+𝑞 0
+
+)
+
+, (5) where 𝑞 0 is a characteristic flow scale computed from the training set as the median absolute nonzero edge-flow magnitude. The inverse hyperbolic sine transform preserves the sign of supply and demand while compressing large values; here asinh( 𝑥 ) = ln 
+
+(
+
+𝑥 + √𝑥 2 + 1 
+
+)
+
+. Additional node features include indicators for the pressure-controlled reference node and pressure-setpoint location, a normalized topological distance to the reference node, and a log-normalized squared pressure setpoint broadcast to all nodes. In the reported configuration, four Laplacian positional encoding components are also appended. These global reference features are included because pressure reconstruction is anchored at the pressure-controlled reference node, while message passing itself has a finite receptive field. They provide the GNN with coarse information about each node’s position relative to the pressure boundary without requiring excessively deep message-passing stacks. 
+
+Edge features. Each physical pipe {𝑢, 𝑣 } ∈ 𝐸 is described by static attributes that affect hydraulic resistance: length 
+
+𝐿 𝑢𝑣 , diameter 𝐷 𝑢𝑣 , and roughness 𝜀 𝑢𝑣 . These quantities are converted to meters, log-transformed with a small positive offset, and standardized using training-set statistics. The same normalized pipe-feature vector is assigned to both directed representations of a physical pipe. 
+
+Output representation and scaling. Pressure-related quantities are represented in squared-pressure form. The GNN predicts normalized squared-pressure differences, which are rescaled by 𝑐 𝑝 2 , a high-percentile scale of training-set deviations |𝑝 2 
+
+> 𝑖
+
+− 𝑝 2set |. Flow is predicted through an asinh-normalized variable and mapped back to physical units by 
+
+𝑞 = 𝑞 0 sinh( ̃𝑞 ), so the final flow variables remain in Nm 3/s. 
+
+2.3. Edge-centric GNN surrogate 
+
+The surrogate predicts hydraulic quantities on edges, consistent with the fact that pipe flows and pressure losses are defined on pipes. A bidirected graph is used during message passing so that information can propagate in both directions along each physical pipe. Final predictions are made only once per pipe on a canonical orientation, and reverse-direction quantities are obtained by antisymmetry. Node embeddings are computed with a stack of GINEConv message-passing layers 39–41 . The input node features are first mapped to hidden states 𝐡 (0)  
+
+> 𝑖
+
+. The normalized pipe feature vector 𝐞 𝑢𝑣 , containing transformed length, diameter, and roughness, is separately encoded as 𝜼 𝑢𝑣 so that it has the same hidden dimension as the node states. At layer 𝑘 , the update is 
+
+𝐡 (𝑘 +1)  
+
+> 𝑖
+
+= MLP (𝑘 )
+
+⎡⎢⎢⎣
+
+(1 + 𝜖 (𝑘 )) 𝐡 (𝑘 ) 
+
+> 𝑖
+
++ ∑ 
+
+> 𝑗 ∈(𝑖 )
+
+ReLU 
+
+(
+
+𝐡 (𝑘 ) 
+
+> 𝑗
+
++ 𝜼 𝑗𝑖 
+
+)⎤ ⎥⎥⎦
+
+, (6) where 𝜖 (𝑘 ) is learned. This update lets pipe attributes condition how neighboring node states are aggregated.   
+
+> D. Jiang et al.: Preprint submitted to Elsevier Page 4 of 27 Accelerating gas-network feasibility screening
+
+For each canonical pipe direction (𝑢 → 𝑣 ), the pressure-drop head receives the concatenation of the two endpoint embeddings and the encoded pipe feature. Using the convention Δ𝑝 2 
+
+> 𝑢 →𝑣
+
+= 𝑝 2 
+
+> 𝑢
+
+− 𝑝 2
+
+> 𝑣
+
+, the model predicts ̂
+
+Δ𝑝 2𝑢 →𝑣 = 𝑐 𝑝 2 𝑔 𝜃 
+
+(𝐡 𝑢 , 𝐡 𝑣 , 𝜼 𝑢𝑣 
+
+) ,̂ 
+
+Δ𝑝 2𝑣 →𝑢 = − ̂Δ𝑝 2𝑢 →𝑣 ,̃ 𝑞 𝑢 →𝑣 = 𝑓 𝜃 
+
+(𝐡 𝑢 , 𝐡 𝑣 
+
+) ,̂ 𝑞 raw  
+
+> 𝑢 →𝑣
+
+= 𝑞 0 sinh (̃𝑞 𝑢 →𝑣 
+
+) ,̂ 𝑞 raw  
+
+> 𝑣 →𝑢
+
+= − ̂𝑞 raw 
+
+> 𝑢 →𝑣
+
+.
+
+(7) Here 𝑔 𝜃 and 𝑓 𝜃 are shared multilayer perceptrons, and 𝑐 𝑝 2 and 𝑞 0 are the training-set scales defined in Section 2.2. In the reported configuration, static pipe attributes enter the flow prediction through the message-passing embeddings, while the pressure-drop head uses the encoded pipe feature directly. Because message passing has a finite receptive field, long-range hydraulic context is also supplied through the node features, including pressure-controlled reference-node indicators, the broadcast pressure setpoint, normalized topological distance, and Laplacian positional encodings. 
+
+2.4. Physics-constrained pressure and flow reconstruction 
+
+The edge-level GNN outputs are local predictions and do not, by themselves, guarantee a globally valid hydraulic state. The reconstruction stage therefore applies two deterministic operators: pressure integration from predicted squared-pressure differences, and flow projection onto the nodal mass-balance constraint. The equations below are written for the canonical physical edge set; the implementation applies the same operations to the bidirected representation with reverse-edge antisymmetry. Let 𝐴 ∈ ℝ𝑁 ×𝑀 denote the incidence matrix under the canonical pipe orientation, with −1 at the tail node 
+
+𝑢 and +1 at the head node 𝑣 . Then for 𝑒 = (𝑢 → 𝑣 ), (𝐴 ⊤𝐩 2)𝑒 = 𝑝 2 
+
+> 𝑣
+
+− 𝑝 2
+
+> 𝑢
+
+, so the squared-pressure drop is 
+
+Δ𝑝 2 
+
+> 𝑢 →𝑣
+
+= 𝑝 2 
+
+> 𝑢
+
+− 𝑝 2 
+
+> 𝑣
+
+= −( 𝐴 ⊤𝐩 2)𝑒 . Nodal squared pressures are reconstructed by solving ̂
+
+𝐩 2( 𝑠 ) = arg min 
+
+> 𝐩 2
+
+‖‖‖‖‖
+
+−𝐴 ⊤𝐩 2 −̂ 𝚫 𝒑 𝟐 (𝑠 )‖‖‖‖‖
+
+> 22
+
+s.t. 𝑝 2 
+
+> 𝑟 (𝑠 )
+
+= 𝑝 2( 𝑠 )set . (8) Equivalently, defining 𝜹 (𝑠 ) = 𝐩 2( 𝑠 ) − 𝑝 2( 𝑠 )set 𝟏 with 𝛿 𝑟 (𝑠 ) = 0 , the free-node variables satisfy 
+
+𝐴  𝐴 ⊤ 
+
+> 
+
+𝜹 (𝑠 ) 
+
+> 
+
+= − 𝐴 ̂ 𝚫 𝒑 𝟐 (𝑠 )
+
+,  = 𝑉 ⧵ {𝑟 (𝑠 )}, (9) where 𝐴  contains the incidence rows of all non-reference nodes. This graph Laplacian solve projects the predicted edge differences onto an integrable pressure field with the reference pressure fixed 42;43 .Flow consistency is enforced by projecting the raw flow prediction ̂ 𝐪 raw( 𝑠 ) onto the affine space of mass-conserving flows: ̂
+
+𝐪 (𝑠 ) = arg min 
+
+> 𝐪
+
+‖‖‖𝐪 −̂ 𝐪 raw( 𝑠 )‖‖‖ 
+
+> 22
+
+s.t. 𝐴 𝐪 = 𝐝 (𝑠 ). (10) The redundant balance equation at the pressure-controlled reference node is omitted from the solve. The KKT conditions give 
+
+𝐴  𝐴 ⊤ 
+
+> 
+
+𝝀 (𝑠 ) 
+
+> 
+
+= 𝐴 ̂ 𝐪 raw( 𝑠 ) − 𝐝 (𝑠 ) 
+
+> 
+
+,̂ 𝐪 (𝑠 ) =̂ 𝐪 raw( 𝑠 ) − 𝐴 ⊤ 
+
+> 
+
+𝝀 (𝑠 ) 
+
+> 
+
+. (11) Both operators are sparse linear solves and are differentiable with respect to the GNN outputs 44;45 . They enforce pressure integrability and nodal mass conservation exactly, while the nonlinear pressure–flow relation is encouraged through the loss terms described next. This separation keeps the reconstruction step lightweight and deterministic, but it also means that pressure–flow compatibility must be evaluated and regularized rather than assumed.   
+
+> D. Jiang et al.: Preprint submitted to Elsevier Page 5 of 27 Accelerating gas-network feasibility screening
+
+2.5. Training objective and reference-state supervision 
+
+Training combines supervised agreement with the MYNTS reference solutions and soft physics-guided regular-ization of pressure–flow directionality 31;46 . The hard operators in Section 2.4 already enforce pressure integrability and nodal mass conservation. The loss function therefore focuses on matching the reference hydraulic state while discouraging residual inconsistencies between reconstructed pressures and projected flows. The active objective is 
+
+ = 𝜆 Δ𝑝 2 Δ𝑝 2 + 𝜆 𝑝 2 𝑝 2 + 𝜆 𝑞 𝑞 + 𝜆 mono mono . (12) The four terms supervise directed squared-pressure differences, reconstructed nodal squared pressures, pipe flows, and pressure–flow monotonicity, respectively. The corresponding weights and loss-configuration details are reported in Table A.2. The implementation also supports additional turbulent-scaling and final-state pipe-consistency penalties, but their weights are set to zero in the reported experiments. The pressure-drop loss is applied to the directed quantity Δ𝑝 2 
+
+> 𝑢 →𝑣
+
+= 𝑝 2 
+
+> 𝑢
+
+− 𝑝 2
+
+> 𝑣
+
+, matching the sign convention used by pressure reconstruction. Predicted and reference values are normalized by 𝑐 𝑝 2 . To focus learning on hydraulically informative pipes, the main pressure-drop loss is evaluated on edges with large reference pressure differences, while a weak auxiliary penalty is retained on inactive physical edges. Nodal pressure supervision is applied after reconstruction, using squared-pressure deviations from the pressure-controlled reference value and excluding the fixed reference node. Flow supervision is performed in the same transformed space used by the model output, 
+
+𝑇 𝑞 (𝑞 ) = asinh 
+
+( 𝑞 𝑞 0
+
+)
+
+. (13) This improves conditioning while preserving sign. The flow loss combines supervision before and after mass-balance projection, 
+
+𝑞 = 𝛼 ‖‖‖𝑇 𝑞 (̂ 𝐪 raw ) − 𝑇 𝑞 (𝐪 )‖‖‖1 + (1 − 𝛼 ) ‖‖‖𝑇 𝑞 (̂ 𝐪 ) − 𝑇 𝑞 (𝐪 )‖‖‖1 , (14) where 𝛼 ∈ [0 , 1] balances learning of the raw GNN output and the final projected flow. Finally, mono penalizes cases where the projected flow direction is inconsistent with the reconstructed pressure gradient. For a passive pipe, the desired relation is ̂𝑞 𝑢 →𝑣 (̂𝑝 2 
+
+> 𝑢
+
+−̂𝑝 2
+
+> 𝑣
+
+) ≥ 0. The penalty is applied only on edges with sufficiently large flow and pressure difference, so that near-zero-gradient cases do not dominate training. 
+
+2.6. Planning-oriented feasibility screening and sensitivity analysis 
+
+After training, the surrogate provides a fast differentiable map from an operating scenario to reconstructed pressures and mass-conserving flows. This section uses that map for a planning-oriented task: estimating how far regional demand can be increased before pressure feasibility is lost, and identifying network components most associated with that limit. The task is intended as a controlled screening problem that can be validated against the reference simulator, rather than as a replacement for full operational optimization. The workflow is summarized in Fig. 2. Let 𝐝 0 denote a baseline balanced injection vector and let  be the target demand region. A scalar loading factor 
+
+𝛼 is used to trace the feasibility boundary, analogous to loadability analysis in network planning 47 , and scales the withdrawals in this region, 
+
+𝑑 𝑖 (𝛼 ) = 𝛼𝑑 0,𝑖 , 𝑖 ∈ , (15) while the remaining boundary conditions are held fixed and the balancing supply adjusts consistently with the scenario construction. The trained surrogate then predicts the reconstructed hydraulic state, 
+
+(̂ 𝐩 (𝛼 ),̂ 𝐪 (𝛼 )) = 𝐹 𝜃 (𝐮 (𝛼 )) , (16) where 𝐮 (𝛼 ) denotes the graph input features for the scaled scenario. Feasibility is evaluated through the minimum nodal pressure. For a prescribed pressure limit 𝑝 min , the critical loading factor is 
+
+𝛼 ∗ = max  
+
+> 𝛼
+
+𝛼 s.t. min 
+
+> 𝑖
+
+̂ 𝑝 𝑖 (𝛼 ) ≥ 𝑝 min . (17)   
+
+> D. Jiang et al.: Preprint submitted to Elsevier Page 6 of 27 Accelerating gas-network feasibility screening
+
+In the experiments, 𝛼 ∗ is found by an expansion stage followed by binary search, using the monotonic decrease of minimum pressure observed along the tested demand-scaling paths. The same differentiable surrogate is also used for bottleneck interpretation near the feasibility boundary. Scalar pressure-margin objectives can be differentiated with respect to input demand features or intermediate edge-level variables, producing sensitivity scores for candidate pipes or operating regions. These scores complement the forward feasibility scan by indicating which parts of the network have the strongest influence on the limiting pressure margin. In addition to IID test scenarios, the evaluation includes stress-test scenario sets with increased total loading and regionally concentrated demand to assess whether the feasibility-screening workflow remains reliable under distribution shifts relevant to planning studies.   
+
+> D. Jiang et al.: Preprint submitted to Elsevier Page 7 of 27
+
+Accelerating gas-network feasibility screening 
+
+Figure 1: Architecture of the proposed physics-informed GNN surrogate for steady-state gas-network simulation. Each operating scenario is encoded as a directed graph with nodal operating and boundary-condition features and static pipe attributes. An edge-conditioned message-passing network predicts canonical-edge squared-pressure differences and preliminary pipe flows, with reverse-edge quantities imposed by antisymmetry. The physics-constrained reconstruction stage integrates pressure drops through a Laplacian solve with the reference pressure fixed and projects pipe flows onto the nodal mass-balance constraint, yielding topologically consistent pressures and mass-conserving flows for feasibility analysis. 
+
+Figure 2: Surrogate-based demand-scaling and bottleneck-screening workflow. A regional demand set  is scaled by loading factors 𝛼 while other boundary conditions are held fixed, and the trained surrogate 𝐹 𝜃 predicts nodal pressures 𝐩 and pipe flows 𝐪 . Feasibility is assessed from the minimum nodal pressure relative to the pressure limit 𝑝 min , giving the critical loading factor 𝛼 ∗. Near this boundary, bottleneck or sensitivity scores are computed for candidate pipes to identify components most associated with loss of feasibility. D. Jiang et al.: Preprint submitted to Elsevier Page 8 of 27 Accelerating gas-network feasibility screening 
+
+## 3. Results 
+
+3.1. Experimental setup 
+
+Three GasLib benchmark transmission networks were used to evaluate the surrogate under controlled changes in topology and scale: GasLib-134, GasLib-135, and GasLib-582 48 . GasLib-134 is a purely branched network with no loops, whereas GasLib-135 and GasLib-582 contain loop structures that introduce additional flow-allocation degrees of freedom under nodal mass conservation. GasLib-582 provides the largest test case and is used for the detailed physical-consistency, ablation, and feasibility-screening analyses. Table 1 summarizes the structural characteristics of the benchmark networks and the sampled pressure-controlled reference setpoint range. The reported pressure range refers to the scenario-level reference pressure 𝑝 (𝑠 )set at the pressure-controlled node, not to the minimum or maximum pressure observed across all nodes in the solved network state. Realized nodal pressures may therefore extend outside this setpoint interval depending on demand distribution, hydraulic losses, and network topology.                   
+
+> Table 1
+> Structural characteristics of the GasLib benchmark networks and sampled pressure-controlled reference setpoint ranges used for scenario generation. Network Nodes Pipes Topology Sampled 𝑝 (𝑠 )set (bar) GasLib-134 134 133 Branched 25–60 GasLib-135 135 170 Meshed 20–80 GasLib-582 582 609 Meshed 20–80
+
+Steady-state operating scenarios were generated on each fixed network topology. For each scenario 𝑠 , the nodal injection vector 𝐝 (𝑠 ), pressure-controlled reference node 𝑟 (𝑠 ), and reference pressure setpoint 𝑝 (𝑠 )set were varied following the scenario-construction procedure described in Section 2.2. Total demand was scaled and distributed across demand nodes using Gamma-based normalized weights, while the balancing supply was adjusted so that global mass balance was satisfied before simulation. Each sampled scenario was solved with MYNTS 49 , and only feasible steady-state solutions were retained. A pressure-span filter was applied to remove nearly uniform pressure profiles and retain scenarios with informative hydraulic variation. For each network, training datasets with 1000, 2000, and 5000 feasible scenarios were generated. Each dataset was split into training and validation subsets using an 80/20 split. Model performance was evaluated on an independent test set of 500 feasible scenarios generated with the same procedure but not used during training or validation. All experiments were repeated over three independent random seeds. A compact summary of the scenario-generation and evaluation setup is provided in Table A.1. Unless otherwise noted, network characteristics are reported according to official GasLib specifications. Minor discrepancies in node or edge counts may arise due to preprocessing steps required for solver compatibility but do not affect the underlying physical structure or comparative analysis. The evaluation considers predictive accuracy, physical consistency, and computational efficiency. Predictive accuracy is measured using pressure and flow MAE together with 𝑅 2. Physical consistency is assessed through nodal mass-balance residuals, pressure–flow monotonicity violations, and turbulent friction-factor behavior. Computational efficiency is measured as average inference time per scenario. Metric definitions are summarized in Table A.3. 
+
+3.2. Surrogate prediction accuracy 
+
+The predictive accuracy of the surrogate was evaluated using nodal pressure and pipe-flow errors on independent test sets. Table 2 reports the mean and standard deviation over three random seeds for each network and training-set size. Flow metrics are computed after the mass-balance projection layer, consistent with the final reconstructed state used in downstream analysis. Accuracy improves with increasing training-set size across the benchmark networks. For example, on GasLib-582, increasing the number of training scenarios from 1000 to 5000 reduces pressure MAE from 3.48 to 1.05 bar and increases pressure 𝑅 2 from 0.891 to 0.981. For scale, the final pressure MAE corresponds to approximately 1.3% of the realized pressure range observed across the generated GasLib-582 dataset, which spans approximately 2–82 bar. This   
+
+> D. Jiang et al.: Preprint submitted to Elsevier Page 9 of 27
+
+Accelerating gas-network feasibility screening 
+
+Figure 3: Scenario-level pressure and flow error distributions for GasLib-582 using 5000 training scenarios and 500 independent test scenarios. Histograms show per-scenario MAE distributions, while overlaid curves show the corresponding CDFs. Red markers indicate the 95th and 99th percentiles. 
+
+Figure 4: Spatial distribution of pressure and flow predictions for a representative median-error GasLib-582 test scenario. Panels A1–A3 show reference pressure, surrogate pressure, and absolute pressure error at nodes (bar), while panels B1–B3 show reference flow, surrogate flow, and absolute flow error on pipes (Nm 3/s). The red star denotes the pressure reference node. 
+
+percentage is reported only as a dataset-level scale reference; the primary pressure-accuracy metrics are the absolute MAE and 𝑅 2 values. The flow results should be interpreted together with the physics-constrained reconstruction. In GasLib-134, the network is purely branched, so for a prescribed 𝐝 (𝑠 ) the mass-conserving pipe-flow solution is uniquely determined. The projection layer therefore maps raw flow predictions onto this unique feasible solution, giving near-zero flow error. This behavior reflects the interaction between topology and constraint enforcement rather than unconstrained model accuracy alone. In the meshed GasLib-135 and GasLib-582 networks, loop structures leave additional feasible flow 
+
+D. Jiang et al.: Preprint submitted to Elsevier Page 10 of 27 Accelerating gas-network feasibility screening                                                                                                        
+
+> Table 2
+> Surrogate prediction performance across GasLib networks and training dataset sizes (mean ±std over 3 seeds). Network Training size Pressure MAE (bar) Pressure ( 𝑅 2)Flow MAE (Nm 3/s) Flow ( 𝑅 2)GasLib-134 1000 5.12 ±1.32 0.627 ±0.100 ∼ 0 ∼ 1 .000
+> 2000 1.01 ±0.20 0.898 ±0.050 ∼ 0 ∼ 1 .000
+> 5000 0.53 ±0.10 0.939 ±0.031 ∼ 0 ∼ 1 .000
+> GasLib-135 1000 2.59 ±2.66 0.727 ±0.378 0.80 ±0.69 0.968 ±0.028 2000 0.81 ±0.02 0.966 ±0.002 0.99 ±0.03 0.968 ±0.002 5000 0.21 ±0.05 0.999 ±0.001 0.82 ±0.10 0.976 ±0.005 GasLib-582 1000 3.48 ±1.45 0.891 ±0.097 3.08 ±0.14 0.967 ±0.004 2000 2.93 ±0.29 0.934 ±0.013 3.02 ±0.19 0.966 ±0.004 5000 1.05 ±0.02 0.981 ±0.001 2.05 ±0.01 0.972 ±0.004
+
+degrees of freedom, so flow prediction depends on both learned edge-level information and projection. Even in these cases, projected flow predictions remain accurate, with flow 𝑅 2 values above 0.96 across all training sizes. Pressure prediction is more sensitive to global reconstruction. The model predicts canonical-edge squared-pressure differences and reconstructs nodal pressures through the Laplacian solve described in Section 2.4. Local edge-level errors can therefore propagate along network paths before appearing as nodal-pressure error. This explains why pressure accuracy varies more strongly with topology and data coverage than projected flow accuracy. Figure 3 shows that most GasLib-582 test scenarios remain within a moderate pressure-error regime, with only a limited number of cases contributing to the upper error tail. Figure 4 further indicates that larger pressure errors are spatially concentrated at nodes located farther from the pressure-controlled reference. This pattern is consistent with cumulative reconstruction effects along longer hydraulic paths in the network. These results indicate that the surrogate reproduces pressure and flow behavior across both branched and meshed networks. The remaining pressure errors are primarily linked to global pressure reconstruction and limited training coverage, while projected flow predictions benefit from the embedded mass-balance constraint. 
+
+3.3. Verification of physical consistency 
+
+While the predictive accuracy results in Section 3.2 demonstrate strong agreement between the surrogate and the reference solver, accuracy alone does not guarantee that predicted network states satisfy the governing physical constraints. These constraints arise from first principles of compressible pipeline flow—namely conservation of mass at network nodes and dissipative momentum balance along pipes, typically expressed through nonlinear pressure–flow relations (e.g., Weymouth-type equations). Ensuring consistency with these principles is essential not only for physical interpretability but also for the validity of downstream optimization and planning tasks. The proposed framework enforces physical consistency at multiple levels with varying degrees of strictness: mass conservation is imposed as a hard constraint through projection, while pressure–flow monotonicity and turbulent scaling consistency are encouraged through physics-informed regularization and post-processing. In this section, we evaluate compliance with three key properties: (i) nodal mass conservation, (ii) pressure–flow monotonicity, and (iii) consistency with turbulent pipe-flow scaling laws. 
+
+Mass conservation in the learned flow representation. Nodal mass conservation constitutes a fundamental feasibility condition in steady-state gas network simulation, requiring that the net flow at each node matches the prescribed injection or withdrawal. Violations of this constraint lead to physically infeasible network states and render predictions unsuitable for planning or operational use. In the proposed surrogate, mass conservation is incorporated directly into the model through a differentiable projection layer, as described in Section 2.4. Rather than treating conservation as an external correction, predicted edge flows are mapped onto the feasible subspace defined by the network incidence structure via a constrained projection derived from the KKT conditions. This operation is embedded within the model pipeline and participates in training, such that the surrogate learns flow representations that are consistent with mass balance after projection. As a result, the model operates in a constraint-aware output space where feasibility is ensured by construction. Figure 5 compares the distribution of nodal mass-balance residuals before (Pre) and after (Post) the projection layer. The residual is measured as the 𝓁 2 norm of nodal imbalance, ‖𝐴𝑞 −𝑑 ‖2, computed per scenario. While raw predictions   
+
+> D. Jiang et al.: Preprint submitted to Elsevier Page 11 of 27 Accelerating gas-network feasibility screening
+
+exhibit residuals on the order of (10 1–10 2) Nm 3/s, the projected outputs reduce these violations to (10 −5 –10 −4 )
+
+Nm 3/s, corresponding to solver-level numerical precision. This reduction is consistent across the full distribution, indicating that conservation is satisfied globally rather than selectively corrected for large violations. The isolated contribution of this constraint-aware layer is further examined in the ablation study in Section 3.5.      
+
+> Figure 5: Effect of the embedded mass-balance projection on nodal residuals for models trained with 5000 scenarios. For each GasLib network, gray bars show the pre-projection residuals and blue bars show post-projection residuals, where the per-scenario residual is the Euclidean norm ‖𝐴𝑞 −𝑑 ‖2in Nm 3/s. The logarithmic horizontal axis emphasizes the reduction from raw GNN imbalance to numerical-precision residuals after projection.
+
+Monotonicity of pressure–flow relationships. For passive pipeline elements, steady-state gas flow is driven by pressure gradients and must proceed from higher to lower pressure, implying the monotonicity condition 𝑞 𝑢 →𝑣 (𝑝 2 
+
+> 𝑢
+
+−
+
+𝑝 2
+
+> 𝑣
+
+) ≥ 0. In the proposed surrogate, this condition is not enforced as a hard constraint but is encouraged through physics-informed loss terms and optional post-processing.                                         
+
+> Table 3
+> Monotonicity violations under pressure-gradient thresholds for selected GasLib-582 Threshold |Δ𝑝 |(bar) Edge Count Retained (%) Violations Violation Rate All edges 304500 100.0% 19655 6.45%
+> 0<|Δ𝑝 |<0.1239698 78.7% 14751 6.15%
+> 0.1<|Δ𝑝 |<0.540718 13.4% 3862 9.48%
+> 0.5<|Δ𝑝 |<1.09868 3.2% 139 1.41%
+> |Δ𝑝 |>1.04253 1.4% 10.02%
+
+The overall monotonicity violation rate is 6.45%, computed across all edges and all validation scenarios for the GasLib-582 network. While this aggregate measure provides a global summary of directional inconsistency, Table 3 and Figure 6 show that violations are concentrated in regimes with relatively small pressure differences. Specifically, the violation rate decreases from 6.15% for 0 < |Δ𝑝 | < 0.1 bar to 1.41% for 0.5 < |Δ𝑝 | < 1.0 bar and only 0.02% for 
+
+|Δ𝑝 | > 1.0 bar, indicating that monotonicity is almost always preserved under sufficiently large pressure gradients. In low-pressure-gradient regimes, where the driving force for flow is weak, even minor prediction errors in either pressure or flow can lead to sign inconsistencies without materially affecting the overall system state. While this pressure-gradient perspective indicates that violations are predominantly associated with relatively small pressure differences, a complementary analysis based on flow magnitude shows that violations are not confined to low-flow conditions. In particular, edges in the top 20% of flow magnitude account for a substantial fraction of violations, indicating that even in high-flow regions, small pressure gradients combined with local prediction errors can lead to sign inconsistencies. This behavior reflects a structured limitation of the surrogate, in which strict monotonicity is not enforced but emerges indirectly from the learning objective, rather than a consequence of random fluctuations or numerical instability.        
+
+> D. Jiang et al.: Preprint submitted to Elsevier Page 12 of 27 Accelerating gas-network feasibility screening
+> Figure 6: Pressure–flow monotonicity diagnostics for GasLib-582 with 5000 training scenarios. (A) Violation rate as a function of pressure-drop magnitude |Δ𝑝 |(bar), where a violation denotes a pipe for which the predicted flow direction is inconsistent with the predicted pressure drop. (B) Network map of violation frequency, with color indicating the fraction of scenarios violating monotonicity on each pipe and line width indicating mean absolute flow |𝑞 |(Nm 3/s). The figure distinguishes low-pressure-drop regimes from spatially localized recurrent violations.
+
+Despite these local inconsistencies, their impact on system-level behavior remains limited. As shown above, monotonicity violations are primarily associated with regimes of small pressure differences, where the driving force for flow is weak and directional ambiguity is inherently high. In such cases, sign inconsistencies typically correspond to small perturbations in pressure or flow and do not materially alter the overall hydraulic state. At the network level, the dominant pressure structure and flow distribution remain well captured, as evidenced by the strong predictive accuracy reported in Section 3.2. This indicates that the surrogate preserves the key physical relationships governing system behavior, even though strict monotonicity is not enforced. The observed violations therefore reflect a trade-off between model flexibility and strict physical consistency, arising from the use of soft constraints for differentiability. While further reduction of monotonicity violations remains a potential direction for improvement, the current level of consistency is sufficient for planning-oriented applications, where global feasibility and system-level trends are of primary importance. 
+
+Consistency with turbulent friction-factor behavior. A further validation of physical consistency is obtained by examining whether the surrogate preserves the characteristic turbulent pipe-flow regime. Under steady-state conditions, gas transport in pipelines is governed by nonlinear friction laws that couple Reynolds number, pipe roughness, friction factor, and pressure loss 50 . In the squared-pressure formulation adopted in this work, this behavior is closely related to the expected nonlinear pressure–flow scaling and provides a useful diagnostic of admissible hydraulic states. To assess this behavior, a classical Moody-type representation is employed. The diagram compares the inferred Darcy friction factor against Reynolds number for both MYNTS reference solutions and surrogate predictions, with the Colebrook–White relation shown as a reference trend. This diagnostic does not directly plot flow magnitude against squared-pressure drop; instead, it tests whether the surrogate-predicted states remain in the same turbulent friction regime as the reference simulator. Figure 7 compares surrogate predictions with reference solver (MYNTS) results under this representation. Both surrogate and solver outputs occupy the expected turbulent range and follow the same friction-factor trend, indicating that the dominant pipe-flow regime is preserved. Compared to the solver, the surrogate exhibits increased dispersion around the reference curve, reflected in a higher median deviation. This spread reflects approximation error inherent to the learned model rather than a systematic regime shift. Importantly, no systematic bias away from the expected   
+
+> D. Jiang et al.: Preprint submitted to Elsevier Page 13 of 27 Accelerating gas-network feasibility screening
+
+Moody-type behavior is observed, suggesting that the surrogate maintains consistency with the governing pressure– flow physics despite local prediction errors.  
+
+> Figure 7: Moody-type hydraulic consistency check for GasLib-582. Each point represents an inferred pipe-state pair from the MYNTS reference solutions (A) or surrogate predictions (B), plotted as Darcy friction factor versus Reynolds number
+> 𝑅𝑒 ; the dashed line is the Colebrook–White reference trend, point color encodes relative roughness, and the background shading marks Reynolds-number regime bands. Agreement in the occupied turbulent regime supports preservation of the dominant friction-factor behavior, while dispersion around the trend indicates surrogate approximation error.
+
+Summary of physical consistency. The results establish a clear hierarchy of physical consistency within the proposed surrogate model. Mass conservation is strictly enforced through projection, achieving solver-level accuracy across all scenarios. Pressure–flow monotonicity is not guaranteed but is largely preserved, with violations concentrated in locally ambiguous regimes. The Moody-type analysis indicates that the surrogate remains consistent with the expected turbulent friction-factor regime despite increased dispersion. These findings indicate that the surrogate achieves a balance between strict enforcement of essential feasibility constraints and flexible approximation of more complex physical relationships. While not fully physically exact, the model preserves the dominant structures governing system behavior, supporting its use in applications where feasibility and global consistency are primary requirements. 
+
+3.4. Computational efficiency 
+
+In addition to predictive accuracy and physical consistency, a key motivation for surrogate modeling is the reduction in computational cost relative to conventional steady-state simulation. Classical gas network solvers evaluate nonlinear flow equations using iterative numerical methods (e.g., Newton-type schemes), which require repeated updates until convergence. While these approaches provide high-fidelity solutions, their computational cost becomes significant when large numbers of operating scenarios must be evaluated. The proposed surrogate replaces this iterative process with a direct forward evaluation of a physics-constrained model, in which the neural network and embedded constraint layers jointly produce the final solution. Table 4 reports the average per-scenario runtime for the surrogate and MYNTS. The surrogate produces the reconstructed pressure field and mass-conserving flow state in milliseconds, whereas MYNTS requires seconds per feasible steady-state solution under the same benchmark settings. The surrogate runtime increases with network size. GasLib-134 and GasLib-135 require approximately 3 ms per scenario, while GasLib-582 requires 35.36 ms. This increase reflects the larger graph and the additional cost of the physics-constrained reconstruction operations, including Laplacian-based pressure reconstruction and mass-balance projection. Even so, the largest benchmark remains below 40 ms per scenario, while retaining the physical-consistency properties evaluated in Section 3.3.                   
+
+> D. Jiang et al.: Preprint submitted to Elsevier Page 14 of 27 Accelerating gas-network feasibility screening
+> Table 4
+> Average surrogate inference runtime per scenario and comparison with MYNTS. Network Nodes Pipes Surrogate (ms) MYNTS (s) GasLib-134 134 133 3.17 ∼ 1 .0
+> GasLib-135 135 170 3.10 ∼ 1 .0
+> GasLib-582 582 609 35.36 ∼ 2 .0
+
+The benefit of millisecond-level inference is most relevant when steady-state simulation is used repeatedly rather than for a single operating point. A single MYNTS run taking one or two seconds may be acceptable for conventional planning checks. However, scenario-based studies can quickly require many thousands of evaluations. For example, hourly demand profiles over one year already give 8760 operating states; combining these with multiple demand-growth assumptions, supply allocations, pressure-setpoint choices, contingency cases, or regional stress tests can expand the workload to 10 5–10 6 steady-state evaluations. At seconds per case, this becomes a batch-computing task. At millisecond-level inference, the same screening can be repeated interactively during sensitivity analysis, uncertainty exploration, or candidate-scenario filtering. Thus, the surrogate is not intended to remove the need for validated solver-based verification. Its practical value is to shift the computational burden: large candidate sets can be screened rapidly with the surrogate, and MYNTS can then be reserved for final assessment of selected critical cases. This division is particularly useful for feasibility screening and bottleneck identification, where the objective is often to rank or prioritize operating conditions before detailed hydraulic confirmation. 
+
+3.5. Baseline comparison and ablation analysis 
+
+A controlled baseline and ablation study was conducted on the GasLib-582 network to isolate the respective roles of data-driven learning, graph-based representation, and physics-constrained reconstruction. The comparison includes a tabular XGBoost (XGB) baseline and four GNN variants with progressively stronger alignment to the governing physical structure: a pressure-first formulation (GNN-PF), an edge-first model without constraint layers (GNN-Raw), an edge-first model with embedded mass-conservation projection (GNN-Mass), and the full physics-constrained model (GNN-Full). Performance is evaluated using both predictive accuracy and physical-consistency metrics, as summarized in Table 5. The corresponding scenario-level distributions are shown in Fig. 8.                                      
+
+> Table 5
+> Baseline comparison and physics-constrained ablation on GasLib-582 (mean ±standard deviation over three seeds). Model Pressure MAE (bar) Pressure
+> 𝑅 2
+> Flow MAE (Nm 3/s) Flow
+> 𝑅 2
+> Mass Residual (Nm 3/s) Mono. Viol. XGB 2.262 ± 0 .009 0.959 ± 0 .001 4.564 ± 0 .013 0.899 ± 0 .001 4.32 × 10 1± 0 .63 0.074 ± 0 .002
+> GNN-PF 2.563 ± 0 .052 0.950 ± 0 .002 6.105 ± 0 .277 0.515 ± 0 .330 2.95 × 10 2± 2 .99 × 10 10.476 ± 0 .022
+> GNN-Raw 1.634 ± 0 .088 0.981 ± 0 .001 5.829 ± 0 .670 0.431 ± 0 .406 2.91 × 10 2± 1 .15 × 10 20.218 ± 0 .034
+> GNN-Mass 2.642 ± 0 .051 0.947 ± 0 .002 0.965 ± 0 .089 0.996 ± 0 .001 2.22 × 10 −5 ± 2 .51 × 10 −7 0.426 ± 0 .014
+> GNN-Full 1.05 ± 0 .02 0.981 ± 0 .001 2.05 ± 0 .01 0.972 ± 0 .004 2.15 × 10 −5 ± 2 .17 × 10 −7 0.040 ± 0 .018
+
+The XGB baseline provides a useful reference for fixed-topology regression. It achieves moderate pressure and flow accuracy, indicating that part of the steady-state mapping can be learned from tabular operating features. However, its outputs are not physically feasible: the mass-balance residual remains on the order of 10 1 Nm 3/s, and monotonicity violations are present. This limits its use for planning workflows that require hydraulically admissible states, even when pointwise error metrics appear acceptable. Introducing graph message passing without aligning the output formulation to pipe-level physics does not resolve this issue. GNN-PF gives pressure accuracy similar to XGB but performs poorly on flow prediction and physical-consistency metrics. This indicates that graph structure alone is not enough when the prediction targets are not matched to the edge-mediated nature of gas transport. The edge-first raw model clarifies this point. GNN-Raw improves pressure prediction relative to XGB and GNN-PF, reaching a pressure MAE of 1.634 bar and pressure 𝑅 2 of 0.981. This supports the use of canonical-edge squared-pressure differences as the primary learned representation. However, without projection, the predicted flows remain        
+
+> D. Jiang et al.: Preprint submitted to Elsevier Page 15 of 27 Accelerating gas-network feasibility screening
+> Figure 8: Distributional ablation comparison on GasLib-582 test scenarios. Boxplots with overlaid scenario points compare XGB, GNN-PF, GNN-Raw, GNN-Mass, and GNN-Full for (A) flow MAE (Nm 3/s), (B) pressure MAE (bar), (C) mass-balance residual ‖𝐴𝑞 −𝑑 ‖2(Nm 3/s, logarithmic scale), and (D) monotonicity violation rate. The panels show whether differences in Table 5 persist across the full scenario distribution rather than being driven by mean values alone.
+
+infeasible, with mass residuals on the order of 10 2 Nm 3/s and low flow 𝑅 2. Learning local edge-level hydraulic relationships therefore does not guarantee global mass conservation. Adding the mass-balance projection changes the behavior substantially. GNN-Mass reduces mass residuals to numerical precision and gives the best projected flow metrics in Table 5. This outcome is expected because the projection directly constrains the feasible flow space, and the model variant does not include the full pressure-reconstruction and monotonicity structure. The improvement in flow accuracy should therefore be interpreted as a result of constraint enforcement, not as evidence that the pressure and flow fields are fully compatible. Indeed, GNN-Mass shows weaker pressure accuracy and a high monotonicity violation rate, indicating that conservation alone is insufficient to recover a coherent hydraulic state. GNN-Full provides the most balanced result across the evaluated criteria. It preserves numerical-precision mass conservation, achieves the lowest pressure MAE among the compared models, and reduces monotonicity violations from 0.426 in GNN-Mass to 0.040. Its flow MAE is higher than GNN-Mass, but remains accurate in absolute terms and is accompanied by stronger pressure consistency. This trade-off is consistent with the role of the full reconstruction pipeline: the model is not optimized only for projected flow agreement, but for a final hydraulic state that balances pressure accuracy, mass conservation, and pressure–flow directionality. The projection effect is especially clear on GasLib-134, shown in Figure 9. Because this network is purely branched, the mass-conserving pipe-flow solution is uniquely determined by the nodal injections. The projection therefore maps scattered raw edge predictions onto the feasible flow solution. This explains the near-zero flow errors observed for   
+
+> D. Jiang et al.: Preprint submitted to Elsevier Page 16 of 27
+
+Accelerating gas-network feasibility screening 
+
+GasLib-134 in Table 2 and reinforces the interpretation that topology and constraint enforcement jointly shape the final flow metrics. 
+
+Figure 9: Effect of mass-conservation projection on GasLib-134 pipe-flow predictions. Points compare true and predicted canonical pipe flows (Nm 3/s) against the one-to-one dashed line for (A) the unconstrained edge-first GNN output (GNN-Raw) and (B) the final physics-constrained model output (GNN-Full, after mass-balance projection and pressure reconstruction). Because GasLib-134 is nearly tree-like, enforcing nodal balance strongly constrains the feasible pipe-flow solution. 
+
+Overall, the ablation results show that each component addresses a different failure mode. Edge-level prediction improves hydraulic representation, mass projection restores feasibility, and pressure reconstruction with monotonicity regularization improves coherence between pressure and flow. The full model is therefore preferred not because it is best on every individual metric, but because it provides the most reliable physically constrained state for downstream screening. 
+
+3.6. Feasibility screening and bottleneck analysis 
+
+To evaluate the surrogate in a planning-oriented inverse-use setting, a loadability screening study was conducted on the GasLib-582 network. Rather than solving a general high-dimensional optimization problem, the analysis focuses on a controlled feasibility screening task along a one-dimensional demand-scaling trajectory. This formulation enables direct validation against the reference solver while isolating the surrogate’s ability to capture feasibility boundaries. Five high-stress baseline scenarios were selected from the test set, including the maximum-demand case and four regionally dominated demand patterns (NW, NE, SW, SE). For each scenario, a scalar loading factor 𝛼 was applied to a subset of demand nodes, while all other boundary conditions were held fixed. Feasibility was defined through a minimum-pressure constraint of 16 bar, and the critical loading factor 𝛼 ∗ was determined using an expansion stage followed by binary search. 
+
+Table 6 
+
+Surrogate-based loadability screening results on GasLib-582 across representative high-demand scenarios. Scenario Total demand Baseline pressure (bar) 𝛼 ∗MYNTS 𝛼 ∗surr 𝑝 min ,MYNTS 𝑝 min ,surr 
+
+(Nm 3/s) 𝑝 base min 𝑝 base max (bar) (bar) Max demand 601.14 25.37 81.59 1.18 1.21 16.03 16.03 NW-dominated 499.19 34.90 79.88 1.26 1.25 16.08 16.01 SE-dominated 553.87 39.26 75.31 1.52 1.46 16.06 16.01 NE-dominated 552.05 23.13 76.46 1.19 1.17 16.03 16.02 SW-dominated 562.67 18.71 79.32 1.03 1.02 16.08 16.01 
+
+Table 6 summarizes the results. Across the five stress cases, the surrogate estimates the critical loading factor with absolute errors of 0.01–0.06 (mean 0.026), and the minimum-pressure value at the estimated feasibility boundary differs from MYNTS by at most 0.07 bar. These results indicate that, within the tested one-dimensional demand-scaling paths, 
+
+D. Jiang et al.: Preprint submitted to Elsevier Page 17 of 27 Accelerating gas-network feasibility screening 
+
+the surrogate captures the feasibility crossing with sufficient accuracy for pre-screening; they should not be interpreted as validation of a general operational optimization policy. Figure 10(A) illustrates a representative NE-dominated scenario. The surrogate reproduces the monotonic degra-dation of the minimum nodal pressure with increasing demand and identifies the threshold crossing near the feasibility limit. Although the absolute minimum-pressure trajectory exhibits a visible offset relative to MYNTS, the surrogate captures the feasibility crossing and dominant pressure-decline trend that govern system-level constraints. Beyond estimating feasibility margins, the surrogate enables identification of limiting network components. A forward bottleneck metric is defined based on the increase in squared-pressure drop relative to baseline conditions, 
+
+𝑆 𝑒 = |||(Δ 𝑝 2)limit  
+
+> 𝑒
+
+− (Δ 𝑝 2)base 
+
+> 𝑒
+
+||| , (18) which captures the accumulation of hydraulic stress as the system approaches the feasibility boundary. To complement this forward view, an inverse sensitivity-based ranking is constructed using the differentiable structure of the surrogate. At operating points near the feasibility limit, a smooth objective is defined as the negative soft minimum of nodal pressures within the target region ,
+
+𝐽 (𝐩 ) = − sof tmin 𝑖 ∈ 𝑝 𝑖 , (19) which serves as a differentiable approximation of the minimum-pressure feasibility constraint. Gradients of this objective with respect to edge-level squared-pressure differences (Δ 𝑝 2)𝑒 are computed via automatic differentiation, and each edge is assigned a sensitivity score, 
+
+𝑆 inv  
+
+> 𝑒
+
+=
+
+|||||
+
+𝜕𝐽 𝜕 (Δ 𝑝 2)𝑒 
+
+|||||
+
+⋅ |||(Δ 𝑝 2)𝑒 
+
+||| , (20) which quantifies both the magnitude of local pressure drop and its influence on the critical pressure margin. Figure 10(B) compares the surrogate inverse-sensitivity ranking with a MYNTS forward stress-based ranking obtained by evaluating hydraulic stress after forward simulations near the feasibility boundary. The surrogate-based inverse ranking captures the dominant bottleneck structure and identifies the same critical transmission corridors. While differences in absolute ranking scores remain, the relative importance of key edges is preserved, indicating that the surrogate provides a meaningful attribution of system-level constraints. The forward and inverse formulations provide complementary perspectives. The forward metric reflects observed stress accumulation along the feasibility path, while the inverse metric reveals sensitivity pathways through which local perturbations affect global feasibility. Together, they enable both detection and interpretation of bottlenecks within a unified surrogate framework. 
+
+3.7. Out-of-distribution stress-test evaluation 
+
+To explore the surrogate’s behavior under operating conditions that deviate from the independent and identically distributed (IID) training scenario pool, we conducted a preliminary stress-test on GasLib-582. The aim is not to claim broad distributional generalization, but to examine how the physics-constrained surrogate responds to planning-relevant demand shifts after a small amount of targeted refinement. Two OOD scenario families were generated from high-demand operating conditions: 
+
+• High-load set: scenarios from the top 15% of total demand in the 1000-scenario base pool, with all demands increased by up to 20%. Global mass balance is maintained by adjusting the balancing supply accordingly. 
+
+• Regional-concentration set: also derived from the same high-demand pool, but 50–60% of total demand is assigned to one of the four geographic regions (NW, NE, SW, SE) used in the feasibility analysis (Section 3.6). This creates more localized hydraulic stress than the IID demand-distribution procedure. The refinement experiment was initialized from the best surrogate weights obtained with the 5000-scenario training configuration. The model was then fine-tuned for 30 epochs using a mixed refinement set consisting of 1000 base scenarios, 250 high-load scenarios, and 250 regional-concentration scenarios. For each OOD family, 500 generated stress-test scenarios were split evenly into refinement-training and held-out test subsets, so the OOD test scenarios were not used during refinement. Evaluation was performed on 500 IID base scenarios, 250 held-out high-load scenarios, and 250 held-out regional-concentration scenarios.   
+
+> D. Jiang et al.: Preprint submitted to Elsevier Page 18 of 27
+
+Accelerating gas-network feasibility screening 
+
+Table 7 reports the resulting predictive accuracy, physical-consistency diagnostics, and feasibility-classification behavior. The high-load case shows a moderate degradation in pressure and flow accuracy relative to the IID test set, while retaining strong feasibility-screening performance. The regional-concentration case is more challenging, indicating that localized demand shifts alter the spatial structure of hydraulic stress more strongly than uniform load increases. In both OOD settings, the mass-balance residual remains at numerical precision, showing that the projection layer continues to enforce nodal conservation under distribution shift. 
+
+Table 7 
+
+OOD stress-test performance on GasLib-582 after 30-epoch refinement from the best 5000-scenario surrogate weights. Test set Pressure MAE (bar) Pressure 
+
+𝑅 2
+
+Flow MAE (Nm 3/s) Flow 
+
+𝑅 2
+
+Mass residual (Nm 3/s) Mono. viol. (%) 1
+
+Solver infeas. Surrogate infeas. Feas. acc. (%) 2
+
+IID (500) 1.544 0.980 1.282 0.993 1.02 × 10 −5 1.97 0 0 100.0 OOD–Highload (250) 3.470 0.775 8.770 0.834 1.79 × 10 −5 2.83 8 10 99.2 OOD–Regional (250) 4.600 0.607 8.313 0.836 1.80 × 10 −5 2.81 79 103 88.8        
+
+> 1Monotonicity violation rate is computed only for edges with |Δ𝑝 |>1bar.
+> 2Feasibility accuracy = (TP + TN)∕ 𝑁 , where TP and TN denote correctly classified feasible and infeasible cases.
+
+From a feasibility-screening perspective, false negatives are the most critical error mode because they cause solver-infeasible cases to be reported as feasible. In the high-load set, no infeasible scenarios were missed. In the regional-concentration set, the false-negative rate is 2.53%, corresponding to 2 of 79 infeasible scenarios being classified as feasible. This degradation likely reflects flow patterns that differ more substantially from the training distribution and supports solver verification for regionally concentrated cases near the feasibility boundary. These results suggest that targeted refinement can extend the surrogate to stressed operating regimes, but also clarify the limits of its use. High-load OOD cases remain suitable for pre-screening after refinement, whereas regionally concentrated stress cases should be treated more conservatively and routed to solver-based verification when they approach feasibility limits. 
+
+D. Jiang et al.: Preprint submitted to Elsevier Page 19 of 27 Accelerating gas-network feasibility screening 
+
+Figure 10: Representative feasibility screening and bottleneck ranking for the NE-dominated GasLib-582 scenario. (A) Minimum nodal pressure 𝑃 min (bar) versus regional demand scaling factor 𝛼 , comparing MYNTS and surrogate trajectories against the feasibility limit 𝑃 min = 16 bar; diamonds mark the estimated critical loading factors ( 𝛼 ∗surr = 1 .17 , 𝛼 ∗MYNTS = 1 .19 ). (B) Normalized bottleneck scores for selected pipes, comparing the MYNTS forward stress score with the surrogate sensitivity-based score after both are scaled to [0 , 1] ; labels identify the pipe endpoints used in the ranking comparison. D. Jiang et al.: Preprint submitted to Elsevier Page 20 of 27 Accelerating gas-network feasibility screening 
+
+## 4. Discussion 
+
+4.1. Mechanistic interpretation of surrogate behavior across network regimes 
+
+The surrogate’s performance is governed by interactions among network topology, physical constraints, and embedded reconstruction operators. These interactions define distinct operating regimes that help explain the observed divergence between pressure and flow predictions. A primary distinction arises between branched and meshed network structures. In tree-like networks, nodal mass conservation uniquely determines edge flows for a given balanced injection pattern, yielding a single feasible flow solution. The mass-balance projection therefore collapses raw predictions onto this solution manifold and removes most flow uncertainty; in this regime, constraint enforcement dominates the observed flow behavior. In meshed networks, by contrast, cycle-space degrees of freedom create a non-unique mass-conserving flow space. Similar flow-allocation ambiguity has been noted in network flow optimization and graph-based surrogate modeling, where multiple feasible solutions can exist under identical boundary conditions 51–53 . In this regime, predictive quality depends more directly on learned edge-level representations, with projection acting as a regularizer rather than as the determinant of the solution. Pressure reconstruction introduces a second mechanism. Nodal pressures are obtained by Laplacian-based integration of predicted edge pressure differences, which couples local errors across the network. Because the reconstructed pressure field is anchored at a reference node, deviations can accumulate along long topological paths, especially in networks with large graph diameter. Such error propagation is well documented in graph-based physical modeling and message-passing architectures, where long-range dependencies require careful treatment to avoid accuracy degradation 30;33 . Consequently, pressure prediction exhibits a global sensitivity that is less directly exposed in projected flow predictions, which are stabilized by projection onto the mass-conserving subspace. These observations reveal a structural asymmetry: flow is mainly constrained by global conservation, whereas pressure depends on the global consistency of local pressure-drop estimates. The proposed architecture exploits this structure by combining data-driven edge predictions with deterministic operators that enforce feasibility and coherence, yielding a hybrid model that balances flexibility with physical fidelity. 
+
+4.2. Accuracy–consistency trade-offs in physics-informed learning 
+
+The results confirm that predictive accuracy and physical consistency are intrinsically coupled in surrogate modeling of physical systems. Unconstrained regression can yield pointwise accurate predictions that nonetheless violate fundamental physical laws, whereas strict constraint enforcement reduces the admissible solution space and may shift the solution away from the unconstrained regression optimum. This trade-off is widely recognized in physics-informed machine learning and constrained learning frameworks 29;31 .Mass-balance projection is central to shaping this trade-off. By confining flows to the feasible subspace, it eliminates large-scale inconsistencies and enforces a coherent network-wide structure. However, projection alone does not guarantee compatibility with the pressure field, which explains the loss of pressure accuracy and the rise in monotonicity violations observed in partially constrained variants. Similar error shifting toward unconstrained variables has been reported in constraint-aware neural networks 35;36 .The full model mitigates this tension by combining mass-balance projection with Laplacian-based pressure reconstruction and pressure–flow regularization. This coupling enforces complementary structure on flows and pressures, delivering balanced accuracy, feasibility, and physical coherence. The outcome stems from coordinated enforcement of multiple constraints rather than from optimizing any single metric. From an application standpoint, this asymmetry is critical because conservation violations can invalidate down-stream decisions even when pointwise regression metrics appear acceptable. Surrogate evaluation for gas networks must therefore combine predictive error with physical diagnostics; accuracy alone is insufficient. 
+
+4.3. Practical scope for planning workflows 
+
+The planning results represent a controlled demonstration of how a physically constrained surrogate can support repeated hydraulic assessment, rather than a complete replacement for validated simulation tools. The loadability and bottleneck studies show that the model preserves the dominant pressure-margin and stress-ranking patterns along the tested demand-scaling paths, while the OOD stress tests indicate that targeted refinement can extend this screening role to selected high-demand regimes. The surrogate is therefore best suited for early-stage screening, sensitivity analysis, and prioritization of scenarios that warrant full hydraulic verification, especially when localized stress patterns or feasibility-boundary cases are encountered.   
+
+> D. Jiang et al.: Preprint submitted to Elsevier Page 21 of 27 Accelerating gas-network feasibility screening
+
+The same design logic could support hybrid workflows involving active components such as compressors, regulators, or valves. For example, compressor-station set points, regulator targets, or valve statuses could be introduced as scenario-conditioning variables, while dedicated component models would represent the corresponding control actions and hydraulic constraints. This would make the surrogate useful for providing candidate operating states or informative initializations in subsequent equation-based simulation and optimization, including tasks such as compressor-station set-point optimization. Such extensions would require explicit active-component representations and validation under relevant control policies. The present results therefore establish a basis for surrogate-assisted planning analysis, while deployment-level issues involving control interactions, rare operating regimes, and solver coupling remain for future work. 
+
+4.4. Limitations and future research directions 
+
+The present study is restricted to steady-state, isothermal gas flow with fixed component configurations. Active elements such as compressors, regulators, and valves are not explicitly modeled or controlled during training, which limits the surrogate’s direct applicability to systems where pressure regulation and flow control play a central role. In addition, all training and evaluation are based on synthetic benchmark scenarios rather than measured operational data. These choices make the experiments reproducible and help isolate the surrogate mechanism, but they also leave open questions about robustness under operational noise, control actions, broader contingency conditions, and rare operating regimes beyond the targeted high-load and regional-concentration stress tests considered here. Extending the framework beyond this setting requires both richer physical modeling and more diverse validation data. Transient applications—for example, linepack dynamics, compressor dispatch, valve switching, or contingency analysis—introduce additional state variables and temporal dependencies, requiring coupled spatial–temporal model-ing. Non-isothermal effects should also be incorporated for applications where temperature affects density, pressure losses, or operating envelopes. This is particularly relevant for hydrogen transport, hydrogen–natural-gas blends, and 
+
+CO 2 networks, where thermodynamic properties and operating constraints can differ substantially from conventional natural gas systems. Several architectural limitations remain. Although mass conservation is enforced exactly, pressure–flow monotonic-ity and related pipe-level physical properties are imposed only through soft loss terms, so small residual violations can persist when the corresponding losses are not sufficiently dominant. Future work should therefore investigate stronger constraint-enforcement strategies, including projection-based correction layers, constrained loss formulations, or lightweight feasibility checks coupled to the surrogate. Pressure prediction also depends on global Laplacian reconstruction, which makes the reconstructed field sensitive to accumulated local errors in networks with large graph diameter. Multi-scale reconstruction, local correction mechanisms, or hybrid formulations that combine local pressure-gradient prediction with coarse global pressure information could improve robustness. Topology generalization remains another open question. The present experiments train and test on fixed benchmark topologies, so the model may learn topology-specific correlations in addition to transferable hydraulic relationships. A stronger validation setting would train across diverse, varying network topologies and evaluate on withheld networks with different loop structures, injection patterns, and pressure-boundary placements. Demonstrating this capability would strengthen the case for graph-based surrogates as reusable planning tools rather than one-off network-specific accelerators. The effective interaction range of standard message-passing layers may also become a bottleneck in very large transmission networks. Hydraulic effects can propagate over long paths, whereas finite-depth message passing ex-changes information locally; simply increasing depth can introduce over-smoothing, over-squashing, and optimization difficulty. Future architecture development should therefore examine graph-attention mechanisms, including GAT and GATv2, or transformer-style graph layers that adaptively weight neighbor contributions and better capture long-range dependencies 54;55 . These mechanisms could be combined with physics-informed input features, such as distance to pressure-controlled nodes, distance to major supply or demand regions, or approximate hydraulic resistance along relevant paths. For very large systems, regional decomposition with coupling variables may also help combine local hydraulic detail with system-level interactions. At the deployment level, the surrogate has so far been validated only for steady-state planning workflows, primarily early-stage screening and sensitivity analysis. Its suitability for operational settings involving active controls, discrete switching, or real-time set-point optimization has not yet been established. Deployment would require explicit compressor and valve models, tested control policies, comparison against independent simulation tools, and calibration or validation against measured system data. Broader rare operating regimes and contingency scenarios also remain   
+
+> D. Jiang et al.: Preprint submitted to Elsevier Page 22 of 27 Accelerating gas-network feasibility screening
+
+insufficiently tested beyond the targeted OOD stress cases considered in this study. Future work should therefore bridge planning-oriented surrogate analysis with operational deployment by addressing solver coupling, control interactions, and data-driven calibration using real network measurements. 
+
+## 5. Conclusion 
+
+This study developed a physics-informed graph neural network surrogate for steady-state gas-network simulation and planning-oriented feasibility assessment. The framework addresses a key limitation of unconstrained data-driven surrogates by embedding physical reconstruction operators directly into the prediction pipeline, rather than relying on regression accuracy alone. The proposed model uses an edge-centric representation aligned with gas-flow physics: it predicts pipe-level squared-pressure differences and flows, reconstructs nodal pressures through a Laplacian solve, and projects pipe flows onto the nodal mass-balance constraint. This hybrid formulation enforces exact mass conservation and topologically consistent pressure fields, while pressure–flow compatibility is promoted through physics-guided regularization. The result is a surrogate that combines learned flexibility with deterministic feasibility constraints. Evaluation on GasLib-134, GasLib-135, and GasLib-582 shows that the model achieves accurate hydraulic predictions while preserving physical consistency. On GasLib-582 with 5000 training scenarios, the model reaches a pressure MAE of 1.05 bar ( 𝑅 2 = 0 .981 ), corresponding to approximately 1.3% of the realized dataset pressure range, and a projected-flow 𝑅 2 of 0.972. The mass-balance projection reduces nodal residuals to numerical precision, on the order of 10 −5 –10 −4 Nm 3/s. Runtime is reduced from seconds for MYNTS to milliseconds per scenario, with the largest benchmark evaluated in less than 40 ms. The planning demonstrations further show that the surrogate can reproduce feasibility boundaries and identify dominant bottleneck structures along regional demand-scaling paths. The OOD stress-test results indicate that targeted refinement can preserve useful screening behavior under selected high-load conditions, while regionally concentrated demand shifts remain more challenging and should trigger solver-based verification near feasibility limits. These findings support use of the surrogate for high-volume scenario screening, sensitivity analysis, and prioritization of cases that require full hydraulic verification. The surrogate should therefore be viewed as a physically grounded planning accelerator and companion to validated solvers, rather than as a complete replacement for detailed operational simulation. Several limitations define the next stage of development. The present work considers steady-state, isothermal conditions on fixed benchmark topologies with synthetic operating scenarios, and active components such as compressors, regulators, and valves are not yet explicitly modeled. Future research should extend the framework toward stronger constraint enforcement, topology generalization, long-range graph architectures, active-component modeling, transient and non-isothermal dynamics, and validation against measured operational data. Addressing these issues will be essential for moving from planning-oriented surrogate analysis toward broader deployment in gas, hydrogen, and carbon dioxide infrastructure studies. 
+
+## Data and code availability 
+
+The code and reproducibility package supporting this study are archived on Zenodo at DOI: https://doi.org/ 10.5281/zenodo.20075820 . The development version of the repository is available at: https://github.com/ cceekkigg/PIGNN-Gas-Surrogate .
+
+## Acknowledgements 
+
+The authors gratefully acknowledge the use of computational resources provided by the Fraunhofer Cluster CINES for conducting the simulations presented in this work. 
+
+## References        
+
+> [1] International Energy Agency (IEA). World Energy Outlook 2025, 2025. [2] Energy Institute. Statistical Review of World Energy 2025, 2025. [3] Tom Brown, David Schlachtberger, Alexander Kies, Stefan Schramm, and Martin Greiner. Synergies of sector coupling and transmission reinforcement in a cost-optimised, highly renewable european energy system. Energy , 160:720–739, 2018.
+> D. Jiang et al.: Preprint submitted to Elsevier Page 23 of 27
+
+Accelerating gas-network feasibility screening 
+
+[4] Jasmine Ramsebner, Reinhard Haas, Amela Ajanovic, and Martin Wietschel. The sector coupling concept: A critical review. WIREs Energy Environ. , 10(4):e396, 2021. [5] Qichen Wang, Zheng Hou, Yilin Guo, Liangchao Huang, Yanli Fang, Wei Sun, and Yuhan Ge. Enhancing energy transition through sector coupling: A review of technologies and models. Energies , 16(13):5226, 2023. [6] Wietschel Martin, Anne Held, Benjamin Pflüger, and Mario Ragwitz. Energy integration across electricity, heating & cooling and the transport sector – sector coupling. Technical Report Study S08/2020, Fraunhofer Institute for Systems and Innovation Research ISI, Karlsruhe, Germany, 2020. [7] Emanuele Taibi, Raul Miranda, Wouter Vanhoudt, Thomas Winkel, Jean-Christophe Lanoix, and Frederic Barth. Hydrogen from renewable power: Technology outlook for the energy transition. Technical report, International Renewable Energy Agency (IRENA), 2018. [8] Devinder Mahajan, Kun Tan, T. Venkatesh, Pradheep Kileti, and Clive R. Clayton. Hydrogen blending in gas pipeline networks—a review. 
+
+Energies , 15(10):3582, 2022. [9] Dongrui Jiang, Steven Hotopp, Matthis Wacker, and Joachim Müller-Kirchenbauer. Load flow calculations of large transmission gas networks based on public data. In PSIG Annual Meeting . Pipeline Simulation Interest Group (PSIG), may 2020. Paper presented at the PSIG Annual Meeting. [10] Joachim Müller-Kirchenbauer, Maximilian Evers, Jeremias Hollnagel, Berkan Kuzyaka, Dongrui Jiang, Okan Akça, Tim Mielich, Maike Kalz, and Paul Anton Verwiebe. Germany’s way from russian natural gas to green hydrogen: Network data, procedures, and topologies for feasible transition paths to a green hydrogen transport infrastructure in germany, greenhyde. Energy Technol. , 12(2):2300976, 2024. [11] Sheng Chen, Zhinong Wei, Guoqiang Sun, Kwok W. Cheung, and Yonghui Sun. Multi-linear probabilistic energy flow analysis of integrated electrical and natural-gas systems. IEEE Trans. Power Syst. , 32(3):1970–1979, 2016. [12] Yang Li, Meng Han, Mohammad Shahidehpour, Jiazheng Li, and Chao Long. Data-driven distributionally robust scheduling of community integrated energy systems with uncertain renewable generations considering integrated demand response. Appl. Energy , 335:120749, 2023. [13] Jianan Ye, Min Xie, Shiping Zhang, Ying Huang, Mingbo Liu, and Qiong Wang. Stochastic optimal scheduling of electricity–hydrogen enriched compressed natural gas urban integrated energy system. Renew. Energy , 211:1024–1044, 2023. [14] Stephen Clegg and Pierluigi Mancarella. Integrated electrical and gas network flexibility assessment in low-carbon multi-energy systems. 
+
+IEEE Trans. Sustain. Energy , 7(2):718–731, 2016. [15] Saif R. Kazi, Kaarthik Sundar, Shriram Srinivasan, and Anatoly Zlotnik. Modeling and optimization of steady flow of natural gas and hydrogen mixtures in pipeline networks. Int. J. Hydrogen Energy , 54:14–24, 2024. [16] Aminul Islam, Tahrim Alam, Nathan Sheibley, Kara Edmonson, David Burns, and Manuel Hernandez. Hydrogen blending in natural gas pipelines: A comprehensive review of material compatibility and safety considerations. Int. J. Hydrogen Energy , 2024. [17] Sheng Wang, Hongxun Hui, Tao Chen, and Junyi Zhai. Multi-period operation of integrated electricity and gas systems with hydrogen blending considering gas composition dynamics. Appl. Energy , 377, 2024. [18] A. Osiadacz. Simulation and Analysis of Gas Networks . Gulf Publishing Company, Houston, TX, 1987. [19] A. J. Osiadacz. Method of steady-state simulation of a gas network. Int. J. Syst. Sci. , 19(11):2395–2405, 1988. [20] E. Shashi Menon. Gas Pipeline Hydraulics . CRC Press, Boca Raton, FL, 2005. [21] Sebastian Ganter, Till Martini, Vytis Kopustinskas, Ivars Zalitis, Bogdan Vamanu, Jörg Finger, Aleksandrs Dolgicers, Laila Zemite, Clemente Fuggini, Ivo Häring, and Alexander Stolz. A highly robust gas network simulation approach through an inherently solvable problem formulation for network states far from intended design points. Appl. Math. Model. , 127:297–326, 2024. [22] Frédéric Babonneau, Yurii Nesterov, and Jean-Philippe Vial. Design and operations of gas transmission networks. Oper. Res. , 60(1):34–47, 2012. [23] Chew Y. Leong and Luis F. Ayala H. Hybrid approach by use of linear analogs for gas-network simulation with multiple components. Oil Gas Facil. , 3(01):76–88, 02 2014. [24] Christian Himpe, Sara Grundel, and Peter Benner. Model order reduction for gas and energy networks. J. Math. Ind. , 11(13), 2021. [25] Charles C. Margossian. A review of automatic differentiation and its efficient implementation. WIREs Data Min. Knowl. Discov. , 9(4):e1305, 2019. [26] Mathieu Blondel, Quentin Berthet, Marco Cuturi, Roy Frostig, Stephan Hoyer, Felipe Llinares-López, Fabian Pedregosa, and Jean-Philippe Vert. Efficient and modular implicit differentiation. In Advances in Neural Information Processing Systems , volume 35, pages 5230–5242, 2022. [27] Mahdi Alibeigi, Mehdi Mehrpooya, Prodip K. Das, and Tohid N. Borhani. A critical review of modeling hydrogen production using water electrolyzer. Reviews in Chemical Engineering , 42(3):193–247, 2026. [28] Roger Z. Ríos-Mercado and Conrado Borraz-Sánchez. Optimization problems in natural gas transportation systems: A state-of-the-art review. 
+
+Appl. Energy , 147:536–555, 2015. [29] Maziar Raissi, Paris Perdikaris, and George Em Karniadakis. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. J. Comput. Phys. , 378:686–707, 2019. [30] George Em Karniadakis, Ioannis G. Kevrekidis, Lu Lu, Paris Perdikaris, Sifan Wang, and Liu Yang. Physics-informed machine learning. Nat. Rev. Phys. , 3(6):422–440, 2021. [31] Jared Willard, Xiaowei Jia, Shaoming Xu, Michael Steinbach, and Vipin Kumar. Integrating scientific knowledge with machine learning for engineering and environmental systems. ACM Comput. Surv. , 55(4):1–37, 2022. [32] Laura von Rueden, Sebastian Mayer, Katharina Beckh, Bogdan Georgiev, Sven Giesselbach, Raoul Heese, Birgit Kirsch, Julius Pfrommer, Annika Pick, Rajkumar Ramamurthy, Michał Walczak, Jochen Garcke, Christian Bauckhage, and Jannis Schuecker. Informed machine learning–a taxonomy and survey of integrating prior knowledge into learning systems. IEEE Trans. Knowl. Data Eng. , 35(1):614–633, 2023. [33] Zonghan Wu, Shirui Pan, Fengwen Chen, Guodong Long, Chengqi Zhang, and Philip S. Yu. A comprehensive survey on graph neural networks. IEEE Trans. Neural Netw. Learn. Syst. , 32(1):4–24, 2021. 
+
+D. Jiang et al.: Preprint submitted to Elsevier Page 24 of 27 Accelerating gas-network feasibility screening 
+
+[34] Bulat Kerimov, Franz Tscheikner-Gratl, and David Steffelbauer. Transferable surrogate models based on inductive biases of graph neural networks for water distribution systems. In EGU General Assembly 2022 , 2022. EGU22-7921. [35] Arvind T. Mohan, Nicholas Lubbers, Michael Chertkov, and Daniel Livescu. Embedding hard physical constraints in neural network coarse-graining of three-dimensional turbulence. Phys. Rev. Fluids , 8(1):014604, 2023. [36] Lu Lu, Raphaël Pestourie, Wenjie Yao, Zhicheng Wang, Francesc Verdugo, and Steven G. Johnson. Physics-informed neural networks with hard constraints for inverse design. SIAM J. Sci. Comput. , 43(6):B1105–B1132, 2021. [37] Ziyao Yang, Amol D. Gaidhane, Ján Drgoňa, Vikas Chandan, Mahantesh M. Halappanavar, Frank Liu, and Yu Cao. Physics-constrained graph modeling for building thermal dynamics. Energy AI , 16:100346, 2024. [38] A. R. D. Thorley. Fluid Transients in Pipeline Systems . Professional Engineering Publishing, 2 edition, 2004. [39] Justin Gilmer, Samuel S. Schoenholz, Patrick F. Riley, Oriol Vinyals, and George E. Dahl. Neural message passing for quantum chemistry. In 
+
+Proceedings of the 34th International Conference on Machine Learning (ICML) , volume 70 of Proceedings of Machine Learning Research ,pages 1263–1272. PMLR, 2017. [40] Keyulu Xu, Weihua Hu, Jure Leskovec, and Stefanie Jegelka. How powerful are graph neural networks? In International Conference on Learning Representations , 2019. [41] Weihua Hu, Bowen Liu, Joseph Gomes, Marinka Zitnik, Percy Liang, Vijay Pande, and Jure Leskovec. Strategies for pre-training graph neural networks. In International Conference on Learning Representations , 2020. [42] Fan R. K. Chung. Spectral Graph Theory . American Mathematical Society, 1997. [43] Daniel A. Spielman. Spectral graph theory and its applications. In 48th Annual IEEE Symposium on Foundations of Computer Science (FOCS’07) . IEEE, 2007. [44] Brandon Amos and J. Zico Kolter. Optnet: Differentiable optimization as a layer in neural networks. In Proceedings of the 34th International Conference on Machine Learning (ICML) , 2017. [45] Stephen Boyd and Lieven Vandenberghe. Convex Optimization . Cambridge University Press, 2004. [46] Anuj Karpatne, Gowtham Atluri, James H. Faghmous, Michael Steinbach, Arindam Banerjee, Auroop R. Ganguly, Shashi Shekhar, Nagiza F. Samatova, and Vipin Kumar. Theory-guided data science: A new paradigm for scientific discovery from data. IEEE Trans. Knowl. Data Eng. ,29(10):2318–2331, 2017. [47] Venkataramana Ajjarapu. Computational Techniques for Voltage Stability Assessment and Control . Springer, 2006. [48] A. Martin, M. Möller, and S. Moritz. GasLib—A library of gas network instances. Zuse Institute Berlin, 2015. [49] Tanja Clees, Kläre Cassirer, Nils Hornung, Bernhard Klaassen, Igor Nikitin, Lialia Nikitina, Robin Suter, and Inna Torgovitskaia. MYNTS: Multi-phYsics NeTwork Simulator. In Proceedings of the 6th International Conference on Simulation and Modeling Methodologies, Technologies and Applications (SIMULTECH 2016) , pages 179–186. INSTICC, SciTePress, 2016. [50] Frank M. White. Fluid Mechanics . McGraw-Hill, 8 edition, 2016. [51] R. K. Ahuja, T. L. Magnanti, and J. B. Orlin. Network Flows: Theory, Algorithms, and Applications . Prentice Hall, 1993. [52] Patrick Rebeschini and Sekhar Tatikonda. A new approach to laplacian solvers and flow problems. J. Mach. Learn. Res. , 20(36):1–37, 2019. [53] B. Kerimov, F. Tscheikner-Gratl, and D. Steffelbauer. Transferable surrogate models based on graph neural networks for infrastructure systems. EGU General Assembly Conference Abstracts, 2022. [54] Petar Veličković, Guillem Cucurull, Arantxa Casanova, Adriana Romero, Pietro Liò, and Yoshua Bengio. Graph attention networks. In 
+
+International Conference on Learning Representations , 2018. [55] Shaked Brody, Uri Alon, and Eran Yahav. How attentive are graph attention networks? In International Conference on Learning Representations , 2022. 
+
+D. Jiang et al.: Preprint submitted to Elsevier Page 25 of 27 Accelerating gas-network feasibility screening 
+
+## CRediT authorship contribution statement 
+
+Dongrui Jiang: Conceptualization, Methodology, Software, Investigation, Formal analysis, Visualization, Writing – original draft, Writing – review & editing. Jochen Garcke: Supervision, Methodology, Formal analysis, Writing – review & editing. Okan Akca: Investigation, Data curation, Validation, Writing – review & editing. Jeremias Hollnagel: Resources, Data curation, Writing – review & editing. Bernhard Klaassen: Resources, Writing – review & editing. Mehrnaz Anvari: Resources, Funding acquisition, Writing – review & editing. Joachim Müller-Kirchenbauer: Supervision, Resources, Writing – review & editing.   
+
+> D. Jiang et al.: Preprint submitted to Elsevier Page 26 of 27
+
+Accelerating gas-network feasibility screening 
+
+## Appendix A. Reproducibility summary 
+
+The full implementation is provided in the accompanying public GitHub repository: https://github.com/ cceekkigg/PIGNN-Gas-Surrogate . This appendix summarizes only the key implementation details required to interpret and reproduce the results reported in the manuscript. Full command-line instructions, configuration files, software dependencies, and reproducibility scripts are maintained in the repository. 
+
+A.1 Scenario generation and evaluation setup 
+
+Table A.1: Scenario-generation, data-split, and evaluation setup used in the reported experiments. 
+
+Item Setting Notes Benchmark networks GasLib-134, GasLib-135, GasLib-582 Reference-pressure setpoints GasLib-134: 25–60 bar; GasLib-135 and GasLib-582: 20–80 bar Sampled at the pressure-controlled reference node Scenario construction Stochastic demand scaling and distribution; balancing supply adjusted to satisfy global mass balance Only feasible MYNTS solutions retained Scenario filtering Pressure-span filter removes nearly uniform pressure profiles Ensures informative hydraulic variation Training sizes 1000, 2000, and 5000 feasible scenarios per network Each split into 80% training and 20% validation Test set 500 independent feasible scenarios per network Repeated runs Three independent random seeds 24, 33, 42 Loadability screening Five high-stress GasLib-582 scenarios; 𝑝 min = 16 bar 
+
+A.2 Model and training configuration 
+
+Table A.2: Model architecture and training configuration. 
+
+Model Training Parameter Value Parameter Value GNN layer GINEConv Optimizer Adam Message-passing layers 6 Learning rate 3 × 10 −4 
+
+Hidden dimension 256 Scheduler ReduceLROnPlateau Aggregation Additive aggregation Batch size 32 Activation ReLU Epochs 50 Dropout 0.05 Early stopping Validation-loss based Pressure reconstruction Laplacian/pressure-drop integration Gradient clipping Norm 1.0 Flow reconstruction Mass-balance projection Active loss terms Pressure-drop, pressure, raw/projected flow, monotonicity Optional penalties Turbulent scaling and final-state pipe consistency inactive Loss weights 𝜆 Δ𝑝 2 = 1 .5, 𝜆 𝑝 2 = 6 .0, 𝜆 𝑞 = 4 .0,
+
+𝜆 mono = 1 .0
+
+Pressure/flow scales 𝑐 𝑝 2 , 𝑞 0 from training data Flow-loss mix 𝛼 = 0 .5
+
+A.3 Evaluation metrics 
+
+Table A.3: Evaluation metrics and diagnostic definitions. 
+
+Metric Definition Notes Pressure MAE 1
+
+> 𝑁
+
+∑𝑖 
+
+||||√
+
+max( ̂𝑝 2 
+
+> 𝑖
+
+, 0) − 
+
+√
+
+max( 𝑝 2 
+
+> 𝑖
+
+, 0) |||| Reported in bar Flow MAE 1
+
+> 𝑀
+
+∑𝑒 |̂𝑞 𝑒 − 𝑞 𝑒 | Canonical physical edges 
+
+𝑅 2 1 −         
+
+> ∑
+> 𝑗 (𝑦 𝑗 −̂𝑦 𝑗 )2
+> ∑
+> 𝑗 (𝑦 𝑗 −̄𝑦 )2+10 −8
+
+Pressure and flow Mass residual ‖𝐴 phys ̂𝑞 phys − 𝑑 ‖2 All physical nodes; the reference equation is omitted only in the projection solve Monotonicity violation Fraction of edges with ̂𝑞 𝑢 →𝑣 (̂𝑝 2 
+
+> 𝑢
+
+−̂𝑝 2
+
+> 𝑣
+
+) < −𝜏 mono Canonical physical edges; squared-pressure convention Runtime Forward-pass wall time per graph Batch-averaged inference time 
+
+D. Jiang et al.: Preprint submitted to Elsevier Page 27 of 27

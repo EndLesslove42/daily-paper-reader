@@ -1,0 +1,1054 @@
+Title: DRIFT: Direct Reduced Fourier Transforms for Distributed Spectral Neural Operators
+
+URL Source: https://arxiv.org/pdf/2607.14394v1
+
+Published Time: Fri, 17 Jul 2026 00:29:02 GMT
+
+Number of Pages: 11
+
+Markdown Content:
+# DRIFT: Direct Reduced Fourier Transforms for Distributed Spectral Neural Operators 
+
+Sana Taghipour Anvari, David Kaeli 
+
+Abstract —Fourier Neural Operators (FNOs) learn solution operators for partial differential equations and offer orders of magnitude speedup over traditional numerical solvers at inference time, which makes them attractive surrogates for high-resolution computational physics. Scaling FNOs to high-resolution spatial grids requires distributing the data across GPUs, but the distributed FFT at the core of each spectral layer requires multiple dense all-to-all collectives that commu-nicate the full spatial tensor, only for most coefficients to be discarded immediately. We introduce the Distributed Truncated Spectral Transform (DTST), which reverses this order. Each GPU computes only a small subset of frequency modes used by the spectral convolution locally via a partial DFT, and two collectives combine the results with a payload that depends only on this mode count, not the spatial resolution. DTST produces spectral coefficients identical to the standard distributed FFT with truncation, while providing both spatial data parallelism and spectral weight model parallelism. We present DRIFT, a GPU implementation of DTST for distributed Fourier Neural Operators, using separable per-dimension basis matrices and efficient GPU-to-GPU communication. On a 3D+time FNO across 4–32 GPUs, on up to 8 nodes (4 GPUs/node), DRIFT achieves a forward-pass speedup of 38–64 × and a 37 × training speedup over the distributed FNO baseline, reducing communication time from 97% to under 6% of the forward-pass time, with growing speedups at higher resolution. 
+
+Index Terms —Fourier Neural Operators, distributed comput-ing, communication-avoiding algorithms, spectral methods, high performance computing 
+
+I. I NTRODUCTION 
+
+Fourier Neural Operators (FNOs) [4] have emerged as a leading architecture for learning solution operators of partial differential equations (PDEs). FNOs learn mappings between function spaces that generalize across discretizations at low computational cost by parameterizing the kernel integral op-erator in Fourier space and using the Fast Fourier Transform (FFT). A defining feature of FNOs is their associated mode truncation, which means only a small number of frequency modes are retained per spatial dimension, and the majority of the spectral coefficients are discarded. In practice, the number of retained modes is orders of magnitude smaller than the spatial resolution. Scaling FNOs to high-resolution, high-dimensional prob-lems in scientific computing applications requires distribut-ing both data and model parameters across multiple GPUs, as GPUs are widely used accelerators for scientific ML workloads due to their high throughput for FFTs and dense linear algebra operations that dominate FNO layers. Channel-parallel approaches, such as the Adaptive Fourier Neural Operator [12], avoid spatial communication by replicating the full grid on every GPU. But this strategy cannot be applied when the spatial grid exceeds single-device memory, as is the case for high-resolution 3D and 4D problems [13]. For such problems, spatial domain decomposition is the only viable path. Using a spatially distributed FNO [15] enables predictions over billions of variables on a large number of GPUs. Still, the distributed FFTs, which are at the core of each spectral layer, inherently require multiple all-to-all collectives to redistribute data along each transform dimension globally. These communication operations become the dominant bot-tleneck and consume most of the forward-pass time at scale, while the communication pattern they impose is fundamentally wasteful. The distributed FFT computes all frequency coeffi-cients, redistributes the full spatial tensor across GPUs, and subsequently truncates and discards almost everything that was computed. The fraction of communicated data that actually contributes to the output is (kmax /N )d, which becomes a rapidly decreasing percentage of processing as we increase the resolution N and the dimensionality d of the problem. The key insight of this work is that mode truncation does not need to follow the distributed data exchange, and that the order of these two operations can be reversed. Rather than computing the full distributed FFT and discarding most of the results, we compute only the needed frequency coefficients locally via a partial Discrete Fourier Transform (DFT) and combine these partial contributions across GPUs through an AllReduce on the compact spectral tensor. This reordering transforms the communication pattern of each spectral layer from multiple dense all-to-all collectives over the full spatial tensor to two collectives whose payload depends only on the number of retained modes, not on the spatial resolution or GPU count. We formalize this idea as the Distributed Trun-cated Spectral Transform (DTST), a general communication primitive for computing a subset of the DFT coefficients from spatially distributed data. DTST is exact and symmet-ric, such that forward and backward passes incur identical communication costs. We instantiate DTST within the FNO architecture as DRIFT (Direct Reduced Fourier Transforms), a distributed reduced-communication inverse and forward trans-form. DRIFT exploits the separability of the multi-dimensional DFT through sequential per-dimension matrix multiplies, and applies the partial DFT independently along each distributed dimension. After the AllReduce, each GPU selects its partition of the retained spectrum and applies only its local shard of the spectral weights, which unifies data parallelism over the spatial domain, with model parallelism over the spectral parameters. An AllGather reassembles the convolved spectrum for the arXiv:2607.14394v1 [cs.DC] 15 Jul 2026 inverse transform. The main contributions of our approach include: 1) We introduce the Distributed Truncated Spectral Trans-form (DTST), a communication primitive that replaces the distributed FFT with local partial DFTs and an AllReduce/AllGather pair on the retained spectral coeffi-cients. DTST is exact, backend-agnostic, and applicable to any spectral method that uses mode truncation. 2) We show that DTST reduces the per-layer communica-tion volume from O(N d/P ) to O(kd
+
+> max
+
+), independent of spatial resolution, with O(log P ) latency scaling. The reduction factor grows exponentially with problem dimensionality. 3) We develop an efficient GPU implementation using sep-arable per-dimension partial DFT via NVIDIA cuBLAS and GPU-aware MPI, and show that progressive com-pression across dimensions makes the partial DFT more efficient than full cuFFT transforms, despite replacing an O(N log N ) algorithm with O(KN ) matrix multi-plications. 4) We evaluate DRIFT on distributed FNO inference and training across up to 32 GPUs, demonstrating a 38–64 ×
+
+forward-pass speedup and a 37 × training speedup over the baseline distributed FNO, with comparable conver-gence and spectral coefficients verified to be exact. II. R ELATED WORK 
+
+Neural Operators: Neural operators learn mappings be-tween function spaces and allow fast surrogates for para-metric PDEs that generalize across spatial resolutions [1]. DeepONet [2] encodes input functions and query locations through separate branch and trunk networks, with physics-informed variants incorporating PDE constraints directly into training [3]. The Fourier Neural Operator (FNO) [4] param-eterizes the integral of the kernel in Fourier space, using FFTs for efficient global convolution, and with mode trunca-tion for regularization and computational efficiency. FNO has been extended through factorized spectral representations [8], multi-grid tensorization [9], Tucker decomposition of spectral weights [10], and decomposition of the latent representation into separable 1D transforms [11]. The Adaptive Fourier Neural Operator (AFNO) [12] replaces the dense spectral weight tensor with a block-diagonal channel mixer for efficient token mixing within vision transformers. FourCastNet [13] deployed AFNO for global weather pre-diction on up to 3,808 GPUs using channel parallelism, where certain operations require communication across model-parallel ranks. TurboFNO [14] fuses the FFT-GEMM-iFFT pipeline into a single GPU kernel and achieves significant speedups. Grady et al. [15] introduced the first spatially distributed FNO using a linear-algebraic framework for model parallelism [16], enabling predictions over billions of variables on up to 512 GPUs. Their approach distributes the spatial grid across GPUs and relies on the distributed FFT for spectral transforms. At scale, the authors report that the all-to-all redistributions required by the distributed FFT consume the vast majority of the forward-pass time, limiting scaling efficiency. 
+
+Distributed FFT Scalability: The communication bottle-neck in distributed FFTs is well studied. Czechowski et al. [17] analyzed the communication complexity of 3D FFTs and showed that all-to-all transposes dominate runtime at large scales. Ayala et al. [18] demonstrated that all-to-all commu-nication fails to scale on large systems such as Fugaku, while the heFFTe library [19] reported that MPI communication consumes over 97% of GPU-accelerated FFT runtime on Summit [20]. Distributed FFT libraries, including PFFT [22], 2DECOMP&FFT [23], and heFFTe [19], have optimized pencil and slab decompositions, but all fundamentally require global data redistribution through all-to-all collectives. Communication avoidance approaches have been explored for related transforms, such as FMM-accelerated FFTs [24] that reduce communication by exploiting the hierarchical structure of multipole expansions. DaggerFFT [25] introduced a task-based distributed FFT framework that pipelines com-munication with computation through dynamic scheduling and achieves overlap between redistributions and local FFT stages, but the underlying communication pattern still requires global data redistribution. Popovici et al. [26] used SMT-based optimization to automatically generate efficient mappings for distributed multi-dimensional Fourier operations, minimizing communication steps across decomposition stages. 
+
+Communication Models: Our analysis is based on estab-lished models for MPI collectives. The α-β cost model [27] characterizes collective operations in terms of latency α and inverse bandwidth β. Optimal allreduce algorithms achieve 
+
+O(α log P + βM ) cost [29], [30], compared to all-to-all cost that scales linearly in P [28]. DRIFT’s communication advantage follows directly from this asymptotic difference. Despite progress in both neural operator architectures and distributed FFT implementations, a fundamental challenge remains unaddressed. When high-resolution 3D and 4D spatial grids exceed the memory present on a single GPU, the spec-tral layers that define FNO become communication-bound. Approaches that replicate the full spatial grid on every GPU cannot scale to such problem sizes, while spatially distributed approaches inherit the scaling limitations of the distributed FFT. III. B ACKGROUND AND MOTIVATION 
+
+Fourier Neural Operators (FNO) [4] learn mappings be-tween function spaces by parameterizing an integral operator in Fourier space. The input function a(x) is first lifted to a higher-dimensional channel representation v(0) (x) ∈ Rdv
+
+via a pointwise network P , passed through L Fourier layers, and projected back to the output dimension via a pointwise network Q. Given an input field v(ℓ), a Fourier layer applies: 
+
+v(ℓ+1) (x) = σ
+
+
+
+W (ℓ)v(ℓ)(x) + F−1 R(ℓ) 
+
+> θ
+
+· F (v(ℓ))(x)
+
+
+
+(1) where W (ℓ) is a point-wise linear map and R(ℓ) 
+
+> θ
+
+is a complex-valued, learnable filter that acts on Fourier coefficients. A defining feature of FNOs is their associated mode truncation, where only the lowest kmax frequencies per spatial dimen-sion are retained. Let Sj = {0, . . . , k max − 1} ∪ { Nj −
+
+kmax , . . . , N j −1} denote the retained indices along dimension 
+
+j. These correspond to the kmax lowest positive and negative frequency modes, so |Sj | = 2 kmax . The spectral update is restricted to k ∈ S1 × · · · × Sd, while all other coefficients are discarded. The number of modes used, therefore, scales as (2 kmax )d, independent of the spatial resolution N . In practical settings, kmax ≪ N , often by one to two orders of magnitude [4], [5]. At high resolutions (e.g., spatial grids of 128 3 or larger with multiple fields and timesteps), the spatial grid exceeds the memory capacity of a single GPU and must be distributed across multiple GPUs. Grady et al. [15] introduced the first spatially distributed FNO using domain decomposition with repartition operators. Each GPU owns a contiguous block of the spatial domain and repartition collectives redistribute the tensor so that each FFT dimension is locally present before transformation. Each FNO block (see Figure 1) applies the iterative update in Eq. (1), where the distributed spectral convolution replaces the standard FFT with a sequence of repartition operators and local transforms: 
+
+Fdist v = FIk T{PIk−1 }→{ PIk } · · · F I1 T{P }→{ PI1 } v (2) where each T{P }→{ Q} is a repartition operator (all-to-all collective) that redistributes the tensor from partition P to partition Q, and FIj applies a local FFT along the dimensions in index set Ij that are now fully local on each GPU. The distributed spectral convolution can be computed as: 
+
+(Sdist v(ℓ))( x) = F⊤
+
+> dist
+
+ R(ℓ) 
+
+> θ
+
+· (Fdist v(ℓ))(x) (3) which is added to the point-wise linear bypass W (ℓ)v(ℓ)(x)
+
+and passed through the activation σ. The spatial tensor is redistributed via repartition collectives so that each GPU holds the full extent of a group of spatial dimensions, and local FFTs are applied along those dimensions. A second repartition makes the remaining dimensions local for the next group of FFTs. The inverse transform reverses the process with another two repartitions. Because each repartition leaves a different subset of frequency modes on each GPU, the spectral weights 
+
+Rθ must be partitioned to match, coupling model parallelism to the communication pattern. In total, each FNO block requires 4 all-to-all repartitions, each moving O(N d · dv /P ) data per GPU, where dv is the channel width. As GPU compute throughput continues to outpace inter-connect bandwidth, these collectives increasingly dominate runtime. Figure 2 profiles a baseline distributed FNO using a grid size of 128 × 128 × 64 , modes (8 , 8, 8, 16) , width 20, and 4 blocks. Communication accounts for over 97% of the forward-pass time when run on 4–32 GPUs across 1– 8 nodes (4 GPUs per node), consistent with prior reports on distributed FFT at scale [18], [20]. The compute fraction never exceeds 3.3%, which confirms that the spectral weight multiplication is negligible relative to the all-to-all collectives. Distributed Spatial    
+
+> Input Tensor (x)
+> Distributed FFT & mode restriction
+> Local 1D FFTs (non -distributed dims:Z , T)
+> All -to -All redistribute (make dim X local)
+> Local 1D FFT (dim X)
+> All -to -All redistribute (make dim Y local)
+> Local 1D FFT (dim Y)
+> Mode restriction
+> Neural operator
+> (spectral convolution)
+> Localized frequency slices,
+> Partitioned spectral weights 𝑅 !
+> Distributed inverse FFT
+> (2 more All -to -All)
+> +
+> Pointwise Bypass( 𝑤 !)Activation ( 𝜎 )Output Tensor
+
+Fig. 1: Standard distributed FNO layer. 4 8 16 32           
+
+> Number of GPUs
+> 0
+> 2000
+> 4000
+> 6000
+> Forward-pass time (ms)
+> 6.88s
+> 3.32s
+> 1.75s
+> 0.92s
+> (a) Absolute time
+> 020 40 60 80 100
+> Fraction of forward-pass time (%)
+> 4
+> 8
+> 16
+> 32
+> Number of GPUs  97.6% 2.4%
+> 97.4% 2.6%
+> 97.3% 2.7%
+> 97.0% 3.0%
+> (b) Communication fraction
+> Communication Compute
+
+Fig. 2: Communication vs. compute breakdown of the baseline DFNO forward pass on a 128 ×128 ×64 grid with modes 
+
+(8 , 8, 8, 16) , dv =20 , 4 blocks, across 4–32 GPUs, 4 GPUs per node, with one rank per GPU. Yet the distributed FFT computes and communicates all N d
+
+coefficients, but only retains (2 kmax )d of them. The useful fraction of communicated data is: 
+
+Vused 
+
+Vcommunicated 
+
+= (2 kmax )d
+
+N d =
+
+ 2kmax 
+
+N
+
+d
+
+(4) which rapidly approaches zero as the resolution and dimension of the computation increase. Thus, communication complexity is governed by Θ( N d), while the useful spectral information scales with Θ( kd
+
+> max
+
+).IV. T HE DISTRIBUTED TRUNCATED SPECTRAL 
+
+TRANSFORM (DTST) We introduce the Distributed Truncated Spectral Transform 
+
+(DTST), a communication primitive for computing a subset of the discrete Fourier coefficients from spatially distributed data without a distributed FFT. DTST replaces the distributed FFT in spectral methods that retain and operate only a small fraction of the frequency modes. 
+
+A. Problem Setting 
+
+Consider a d-dimensional tensor x ∈ CN1×···× Nd dis-tributed across P GPUs via spatial domain decomposition. GPU p holds a contiguous block xp with local extents N loc  
+
+> i
+
+=
+
+Ni/P i, where P = Q 
+
+> i
+
+Pi. Let S = S1 × · · · × S d denote the set of M = Q 
+
+> i
+
+|S i| frequency modes to be computed, Local partial DFT 
+
+> (Local dims,  e.g.  z,t )
+> Local partial DFT
+> (Distributed Dims,  e.g , x,y )
+> Matrix multiplication ( 𝐵 ! )
+> ALLReduce  Neural Operator
+> (spectral
+> Convolution)
+> Sharded Spectral
+> Weights ( 𝑅 ")
+> ALLGATHER
+> Local partial  iDFT
+> (Local dims,  e.g.  z,t )
+> Local partial  iDFT
+> (Distributed Dims,  e.g , x,y )
+> Matrix multiplication ( 𝐵 !
+> #$)
+> Distributed
+> Spatial
+> Input
+> Tensor (x)
+> +
+> Pointwise Bypass ( 𝑊 %)
+> Activation ( 𝜎 )
+> Output Tensor
+> Select  local slice ( 𝑆 &)
+
+Fig. 3: The DRIFT layer architecture. Each GPU applies a local partial DFT first along the fully local dimensions (Z, T), then along the partitioned dimensions (X, Y) via a basis-matrix multiplication Bi. An AllReduce sums partial spectra across all GPUs. Each GPU selects its partition of the retained spectrum and multiplies it by its local shard of the spectral weights Rθ .An AllGather reassembles the full convolved spectrum. The inverse partial DFT reconstructs each GPU’s spatial output via 
+
+B−1 
+
+> i
+
+without additional communication. A point-wise bypass Wx and activation σ complete the block. with M ≪ Q 
+
+> i
+
+Ni. The standard approach computes the full distributed FFT over all Q 
+
+> i
+
+Ni coefficients via multiple dense all-to-all collectives, then discards all but the M desired modes. DTST reverses this workflow by computing only the desired modes locally and aggregates them across GPUs through a global summation. 
+
+B. Mathematical Definition 
+
+The standard DFT of x at frequency k is a summation over the full spatial domain Ω = {0, . . . , N 1−1} × · · · × {0, . . . , N d−1}:
+
+ˆX[k] = X
+
+> j∈Ω
+
+x[j]
+
+> d
+
+Y
+
+> i=1
+
+W kiji 
+
+> Ni
+
+(5) where WN = e−2πi/N . Since the GPUs partition Ω into disjoint subsets, Ω = FP −1 
+
+> p=0
+
+dom( p), the global summation can be split into independent per-GPU sums, one over each local subdomain: 
+
+ˆX[k] =  
+
+> P−1
+
+X
+
+> p=0
+
+X
+
+> j∈dom( p)
+
+x[j]
+
+> d
+
+Y
+
+> i=1
+
+W kiji
+
+> Ni
+
+| {z }
+
+> ˆXp[k]
+
+, ∀ k ∈ S (6) Each GPU independently evaluates its local partial spectrum 
+
+ˆXp[k] for only the retained modes k ∈ S , and the global coefficients are obtained by summing the partial contributions across all GPUs: 
+
+ˆX[k] =  
+
+> P−1
+
+X
+
+> p=0
+
+ˆXp[k] (7) This produces spectral coefficients identical to the full dis-tributed FFT, followed by a truncation step. Because the DFT is linear, the order of truncation and aggregation can be reversed without affecting the result. 
+
+C. Communication Cost 
+
+We analyze communication costs using the α–β model [29], [32]. This model characterizes the time to send a message of size m bytes between two nodes as T = α + β m , where α
+
+is the per-message latency and β is the per-byte transfer cost (seconds per byte). Under this model, the cost of aggregating partial spectra via an AllReduce is: 
+
+TDTST = 2 ⌈log 2 P ⌉ · α + 2 β M · c · (P −1) 
+
+P , (8) where c is the payload per-mode in bytes. The factor of 2
+
+in the latency term reflects the two phases of an AllReduce (reduce-scatter + allgather), and the bandwidth term accounts for the 2M c (P −1) /P bytes transferred during AllReduce. By contrast, the distributed FFT communicates the full spatial tensor via all-to-all repartitions at a cost of: 
+
+TFFT = α (P −1) + β
+
+Q 
+
+> i
+
+Ni
+
+P c (9) per repartition [28]. The ratio of these costs gives a per-repartition communication reduction factor of: 
+
+TFFT 
+
+TDTST 
+
+∝ (P −1) 2⌈log 2 P ⌉ ·
+
+Q 
+
+> i
+
+Ni
+
+P · M (10) which grows with both spatial resolution and GPU count. The key insight is that DTST communicates a payload pro-portional to M with O(log P ) latency, while the distributed FFT communicates a payload proportional to Q 
+
+> i
+
+Ni/P , with 
+
+O(P ) latency. For spectral methods where M ≪ Q 
+
+> i
+
+Ni, this represents a fundamental reduction in communication volume and scaling cost. V. DRIFT: DTST FOR DISTRIBUTED FOURIER NEURAL 
+
+OPERATORS 
+
+We apply DTST to the distributed Fourier Neural Operator (DFNO) to build DRIFT, a distributed FNO layer that replaces the four all-to-all repartitions per block in a DFNO forward pass with two collectives per block, whose payload depends only on the mode count. Figure 3 illustrates the DRIFT architecture. 
+
+A. Distributed Spectral Convolution with Partitioned Weights 
+
+DRIFT uses an AllReduce to sum partial spectra across all GPUs and produces the full spectrum of the M modes on every GPU. Each GPU then selects its disjoint partition of the spectrum for a partitioned spectral convolution (see Fig. 4). Let S = FP −1 
+
+> p=0
+
+Sp be an equal partition of the M modes into P disjoint subsets, each of size M/P . The AllReduce sums partial contributions so that every GPU holds the full spectrum: 
+
+ˆX[k] =  
+
+> P−1
+
+X
+
+> q=0
+
+ˆXq [k], ∀ k ∈ S (11) Each GPU p selects its local partition Sp and applies its local shard of the learnable spectral convolution weights R(p) 
+
+> θ
+
+∈
+
+C|S p|× dv ×dv :
+
+ˆY (p)[k] = R(p) 
+
+> θ
+
+[k] ˆX[k], k ∈ S p (12) An AllGather reassembles the full convolved spectrum on every GPU: 
+
+ˆY [k] = ˆY (r)[k], k ∈ S r , r = 0 , . . . , P −1 (13) The local inverse partial DFT then reconstructs only the spatial points owned by GPU p:
+
+yp[n] = 1
+
+Q 
+
+> i
+
+Ni
+
+X
+
+> k∈S
+
+ˆY [k]
+
+> d
+
+Y
+
+> i=1
+
+W −kini 
+
+> Ni
+
+, n ∈ dom( p) (14) Because ˆY [k] is available on every GPU after the AllGather, this inverse requires no communication. 
+
+Weight partitioning and gradient communication: After the AllReduce, each GPU selects its partition Sp of M/P 
+
+modes and stores only its local shard of the spectral weights 
+
+R(p) 
+
+> θ
+
+∈ CM/P ×dv ×dv . AllReduce transfers 2M c (P −1) /P 
+
+bytes and AllGather transfers M c (P −1) /P bytes, where 
+
+c = dv · sizeof(complex) . This yields a total communication volume of: 
+
+VDRIFT = 3 M · c · P −1
+
+P · L (15) per forward pass across L blocks. This volume is independent of the spatial resolution Ni and the GPU count P (for P ≫ 1). Because each GPU computes weight gradients ∂L/∂R (p)
+
+> θ
+
+locally on its own partition, no additional gradient synchro-nization is needed, unlike standard data-parallel training which requires an AllReduce over weight gradients. When P = 1 ,no communication is performed and DRIFT reduces to the standard single-GPU FNO without overhead. 
+
+Communication model for DRIFT: Applying the DTST communication cost (Eq. (8)) plus the AllGather cost to the FNO forward pass with L blocks: 
+
+TDRIFT = L
+
+
+
+3⌈log 2 P ⌉ · α + 3 β M · c · (P −1) 
+
+P
+
+
+
+(16) TABLE I: Communication model validation. Measured collec-tive time (ms) per forward pass versus α–β model predictions on a 128 ×128 ×64 grid with modes (8 , 8, 8, 16) , dv =20 , L=4 
+
+blocks, 4 GPUs per node, one rank per GPU.                          
+
+> All-to-all (repartitions) AR + AG PPred. Meas. Err. Pred. Meas. Err.
+> 83343 3236 3.3% 16.0 15.0 6.7% 16 1689 1705 1.0% 19.3 20.9 7.7% 32 879 891 1.3% 22.6 21.6 4.6%
+
+The distributed FFT baseline performs 4L all-to-all reparti-tions (4 per block), giving: 
+
+TDFFT = 4 L
+
+
+
+α (P −1) + β
+
+Q 
+
+> i
+
+Ni
+
+P c
+
+
+
+(17) Table I validates both communication models against mea-sured collective times. The all-to-all model achieves <3.3% 
+
+prediction error across all GPU counts. For the AllReduce and AllGather, per-block fits on the inter-node configurations (P ≥ 8, 2–8 nodes) give TAR = 1 .07 + 0 .29 log 2 P and 
+
+TAG = 0 .44 + 0 .54 log 2 P (ms/block), which confirms the 
+
+log 2 P scaling predicted by the theoretical model with predic-tion errors below 8%. 
+
+B. Computing the Local Partial Spectrum 
+
+Each GPU evaluates Eq. (6) via matrix multiplications with precomputed DFT basis matrices. For each spatial dimension i,the basis matrix Bi ∈ C|S i|× N loc  
+
+> i
+
+has entries 
+
+(Bi)k,j = W k(piN loc   
+
+> i+j)
+> Ni
+
+, k ∈ S i (18) where pi is the GPU coordinate along dimension i and the phase offset piN loc  
+
+> i
+
+encodes the global position of each local element. For non-distributed dimensions, where each GPU holds the full extent, the offset is zero and the basis matrix reduces to a standard DFT submatrix, selecting the retained modes. The partial DFT is applied as sequential matrix multipli-cations along each dimension (see Fig. 4). Each spatial axis is mapped from its full local extent N loc  
+
+> i
+
+to |S i| modes. This progressively shrinks the tensor. Non-distributed dimensions are processed first, as they require no phase offsets and immediately compress the tensor. Distributed dimensions are processed last, producing the local partial spectrum ˆXp that is summed across GPUs via the AllReduce. After the spectral convolution, the inverse partial DFT reconstructs each GPU’s spatial output using the inverse basis B−1 
+
+> i
+
+= 1 
+
+> Ni
+
+BHi , applied in reverse dimension order. Because the AllGather has already produced the complete convolved spectrum on every GPU, this inverse requires no additional communication. 
+
+Spatial decomposition flexibility: DRIFT supports arbi-trary d-dimensional spatial decompositions. A 1D slab decom-position partitions only one axis, which gives each GPU a local domain of (Nx/P )×Ny ×Nz , and a 2D pencil decomposition partitions two axes, giving (Nx/P x)×(Ny /P y )×Nz per GPU 𝑃 !      
+
+> 𝑃 "
+> 𝑃 #
+> 𝑃 $
+> 𝑃 !
+> 𝑃 "
+> 𝑃 #
+> 𝑃 $
+> 𝑆 !
+> 𝑆 "
+> 𝑆 #
+> 𝑆 $
+> 𝑆 !
+> 𝑆 "
+> 𝑆 #
+> 𝑆 $
+> 𝑆 !
+> 𝑆 "
+> 𝑆 #
+> 𝑆 $
+> 𝑆 !
+> 𝑆 "
+> 𝑆 #
+> 𝑆 $
+> 𝑃 !𝑃 "𝑃 #𝑃 $
+> 𝑅 !
+> (#)[𝑘 ]
+> 𝑅 !
+> (%)[𝑘 ]
+> 𝑅 !
+> (&)[𝑘 ]
+> 𝑅 !
+> (')[𝑘 ]
+> 𝑃 !
+> 𝑃 "
+> 𝑃 #
+> 𝑃 $
+> ∑𝑆 '
+> ∑𝑆 &
+> ∑𝑆 %
+> ∑𝑆 #
+> 𝑃 !𝑃 "𝑃 #𝑃 $
+> ∑𝑆 '
+> ∑𝑆 &
+> ∑𝑆 %
+> ∑𝑆 #
+> 𝑃 !𝑃 "𝑃 #𝑃 $
+> ∑𝑆 '∑𝑆 '∑𝑆 '
+> ∑𝑆 &∑𝑆 &∑𝑆 &
+> ∑𝑆 %∑𝑆 %∑𝑆 %
+> ∑𝑆 #∑𝑆 #∑𝑆 #
+
+Local pDFT  
+
+> #𝑁 %
+> 𝑃 ×𝑁 &×𝑁 '×𝑁 (
+
+Spatial Domain 
+
+(distributed) 
+
+> 𝑘 %×𝑘 &×𝑘 '×𝑘 (
+
+AllReduce 
+
+Spectral Weight Multiply 
+
+Partitioned 𝑅 "
+
+AllGather Partial spectra 
+
+Spatial Output 
+
+(distributed) 
+
+Local piDFT Model parallel 
+
+> '𝑋 (#)[𝑘 ]
+> '𝑋 (%)[𝑘 ]
+> '𝑋 (&)[𝑘 ]
+> '𝑌 (')[𝑘 ]
+> '𝑌 (&)[𝑘 ]
+> '𝑌 (&)[𝑘 ]
+> '𝑌 (#)[𝑘 ]
+
+!𝑌 𝑘 = !𝑌 (() 𝑘 , ∀𝑘 ∈ 𝑆 (                
+
+> '𝑌 𝑘
+> '𝑌 𝑘
+> '𝑌 𝑘
+> '𝑌 𝑘
+> 𝑦 #[𝑛 ]
+> 𝑦 %[𝑛 ]
+> 𝑦 &[𝑛 ]
+> 𝑦 '[𝑛 ]
+> '𝑋 '[𝑘 ]
+> '𝑋 &[𝑘 ]
+> '𝑋 #[𝑘 ]
+> '𝑋 %[𝑘 ]
+> 𝑘 %×𝑘 &×𝑘 '×𝑘 (#𝑁 %
+> 𝑃 ×𝑁 &×𝑁 '×𝑁 (
+> ∑𝑆 '
+> ∑𝑆 &
+> ∑𝑆 %
+> ∑𝑆 #
+> 𝑃 !𝑃 "𝑃 #𝑃 $
+> ∑𝑆 '∑𝑆 '∑𝑆 '
+> ∑𝑆 &∑𝑆 &∑𝑆 &
+> ∑𝑆 %∑𝑆 %∑𝑆 %
+> ∑𝑆 #∑𝑆 #∑𝑆 #
+> ∑𝑆 %
+> ∑𝑆 #
+> ∑𝑆 &
+> ∑𝑆 '
+
+Local slice 
+
+> '𝑋 (')[𝑘 ]
+
+!𝑋 𝑘 = !𝑋 *[𝑘 ], ∀𝑘 ∈ 𝑆 Fig. 4: Data-centric view of the DRIFT pipeline with P = 4 GPUs. Each GPU computes a local partial spectrum from its spatial partition. Each AllReduce sums the partial contributions so that every GPU holds the identical full spectrum. Each GPU selects its partition Sp and applies its local shard of Rθ . The AllGather reassembles the fully convolved spectrum. The inverse partial DFT reconstructs each GPU’s spatial output without additional communication. ω! ω! ω! … ω! ω!
+
+ω! ω" ω# … ω$ … ω"#$ 
+
+ω! ω# ω% … ω"% … ω#&% 
+
+⋮ ⋮ ⋮ ⋱ ⋮ ⋱ ⋮
+
+ω! ω$ ω"% … ω%' … ω((' 
+
+⋮ ⋮ ⋮ ⋮ ⋮ ⋮ ⋮
+
+ω! ω"# ! ω#%! … ω(%! … ω"&#%! 
+
+ω! ω"#" ω#%# … … … ω"&)*$ 
+
+⋮ ⋮ ⋮ ⋱ ⋮ ⋱ ⋮
+
+ω! ω"#* ω#&# … ω(( # … ω"*!!# 
+
+ω! ω"#$ ω#&% … ω((' … ω"*"#' 
+
+x!
+
+x"
+
+x#
+
+⋮
+
+x$
+
+⋮
+
+x*) 
+
+x*% 
+
+⋮
+
+x"#* 
+
+x"# $
+
+%𝑦 !
+
+%𝑦 "
+
+%𝑦 #
+
+⋮
+
+%𝑦 $
+
+%𝑦 "#! 
+
+%𝑦 "#" 
+
+⋮
+
+%𝑦 "#* 
+
+%𝑦 "# $    
+
+> B (K ×N basis matrix)
+> 16 rows ×128 columns
+> k= 0
+> k=1
+> k=2
+
+…
+
+> k=7
+> k=120
+> k=121
+> k=126
+> k=127
+> 8 high modes  8 low modes
+
+⋮
+
+⋮
+
+× =   
+
+> j=0 j=1 j=2
+
+… j=7 j=127 … N=128 K=16  
+
+> X (input vector)
+> 128 ×1
+> #𝑦 (output)
+> K=16 only
+> 8 low
+> 8 high
+
+Fig. 5: Partial DFT via gemm for one spatial dimension (N =128 , K=16 ). The basis matrix B ∈ CK×N with Bk,j =
+
+ωk·jN contains only the rows corresponding to the K frequency modes: 8 low ( k=0 , . . . , 7) and 8 high ( k=120 , . . . , 127 ). with P = PxPy . In both cases, the basis matrix (Eq. (18)) adapts automatically through the phase offset piN loc  
+
+> i
+
+, which shifts the DFT twiddle factors so that each GPU’s local indices map to their correct global positions. Non-partitioned dimensions have Pi = 1 and zero offset. The partial spec-trum and the subsequent AllReduce produce identical spectral coefficients, regardless of the decomposition topology. The choice of decomposition affects only the local tensor shape and the computational cost of the basis-matrix multiplication. The communication volume (Eq. (15)) is invariant to the decomposition, as it depends only on the mode count M .
+
+cuBLAS vs cuFFT: A natural question is whether replacing the FFT with dense matrix multiplication sacrifices compu-tational efficiency. For a single 1-D transform of length N
+
+retaining K = 2 kmax modes, the FFT requires 52 N log 2 N
+
+floating-point operations, but computes all N frequencies, while the partial DFT via gemm requires 2KN operations for exactly the K desired modes. Figure 5 illustrates the operation for one dimension, in which the basis matrix B ∈ CK×N with entries Bk,j = ωk·jN selects only the K rows of the full DFT matrix and directly computes the desired spectral coefficients via a single gemm call. At N = 128 and kmax = 8 , the per-dimension gemm cost exceeds cuFFT’s cost by a factor of 1.8×.However, when applied sequentially across all four dimen-sions, a progressive compression effect makes the partial DFT cheaper than cuFFT overall (see Fig. 6). Each stage contracts one dimension from Ni to Ki, so the tensor feeding subsequent stages is progressively smaller. Stage 1 contracts T from 
+
+30 → 16 , operating on the full 128 × 128 × 64 × 30 tensor. After this contraction, stage 2 contracts Z from 64 → 16 on a tensor already compressed along T . Stage 3 contracts Y
+
+from 128 → 16 , with both T and Z already reduced, and stage 4 contracts X from 128 → 16 on a tensor reduced in three dimensions, contributing only 1% of the total gemm 
+
+FLOPs (see Table II). For our grid ( 128 × 128 × 64 , T =30 ,modes (8 , 8, 8, 16) ), the total gemm computation across all four stages requires 13% fewer floating-point operations than four equivalent cuFFT calls, and the advantage grows with resolution. Moreover, because the partial DFT maps each local axis of size N loc  
+
+> i
+
+directly to the 2kmax ,i retained modes, the full Ni-sized frequency representation is never allocated in GPU memory. This will eliminate the global memory traffic associated with writing and subsequently discarding the 
+
+(Ni − 2kmax ,i ) unused coefficients. The dimension ordering in the progressive compression pipeline affects the total gemm cost. Contracting a large dimension early shrinks the tensor that all subsequent stages operate on. Table III compares the current implementation order (T, Z, Y, X) against the FLOP-optimal order (Y, Z, X, T) at P =4 . Stage 1 costs the same in both cases because it always processes the full local tensor; the savings arise in stages 2–4, where the optimal order operates on an already-compressed tensor. Processing the largest local dimension first TABLE II: Per-stage gemm FLOPs with progressive compres-sion vs. total cuFFT FLOPs. Grid 128 ×128 ×64 , T =30 , modes 
+
+(8 , 8, 8, 16) , width dv =20 .                                                             
+
+> Stage Contracts Tensor shape gemm FLOPs Share 1 (T) 30 →16 128 ×128 ×64 ×30 20.1 G 59% 2 (Z) 64 →16 128 ×128 ×64 ×16 10.7 G 32% 3 (Y) 128 →16 128 ×128 ×16 ×16 2.7 G 8% 4 (X) 128 →16 128 ×16 ×16 ×16 0.3 G 1% Total gemm 33.9 G Total cuFFT (no compression) 39.2 G
+> gemm / cuFFT ratio 0.87 ×(13% fewer) 128 ×128 128 ×128 6416
+> 128 ×128
+> X = 12 8
+> Input =128 ×128 ×64 ×30 Z=64 T = 30
+> 30 →16
+> gemm T
+> 16 16
+> After stage 1
+> gemm Z: 64 →16
+> After stage 2 After stage 3
+> gemm Y: 128 →16
+> Y=16, Z=16, T=16
+> Output Spectral tensor
+> 16 ×16 ×16 ×16
+> gemm X: 128 →16
+
+Fig. 6: Progressive tensor compression across gemm stages. Each stage contracts one dimension (red arrow) via a basis-matrix multiply, reducing the tensor that subsequent stages operate on. Blue blocks denote full-sized dimensions; green blocks denote already-contracted dimensions (K=16 ). By stage 4, the tensor has been compressed in three dimensions, reducing the operational volume by 60 × relative to stage 1. would reduce per-GPU gemm FLOPs by 30%. 
+
+C. Backward Pass 
+
+The forward pass uses only linear operations (basis-matrix multiplications) and two collectives (AllReduce and All-Gather). During backpropagation, each collective reverses nat-urally. The backward pass of AllReduce is another AllReduce, and the backward pass of AllGather is an AllReduce followed by selecting the local partition. As a result, the backward pass performs the same collective operations as the forward pass and incurs identical communication cost. Because the spectral weights R(p) 
+
+> θ
+
+are partitioned, each GPU computes its weight gradients ∂L/∂R (p) 
+
+> θ
+
+locally with no additional gradient synchronization. 
+
+D. Block Structure 
+
+Each DRIFT block computes the full FNO residual 
+
+x(ℓ+1) = σ W (ℓ)x(ℓ) + y(ℓ), where W (ℓ) is a point-wise linear operator applied independently on each GPU’s local spatial partition and y(ℓ) is the spectral convolution output re-constructed via the inverse partial DFT. Linear bypass requires only a single broadcast of the weight matrix from the root GPU, which contributes negligible communication relative to the spectral path. The complete per-block forward pass, TABLE III: Dimension ordering: current vs. optimal per-GPU 
+
+gemm FLOPs. Same configuration as Table II, P =4 .
+
+Current Optimal Stage Dim GFLOPs Dim GFLOPs 1 T :30 →16 20.1 Y :128 →16 20.1 2 Z:64 →16 10.7 Z:64 →16 2.5 3 Y :128 →16 2.7 X:32 →16 0.6 4 X:32 →16 0.3 T :30 →16 0.3 Total 33.9 Total 23.6 
+
+Algorithm 1: DRIFT block forward pass on GPU p
+
+Require: xp ∈ RB×dv ×N loc     
+
+> x×Ny×Nz×Nt
+> 1:
+
+y0 ← W (ℓ)xp 
+
+> 2:
+
+ˆXp ← pDFT( xp) along T, Z, Y, X  
+
+> 3:
+
+ˆX ← AllReduce ( ˆXp) 
+
+> 4:
+
+ˆX(p) ← ˆX[Sp] 
+
+> 5:
+
+ˆY (p) ← R(p) 
+
+> θ
+
+ˆX(p) 
+
+> 6:
+
+ˆY ← AllGather ( ˆY (p)) 
+
+> 7:
+
+yp ← piDFT( ˆY ) along X, Y, Z, T  
+
+> 8:
+
+return GELU( y0 + yp)
+
+including the dimension ordering that enables progressive compression (Table II), is summarized in Algorithm 1. VI. E VALUATION 
+
+A. Experimental Setup 
+
+Table IV summarizes the hardware and software platform used in this work. Each MPI rank is mapped to a single GPU, and all computation executes entirely on the GPU. Communication between GPUs uses GPU-aware MPI, which transfers data directly between GPU memory without staging through the host. All experiments use a 3D+time FNO, with a channel width dv = 20 , 4 Fourier blocks, and retained modes 
+
+(kx, k y , k z , k t) = (8 , 8, 8, 16) . Spatial data is distributed via a 1-D slab decomposition along the x-dimension. At P =32 ,where the local x-extent would fall below the mode count, a 2-D decomposition ( Px=16 , Py =2 ) is used instead. The 
+
+y, z, and t dimensions remain local on each GPU. Both DFNO [15] and DRIFT use identical model weights, inputs, and partitioning. The only difference is the spectral transform implementation. All timings reported are the mean over 20 iterations, following 5 warm-up steps. 
+
+B. Dataset 
+
+We evaluate on the 3D compressible Navier-Stokes dataset from PDEBench [33], a widely adopted benchmark for sci-entific machine learning. The dataset contains 100 samples with random field initial conditions at Mach M =1 .0 in the near-inviscid regime ( η=ζ=10 −8) on a periodic domain. Each trajectory has shape (128 , 128 , 128 , 21 , 5) that is a 128 3 spatial grid, 21 timesteps, and 5 field variables ( ρ, v x, v y , v z , p ). We use a split of 90/10 for training/evaluation. The FNO is configured with tin =5 input timesteps and tout =16 predicted TABLE IV: Experimental platform.            
+
+> Parameter Value
+> GPU NVIDIA Tesla V100-SXM2-32GB GPUs per node 4 (NVLink) Nodes 1–8 (4–32 GPUs) Inter-node network InfiniBand EDR (100 Gb/s) CUDA 12.1 Python 3.10 PyTorch 2.1.0 CuPy 13.6.0 mpi4py 4.1.1 MPI stack HPC-X 2.19 (OpenMPI)
+
+Fig. 7: Above: Spectral coefficient comparison on PDEBench 3D compressible Navier-Stokes ( 128 3, vx, z=64 ). Left to right: FFT + truncation (DFNO), partial DFT (DRIFT), pointwise absolute error. Relative Frobenius error: 3.2×10 −14 .Below: Distributed full-model comparison (P =16 GPUs, matched weights). Input vx field, DFNO output, and DRIFT output at the z=64 midplane. The two models produce bit-wise identical results (relative L2 = 0 ). timesteps. For weak scaling experiments at smaller grid sizes, we slice the first Nx points along the x-dimension from the native 128 3 data. 
+
+C. Numerical Exactness 
+
+We verify that DRIFT reproduces the spectral coefficients of the standard FFT-based pipeline to machine precision. Fig-ure 7 compares the retained Fourier modes computed by FFT followed by truncation (DFNO) against the partial DFT basis matrix (DRIFT) on a PDEBench vx field at 128 3 resolution. The two coefficient matrices are visually identical, and the relative Frobenius error is 3.2×10 −14 , at the limit of double-precision arithmetic. Figure 7 confirms that this exactness is preserved through the full distributed pipeline. Running DFNO and DRIFT with matched non-spectral weights on P =16 
+
+GPUs produces bitwise identical outputs (relative L2 = 0 ). TABLE V: DRIFT vs. DFNO strong scaling on PDEBench 3D compressible Navier-Stokes. Modes (8 , 8, 8, 16) , width 20, 4 blocks, 4 GPUs per node, one rank per GPU.                                                
+
+> Fwd (ms) Bwd (ms) Grid PDFNO DRIFT DFNO DRIFT Speedup (fwd)
+> 64 3
+> 4926.6 28.7 954.9 38.9 32.3 ×
+> 8488.6 26.6 483.2 28.9 18.4 ×
+> 16 300.5 26.7 249.1 24.1 11.3 ×
+> 32 226.2 26.4 159.7 23.5 8.6 ×
+> 128 3
+> 49443.1 148.3 10140.7 246.8 63.7 ×
+> 85154.8 87.7 5505.1 133.1 58.8 ×
+> 16 3202.6 56.5 3259.2 77.2 56.7 ×
+> 32 1634.1 43.4 1691.5 49.8 37.7 ×
+
+D. Strong Scaling 
+
+Table V reports forward-pass and backward-pass timings for DFNO and DRIFT on the PDEBench 3D compressible Navier-Stokes problem under strong scaling from 4 to 32 GPUs, for two different grid resolutions: 64 3 and 128 3. The 64 3 grid is obtained by downsampling from the native 128 3 data. On the 128 3 grid, DRIFT achieves a 37.7–63.7 × forward-pass speedup across all GPU counts. DFNO’s forward time drops from 9443 ms to 1634 ms as P increases from 4 to 32, a 5.8 × reduction for an 8 × increase in resources, as its all-to-all communication bottleneck limits scaling. DRIFT scales from 148.3 ms to 43.4 ms over the same range, a 3.4 × reduction, with the absolute forward-pass time remaining under 150 ms at all scales. Figure 8 extends this analysis to five grid sizes derived from the native 128 3 data. DRIFT’s forward-pass time decreases with P at all resolutions, and the 128 3 grid tracks closest to ideal scaling, as its larger local volume provides more compute to amortize the fixed AllReduce cost. Smaller grids flatten earlier because the per-GPU volume shrinks and communication dominates sooner. The per-phase breakdown in Section VI-E quantifies this transition. The backward pass exhibits a similar pattern. On the 128 3 grid, DRIFT completes backpropagation in 49.8 ms at P =32 compared to DFNO’s 1691.5 ms, which yields a 35.7 × total (forward + backward) speedup relevant for training workloads. 
+
+E. Per-Phase Breakdown 
+
+Figure 9 shows the per-block timing breakdown for DRIFT on 128 3 and 64 3 grids across GPU counts. Each heatmap de-composes a single spectral convolution block into five phases: forward and inverse partial DFT, AllReduce plus AllGather communication, spectral convolution, skip-connection linear projection with GeLU activation, and the lift/projection layers. On the 128 3 grid at P =4 , the forward and inverse par-tial DFT dominate at 67 ms (44% of total per-block time), reflecting the large local spatial volume ( 32 ×128 ×128 per GPU). Communication accounts for only 5.1 ms (3.4%). As P
+
+increases to 32, the local volume shrinks and the partial DFT cost drops to 9.9 ms, while AllReduce plus AllGather grows to 20 ms and becomes the dominant phase. This transition 4 8 16 32    
+
+> Number of GPUs ( P)
+> 40
+> 60
+> 80
+> 100
+> 120
+> 140
+> Forward-pass time (ms)  Grid size
+> 16×128 2
+> 32×128 2
+> 64×128 2
+> 64 3
+> 128 3
+> 4816 32
+> Number of GPUs ( P)
+> 0
+> 2
+> 4
+> 6
+> 8
+> Speedup relative to  P = 4  Grid size
+> 16×128 2
+> 32×128 2
+> 64×128 2
+> 64 3
+> 128 3
+> Ideal
+
+Fig. 8: DRIFT strong scaling across five grid sizes. Left: forward-pass time. Right: speedup relative to P =4 . Larger grids scale more efficiently as the increased local com-pute amortizes the fixed AllReduce cost. Modes (8 , 8, 8, 16) ,
+
+dv =20 , 4 blocks, 4 GPUs per node, one rank per GPU. 4 8 16 32                                  
+
+> Number of GPUs
+> pDFT + piDFT
+> AR + AG
+> Spec. conv.
+> Linear + GeLU
+> Lift + Proj
+> 67 34 18 9.9
+> 5.1 13 15 20
+> 0.6 0.5 0.4 0.4
+> 34 17 9.3 5.6
+> 44 24 13 8.0
+> 128 3
+> 4816 32
+> Number of GPUs
+> 10 5.9 3.9 3.0
+> 4.2 11 14 18
+> 0.6 0.4 0.4 0.4
+> 5.2 3.5 2.5 2.2
+> 7.4 4.9 3.7 3.4
+> 64 3
+> 10 0
+> 10 1
+> Time (ms)
+
+Fig. 9: Per-block phase breakdown for DRIFT at 128 3 (left) and 64 3 (right) grids. Modes (8 , 8, 8, 16) , dv =20 , 4 GPUs per node, one rank per GPU. from compute-bound to communication-bound explains the decreasing speedup over DFNO at higher GPU counts in Table V. Even so, the absolute communication time remains below 20 ms, over 44 × lower than DFNO’s 891 ms. The spectral convolution remains negligible at all scales (0.4–0.6 ms) since it operates on the small Kx×Ky ×Kz ×Kt
+
+coefficient tensor, regardless of the spatial grid size. The 64 3
+
+grid shows a similar transition, though shifted to lower P .Communication already dominates at P =8 (11 ms out of total 26 ms), consistent with the smaller per-GPU volume, providing less compute to amortize the collective cost. Notably, DRIFT’s communication time is nearly identical across the two grid sizes (5.1 ms vs. 4.2 ms at P =4 ; 20 ms vs. 18 ms at P =32 ), confirming that the AllReduce payload depends only on the retained mode count, not on the spatial resolution (Eq. (15)). 
+
+F. Weak Scaling 
+
+Figure 10 presents weak scaling, where the local tensor size per GPU is held constant at 4×128 ×128 , while the global grid grows with P along the distributed x-dimension, from 
+
+16 ×128 ×128 at P =4 to 128 3 at P =32 . DRIFT’s forward-pass time increases from 28 ms to 43 ms as P grows from 4 to 32, a 1.5 × increase for an 8 × growth in problem size. DFNO, by contrast, grows from 810 ms to 1634 ms over the same range, as each increase in P introduces additional all-to-all P=4    
+
+> 16×128²
+> P=8
+> 32×128²
+> P=16
+> 64×128²
+> P=32
+> 128³
+> 10 1
+> 10 2
+> 10 3
+> Forward time (ms)  810
+> 28
+> 818
+> 34
+> 1628
+> 38
+> 1634
+> 43
+> Forward pass time
+> DFNO
+> DRIFT
+> 4816 32
+> Number of GPUs (P)
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> Speedup (×)
+> 29×
+> 24×
+> 43×
+> 38×
+> DRIFT speedup over DFNO
+> Forward speedup
+> Total speedup (fwd+bwd)
+
+Fig. 10: Weak scaling of DRIFT vs. DFNO. Left: forward-pass time; right: speedup. The local tensor size per GPU is fixed at 4×128 ×128 , and the global grid grows with P along the x-dimension from 16 ×128 ×128 (P =4 ) to 128 3 (P =32 ). Modes (8 , 8, 8, 16) , dv =20 , 4 blocks, 4 GPUs per node, one rank per GPU. communications. The resulting forward speedup peaks at 43 ×
+
+at P =16 and remains above 24 × across all configurations. The speedup rises from 29 × at P =4 to 43 × at P =16 ,then drops to 38 × at P =32 . The initial increase reflects DFNO’s communication cost scaling super-linearly with P in the 1D decomposition regime, amplifying the gap. The drop at P =32 coincides with the transition to a 2D decomposition (Px=16 , Py =2 ), which reduces DFNO’s per-collective mes-sage size and partially alleviates its communication bottleneck, while DRIFT’s AllReduce cost continues to grow with P .DRIFT’s forward time is dominated by local partial-DFT and spectral convolution compute at low P , with AllReduce communication becoming the dominant cost at the largest GPU counts. This trend contrasts with DFNO’s behavior, where communication accounts for 95–98% of forward-pass time at every scale. The total speedup (forward plus backward) tracks the forward speedup closely, which ranges from 24 × to 38 ×, and indicates that DRIFT’s advantages extend to training workloads. 
+
+G. Sensitivity to kmax 
+
+Figure 11 shows the sensitivity of DRIFT’s forward-pass time and speedup to the number of retained modes on the PDEBench 128 3 grid across three GPU counts. As kmax 
+
+increases, DRIFT’s communication payload (Eq. (15)) and partial DFT cost both grow, which reduces the speedup over DFNO. At P =4 , the speedup ranges from 69 × at k=4 to 53 × at k=16 , a modest decline because the local partial DFT dominates at low P and scales linearly with kmax . At P =32 ,the effect is more pronounced. The speedup drops from 51 ×
+
+at k=4 to 18 × at k=16 , as the AllReduce payload grows with kd 
+
+> max
+
+and communication already dominates at this GPU count. Crucially, DFNO’s forward-pass time is independent of kmax because it communicates and computes the full spatial tensor regardless of mode count. DRIFT maintains a substantial speedup across all configurations, confirming that the advantages hold when a large fraction of modes is retained. DFNO k=4 k=8 k=12 k=16                    
+
+> 10 2
+> 10 3
+> 10 4
+> Forward-pass time
+> 69× 63× 55× 53×
+> P= 4
+> DFNO k=4 k=8 k=12 k=16
+> 10 2
+> 10 3
+> 10 4
+> 70× 56× 46× 33×
+> P= 16
+> DFNO k=4 k=8 k=12 k=16
+> 10 2
+> 10 3
+> 10 4
+> 51× 37× 27×
+> 18×
+> P= 32
+
+Fig. 11: Effect of kmax on forward-pass time and speedup across 4, 16, 32 GPU counts. DRIFT’s advantage grows as fewer modes are retained. 128 3 grid, dv =20 , 4 blocks, 4 GPUs per node, one rank per GPU. 20 40 60 80 100      
+
+> Epoch
+> 10 1
+> 10 0
+> 10 1
+> MSE Loss
+> DFNO
+> DRIFT
+> 0246
+> Wall-clock time (hours)
+> 10 1
+> 10 0
+> 10 1
+> MSE Loss
+> DFNO: 6.8h
+> DRIFT: 11min
+> DFNO
+> DRIFT
+
+Fig. 12: Training convergence on PDEBench 3D compressible Navier-Stokes ( 128 3, P =16 GPUs, 4 GPUs per node, one rank per GPU). Left: training loss vs. epoch. Right: training loss vs. wall-clock time. 
+
+H. Training Convergence 
+
+The preceding experiments measured individual forward and backward passes in isolation. However, end-to-end train-ing includes additional overhead from optimizer steps, gradient accumulation, data loading, and memory management. To verify that DRIFT’s advantages hold in practice, we trained both DFNO and DRIFT on the PDEBench 128 3 compressible Navier-Stokes dataset for 100 epochs run on P =16 GPUs, using 40 of the 90 training samples and all 10 test samples. Both methods minimize MSE loss using the Adam optimizer, with a learning rate of 10 −3 and batch size of 1. Both models use identical architectures (4 blocks, dv =20 , modes 
+
+(8 , 8, 8, 16) ), identical random initializations, and the same sample ordering per epoch. After each epoch, we evaluate the relative L2 error ∥y−ˆy∥2/∥ˆy∥2 on the test set. Figure 12 shows training loss versus epoch (left) and versus wall-clock time (right). Both methods converge to comparable final training loss (DFNO: 0.044, DRIFT: 0.045) and relative L2 error (DFNO: 0.23, DRIFT: 0.25). The similar trends in training loss and L2 error confirm that DRIFT is a drop-in replacement that does not affect model quality. Both methods achieve a training loss below 0.1 at epoch 36, but DRIFT arrives there in 4 minutes, while DFNO requires 2.6 hours. DRIFT averages 6.6 s per epoch, compared to DFNO’s 245 s, and completes 100 epochs in 11 minutes versus 6.8 hours, a 37 × wall-clock speedup. VII. D ISCUSSION 
+
+Scaling projections: The communication models (Eqs. 16 and 17) predict how each approach scales. The all-to-all cost in Eq. 17 has a bandwidth term that decreases at a rate of 
+
+1/P , which is why DFNO’s communication time drops with 
+
+P in the strong scaling (see Table V) and the per-phase breakdown (Section VI-E). At our scale, all-to-all remains bandwidth bound. However, the latency term grows as O(P )
+
+and is predicted to dominate at larger GPU counts. By contrast, the AllReduce cost in Eq. 16 has a fixed bandwidth term proportional to M and a latency term that grows only as 
+
+O(log P ), consistent with the modest increase in DRIFT’s communication time observed. At larger scales, the all-to-all latency grows as O(P ), while the AllReduce latency grows as 
+
+O(log P ), suggesting that DRIFT’s communication advantage will continue to increase with GPU count. 
+
+Applicability beyond FNO: DTST can be applied to any spectral method that retains a subset of frequency modes from distributed data, including spectral element methods [34], spherical harmonic transforms in climate models [35], and neural architectures with truncated spectral filters. The only requirement is that S is known at construction time. 
+
+Crossover regime: DRIFT’s computational advantages rely on kmax ≪ N . The gemm path becomes more expensive than cuFFT at kmax ≈ 10 (kmax /N ≈ 0.08 ), but typical FNO configurations use kmax = 4 –12 , where DRIFT’s partial DFT remains more efficient than the full transform. Even beyond this crossover, DRIFT’s communication advantage persists. 
+
+Limitations: DRIFT’s AllReduce payload is fixed at O(M ),regardless of value of P , so the communication fraction increases as the per-rank compute shrinks. At sufficiently large 
+
+P , DRIFT becomes communication-bound and further scaling yields diminishing returns. Scaling behavior at hundreds of GPUs may also be affected by network topology and conges-tion, which is not captured by the α–β model. Additionally, we evaluate on one FNO architecture, and measured speedups may differ for other problems or larger channel widths. VIII. C ONCLUSION 
+
+In this work, we have introduced the Distributed Truncated Spectral Transform (DTST), a communication primitive that replaces the distributed FFT with local partial DFTs and two collectives on retained spectral coefficients. DTST reduces per-layer communication volume from O(N d/P ) to O(M ), with 
+
+O(log P ) latency scaling, while producing identical spectral coefficients. We presented DRIFT, a GPU implementation for distributed Fourier Neural Operators using separable per-dimension partial DFTs via cuBLAS and GPU-aware MPI. DRIFT avoids both the unnecessary communication and the unnecessary computation inherent in the standard distributed FFT by computing only the needed frequency modes and com-municating only the retained spectrum. On a 3D+time FNO across 4–32 GPUs, DRIFT achieves a 38–64 × forward-pass speedup and a 37 × training speedup over the distributed FNO baseline, with comparable convergence. DRIFT’s advantages grow with both spatial resolution and problem dimensionality. REFERENCES [1] N. Kovachki, Z. Li, B. Liu, K. Azizzadenesheli, K. Bhattacharya, A. Stuart, and A. Anandkumar,“Neural operator: Learning maps between function spaces with applications to PDEs,” J. Mach. Learn. Res. , vol. 24, no. 89, pp. 1–97, 2023. https://doi.org/10.48550/arXiv.2108.08481 [2] L. Lu, P. Jin, G. Pang, Z. Zhang, and G. E. Karniadakis, “Learning nonlinear operators via DeepONet based on the universal approximation theorem of operators,” Nature Mach. Intell. , vol. 3, pp. 218–229, 2021. https://doi.org/10.1038/s42256-021-00302-5 [3] S. Wang, H. Wang, and P. Perdikaris, “Learning the solution operator of parametric partial differential equations with physics-informed Deep-ONets,” Sci. Adv. , 2021. https://doi.org/10.48550/arXiv.2103.10974 [4] Z. Li, N. Kovachki, K. Azizzadenesheli, B. Liu, K. Bhattacharya, A. Stuart, and A. Anandkumar, “Fourier neural operator for parametric partial differential equations,” in Proc. Int. Conf. Learn. Representations (ICLR) , 2021. https://doi.org/10.48550/arXiv.2010.08895 [5] V. Duruisseaux, J. Kossaifi, and A. Anandkumar, “Fourier neu-ral operators explained: A practical perspective,” arXiv preprint arXiv:2512.01421 , 2025. https://doi.org/10.48550/arXiv.2512.01421 [6] Z. Li, H. Zheng, N. Kovachki, D. Jin, H. Chen, B. Liu, K. Azizzade-nesheli, and A. Anandkumar, “Physics-informed neural operator for learning partial differential equations,” ACM/IMS J. Data Sci. , vol. 1, no. 3, 2024. https://doi.org/10.48550/arXiv.2111.03794 [7] G. Wen, Z. Li, K. Azizzadenesheli, A. Anandkumar, and S. M. Benson, “U-FNO—An enhanced Fourier neural operator-based deep-learning model for multiphase flow,” Adv. Water Resour. , vol. 163, p. 104180, 2022. https://doi.org/10.48550/arXiv.2109.03697 [8] A. Tran, A. Mathews, L. Xie, and C. S. Ong, “Factorized Fourier neural operators,” in Proc. Int. Conf. Learn. Representations (ICLR) , 2023. https://doi.org/10.48550/arXiv.2111.13802 [9] J. Kossaifi, N. Kovachki, K. Azizzadenesheli, and A. Anandkumar, “Multi-grid tensorized Fourier neural operator for high-resolution PDEs,” https://doi.org/10.48550/arXiv.2310.00120 [10] G. Zhou, Z. Zeng, Y. Luo, Q. Xie, and D. Meng, “Tucker-FNO: Tensor Tucker-Fourier neural operator and its universal approximation theory,” in (ICLR) , 2026. https://openreview.net/pdf?id=UJvkXnuozY [11] K. Li and W. Ye, “D-FNO: A decomposed Fourier neural operator for large-scale parametric partial differential equations,” Comput. Methods Appl. Mech. Eng. , 2025. https://doi.org/10.1016/j.cma.2025.117732 [12] J. Guibas, M. Mardani, Z. Li, A. Tao, A. Anandkumar, and B. Catan-zaro, “Adaptive Fourier neural operators: Efficient token mixers for transformers,” in Proc. Int. Conf. Learn. Representations (ICLR) , 2022. https://doi.org/10.48550/arXiv.2111.13587 [13] T. Kurth, S. Subramanian, P. Harrington, J. Pathak, M. Mardani, D. Hall, A. Miele, K. Kashinath, and A. Anandkumar, “FourCastNet: Acceler-ating global high-resolution weather forecasting using adaptive Fourier neural operators,” in Proc. Platform for Advanced Scientific Computing Conf. (PASC) , 2023. https://doi.org/10.1145/3592979.3593412 [14] S. Wu, Y. Zhai, H. Dai, H. Zhao, Y. Zhu, H. Hu, and Z. Chen, “TurboFNO: High-performance Fourier neural operator with fused FFT-GEMM-iFFT on GPU,” in Proc. Int. Conf. High Performance Comput-ing, Networking, Storage and Analysis (SC) , 2025. https://doi.org/10.48550/arXiv.2504.11681 [15] T. J. Grady II, R. Khan, M. Louboutin, Z. Yin, P. A. Witte, R. Chandra, R. J. Hewett, and F. J. Herrmann, “Model-parallel Fourier neural oper-ators as learned surrogates for large-scale parametric PDEs,” Comput. Geosci. , 2023. https://doi.org/10.1016/j.cageo.2023.105402 [16] R. J. Hewett and T. J. Grady II, “A linear algebraic approach to model parallelism in deep learning,” arXiv preprint arXiv:2006.03108 , 2020. https://doi.org/10.48550/arXiv.2006.03108 [17] K. Czechowski, C. Battaglino, C. McClanahan, K. Iyer, P.-K. Yeung, and R. Vuduc, “On the communication complexity of 3D FFTs and its implications for exascale,” in Proc. ACM Int. Conf. Supercomputing ,2012. https://doi.org/10.1145/2304576.2304604 [18] A. Ayala, S. Tomov, M. Stoyanov, and J. Dongarra, “Scalability issues in FFT computation,” in Parallel Computing Technologies , Springer, 2021, pp. 279–287. https://doi.org/10.1007/978-3-030-86359-3 21 [19] A. Ayala, S. Tomov, A. Haidar, and J. Dongarra, “heFFTe: Highly efficient FFT for exascale,” in Proc. Int. Conf. Computational Science (ICCS) , 2020. https://doi.org/10.1007/978-3-030-50371-0 19 [20] A. Ayala, S. Tomov, X. Luo, H. Shaiek, A. Haidar, G. Bosilca, and J. Dongarra, “Impacts of multi-GPU MPI collective communications on large FFT computation,” in Proc. IEEE/ACM Workshop on Exascale MPI (ExaMPI) , 2019. https://doi.org/10.1109/ExaMPI49596.2019.00007 [21] J.-M. Calvin, “Implementation of parallel FFT algorithms on distributed memory machines with a minimum overhead of communication,” Par-allel Comput. , 1997. https://doi.org/10.1016/S0167-8191(96)00039-7 [22] M. Pippig, “PFFT: An extension of FFTW to massively parallel archi-tectures,” SIAM J. Sci. Comput. , vol. 35, no. 3, pp. C213–C236, 2013. https://doi.org/10.1137/120885887 [23] N. Li and S. Laizet, “2DECOMP&FFT – A highly scalable 2D decom-position library and FFT interface,” in Cray User Group Conf. , 2010. https://api.semanticscholar.org/CorpusID:62453043 [24] A. Abdelfattah et al. , “Low communication FMM-accelerated FFT on GPUs,” in Proc. Int. Conf. High Performance Computing, Networking, Storage and Analysis (SC), 2017 
+
+https://doi.org/10.1145/3126908.3126919 [25] S. Taghipour Anvari, J. Samaroo, M. Raayai Ardakani, and D. Kaeli, “DaggerFFT: A distributed FFT framework using task scheduling in Julia,” in Proc. IEEE Int. Parallel and Distributed Processing Symp. (IPDPS) , 2026. https://doi.org/10.48550/arXiv.2601.12209 [26] D. Popovici, B. Wu, J. Shalf, and M. Kong, “Automatic generation of mappings for distributed Fourier operations,” in Proc. Int. Conf. High Performance Computing, Networking, Storage and Analysis (SC) , 2025. https://doi.org/10.1145/3712285.3759869 [27] V. Kumar, A. Grama, A. Gupta, and G. Karypis, Introduction to Parallel Computing , 2nd ed. Addison-Wesley, 2003. [28] T. Hoefler, W. Gropp, R. Thakur, and J. L. Tr¨ aff, “Toward performance models of MPI implementations for understanding application scaling issues,” in Proc. European MPI Users’ Group Meeting (EuroMPI) , 2010, pp. 21–30. https://doi.org/10.1007/978-3-642-15646-5 3 [29] E. Chan, M. Heimlich, A. Purkayastha, and R. van de Geijn, “Collective communication: Theory, practice, and experience,” Concurrency and Computation: Practice and Experience , vol. 19, no. 13, pp. 1749–1783, 2007. https://doi.org/10.1002/cpe.1206 [30] J. Pjeˇ sivac-Grbovi´ c, T. Angskun, G. Bosilca, G. E. Fagg, E. Gabriel, and J. J. Dongarra, “Performance analysis of MPI collective operations,” 
+
+Cluster Computing , 2007. https://doi.org/10.1007/s10586-007-0012-0 [31] G. Goertzel, “An algorithm for the evaluation of finite trigonometric series,” The American Mathematical Monthly , vol. 65, no. 1, pp. 34–35, 1958. https://doi.org/10.2307/2310304 [32] R. W. Hockney, “The communication challenge for MPP: Intel Paragon and Meiko CS-2,” Parallel Computing , vol. 20, no. 3, pp. 389–398, 1994. https://doi.org/10.1016/S0167-8191(06)80021-9 [33] M. Takamoto, T. Praditia, R. Lebert, M. N. Holme, T. Luber, R. Lippe, C. Meinikheim, R. Klamt, T. Friederich, and others, “PDEBench: An extensive benchmark for scientific machine learning,” in Proc. Advances in Neural Information Processing Systems (NeurIPS) , 2022. https://doi.org/10.48550/arXiv.2210.07182 [34] D. Komatitsch and J.-P. Vilotte, “The spectral element method: An efficient tool to simulate the seismic response of 2D and 3D geological structures,” Bull. Seismol. Soc. Am. , vol. 88, no. 2, pp. 368–392, 1998. https://doi.org/10.1785/BSSA0880020368 [35] N. P. Wedi, M. Hamrud, and G. Mozdzynski, “A fast spherical harmonics transform for global NWP and climate models,” Mon. Weather Rev. ,vol. 141, no. 10, pp. 3450–3461, 2013. https://doi.org/10.1175/MWR-D-13-00016.1

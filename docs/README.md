@@ -6,43 +6,59 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-16
-- 运行时间：2026-07-16 21:29:04 UTC
+- 最新运行日期：2026-07-17
+- 运行时间：2026-07-17 20:51:11 UTC
 - 运行状态：成功
-- 本次总论文数：7
-- 精读区：1
-- 速读区：6
+- 本次总论文数：13
+- 精读区：2
+- 速读区：11
 
 ### 今日简报（AI）
-今日精读1篇空气动力学架构评估（8.0分），速读3篇涉KAN、状态估计与大气对流论文。  
-最值得看深度学习在气动预测中的架构对比，以及KAN积分微分方程的新突破。  
-建议普通读者优先关注精读中的模型选型技巧，并可尝试KAN原理的入门学习。
-- 详情：[/202607/16/README](/202607/16/README)
+今日共处理13篇论文，精读2篇、速读11篇。值得关注的方向包括PM2.5污染系统的临界性与复原力降低，以及基于域分解与神经模型降阶的多尺度混合维度仿真。建议重点了解污染系统的动力学特征和新型数值模拟工具的应用。
+- 详情：[/202607/17/README](/202607/17/README)
 
 ### 精读区论文标签
-1. [Evaluation of State-of-the-Art Deep Learning Architectures for Aerodynamical Predictions](/202607/16/2607.13866v1-evaluation-of-state-of-the-art-deep-learning-architectures-for-aerodynamical-predictions)  
+1. [Criticality and reduced dynamical resilience in PM2.5 pollution systems](/202607/17/2607.14632v1-criticality-and-reduced-dynamical-resilience-in-pm25-pollution-systems)  
    标签：评分：8.0/10、query:aqac
-   evidence：评估用于空气动力学预测的深度学习架构，使用算子学习代理模型，直接相关于神经算子代理模型
+   evidence：PM2.5污染动态，空气质量建模
+2. [Multiscale Mixed-Dimensional Simulation via Domain Decomposition and Non-Intrusive Neural Model Order Reduction](/202607/17/2607.15171v1-multiscale-mixed-dimensional-simulation-via-domain-decomposition-and-non-intrusive-neural-model-order-reduction)  
+   标签：评分：8.0/10、query:aqac
+   evidence：通过域分解和神经模型降阶的多尺度混合维度仿真
 
 ### 速读区论文标签
-1. [Neural Discovery of Memory and Nonlocal Kernels in Integro-Differential Equations with Constrained Kolmogorov--Arnold Networks](/202607/16/2607.11110v1-neural-discovery-of-memory-and-nonlocal-kernels-in-integro-differential-equations-with-constrained-kolmogorov--arnold-networks)  
+1. [Modernizing HEBO: a robust Bayesian optimization baseline for practical heteroskedastic and non-stationary problems](/202607/17/2607.10669v1-modernizing-hebo-a-robust-bayesian-optimization-baseline-for-practical-heteroskedastic-and-non-stationary-problems)  
    标签：评分：7.0/10、query:aqac
-   evidence：约束KAN用于发现积分微分方程中的非局部核，可应用于大气传输平流扩散和质量守恒
-2. [Dynamic Online Processor-Native Inference for State Estimation](/202607/16/2607.12095v1-dynamic-online-processor-native-inference-for-state-estimation)  
+   evidence：贝叶斯优化代理模型方法可应用于空气质量模型优化
+2. [HourGlass: A probabilistic data-driven temporal downscaler for global and regional weather forecasting](/202607/17/2607.11457v1-hourglass-a-probabilistic-data-driven-temporal-downscaler-for-global-and-regional-weather-forecasting)  
    标签：评分：7.0/10、query:aqac
-   evidence：贝叶斯滤波用于状态估计，可直接应用于空气质量预报中的数据同化
-3. [Data driven non-equilibrium moist phase exchanges for atmospheric convection within a discontinuous Galerkin model of the compressible Euler equations](/202607/16/2607.13360v1-data-driven-non-equilibrium-moist-phase-exchanges-for-atmospheric-convection-within-a-discontinuous-galerkin-model-of-the-compressible-euler-equations)  
+   evidence：用于天气预报的概率数据驱动时间降尺度方法，可应用于空气质量预报。
+3. [Superstatistical Analysis of PDFs and autocorrelation functions for air pollution concentrations in the UK](/202607/17/2607.12876v1-superstatistical-analysis-of-pdfs-and-autocorrelation-functions-for-air-pollution-concentrations-in-the-uk)  
    标签：评分：7.0/10、query:aqac
-   evidence：神经网络学习大气对流中质量守恒的相交换
-4. [Change-Aware Self-Adaptive AI-Aided Kalman Filters With Neural Change Point Detection](/202607/16/2607.13387v1-change-aware-self-adaptive-ai-aided-kalman-filters-with-neural-change-point-detection)  
+   evidence：使用超统计物理方法分析空气污染浓度数据
+4. [Human population dynamics as a Bayesian inverse transport problem](/202607/17/2607.13171v1-human-population-dynamics-as-a-bayesian-inverse-transport-problem)  
    标签：评分：7.0/10、query:aqac
-   evidence：神经变化点检测用于自适应卡尔曼滤波，直接适用于空气质量数据同化
-5. [Discovering Latent Response Laws in Forced Physical Systems](/202607/16/2607.09801v1-discovering-latent-response-laws-in-forced-physical-systems)  
+   evidence：物理约束的贝叶斯神经网络嵌入PDE，实现质量守恒输运建模
+5. [Learning reduced-order latent linear models for Kalman filtering of nonlinear systems](/202607/17/2607.14273v1-learning-reduced-order-latent-linear-models-for-kalman-filtering-of-nonlinear-systems)  
+   标签：评分：7.0/10、query:aqac
+   evidence：学习降阶模型用于卡尔曼滤波，可应用于数据同化
+6. [DRIFT: Direct Reduced Fourier Transforms for Distributed Spectral Neural Operators](/202607/17/2607.14394v1-drift-direct-reduced-fourier-transforms-for-distributed-spectral-neural-operators)  
+   标签：评分：7.0/10、query:aqac
+   evidence：分布式谱神经算子用于高效代理建模
+7. [A new strategy for physics-informed neural networks based on hierarchical collocation point refinement](/202607/17/2607.14665v1-a-new-strategy-for-physics-informed-neural-networks-based-on-hierarchical-collocation-point-refinement)  
+   标签：评分：7.0/10、query:aqac
+   evidence：物理信息神经网络结合分层配点细化，相关于环境建模中的物理信息机器学习
+8. [Subgrid-Scale Parameterization in Burgers' Equation Using Structure-Preserving Neural Networks and Entropy Variables](/202607/17/2607.14855v1-subgrid-scale-parameterization-in-burgers-equation-using-structure-preserving-neural-networks-and-entropy-variables)  
+   标签：评分：7.0/10、query:aqac
+   evidence：物理信息神经网络用于亚网格参数化，相关于环境建模中的物理信息机器学习
+9. [Statistical Modelling of Planetary Boundary Layer Height and Its Measurement Uncertainty Using GRUAN Profiles](/202607/17/2607.14960v1-statistical-modelling-of-planetary-boundary-layer-height-and-its-measurement-uncertainty-using-gruan-profiles)  
+   标签：评分：7.0/10、query:aqac
+   evidence：空气质量应用，边界层高度建模
+10. [Residual-Christoffel Sampling for Random Feature Collocation of Linear PDEs](/202607/17/2607.13382v1-residual-christoffel-sampling-for-random-feature-collocation-of-linear-pdes)  
    标签：评分：6.0/10、query:aqac
-   evidence：受迫物理系统的潜在自编码器，实现物理信息驱动的响应规律发现
-6. [Spectral-Informed Neural Networks Outperform Spectral Methods in High-dimensional PDEs](/202607/16/2607.13566v1-spectral-informed-neural-networks-outperform-spectral-methods-in-high-dimensional-pdes)  
+   evidence：算子感知配置用于物理信息机器学习
+11. [Accelerating gas-network feasibility screening with a physics-informed graph neural network surrogate](/202607/17/2607.13610v1-accelerating-gas-network-feasibility-screening-with-a-physics-informed-graph-neural-network-surrogate)  
    标签：评分：6.0/10、query:aqac
-   evidence：物理信息机器学习用于PDE求解，可迁移至环境建模
+   evidence：物理信息图神经网络代理用于网络模拟
 
 
 <div class="dpr-home-promo-card">
