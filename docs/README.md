@@ -6,29 +6,24 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-18
-- 运行时间：2026-07-18 20:42:14 UTC
+- 最新运行日期：2026-07-19
+- 运行时间：2026-07-19 20:39:59 UTC
 - 运行状态：成功
-- 本次总论文数：2
+- 本次总论文数：1
 - 精读区：0
-- 速读区：2
+- 速读区：1
 
 ### 今日简报（AI）
-今日速读2篇论文，聚焦光伏功率预测的鲁棒性分析与椭圆PDE的算子分裂贝叶斯学习。  
-值得关注的方向：深度学习模型在NWP误差下的时空可解释性，以及非均匀边界数据下的偏微分方程求解方法。  
-建议读者结合自身领域，优先阅读光伏预测中的鲁棒性分析部分，以应对天气预报不确定性带来的挑战。
-- 详情：[/202607/18/README](/202607/18/README)
+今日速读一篇用神经算子求解本构模型发现中逆问题的论文。核心是利用神经网络直接映射观测数据到本构参数，提高反演效率。建议对计算力学或材料建模感兴趣的读者关注其方法对比与局限性。
+- 详情：[/202607/19/README](/202607/19/README)
 
 ### 精读区论文标签
 - 本次无精读推荐。
 
 ### 速读区论文标签
-1. [Robustness of Deep Learning Models for PV Power Forecasting under NWP Forecast Errors: A Spatiotemporal and Physically Interpretable Analysis](/202607/18/2607.12954v1-robustness-of-deep-learning-models-for-pv-power-forecasting-under-nwp-forecast-errors-a-spatiotemporal-and-physically-interpretable-analysis)  
+1. [Neural operators solve inverse problems for constitutive model discovery](/202607/19/2607.15049v1-neural-operators-solve-inverse-problems-for-constitutive-model-discovery)  
    标签：评分：6.0/10、query:aqac
-   evidence：深度学习在数值天气预报误差下的鲁棒性评估，与空气质量预报偏差校正类似
-2. [Operator-Split Bayesian Learning for Elliptic PDEs with Unequal Interior and Boundary Data](/202607/18/2607.14680v1-operator-split-bayesian-learning-for-elliptic-pdes-with-unequal-interior-and-boundary-data)  
-   标签：评分：6.0/10、query:aqac
-   evidence：针对椭圆型偏微分方程的算子分裂贝叶斯学习方法，提供不确定性量化
+   evidence：神经算子用于求解逆问题，可作为代理模型
 
 
 <div class="dpr-home-promo-card">
