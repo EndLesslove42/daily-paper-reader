@@ -1,0 +1,1341 @@
+Title: Asymmetric Peak-Aware Loss for Peak-Critical Time Series Forecasting
+
+URL Source: https://arxiv.org/pdf/2607.14871v1
+
+Published Time: Fri, 17 Jul 2026 01:45:11 GMT
+
+Number of Pages: 36
+
+Markdown Content:
+# Asymmetric Peak-Aware Loss for Peak-Critical Time Series Forecasting 
+
+Theivaprakasham Hari 1∗
+
+, Yanan Xin 1, Winnie Daamen 1,Serge Paul Hoogendoorn 1, Sascha Hoogendoorn-Lanser 21 Department of Transport and Planning, Faculty of Civil Engineering and Geosciences  
+
+> 2
+
+Mobility Innovation Centre Delft University of Technology, Delft, The Netherlands 2628 CN 
+
+t.hari@tudelft.nl; yanan.xin@tudelft.nl; w.daamen@tudelft.nl; s.p.hoogendoorn@tudelft.nl; s.hoogendoorn-lanser@tudelft.nl 
+
+Abstract 
+
+In many operational time-series forecasting applications, such as crowd demand forecasting, the risk related to under-prediction is substantially higher than that of over-prediction. Accurate prediction of rare demand spikes plays a critical role in downstream tasks. Yet most time-series forecasters are trained with symmetric objectives (e.g., MSE, MAE) and evaluated primarily on aggregate error, which can mask failures in extreme-values and peak-timing predictions. We introduce 
+
+Asymmetric Peak-Aware Loss (APAL) , a simple, model-agnostic objective that (i) penalizes under-predictions more heavily and (ii) increases the training weight of peak regions within each forecast window. We further propose a peak-critical evaluation protocol that complements MAE/MSE with channel-wise tail error (Top-10% and Top-1%) and peak metrics (precision, recall, F1 under timing tol-erance, and peak timing error). We evaluate APAL on long-horizon multivariate forecasting across five state-of-the-art backbones, with a focus on pedestrian de-mand forecasting using (i) a production-ready subset of the City of Melbourne pedestrian hourly count dataset and (ii) a beach visitor count dataset. The generality of the loss function for time-series forecasting is tested on additional benchmarks. Across peak-critical datasets and settings, APAL improves tail accuracy and peak-prediction quality while exposing a controllable trade-off with aggregate error, making it a practical solution when peak-prediction failures are the dominant operational concern. 
+
+1 Introduction 
+
+Accurate long-horizon time-series forecasting is central to operational and strategic decision-making across domains such as urban mobility, crowd management, energy planning, weather, financial risk and resource allocation [ 48 , 17 , 29 , 30 , 13 ]. In many of these cases, the consequences of errors are asymmetric. Under-predicting demand might cause unsafe congestion, stampedes, staffing shortages, and decreased service quality, while moderate over-prediction is generally more acceptable [ 1, 30 ]. Moreover, the operational risk arising from forecast-based decisions is often dominated by a small fraction of high-impact periods, such as demand spikes during commuting hours or large crowd gatherings (e.g., concerts, sporting events, or political demonstrations), where forecasting failures incur disproportionate costs. These properties motivate the design of peak-critical forecasting objectives and evaluations that prioritise performance on extreme values and peaks. 
+
+> ∗Corresponding author. Preprint. arXiv:2607.14871v1 [cs.LG] 16 Jul 2026
+
+Despite these requirements, most time-series forecasting models are predominantly trained with symmetric point loss functions such as Mean Squared Error (MSE) or Mean Absolute Error (MAE) [ 48 , 29 , 11 , 42 , 40 ]. Such objectives treat over- and under-prediction equally and allo-cate most training signal to the abundant non-extreme regions of the series, causing models to systematically smooth rare peaks [ 25 ]. As a result, models can achieve low average error while still systematically underestimating rare peaks or misplacing their timing, which is precisely where operational costs or risks are highest. This mismatch arises broadly in peak-critical domains such as traffic flow, energy demand, and urban planning, and is particularly pronounced in pedestrian and crowd count forecasting, where distributions are heavy-tailed, include many zeros, and exhibit strong temporal structure [44]. Recent work has proposed specialised objectives to shape forecasts beyond average pointwise accuracy [ 2 , 10 , 16 , 22 , 24 , 39 , 33 ]. However, evaluation is often reported primarily via MAE/MSE, which can obscure tail behavior and event-level peak quality [ 25 ]. Peak-critical applications therefore require both (i) objectives aligned with asymmetric, extreme-value risk and (ii) evaluation that directly measures tail and peak-event behavior. In this work, we introduce Asymmetric Peak-Aware Loss (APAL) , a simple, model-agnostic training objective for point forecasting. APAL combines two principles: (1) asymmetric cost , which penalises under-predictions more than over-predictions, and (2) peak emphasis , which upweights errors in peak regions of the ground-truth forecast window to discourage peak smoothing. The framework is flexible: the asymmetry direction can be reversed when over-prediction carries a higher cost, and the emphasis mechanism can target other regions of interest. APAL requires only element-wise operations and is controlled by three interpretable hyperparameters. Beyond the loss, we propose a peak-critical evaluation protocol that reports standard metrics (MAE and MSE) alongside tail and event-based peak metrics. We compute channel-wise tail error on the Top-10% and Top-1% of ground-truth values, and we treat peaks as events scored by precision, recall, and F1 under a timing tolerance, together with peak timing error. Figure 1 illustrates that MSE-trained models can shrink peaks, while APAL improves peak magnitude and timing. We study pedestrian demand forecasting motivated by staffing, public safety, transport planning, and crowd management [ 44 ]. Our main datasets are (i) a production-ready subset of the City of Melbourne pedestrian hourly counts (16 sensor locations, 2010 to 2017) and (ii) a proprietary beach visitor dataset (16 areas, hourly, 2021 to 2023; not publicly released due to data-sharing restrictions). To test generality, we additionally benchmark public datasets from other domains (energy, weather, finance, traffic), aiming to characterise where APAL offers clear benefits and where it does not. We expect APAL to improve tail accuracy and peak-event quality on datasets with recurrent peak structure (e.g., pedestrian, traffic, electricity), where under-prediction of extremes is costly; conversely, on series without identifiable, learnable, or actionable peak structure (e.g., exchange rates), symmetric losses may remain preferable. 
+
+Contributions: 
+
+1. Loss: We introduce APAL, a simple asymmetric and peak-aware objective that improves peak-critical forecasting while remaining model-agnostic and easy to deploy. 2. Evaluation: We propose a peak-critical metric suite, including channel-wise tail error (Top-10%, Top-1%), peak-event detection rate, and peak timing metrics, alongside standard MAE/MSE. 3. Applicability diagnostic We develop a principled pretraining diagnostic tool to quantify whether dataset peaks are structurally distinct and learnable and stable and operationally meaningful giving practitioners a clear rule for when to apply APAL. 4. Peak-critical forecasting evidence: Across five forecasting backbones and ten datasets, APAL improves tail accuracy and peak-event quality, exposing a clear and tunable tradeoff with aggregate error. 2100 120 140 160 180   
+
+> Time Step
+> 0
+> 2
+> 4
+> 6
+> Forecasted Values
+> Ground Truth MSE Prediction APAL Prediction
+
+Figure 1: Qualitative comparison of 96-step forecasts on a single sensor of the Melbourne Pedestrian Count Dataset. Ground truth (solid black) versus MSE-trained (dashed orange) and APAL-trained (dash-dot blue) predictions. Values shown are standardized (z-score normalized). 
+
+2 Related Work 
+
+In this section, we review our contributions within three areas: long-horizon forecasting architectures (Section 2.1), cost-sensitive and peak-aware objectives (Section 2.2), and tail and event-based evaluation (Section 2.3). 
+
+2.1 Long-horizon time-series forecasting 
+
+Long-horizon forecasting has been advanced by Transformer variants that handle long contexts and multivariate dependencies, as well as strong linear and MLP baselines. Informer [ 48 ] introduced efficient attention for long sequences, while Autoformer [ 42 ] incorporated series decomposition and autocorrelation-style aggregation. PatchTST [ 32 ] improved efficiency and accuracy via patching and channel independence, and iTransformer [ 29 ] proposed variate-centric attention to better model cross-channel structure. In parallel, simpler architectures such as DLinear [ 46 ], TiDE [ 11 ], and TSMixer [ 12 ] have demonstrated that carefully designed linear and MLP-based models remain highly competitive on long-horizon benchmarks. To isolate the effect of the training objective from architectural choices, our experiments use a representative subset spanning linear, MLP-based, and Transformer-based families (Section 4.2). 
+
+2.2 Cost-sensitive, asymmetric, and peak-aware objectives 
+
+Most time-series forecasting models are trained with symmetric point losses (MSE, MAE), which optimise average errors but can be misaligned when the operational cost of errors is asymmetric. For example, when under-prediction is substantially more costly than over-prediction, or vice versa. Classical cost-sensitive objectives include quantile (pinball) and expectile losses, widely used in risk-sensitive and probabilistic forecasting [ 36 , 26 ], including DeepAR [ 35 ] and the Temporal Fusion Transformer [ 27 ]. These target conditional quantiles rather than peak-critical point forecasts, and apply a uniform asymmetric penalty across all time steps, so the gradient signal on rare extremes is still diluted by abundant non-extreme points. In computer vision, Focal loss [ 28 ] reweights by classification confidence rather than prediction direction or temporal structure. Imbalanced-regression methods [ 43 , 37 ] reweight by label density but encode neither directional cost nor temporal peak structure. A recent work targets structural agreement between predicted and true trajectories. Alignment-based objectives include differentiable DTW variants such as SoftDTW [ 10 ] and DILATE [ 16 ], which penalise both value mismatch and temporal misalignment. Other methods aim to match local or transformation-robust structure. TILDE-Q [24 ] is a lightweight shape-aware loss designed to reduce sensitivity to certain distortions by jointly accounting for amplitude and phase distortions under a transformation-invariant design rationale. Patch-wise Structural (PS) loss [ 22 ] compares predicted and true series at the patch level using local statistics such as correlation, mean, and variance, and can be combined with a pointwise term to improve local structural alignment. Finally, DBLoss [ 33 ]is a decomposition-based loss that uses exponential moving averages to decompose targets within the forecasting horizon into trend and seasonal components and applies separate, weighted losses to these components. These structure-oriented objectives can improve the overall shape of forecasts, including the place-ment of local extrema, but they are not specifically designed for peak-critical applications. First, 3they are typically symmetric with respect to under-versus over-prediction, so they do not encode asymmetric operational risk. Second, many structural terms aggregate errors over the full horizon or across patches, so the gradient contribution of rare extreme points (peaks) can still be diluted when extremes occupy a small fraction of time steps. Third, several structural comparisons rely on normalised summaries (e.g., correlation-like statistics), which can reward correct relative shape while tolerating unacceptable absolute magnitude shrinkage at sharp extremes. In peak-critical settings, a slightly smoothed peak (or dip) may remain structurally plausible yet be operationally costly if it underestimates the extreme magnitude or misses the event under a tight timing tolerance. These limitations motivate an objective that explicitly targets (i) asymmetric cost and (ii) increased emphasis on extreme regions within each forecast window, which we achieve with APAL. 
+
+2.3 Tail and event-based evaluation for peak-critical forecasting 
+
+Standard forecasting benchmarks predominantly report aggregate metrics (MAE, MSE), which average errors across all time steps and can mask poor performance on rare but critical extreme peaks [ 25 ]. This evaluation gap is problematic for peak-critical applications where the majority of operational risk concentrates in a small fraction of high-value periods. Several lines of work address this limitation, though each covers only part of the requirements for peak-critical evaluation. Tail-focused metrics restrict error computation to extreme quantiles of the target distribution, a practice common in financial risk forecasting and extreme weather prediction but underutilized in general time-series benchmarks [ 29 , 48 , 42 , 11 ]; however, they measure only magnitude accuracy and do not assess whether peaks are detected as events or correctly timed. Alignment-aware metrics such as DTW [ 2 ] and differentiable variants [ 10 ] penalize temporal misalignment but do not distinguish peak from non-peak regions, so timing errors on critical peaks are averaged with errors elsewhere. Event-based scoring treats peaks as discrete events and evaluates detection quality using precision, recall, and F1 under timing tolerance [ 41 ], analogous to object detection evaluation in computer vision; yet it does not directly measure the magnitude accuracy of matched peaks. We synthesize these complementary perspectives into a unified peak-critical evaluation protocol .Drawing on tail-focused evaluation from financial risk forecasting [ 25 ], event-based scoring from anomaly and peak detection [ 41 ], and timing-aware metrics from temporal alignment literature [ 2, 10 ], our protocol reports: (i) channel-wise tail errors on the Top-10% and Top-1% of ground-truth values, capturing magnitude accuracy at extremes; (ii) peak-event detection metrics (precision, recall, F1) with tolerance matching, measuring whether peaks are correctly identified; and (iii) peak timing error, quantifying temporal displacement of detected peaks. We additionally report the Pearson Correlation Coefficient (PCC) and the Temporal Distortion Index (TDI) [ 14 ]. The choice of tail thresholds (10%, 1%) implicitly assumes peaks occur at least this frequently; when true peaks are rarer, the tail set may include non-peak high values. We discuss threshold selection, sensitivity to peak frequency, and robustness to data errors in Appendix D.2.1. 
+
+3 Problem Formulation and Method 
+
+This section formalises the long-horizon multivariate forecasting problem (Section 3.1), defines tail points and peak events (Section 3.2), and presents APAL (Section 3.3). 
+
+3.1 Problem Setup and Notation 
+
+We consider long-horizon multivariate time-series forecasting. Let xt ∈ RC denote the observation at time t, where C is the number of channels (variates). Given an input context window of length L,the input is Xt−L+1: t ∈ RL×C and the goal is to predict the next H steps Yt+1: t+H ∈ RH×C . A forecasting model fθ produces a point forecast bY = fθ (X) ∈ RH×C .Throughout, indices h ∈ { 1, . . . , H } and c ∈ { 1, . . . , C } denote forecast time steps and channels, respectively. For a sample, let ˆyh,c and yh,c denote prediction and ground truth. We define the signed error eh,c = ˆ yh,c − yh,c so that eh,c < 0 indicates under-prediction. Throughout, we use I[·] to denote the indicator function, which equals one when its argument is true and zero otherwise. 43.2 Peak-Critical Forecasting: Tails and Peak Events 
+
+Peak-critical applications place particular emphasis on high-demand periods and their timing. We therefore distinguish two notions that are complementary in evaluation. 
+
+Tail points (extreme values). Tail metrics restrict error computation to the largest target values. For a given channel c, let I(q) 
+
+> c
+
+denote the indices of the top-q fraction of ground-truth values among all evaluated points in that channel, where q ∈ { 0.10 , 0.01 } corresponds to Top-10% and Top-1%. Tail errors (MSE 10 , MSE 1) measure magnitude accuracy at these extremes. 
+
+Peak events (local maxima). Tail points capture large values but do not directly encode event structure or timing. Event-based peak metrics treat peaks as local maxima in each forecast window and score whether predicted peaks occur near true peaks. We detect peaks using a standard local-maximum operator with an amplitude threshold (defined in Appendix D.3), and we allow a tolerance window of ±∆ steps (with ∆ = 3 by default) when matching predicted and true peaks. The peak timing is computed via the argmax function for each tolerance window for both predicted and ground truth peaks. The difference between the two is then computed as peak timing error (PTE). This yields event precision, recall, F1 (Peak F1) and PTE. Together, tail metrics assess how accurately extreme values are predicted, while event metrics assess 
+
+whether peaks are detected and when they occur. We additionally report PCC and TDI [ 14 ], as introduced in Section 2.3. 
+
+3.3 Asymmetric Peak-Aware Loss 
+
+Building on the motivation in Section 2.2, we present APAL as a weighted point-forecast objective with two multiplicative terms: an asymmetric term penalizing under-predictions and a peak-emphasis term upweighting high-magnitude regions. 
+
+Asymmetric under-prediction penalty. We upweight under-predictions multiplicatively: 
+
+wasym  
+
+> h,c
+
+= 1 + ( λu − 1) I[eh,c < 0] , (1) where λu ≥ 1 controls the strength of the penalty. 
+
+Peak-region emphasis. For each training sample and channel, we define the within-horizon ground-truth maximum ymax  
+
+> c
+
+= max h yh,c and mark peak regions as values exceeding a fraction τ ∈ (0 , 1) 
+
+of this maximum: 
+
+wpeak  
+
+> h,c
+
+= 1 + ( λp − 1) I[yh,c ≥ τ y max  
+
+> c
+
+], (2) where λp ≥ 1 controls peak emphasis. Per-window normalisation makes the mask adaptive across heterogeneous channels and ensures at least one point is emphasised even in flat windows. APAL therefore targets settings where high values correspond to meaningful, recurrent, learnable structure rather than isolated sensor artefacts. 
+
+Final objective. APAL is the weighted absolute error averaged over the horizon and channels: 
+
+LAPAL ( bY, Y) = 1
+
+HC 
+
+> H
+
+X
+
+> h=1
+> C
+
+X
+
+> c=1
+
+|eh,c | wasym  
+
+> h,c
+
+wpeak  
+
+> h,c
+
+(3) 
+
+Special cases and interpretation. When λu = λp = 1 , APAL reduces to MAE. Increasing λu
+
+encodes asymmetric operational risk by giving under-predictions weight λu while over-predictions retain weight 1, biasing the model upward to avoid the heavier penalty. Increasing λp concentrates the learning signal on peak regions and reduces peak smoothing. Since wpeak depends only on ground truth, APAL is a drop-in objective. The indicator-based weights are piecewise constant and yield well-defined subgradients almost everywhere, sufficient for standard first-order optimisation. We use weighted absolute error to retain stable gradients on large-magnitude targets and to avoid disproportionate sensitivity to outliers under squared error. Combining APAL with squared error can over-amplify rare points and destabilise optimisation, so we leave systematic comparison of base error functions to future work. 5Theoretical motivation. APAL’s multiplicative weighting reflects two independent sources of sample importance: (i) direction-dependent cost (under- vs. over-prediction) and (ii) magnitude-dependent cost (peak vs. non-peak), which factorise as wasym · wpeak under separability [ 45 ]. We view APAL as a cost-sensitive empirical-risk objective, not a likelihood-optimal estimator under a universal noise model. From a gradient perspective, for a single sample with peak indicator p = I[y ≥ τ y max ]
+
+and under-prediction indicator u = I[ˆ y < y ]:
+
+∂LAPAL 
+
+∂ ˆy = sign(ˆ y − y) ·  1 + ( λu − 1) u  1 + ( λp − 1) p (4) Peak under-predictions thus receive gradients scaled by λuλp, focusing optimisation on the regions of highest operational concern. Unlike focal loss [ 28 ], which reweights by prediction confidence , APAL reweights by ground-truth structure and prediction direction , suiting it for asymmetric peak-critical settings. 
+
+4 Experimental setup 
+
+4.1 Dataset 
+
+We focus on two pedestrian datasets: an open, production-ready subset of the City of Melbourne pedestrian count dataset (16 sensor locations, hourly sampling rate, from 2010 to 2017) and a Beach visitor count dataset (16 different areas, hourly sampling rate, from 2021 to 2023). We further benchmark on standard public multivariate forecasting datasets commonly used in long-horizon evaluation, namely electricity transformer monitoring (ETT), power consumption (ECL), currency exchange (Exchange), road traffic (Traffic), and meteorology (Weather). Detailed dataset descriptions, preprocessing, and split construction are provided in Appendix A. 
+
+4.2 Backbones 
+
+We evaluate APAL across five backbones spanning linear ( DLinear [46 ]), MLP-based ( TSMixer [12 ], 
+
+TiDE [11 ]), and Transformer-based ( PatchTST [32 ], iTransformer [ 29 ]) families to test whether APAL transfers across architectures. Model descriptions and hyperparameters are reported in Ap-pendix B. 
+
+4.3 Implementation Details 
+
+We use input length L = 96 and horizons H ∈ { 96 , 192 , 336 , 720 } under chronological splits with training-only normalisation and inverse-transform evaluation. All backbones use direct multi-step forecasting (the model outputs the entire horizon in one forward pass), so our experiments test APAL’s fixed-horizon trade-off but do not evaluate recursive deployments where directional bias could accumulate. Unless stated otherwise, results use the checkpoint with best validation performance under the selection criterion, with the same optimiser, early stopping, and training budget across all losses to isolate the effect of the objective. APAL hyperparameters are tuned on validation only (Appendix E). Experiments use PyTorch 2.4 on an NVIDIA L4 GPU (24 GB) using the Time Series Library (TSLib) [40]. Computational overhead is reported in Section 5.5. 
+
+4.4 Evaluation Metrics 
+
+We report standard (MSE, MAE) and peak-critical metrics (Tail MSE 10 and Tail MSE 1) across all horizons. Peak-critical metrics are computed per sensor location (i.e., per channel/variate) and then averaged across all locations to prevent high-variance sensors from dominating the aggregate. We additionally report channel-wise breakdowns to reflect heterogeneity across locations in section 5.4. 
+
+5 Experimental Results and Discussion 
+
+5.1 Main Peak-Critical Analysis on Pedestrian Forecasting 
+
+We compare APAL against symmetric pointwise losses (MSE, MAE) and specialised objectives (TILDE-Q, DBLoss, PS) across all backbones and horizons (Table 1). Symmetric objectives spread 6training signal uniformly so rare extremes are underweighted; APAL counteracts this by concentrating gradients on peak regions ( λp) and penalising under-prediction ( λu). Specialised baselines improve structural alignment but remain symmetric. The two datasets exhibit distinct characteristics: Pedestrian has regular weekly peaks predictable from history, while Beach has irregular peaks tied to weather and events. On Pedestrian, APAL achieves Peak F1 >0.79 across all settings, while baseline Peak F1 spans a very wide range across backbones (from below 0.05 at long horizons on iTransformer up to about 0.78 on PatchTST/TiDE). Excluding the iTransformer outlier, baseline Peak F1 lies roughly in 0.42–0.78. On Beach, MSE 1
+
+improvements are largest at shorter horizons and on the stronger backbones, reaching up to about 31% on TSMixer (and ∼29% on PatchTST) at H = 96 , but attenuate at H = 720 where APAL is comparable to or slightly worse than the MSE baseline on some backbones. These tail gains come at an intentional, controllable cost: aggregate MSE rises relative to symmetric losses (Section 5.3). Across both pedestrian-domain datasets, APAL achieves the best MSE 1 in 39 of 40 dataset–model– horizon combinations, consistently, suggesting a systematic rather than random improvement on peak-critical metrics. The advantage is most pronounced at H ∈ { 96 , 192 } and attenuates at H = 720 
+
+due to forecast uncertainty, though APAL still attains the best tail metrics. Among backbones, iTransformer is more variable, likely because its variate-centric attention partially overlaps with APAL’s peak emphasis; for architectures without explicit cross-channel modelling, gains are more uniform. Architectural and qualitative analyses are in Appendix F. Table 1: Comparison of loss functions for multivariate long-term forecasting. Prediction horizons 
+
+H ∈ { 96 , 192 , 336 , 720 }. The proposed APAL is highlighted in bold. Best prediction results are 
+
+bolded ; second-best are underlined. Dataset Model Loss 96 192 336 720 MSE MSE 10 MSE 1 Peak F1 PTE MSE MSE 10 MSE 1 Peak F1 PTE MSE MSE 10 MSE 1 Peak F1 PTE MSE MSE 10 MSE 1 Peak F1 PTE Pedestrian DLinear MSE 0.433 1.190 4.230 0.442 0.987 0.395 1.133 4.230 0.517 0.929 0.402 1.161 4.328 0.513 0.919 0.426 1.220 4.480 0.469 0.956 MAE 0.440 1.171 4.150 0.573 1.028 0.402 1.121 4.172 0.626 0.967 0.409 1.148 4.262 0.612 0.954 0.432 1.210 4.430 0.560 1.000 TildeQ 0.451 1.229 4.273 0.425 1.141 0.408 1.148 4.234 0.529 1.035 0.407 1.160 4.309 0.543 0.908 0.434 1.234 4.492 0.465 0.930 DBLoss 0.431 1.157 4.156 0.568 0.991 0.395 1.108 4.172 0.637 0.920 0.403 1.136 4.262 0.624 0.908 0.425 1.196 4.422 0.573 0.944 PS 0.434 1.167 4.191 0.555 1.037 0.398 1.119 4.207 0.622 0.991 0.406 1.146 4.297 0.608 0.981 0.427 1.204 4.445 0.553 1.013 
+
+APAL 0.537 1.166 3.929 0.832 0.721 0.476 1.122 4.013 0.823 0.731 0.481 1.143 4.064 0.808 0.740 0.499 1.181 4.206 0.803 0.786 
+
+PatchTST MSE 0.253 0.868 3.952 0.741 0.896 0.257 0.883 4.006 0.756 0.934 0.292 0.967 4.198 0.716 0.882 0.312 1.011 4.305 0.702 0.920 MAE 0.258 0.909 4.120 0.721 0.807 0.265 0.936 4.199 0.705 0.831 0.301 0.996 4.293 0.699 0.848 0.322 1.047 4.418 0.664 0.856 TildeQ 0.263 0.892 4.027 0.774 1.002 0.268 0.907 4.070 0.780 0.990 0.297 0.962 4.207 0.768 0.826 0.321 1.014 4.328 0.741 0.859 DBLoss 0.256 0.903 4.090 0.715 0.823 0.260 0.923 4.148 0.695 0.850 0.298 0.999 4.305 0.658 0.834 0.320 1.050 4.418 0.621 0.873 PS 0.260 0.883 4.059 0.781 0.813 0.263 0.899 4.113 0.776 0.844 0.299 0.966 4.246 0.749 0.865 0.318 1.009 4.352 0.732 0.887 
+
+APAL 0.299 0.855 3.811 0.841 0.817 0.307 0.888 3.919 0.835 0.794 0.348 0.962 4.044 0.813 0.712 0.363 1.001 4.197 0.808 0.763 
+
+TSMixer MSE 0.453 1.226 4.219 0.579 1.372 0.415 1.165 4.190 0.635 1.354 0.423 1.198 4.282 0.610 1.337 0.452 1.270 4.428 0.543 1.384 MAE 0.448 1.247 4.365 0.561 1.321 0.409 1.186 4.325 0.610 1.296 0.417 1.213 4.402 0.600 1.283 0.445 1.288 4.537 0.528 1.335 TildeQ 0.481 1.345 4.373 0.506 1.420 0.425 1.218 4.271 0.586 1.393 0.425 1.235 4.332 0.571 1.368 0.460 1.329 4.506 0.475 1.392 DBLoss 0.453 1.264 4.346 0.550 1.345 0.409 1.184 4.295 0.615 1.293 0.417 1.214 4.382 0.592 1.276 0.446 1.291 4.531 0.516 1.324 PS 0.470 1.265 4.339 0.638 1.358 0.422 1.194 4.300 0.668 1.301 0.430 1.225 4.381 0.649 1.289 0.461 1.299 4.507 0.589 1.339 
+
+APAL 0.545 1.147 3.970 0.832 1.199 0.481 1.107 4.032 0.823 1.133 0.481 1.139 4.161 0.809 1.136 0.514 1.195 4.311 0.802 1.256 
+
+TiDE MSE 0.429 1.143 4.148 0.582 0.917 0.390 1.094 4.164 0.637 0.847 0.399 1.126 4.270 0.625 0.838 0.424 1.188 4.430 0.590 0.883 MAE 0.463 1.165 4.078 0.707 0.876 0.425 1.128 4.125 0.735 0.818 0.432 1.151 4.203 0.721 0.815 0.455 1.205 4.371 0.688 0.859 TildeQ 0.451 1.171 4.152 0.637 1.058 0.407 1.106 4.156 0.690 0.951 0.408 1.122 4.230 0.688 0.819 0.435 1.191 4.410 0.630 0.888 DBLoss 0.436 1.141 4.102 0.642 0.960 0.399 1.097 4.133 0.696 0.880 0.408 1.125 4.219 0.681 0.870 0.431 1.183 4.383 0.640 0.907 PS 0.440 1.140 4.105 0.679 0.971 0.405 1.104 4.141 0.716 0.909 0.414 1.131 4.223 0.703 0.898 0.436 1.185 4.379 0.669 0.934 
+
+APAL 0.570 1.239 4.009 0.825 0.690 0.501 1.186 4.085 0.822 0.686 0.513 1.213 4.134 0.807 0.692 0.542 1.264 4.292 0.800 0.736 
+
+iTransformer MSE 0.454 1.282 4.465 0.175 0.788 0.533 1.532 4.742 0.026 1.035 0.665 1.884 5.176 0.004 1.062 0.740 2.049 5.426 0.007 1.074 MAE 0.373 1.087 4.223 0.437 0.922 0.513 1.489 4.699 0.038 1.018 0.573 1.635 4.922 0.031 1.091 0.652 1.856 5.238 0.011 1.177 TildeQ 0.354 1.032 4.168 0.661 0.873 0.345 1.035 4.203 0.703 0.669 0.339 1.033 4.297 0.739 0.579 0.369 1.114 4.469 0.699 0.673 
+
+DBLoss 0.391 1.137 4.305 0.390 0.812 0.495 1.433 4.637 0.062 0.970 0.480 1.383 4.664 0.105 0.935 0.375 1.092 4.426 0.676 0.832 PS 0.390 1.105 4.250 0.567 0.721 0.361 1.061 4.250 0.676 0.593 0.364 1.075 4.332 0.697 0.617 0.403 1.153 4.473 0.616 0.741 
+
+APAL 0.370 0.977 3.905 0.811 0.778 0.351 0.968 3.966 0.825 0.728 0.378 1.015 4.042 0.815 0.723 0.389 1.050 4.231 0.792 0.854 Beach DLinear MSE 0.753 4.081 11.432 0.456 1.677 0.753 4.034 10.862 0.418 1.691 0.770 4.088 10.480 0.392 1.700 0.798 4.204 11.073 0.395 1.674 MAE 0.793 4.601 12.663 0.358 1.712 0.793 4.530 12.024 0.298 1.718 0.814 4.625 11.665 0.280 1.728 0.846 4.760 12.323 0.297 1.713 TildeQ 0.772 4.356 12.188 0.383 1.680 0.770 4.262 11.453 0.334 1.703 0.789 4.340 11.086 0.309 1.710 0.821 4.527 11.867 0.299 1.672 
+
+DBLoss 0.777 4.391 12.214 0.388 1.688 0.777 4.350 11.590 0.314 1.699 0.796 4.430 11.207 0.300 1.706 0.828 4.571 11.880 0.308 1.683 PS 0.770 4.283 12.091 0.415 1.675 0.770 4.223 11.430 0.354 1.696 0.788 4.295 11.078 0.327 1.702 0.817 4.416 11.710 0.346 1.680 
+
+APAL 0.888 3.590 9.259 0.487 1.688 0.826 3.685 9.111 0.418 1.709 0.812 3.897 9.348 0.328 1.717 0.830 4.321 11.017 0.285 1.706 PatchTST MSE 0.743 3.955 10.711 0.478 1.696 0.753 4.049 10.506 0.405 1.703 0.789 4.195 10.461 0.368 1.712 0.831 4.426 11.383 0.349 1.699 TildeQ 0.771 4.210 11.548 0.274 1.700 0.782 4.205 10.988 0.271 1.724 0.828 4.376 11.012 0.249 1.736 0.890 4.632 12.021 0.224 1.727 DBLoss 0.774 4.443 12.184 0.366 1.693 0.784 4.503 11.844 0.257 1.712 0.821 4.688 11.911 0.246 1.721 0.861 4.886 12.727 0.229 1.708 PS 0.761 4.189 11.627 0.442 1.682 0.768 4.186 11.134 0.380 1.701 0.805 4.331 11.066 0.346 1.708 0.845 4.513 11.882 0.346 1.692 APAL 0.994 3.670 7.599 0.537 1.689 0.920 3.792 7.410 0.500 1.702 0.897 3.885 7.881 0.463 1.719 0.858 4.236 10.043 0.363 1.704 TSMixer MSE 0.751 3.885 10.748 0.441 1.667 0.770 3.943 10.693 0.408 1.687 0.775 3.964 10.354 0.393 1.702 0.801 4.056 10.891 0.368 1.680 
+
+MAE 0.804 4.787 12.965 0.247 1.680 0.812 4.812 12.729 0.140 1.700 0.830 4.898 12.496 0.132 1.711 0.864 5.071 13.250 0.142 1.688 TildeQ 0.757 4.320 11.892 0.322 1.681 0.757 4.237 11.373 0.289 1.710 0.773 4.303 11.074 0.260 1.717 0.808 4.516 11.950 0.248 1.687 DBLoss 0.779 4.495 12.348 0.306 1.681 0.785 4.511 12.095 0.224 1.699 0.803 4.591 11.869 0.193 1.712 0.835 4.752 12.595 0.214 1.687 PS 0.760 4.132 11.548 0.396 1.690 0.764 4.144 11.315 0.354 1.713 0.780 4.209 11.120 0.326 1.723 0.808 4.332 11.748 0.308 1.700 
+
+APAL 1.025 3.352 7.400 0.567 1.683 0.931 3.448 7.676 0.522 1.717 0.835 3.620 8.427 0.482 1.728 0.818 4.304 11.183 0.356 1.695 TiDE MSE 0.776 4.160 11.469 0.452 1.690 0.778 4.125 10.839 0.399 1.686 0.799 4.184 10.376 0.390 1.691 0.838 4.341 11.162 0.392 1.673 MAE 0.808 4.690 12.777 0.345 1.705 0.808 4.608 12.057 0.279 1.695 0.829 4.681 11.613 0.289 1.705 0.866 4.845 12.399 0.281 1.681 TildeQ 0.789 4.385 12.157 0.379 1.680 0.792 4.300 11.418 0.319 1.697 0.815 4.359 10.946 0.319 1.703 0.859 4.558 11.806 0.301 1.679 DBLoss 0.788 4.460 12.239 0.382 1.694 0.796 4.372 11.471 0.364 1.675 0.810 4.454 11.062 0.326 1.695 0.846 4.611 11.829 0.321 1.678 PS 0.784 4.396 12.137 0.397 1.684 0.785 4.333 11.414 0.346 1.683 0.807 4.409 10.966 0.336 1.692 0.843 4.562 11.739 0.330 1.673 
+
+APAL 1.000 3.661 8.610 0.519 1.702 0.926 3.743 8.378 0.474 1.681 0.883 3.897 8.619 0.429 1.683 0.867 4.268 10.416 0.369 1.673 
+
+iTransformer MSE 0.705 3.611 8.790 0.559 1.672 0.723 3.588 8.386 0.578 1.680 0.746 3.664 8.245 0.560 1.696 0.803 3.749 8.354 0.561 1.673 
+
+MAE 0.698 3.774 9.086 0.453 1.667 0.762 4.270 10.926 0.354 1.718 0.783 4.340 10.540 0.355 1.729 0.818 4.489 10.797 0.334 1.699 TildeQ 0.693 3.602 8.620 0.528 1.657 0.721 3.705 8.855 0.532 1.692 0.747 3.803 8.626 0.507 1.709 0.795 4.021 9.554 0.466 1.682 DBLoss 0.685 3.612 8.748 0.523 1.663 0.732 3.917 9.829 0.477 1.692 0.757 4.024 9.656 0.447 1.709 0.802 4.247 10.317 0.394 1.697 PS 0.692 3.555 8.775 0.558 1.666 0.728 3.768 9.550 0.521 1.681 0.752 3.912 9.512 0.465 1.705 0.804 4.176 10.382 0.409 1.712 
+
+APAL 1.003 4.314 7.507 0.565 1.654 0.949 4.214 6.681 0.505 1.679 0.926 4.105 6.342 0.480 1.697 0.830 3.785 7.027 0.432 1.674 
+
+5.2 Cross-Domain Generalization 
+
+Table 2 compares MSE vs. APAL on public benchmarks under the same protocol. On datasets with recurrent peaks tied to operational constraints (Traffic, Electricity), APAL improves tail fidelity—e.g., on Traffic ( H = 720 ), it improves MSE 1 by 15% and Peak F1 by 22% . On noise-dominated series without operationally meaningful peaks (Exchange, Weather), APAL yields higher aggregate 7Table 2: MSE vs APAL loss comparison (TSMixer) on H ∈ { 96 , 192 , 336 , 720 } for public bench-mark datasets. Best results in bold .Dataset Model Loss 96 192 336 720 MSE MSE 10 MSE 1 Peak F1 PTE MSE MSE 10 MSE 1 Peak F1 PTE MSE MSE 10 MSE 1 Peak F1 PTE MSE MSE 10 MSE 1 Peak F1 PTE ETTh1 TSMixer MSE 0.494 0.971 1.679 0.081 1.865 0.597 1.180 1.926 0.003 1.946 0.677 1.327 2.090 0.000 1.974 0.752 1.552 2.417 0.000 1.965 
+
+APAL 1.205 0.459 0.314 0.359 1.975 1.170 0.477 0.377 0.366 2.065 1.133 0.464 0.441 0.341 1.999 1.008 0.682 1.181 0.277 1.694 
+
+ETTh2 TSMixer MSE 1.056 1.071 1.558 0.327 1.703 2.587 1.242 0.950 0.303 1.657 2.407 1.178 1.072 0.296 1.691 2.051 1.198 1.442 0.280 1.703 
+
+APAL 5.194 2.818 1.824 0.315 1.631 9.791 6.694 4.857 0.298 1.672 7.300 4.377 3.107 0.291 1.687 5.353 2.696 2.029 0.269 1.702 
+
+ETTm1 TSMixer MSE 0.479 1.139 2.050 0.121 1.918 0.480 1.048 1.933 0.040 1.873 0.541 1.128 2.055 0.014 1.856 0.617 1.188 2.092 0.000 1.908 APAL 0.773 0.304 0.383 0.350 1.848 0.863 0.330 0.376 0.329 1.841 0.973 0.371 0.432 0.293 1.865 1.035 0.441 0.522 0.294 1.942 ETTm2 TSMixer MSE 0.250 0.234 0.439 0.296 1.732 0.492 0.531 0.910 0.254 1.708 0.833 0.956 1.424 0.238 1.695 2.541 1.659 1.515 0.238 1.706 APAL 1.321 0.773 0.651 0.281 1.779 2.022 1.146 0.973 0.260 1.789 2.604 1.418 1.222 0.246 1.787 9.655 7.610 6.298 0.235 1.769 Electricity TSMixer MSE 0.204 0.309 0.507 0.571 0.769 0.218 0.303 0.480 0.576 0.811 0.240 0.322 0.490 0.549 0.859 0.272 0.370 0.580 0.538 0.983 APAL 0.489 0.546 0.547 0.510 0.722 0.537 0.595 0.562 0.489 0.861 0.601 0.689 0.654 0.466 0.973 0.651 0.772 0.725 0.449 1.174 Traffic TSMixer MSE 0.539 1.772 2.796 0.538 0.579 0.545 1.673 2.514 0.750 0.670 0.570 1.797 2.920 0.662 0.608 0.621 1.999 3.174 0.669 0.615 
+
+APAL 1.055 1.645 1.949 0.730 0.402 0.994 1.939 2.210 0.799 0.416 1.081 2.233 2.553 0.794 0.481 1.021 2.190 2.698 0.817 0.401 
+
+Weather TSMixer MSE 0.180 0.407 0.770 0.266 1.784 0.218 0.464 0.868 0.269 1.828 0.261 0.519 0.931 0.257 1.832 0.318 0.619 1.050 0.233 1.830 
+
+APAL 0.567 0.711 0.706 0.257 1.810 0.682 0.793 0.872 0.231 1.822 0.809 0.820 0.934 0.215 1.804 0.944 0.902 1.080 0.201 1.817 
+
+Exchange TSMixer MSE 0.129 0.146 0.160 0.228 1.689 0.223 0.292 0.289 0.205 1.691 0.364 0.532 0.508 0.185 1.709 0.758 0.906 0.750 0.230 1.719 
+
+APAL 0.563 0.560 0.352 0.196 1.688 1.221 1.117 0.731 0.179 1.711 2.499 1.707 1.078 0.169 1.723 8.384 3.817 1.759 0.158 1.706 
+
+MSE: when tails carry low signal-to-noise, the asymmetric penalty introduces bias that degrades average-case performance. This confirms APAL is best deployed where under-prediction of peaks is more costly than over-prediction. Moreover, APAL is designed to exploit peak structures that are prominent, stable, and partly predictable. Appendix F.1 provides a dataset diagnostic that checks whether a time series exhibits suitable peak structures for utilizing APAL. Full diagnostic table for all benchmark datasets are in Appendix F. 
+
+5.3 Ablation Study and Sensitivity Analysis 
+
+We analyse APAL’s sensitivity to ( λu, λp, τ ) on Pedestrian and Beach datasets using DLinear, with TSMixer cross-domain grids for ETT, Exchange, and Weather datasets in Appendix F.4. The grid covers λp, λ u ∈ { 1, 2, 5, 10 } and τ ∈ { 0.8, 0.9, 0.95 } for Pedestrian, extended to {1, 2, 5, 10 , 15 , 20 }
+
+for Beach. Figure 2 visualises the Pareto trade-off between aggregate MSE and tail MSE 1, exposing achievable operating points so practitioners can match their domain-specific cost model. Detailed marginal-effect plots, heatmaps, and cross-domain ablation summaries are in Appendix F. 0.8 1.0 1.2                      
+
+> 8
+> 10
+> 12
+> MSE 1
+> Beach (H=96)
+> 0.8 1.0
+> 8
+> 10
+> 12
+> Beach (H=192)
+> 0.8 0.9 1.0 1.1
+> 8
+> 9
+> 10
+> 11
+> Beach (H=336)
+> 0.9 1.0 1.1
+> 8
+> 9
+> 10
+> 11
+> 12
+> Beach (H=720)
+> 0.6 0.8 1.0
+> Overall MSE
+> 4.0
+> 4.2
+> 4.4
+> MSE 1
+> Pedestrian (H=96)
+> 0.4 0.6 0.8
+> Overall MSE
+> 4.0
+> 4.2
+> 4.4
+> Pedestrian (H=192)
+> 0.4 0.6 0.8
+> Overall MSE
+> 4.1
+> 4.2
+> 4.3
+> 4.4
+> 4.5
+> Pedestrian (H=336)
+> 0.6 0.8
+> Overall MSE
+> 4.2
+> 4.3
+> 4.4
+> 4.5
+> 4.6 Pedestrian (H=720)
+> u=1 u=2 u=5 u=10 p=1 p=2 p=5 p=10
+
+Figure 2: Pareto trade-off between overall MSE and tail MSE 1 across APAL configurations with 
+
+τ = 0 .9. Each subplot is one dataset-horizon combination; dashed lines mark Pareto-optimal frontiers. 
+
+λu: upweight factor, λp: peak weight. Based on our peak-critical ablations, we recommend the conservative setting λu = 2 , λp = 2 ,
+
+τ = 0 .9 as a starting point rather than as a universal optimum. On the pedestrian-focused ablations this setting gives useful tail improvements with a moderate aggregate-error cost, while the cross-domain grids show that the same default is not uniformly preferable on Exchange or all ETT variants. For applications where peak misses are more costly, increasing λu or λp can improve MSE 1 or Peak F1 at the cost of higher aggregate error and possible overestimation; when overestimation is costly, users should reduce λu and λp toward 1 or prefer a symmetric loss. We recommend selecting the final operating point on a held-out validation set using both aggregate and peak-critical metrics, ideally with an application-specific cost model. 85.4 Channel-wise pedestrian results 
+
+We report per-sensor results for Melbourne (Figure 3a) and the Beach Dataset (Figure 3b), including tail-error and peak-event metrics, to reflect heterogeneity across sensor locations (“channels" in figure). The results show that APAL consistently improves peak-sensitive metrics across channels, with median improvements of 5–15% for extreme value prediction. 96 192 336 720                
+
+> Horizon
+> 120
+> 100
+> 80
+> 60
+> 40
+> 20
+> 0
+> 20
+> Improvement (%)
+> MSE
+> 96 192 336 720
+> Horizon
+> 0
+> 20
+> 40
+> 60
+> MSE
+> 96 192 336 720
+> Horizon
+> 0
+> 20
+> 40
+> 60
+> MSE
+> 96 192 336 720
+> Horizon
+> 0
+> 100
+> 200
+> 300
+> 400
+> 500
+> Peak F1
+> 96 192 336 720
+> Horizon
+> 0
+> 10
+> 20
+> 30
+> 40
+> Time Err
+> 96 192 336 720
+> Horizon
+> 20
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> TDI
+> Distribution of APAL Improvement Over MSE Across Channels
+
+(a) Pedestrian Dataset 96 192 336 720                 
+
+> Horizon
+> 60
+> 50
+> 40
+> 30
+> 20
+> 10
+> 0
+> Improvement (%)
+> MSE
+> 96 192 336 720
+> Horizon
+> 20
+> 10
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> MSE
+> 96 192 336 720
+> Horizon
+> 10
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> MSE
+> 96 192 336 720
+> Horizon
+> 75
+> 50
+> 25
+> 0
+> 25
+> 50
+> 75
+> 100
+> Peak F1
+> 96 192 336 720
+> Horizon
+> 10
+> 8
+> 6
+> 4
+> 2
+> 0
+> 2
+> 4
+> Time Err
+> 96 192 336 720
+> Horizon
+> 40
+> 20
+> 0
+> 20
+> 40
+> 60
+> 80
+> TDI
+> Distribution of APAL Improvement Over MSE Across Channels
+
+(b) Beach Dataset 
+
+Figure 3: Channel-wise percentage improvements of APAL over MSE (TSMixer) on datasets (a) Pedestrian and (b) Beach . Each boxplot covers 16 channels at a given horizon; positive values indicate APAL outperforms MSE; the red dashed line marks zero improvement. 
+
+5.5 Training Stability and Compute 
+
+APAL adds only element-wise weighing with negligible overhead: +0 .23 s/epoch ( ≈ 4% ) vs. MSE, compared to DBLoss ( +0 .85 s, 15%), PS ( +1 .37 s, 24%), and TildeQ ( +2 .15 s, 37%). We report the epoch time and total training time in detail in Appendix G. This minor computational overhead compared to MSE makes APAL practical for real-time operational training pipelines. 
+
+5.6 Failure Cases 
+
+APAL intentionally changes the optimization target and can therefore be harmful when its cost assumptions do not match the deployment setting. First, because under-predictions are penalized more heavily, APAL can introduce upward bias or false-positive peaks; this is acceptable only when missed peaks are more costly than overestimation. Second, the within-window peak mask can emphasize random fluctuations in flat, low-variance, or sensor-noisy windows, because every window has a relative maximum. Third, APAL can over-commit to historical peak shapes when future peaks shift in timing or magnitude. The current experiments use direct multi-step forecasting, so they do not test recursive rollouts, in which directional bias could accumulate. These limitations motivate conservative validation-based tuning, drift monitoring, and fallback to symmetric losses when peak structure is weak, or overestimation is equally costly. 
+
+6 Conclusion and Future Work 
+
+We studied peak-critical long-term forecasting settings where under-prediction incurs disproportionate operational costs and rare peaks dominate downstream risk. We introduced Asymmetric Peak-Aware Loss (APAL), a simple model-agnostic objective that penalises under-predictions more heavily and increases training emphasis on peak regions through adaptive within-horizon thresholding. We also proposed a peak-critical evaluation protocol that complements aggregate metrics with channel-wise tail-error, peak-detection, and peak timing measures. Across extensive experiments spanning five state-of-the-art backbones, four horizons, and ten datasets, we demonstrated that APAL achieves the best Top-1% tail error in 39 of 40 peak-critical settings, with reductions of up to 31% compared to MSE loss. On pedestrian demand forecasting, APAL improves Peak F1 by up to 88% while incurring only 4% computational overhead (3–9 × lower than competing peak-aware losses). APAL exposes a controllable trade-off allowing practitioners to tune (λu, λ p, τ )
+
+to balance aggregate error with peak-critical performance using domain-specific cost functions. We also introduced a quantitative pretraining diagnostic that classifies datasets into Strongly Seasonal and Irregularly Structured and Weakly Structured categories. The benefits of APAL are strongest on datasets with a clear peak structure. When the peaks are not identifiable, learnable, or operationally 9meaningful, symmetric losses remain preferable. Our findings confirm that incorporating cost-sensitive inductive biases directly into the loss function offers a controllable and effective mechanism for enhancing safety-critical forecasting performance, providing a practical alternative to complex probabilistic models in settings where point forecasts are required for downstream optimisation and an accurate peak forecast is a priority. Future work will extend APAL’s asymmetric weighing principles to probabilistic forecasting frame-works, enabling calibrated uncertainty estimation alongside peak-aware point predictions. We also plan to integrate explicit domain cost models directly into the hyperparameter selection criteria, allowing models to be automatically tuned against real-world financial or safety constraints rather than proxy metrics like MSE. Finally, we aim to rigorously study the robustness of peak-aware objectives under distribution shift and rare-event regime changes, ensuring that models remain stable and reliable even when the statistical properties of extreme events evolve over time. 
+
+References 
+
+[1] J. Berechman. Inaccuracies in Cost and Demand Forecasts , pages 51–80. Springer International Publishing, Cham, 2018. [2] D. J. Berndt and J. Clifford. Using dynamic time warping to find patterns in time series. In Proceedings of the 3rd International Conference on Knowledge Discovery and Data Mining , AAAIWS’94, page 359–370. AAAI Press, 1994. [3] G. E. P. Box, G. M. Jenkins, G. C. Reinsel, and G. M. Ljung. Time Series Analysis: Forecasting and Control . John Wiley & Sons, Hoboken, NJ, 5 edition, 2015. [4] P. J. Brockwell and R. A. Davis. Introduction to Time Series and Forecasting . Springer Texts in Statistics. Springer International Publishing, Cham, 3rd edition, 2016. [5] D. Burillo, M. V. Chester, B. Ruddell, and N. Johnson. Electricity demand planning forecasts should consider climate non-stationarity to maintain reserve margins during heat waves. Applied Energy , 206:267– 277, 2017. [6] C. Chatfield. The Analysis of Time Series: An Introduction . Chapman & Hall/CRC Texts in Statistical Science. Chapman and Hall/CRC, Boca Raton, 6th edition, 2003. [7] City of Melbourne. City of melbourne pedestrian counting system. https://www.pedestrian. melbourne.vic.gov.au/ , 2026. Accessed 2026-01-11. [8] City of Melbourne. Pedestrian counting system - sensor locations. https://data.melbourne.vic. gov.au/explore/dataset/pedestrian-counting-system-sensor-locations/ , 2026. City of Melbourne Open Data Portal, accessed 2026-01-11. [9] City of Melbourne. Pedestrian counting system (counts per hour). https://data.melbourne.vic.gov. au/explore/dataset/pedestrian-counting-system-monthly-counts-per-hour/ , 2026. City of Melbourne Open Data Portal, accessed 2026-01-11. [10] M. Cuturi and M. Blondel. Soft-DTW: a differentiable loss function for time-series. In D. Precup and Y. W. Teh, editors, Proceedings of the 34th International Conference on Machine Learning , volume 70 of 
+
+Proceedings of Machine Learning Research , pages 894–903. PMLR, 06–11 Aug 2017. [11] A. Das, W. Kong, A. Leach, S. Mathur, R. Sen, and R. Yu. Long-term forecasting with tide: Time-series dense encoder, 2024. [12] V. Ekambaram, A. Jati, N. Nguyen, P. Sinthong, and J. Kalagnanam. Tsmixer: Lightweight mlp-mixer model for multivariate time series forecasting. In Proceedings of the 29th ACM SIGKDD Conference on Knowledge Discovery and Data Mining , KDD ’23, page 459–469, New York, NY, USA, 2023. Association for Computing Machinery. [13] C. Fan, Y. Zhang, Y. Pan, X. Li, C. Zhang, R. Yuan, D. Wu, W. Wang, J. Pei, and H. Huang. Multi-horizon time series forecasting with temporal attention learning. In Proceedings of the 25th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining , KDD ’19, page 2527–2535, New York, NY, USA, 2019. Association for Computing Machinery. [14] L. Frías-Paredes, F. Mallor, T. León, and M. Gastón-Romeo. Introducing the temporal distortion index to perform a bidimensional analysis of renewable energy forecast. Energy , 94:180–194, 2016. 
+
+10 [15] J. Granderson, M. Sharma, E. Crowe, D. Jump, S. Fernandes, S. Touzani, and D. Johnson. Assessment of model-based peak electric consumption prediction for commercial buildings. Energy and Buildings ,245:111031, 2021. [16] V. L. Guen and N. Thome. Shape and time distortion loss for training deep time series forecasting models. In H. Wallach, H. Larochelle, A. Beygelzimer, F. d'Alché-Buc, E. Fox, and R. Garnett, editors, Advances in Neural Information Processing Systems , volume 32. Curran Associates, Inc., 2019. [17] T. Hari, W. Daamen, S. Hoogendoorn-Lanser, J. Steenbakkers, and S. P. Hoogendoorn. Evaluation of machine learning and deep learning models for multi-horizon crowd forecasting at scheveningen beach, netherlands. Transportation Research Record: Journal of the Transportation Research Board , 0(0), 2026. [18] D. C. Hoaglin, F. Mosteller, and J. W. Tukey, editors. Understanding Robust and Exploratory Data Analysis . John Wiley & Sons, New York, 2000. [19] M. Hubert and E. Vandervieren. An adjusted boxplot for skewed distributions. Computational Statistics & Data Analysis , 52(12):5186–5201, 2008. [20] R. J. Hyndman and G. Athanasopoulos. Forecasting: principles and practice . OTexts, 3rd edition, 2021. [21] R. J. Hyndman and A. B. Koehler. Another look at measures of forecast accuracy. International Journal of Forecasting , 22(4):679–688, 2006. [22] D. Kudrat, Z. Xie, Y. Sun, T. Jia, and Q. Hu. Patch-wise structural loss for time series forecasting. In A. Singh, M. Fazel, D. Hsu, S. Lacoste-Julien, F. Berkenkamp, T. Maharaj, K. Wagstaff, and J. Zhu, editors, 
+
+Proceedings of the 42nd International Conference on Machine Learning , volume 267 of Proceedings of Machine Learning Research , pages 31841–31859. PMLR, 13–19 Jul 2025. [23] G. Lai, W.-C. Chang, Y. Yang, and H. Liu. Modeling long- and short-term temporal patterns with deep neural networks. In The 41st International ACM SIGIR Conference on Research & Development in Information Retrieval , SIGIR ’18, page 95–104, New York, NY, USA, 2018. Association for Computing Machinery. [24] H. Lee, C. Lee, H. Lim, and S. Ko. Tilde-q: A transformation invariant loss function for time-series forecasting, 2024. [25] S. Lerch, T. L. Thorarinsdottir, F. Ravazzolo, and T. Gneiting. Forecaster’s dilemma: Extreme events and forecast evaluation. Statistical Science , 32, 12 2015. [26] Y. Li, S. Chai, X. Zhang, G. Wang, R. Zhu, and E. Chung. Stpnet: Quantifying the uncertainty of electric vehicle charging demand via long-term spatiotemporal traffic flow prediction intervals. IEEE Transactions on Intelligent Transportation Systems , 24(12):15018–15034, 2023. [27] B. Lim, S. O. Arık, N. Loeff, and T. Pfister. Temporal fusion transformers for interpretable multi-horizon time series forecasting. International Journal of Forecasting , 37(4):1748–1764, 2021. [28] T.-Y. Lin, P. Goyal, R. Girshick, K. He, and P. Dollár. Focal loss for dense object detection. IEEE Transactions on Pattern Analysis and Machine Intelligence , 42(2):318–327, 2020. [29] Y. Liu, T. Hu, H. Zhang, H. Wu, S. Wang, L. Ma, and M. Long. itransformer: Inverted transformers are effective for time series forecasting. In International Conference on Learning Representations (ICLR) ,2024. [30] H. Ma, M. Zhou, X. Ouyang, D. Yin, R. Jiang, and X. Song. Forecasting regional multimodal transportation demand with graph neural networks: An open dataset. In 2022 IEEE 25th International Conference on Intelligent Transportation Systems (ITSC) , pages 3263–3268, 2022. [31] S. Makridakis, E. Spiliotis, and V. Assimakopoulos. The m4 competition: 100,000 time series and 61 forecasting methods. International Journal of Forecasting , 36(1):54–74, 2020. M4 Competition. [32] Y. Nie, N. H. Nguyen, P. Sinthong, and J. Kalagnanam. A time series is worth 64 words: Long-term forecasting with transformers. In The Eleventh International Conference on Learning Representations (ICLR) , 2023. PatchTST. [33] X. Qiu, X. Wu, H. Cheng, X. Liu, C. Guo, J. Hu, and B. Yang. Dbloss: Decomposition-based loss function for time series forecasting, 2025. [34] Resono. Veelgestelde vragen over de resono producten, diensten en techniek, 2025. Accessed: 2025-11-14. 
+
+11 [35] D. Salinas, V. Flunkert, J. Gasthaus, and T. Januschowski. Deepar: Probabilistic forecasting with autore-gressive recurrent networks. International Journal of Forecasting , 36(3):1181–1191, 2020. [36] S. Smyl, B. N. Oreshkin, P. Pełka, and G. Dudek. Any-quantile probabilistic forecasting of short-term electricity demand: Fusing uncertainties from diverse sources. Information Fusion , 127:103637, 2026. [37] M. Steininger, K. Kobs, P. Davidson, A. Krause, and A. Hotho. Density-based weighting for imbalanced regression. Machine Learning , 110(8):2187–2211, Aug 2021. [38] J. W. Tukey. Exploratory Data Analysis . Number v. 2 in Addison-Wesley series in behavioral science. Addison-Wesley Publishing Company, 1977. [39] H. Wang, L. Pan, Z. Chen, D. Yang, S. Zhang, Y. Yang, X. Liu, H. Li, and D. Tao. Fredf: Learning to forecast in the frequency domain, 2025. [40] Y. Wang, H. Wu, J. Dong, Y. Liu, C. Wang, M. Long, and J. Wang. Deep time series models: A comprehensive survey and benchmark, 2025. [41] K. Wilkinghoff and A. Cornaggia-Urrigshardt. Multi-sample dynamic time warping for few-shot keyword spotting. In 2024 32nd European Signal Processing Conference (EUSIPCO) , pages 166–170, 2024. [42] H. Wu, J. Xu, J. Wang, and M. Long. Autoformer: Decomposition transformers with auto-correlation for long-term series forecasting, 2022. [43] Y. Yang, K. Zha, Y. Chen, H. Wang, and D. Katabi. Delving into deep imbalanced regression. In M. Meila and T. Zhang, editors, Proceedings of the 38th International Conference on Machine Learning , volume 139 of Proceedings of Machine Learning Research , pages 11842–11851. PMLR, 18–24 Jul 2021. [44] Y. Yuan, W. Daamen, D. Duives, and S. Hoogendoorn. Comparison of three algorithms for real-time pedestrian state estimation - supporting a monitoring dashboard for large-scale events. In 2016 IEEE 19th International Conference on Intelligent Transportation Systems (ITSC) , page 2601–2606. IEEE Press, 2016. [45] A. Zellner. Bayesian estimation and prediction using asymmetric loss functions. Journal of the American Statistical Association , 81(394):446–451, 1986. [46] A. Zeng, M. Chen, L. Zhang, and Q. Xu. Are transformers effective for time series forecasting? In 
+
+Proceedings of the AAAI Conference on Artificial Intelligence , 2023. Introduces LTSF-Linear / DLinear baseline. [47] A. Zeng, M. Chen, L. Zhang, and Q. Xu. Are transformers effective for time series forecasting? In 
+
+Proceedings of the Thirty-Seventh AAAI Conference on Artificial Intelligence and Thirty-Fifth Conference on Innovative Applications of Artificial Intelligence and Thirteenth Symposium on Educational Advances in Artificial Intelligence , AAAI’23/IAAI’23/EAAI’23. AAAI Press, 2023. [48] H. Zhou, S. Zhang, J. Peng, S. Zhang, J. Li, H. Xiong, and W. Zhang. Informer: Beyond efficient transformer for long sequence time-series forecasting. Proceedings of the AAAI Conference on Artificial Intelligence , 35(12):11106–11115, May 2021. 
+
+Impact Statement 
+
+This work addresses forecasting settings in which forecasting failures during high-demand spikes can have outsized operational consequences, such as crowd management, staffing, and transport planning. By improving peak-event detection and timing prediction, peak-critical forecasting can support safer resource allocation and more robust contingency planning. Potential risks arise if forecasts are used to automate decisions without oversight. Overestimation can cause inefficient allocation, while underestimation during sensitive events can create safety hazards. In addition, sensor coverage and historical patterns may reflect structural biases, and models may behave differently across locations or demographic contexts. We recommend that deployments (i) adjust asymmetric penalties using stakeholder-defined costs, (ii) report both aggregate and peak-critical metrics with channel-wise breakdowns, (iii) monitor for distribution shift and sensor changes over time, and (iv) include human-in-the-loop review for high-impact decisions. 12 A Datasets 
+
+This appendix provides comprehensive documentation of all datasets used in our experiments, in-cluding sources, preprocessing steps, and train/validation/test splits. Appendix A.1 describes the Melbourne Pedestrian Dataset, an open production-ready benchmark for urban crowd forecast-ing. Appendix A.2 documents the Beach Visitor Count Dataset from Scheveningen, Netherlands. Appendix A.3 summarizes eight public benchmarks spanning energy, finance, transportation, and meteorology domains. Finally, Appendix A.4 details the normalization and splitting procedures applied across all datasets. 
+
+A.1 Melbourne Pedestrian Dataset (2010–2017) Official source. The raw pedestrian counts are published on the City of Melbourne Open Data Portal as the Pedestrian Counting System (counts per hour) dataset, which contains hourly pedestrian counts from sensor devices distributed across the city [ 9]. Sensor metadata (status, location, and directional information) is provided in the companion Sensor Locations dataset [ 8 ]. The City also provides an online visualisation and download interface for the pedestrian counting system [7]. In this study, we release a production-ready multivariate time series derived from the offi-cial hourly counts, filtered to 16 sensors in the Melbourne CBD with complete data coverage from 2010-01-01 00:00:01 to 2017-12-31 23:00:01 at hourly frequency. The released file is 
+
+pedestrian_tsf_2010_2017_complete.csv and contains 70,128 hourly timestamps (2,922 days, 8 years), with no missing values and no gaps in the time index. The processed dataset contains 17 columns: a timestamp column ( date , format YYYY-MM-DD HH:MM:SS ) and 16 sensor chan-nels. Each channel records the pedestrian count per hour at one location. The included sensors are: T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T14, T15, T17, T18 . A value of zero indicates that no pedestrians passed under a sensor during that hour (as specified by the data provider) [9]. 
+
+Summary statistics. Across all sensors and timestamps, the dataset contains 1,122,048 observations with mean 670.35, standard deviation 897.68, minimum 0, and maximum 11,742. Per-sensor descriptive statistics (mean, standard deviation, minimum, maximum, median) are reported in Table 3. We emphasize that different sensors exhibit substantially different scales and tail behavior, motivating channelwise reporting for peak and tail metrics. Table 3: Melbourne pedestrian dataset statistics (2010–2017) for the 16 sensors included in the released complete-coverage subset. Sensor Mean Std Min Max Median T1 1173.9 1211.5 0 5573 690.0 T2 1114.4 1230.8 0 6942 526.0 T3 1231.4 982.1 0 5890 1059.0 T4 1508.0 1271.5 0 8052 1234.0 T5 1068.2 888.8 0 7391 988.0 T6 1157.3 997.1 0 6568 1020.0 T7 374.3 711.7 0 11742 163.0 T8 146.6 155.4 0 3009 106.0 T9 476.9 703.8 0 4272 121.0 T10 172.8 202.3 0 3113 98.0 T11 101.6 213.7 0 9805 53.0 T12 198.8 276.9 0 11284 144.0 T14 387.5 319.5 0 7304 355.0 T15 805.5 710.9 0 5559 681.0 T17 461.4 500.3 0 3889 263.0 T18 347.1 443.7 0 3759 143.5 13 Table 4: Sensor locations for the 16 sensors in the Melbourne subset (WGS84). Sensor Location name Latitude Longitude T1 Bourke Street Mall (North) -37.813494 144.965153 T2 Bourke Street Mall (South) -37.814067 144.965186 T3 Melbourne Central -37.811015 144.964295 T4 Town Hall (West) -37.814880 144.966088 T5 Princes Bridge -37.818742 144.967877 T6 Flinders Street Station Underpass -37.818479 144.966715 T7 Birrarung Marr -37.818617 144.972484 T8 Webb Bridge -37.822723 144.947677 T9 Southern Cross Station -37.819830 144.951026 T10 Victoria Point -37.818765 144.947105 T11 Waterfront City -37.815650 144.939707 T12 New Quay -37.814580 144.942924 T14 Sandridge Bridge -37.820112 144.962919 T15 State Library -37.810430 144.964388 T17 Collins Place (South) -37.813458 144.972984 T18 Collins Place (North) -37.813449 144.973054 
+
+Sensor locations. We provide sensor coordinates (WGS84, EPSG:4326) by joining the hourly counts with the official sensor locations dataset via sensor_id [8 ]. Table 4 lists the locations for the sensors in our subset. 
+
+Intended use and evaluation. The dataset exhibits strong weekly seasonality, location heterogene-ity, and sharp peaks driven by commuting patterns and events. These properties make it a realistic dataset for peak-critical objectives, where underestimation and mis-timing of extreme pedestrian volumes can be operationally costly. 
+
+A.2 Beach Visitor Count Dataset 
+
+This study utilizes the historical pedestrian crowd count dataset from Scheveningen Beach, The Hague, Netherlands, provided by a third-party data provider RESONO 2. The dataset comprises hourly visitor counts for 16 different areas, collected from 01 April 2021 to 17 November 2023. These counts serve as a proxy for crowd count, derived from aggregated and anonymised location data from mobile applications on devices of users who have provided consent [ 34 ]. The data is collected by counting devices that share opt-in location data through apps in RESONO’s mobile panel and is then scaled using a statistical model to estimate the total number of visitors [34]. 
+
+A.3 Public Benchmark Dataset 
+
+Apart from the human mobility domain (Beach, Pedestrian), we also evaluated our proposed APAL loss on eight publicly available time-series forecasting benchmarks spanning diverse application domains, including energy systems (ETT, Electricity), finance (Exchange), transportation (Traffic) and meteorology (Weather). 
+
+ETTh1 & ETTh2 (Electricity Transformer Temperature - Hourly) datasets [ 48 ] contain hourly measurements from electricity transformers in China, collected from July 2016 to July 2018. Each record includes the oil temperature (target variable) and six power load features (HUFL, HULL, MUFL, MULL, LUFL, LULL) representing high, medium, and low useful/useless load. The two variants correspond to different transformer stations and capture distinct operational patterns. These datasets are widely used benchmarks for evaluating long-term forecasting models. 
+
+ETTm1 & ETTm2 (Electricity Transformer Temperature - Minute) datasets [ 48 ] are the 15-minute interval counterparts of ETTh1 and ETTh2, providing four times the temporal resolution. The finer granularity enables evaluation of models on short-term fluctuations while maintaining the same 
+
+> 2https://reso.no/
+
+14 feature set. This increased frequency results in 69,680 time steps, making them suitable for assessing scalability. 
+
+Electricity Consuming Load (ECL) dataset [ 48 ] records hourly electricity consumption (in kWh) of 321 clients from 2012 to 2014. This high-dimensional dataset exhibits strong daily and weekly periodicity patterns driven by human activity cycles. The large number of channels (321) makes it particularly challenging for multivariate forecasting methods. 
+
+Exchange dataset [ 23 ] contains daily exchange rates of eight countries’ currencies (Australian Dollar, British Pound, Canadian Dollar, Swiss Franc, Chinese Yuan, Japanese Yen, New Zealand Dollar, and Singapore Dollar) against the US Dollar, spanning from 1990 to 2016. Unlike other datasets, Exchange exhibits non-stationary trends and lacks clear seasonal patterns, making it a challenging benchmark for trend-sensitive forecasting. 
+
+Traffic dataset [ 48 ] measures hourly road occupancy rates from 862 sensors deployed on San Francisco Bay Area freeways from January 2015 to December 2016. The data captures characteristic rush-hour peaks, weekly commuting patterns, and holiday effects. With 862 channels, it tests the scalability of models on high-dimensional spatial data. 
+
+Weather dataset [ 48 ] contains 21 meteorological indicators recorded every 10 minutes throughout 2020 from the Max Planck Institute weather station in Germany. Features include air temperature, atmospheric pressure, humidity, wind speed and direction, precipitation, and solar radiation. The high sampling frequency (52,696 time steps) and diverse physical quantities make it suitable for evaluating models on complex environmental dynamics. 
+
+A.4 Dataset Implementation details 
+
+We evaluated our proposed loss function across ten time-series forecasting benchmark datasets. Table 5 provides a comprehensive summary including the number of variates (channels), sequence length, train/validation/test splits, and sampling frequency. The datasets span multiple application domains: electricity transformer monitoring (ETT), power consumption (ECL), currency exchange (Exchange), road traffic (Traffic), meteorology (Weather), tourism (Beach), and urban mobility (Pedestrian). Following prior work [ 42 , 48 , 32 ], we apply Z-score normalization using statistics computed solely from the training set, with inverse transformation applied at evaluation time. ETT datasets use fixed chronological splits (12/4/4 months). All other datasets use a 70%/10%/20% train/validation/test chronological split. Z-score normalization is applied using training set statistics only. Table 5: Summary of Datasets Used in Experiments                                                        
+
+> Dataset Channels Length (Train / Val / Test) Frequency Description
+> ETTh1 717,420 (8,640 / 2,880 / 2,880) 1 hour Electricity transformer temperature ETTh2 717,420 (8,640 / 2,880 / 2,880) 1 hour Electricity transformer temperature ETTm1 769,680 (34,560 / 11,520 / 11,520) 15 min Electricity transformer temperature ETTm2 769,680 (34,560 / 11,520 / 11,520) 15 min Electricity transformer temperature ECL 321 26,304 (18,412 / 2,632 / 5,260) 1 hour Electricity consumption of 321 clients Exchange 87,587 (5,310 / 760 / 1,517) 1 day Daily exchange rates of 8 currencies Traffic 862 17,544 (12,280 / 1,756 / 3,508) 1 hour Road occupancy rates from 862 sensors Weather 21 52,696 (36,887 / 5,270 / 10,539) 10 min 21 meteorological indicators Beach 16 23,031 (16,121 / 2,304 / 4,606) 1 hour Hourly beach visitor counts Pedestrian 16 70,128 (49,089 / 7,014 / 14,025) 1 hour Melbourne pedestrian counts
+
+B Model Descriptions 
+
+This appendix provides detailed descriptions of the five state-of-the-art forecasting backbones used in our experiments. We selected models spanning diverse architectural families, including linear, MLP-based, and Transformer-based architectures, to demonstrate that APAL’s benefits are model-agnostic. Training hyperparameters and optimisation settings are reported in Appendix B.1. 15 DLinear [ 47 ]. DLinear is a surprisingly simple yet effective baseline that challenges the necessity of complex architectures for time series forecasting. The model decomposes the input sequence into trend and seasonal components using a moving average kernel, then applies two separate linear layers to each component. The final prediction is the sum of both projections. Despite its simplicity, DLinear achieves competitive performance against Transformer-based models while being significantly faster to train and having fewer parameters. The model demonstrates that for many time series forecasting tasks, the temporal relationships can be effectively captured by simple linear mappings. 
+
+PatchTST [ 32 ]. PatchTST (Patch Time Series Transformer) introduces two key innovations for time series forecasting: (1) patching , which segments the time series into subseries-level patches that serve as input tokens, reducing computational complexity and enabling the model to capture local semantic information; and (2) channel-independence , where each channel is processed independently by a shared Transformer backbone, improving generalization and reducing the risk of overfitting. The patching mechanism also allows the model to attend to longer historical context by reducing the number of tokens while preserving temporal information. 
+
+iTransformer [ 29 ]. iTransformer (Inverted Transformer) proposes an inverted view of time series Transformers by applying attention across the variate (channel) dimension rather than the temporal dimension. In this architecture, each time step’s multivariate observation is treated as a single token, and the self-attention mechanism learns dependencies between different variates. This design is particularly effective for multivariate forecasting where cross-channel correlations are important. The temporal patterns within each variate are captured through feed-forward networks applied independently to each channel. 
+
+TiDE [ 11 ]. TiDE (Time-series Dense Encoder) is an MLP-based model that achieves strong perfor-mance through a simple encoder-decoder architecture. The encoder maps the historical time series and covariates to a dense representation, which is then decoded to produce multi-step predictions. TiDE uses residual connections and layer normalization for stable training. The model is designed to be computationally efficient while capturing both temporal dynamics and covariate effects. Its simplicity makes it particularly suitable for large-scale deployment scenarios. 
+
+TSMixer [ 12 ] TSMixer (Time-Series Mixer) is an MLP-based forecasting model inspired by Mixer architectures that alternates mixing operations across the temporal and channel dimensions. Instead of attention, it uses lightweight fully connected blocks to exchange information along time steps and variates, yielding competitive accuracy with high computational efficiency. This makes TSMixer a strong backbone for isolating the effect of training objectives, since it is simple, fast to train, and widely used as a non-Transformer baseline in long-horizon forecasting. 
+
+B.1 Training Hyperparameters 
+
+All experiments are conducted using the Time-Series-Library framework [ 40 ] with consistent training protocols. Table 6 presents the common hyperparameters shared across all models, and Table 7 details the model-specific configurations. Comparison losses (TILDE-Q, PS, DBLoss) are implemented using author-recommended settings when available and are not additionally tuned beyond shared training hyperparameters. 
+
+Common Training Settings. All models are trained using the Adam optimizer with a learning rate scheduler (type1: halving the learning rate after each epoch). We use early stopping with a patience of 3 epochs to prevent overfitting. The input sequence length is fixed at 96 time steps with a label length of 48 for decoder-based models. We evaluate four prediction horizons: {96 , 192 , 336 , 720 }
+
+time steps. The same model configurations are applied consistently across all datasets to ensure fair comparison. 
+
+C Baselines and Comparison Loss Functions 
+
+We compare APAL against MAE, MSE, TILDE-Q [ 24 ], DBLoss [ 33 ], and Patch-wise Structural (PS) loss [ 22 ] using the authors’ recommended settings where available, with a consistent training 16 Table 6: Common Training Hyperparameters 
+
+Hyperparameter Value 
+
+Input sequence length (seq_len) 96 Label length (label_len) 48 Prediction lengths (pred_len) {96, 192, 336, 720} Training epochs 10 or 30 ∗
+
+Early stopping patience 3Optimizer Adam Learning rate scheduler type1 (halving) Random seed 2021 Features Multivariate (M)  
+
+> ∗Training epochs vary by dataset: 10 epochs for ETT, Electricity, Exchange, Traffic, and Weather; 30 epochs for Beach, and Pedestrian.
+
+Table 7: Model-Specific Hyperparameters 
+
+Hyperparameter DLinear PatchTST iTransformer TiDE TSMixer 
+
+Encoder layers (e_layers) 2 2 3 2 2Decoder layers (d_layers) 1 1 1 2 1Model dimension (d_model) – 512 512 256 32 Feed-forward dimension (d_ff) – 2048 512 256 32 Attention heads (n_heads) – 4/16 † 8 – –Dropout 0.1 0.1 0.1 0.3 0.1 Batch size 32 32/128 ‡ 32 512 32 Learning rate 0.0001 0.0001 0.0001 0.1 0.0001 Factor 3 3 3 – 3     
+
+> †PatchTST uses 16 heads for pred_len=192, and 4 heads otherwise. ‡PatchTST uses batch size 128 for pred_len ≥336, and 32 otherwise.
+
+protocol across losses. Additionally, we also report the results of Pinball Loss [ 36 ] compared to APAL in Section F.6. 
+
+MAE and MSE (symmetric point losses). MAE and MSE treat over- and under-prediction symmetrically and weight all horizon steps equally. They provide strong average-case performance but can encourage peak smoothing when extreme values are rare. 
+
+TILDE-Q (shape-aware loss). TILDE-Q [ 24 ] is a lightweight loss designed to improve shape fidelity by reducing sensitivity to temporal distortions. It jointly accounts for amplitude and phase mismatch via transformation-invariant comparisons between predicted and ground-truth trajecto-ries, encouraging the forecast to preserve local extrema and overall temporal structure rather than optimizing only pointwise error. 
+
+DBLoss (decomposition-based loss). DBLoss [ 33 ] decomposes the target sequence within the prediction horizon into multiple components (e.g., trend and seasonal/residual) using exponential moving averages. Separate loss terms are then applied to each component and combined with user-defined weights. This encourages the model to fit both long-term trend and short-term fluctuations, often improving overall trajectory structure. 
+
+Patch-wise Structural (PS) loss. PS loss [ 22 ] compares predictions and ground truth at the patch 
+
+(local window) level using simple statistics such as correlation, mean, and variance. By matching local distributional/shape properties across patches, PS encourages structural alignment over short horizons and can be combined with a pointwise term to retain absolute accuracy. 
+
+Relation to peak-critical forecasting. TILDE-Q, DBLoss, and PS are primarily designed to improve global/patch-level shape agreement and are typically symmetric with respect to under-vs. over-prediction. Consequently, their gradient signal can still be diluted on rare extreme points, motivating our peak-aware and asymmetric objective. 17 D Evaluation Metrics: Definitions and Edge Cases 
+
+This appendix provides formal definitions and implementation details for all evaluation metrics used in our experiments. Appendix D.1 defines standard aggregate metrics (MAE, MSE). Appendix D.2 introduces tail-focused metrics that restrict error computation to extreme ground-truth values. Ap-pendix D.3 describes our event-based peak detection and matching protocol. Finally, Appendix D.4 defines supplementary diagnostics including PCC and TDI. 
+
+D.1 Standard metrics 
+
+We report MAE and MSE over all forecast points and channels after inverse transforming predictions to the original scale when normalization is applied. Let N denote the total number of evaluated samples. For each sample n, let ˆy(n) 
+
+> h,c
+
+and y(n) 
+
+> h,c
+
+denote the prediction and ground truth at horizon step 
+
+h and channel c. The standard metrics are defined as: 
+
+MAE = 1
+
+N · H · C
+
+> N
+
+X
+
+> n=1
+> H
+
+X
+
+> h=1
+> C
+
+X
+
+> c=1
+
+y(n) 
+
+> h,c
+
+− ˆy(n) 
+
+> h,c
+
+, (5) 
+
+MSE = 1
+
+N · H · C
+
+> N
+
+X
+
+> n=1
+> H
+
+X
+
+> h=1
+> C
+
+X
+
+> c=1
+
+
+
+y(n) 
+
+> h,c
+
+− ˆy(n)
+
+> h,c
+
+2
+
+. (6) Both metrics treat all time steps and channels equally, which can mask failures on rare extreme values. 
+
+D.2 Tail metrics (Top-10%, Top-1%) 
+
+Tail metrics restrict error computation to extreme ground-truth values, computed per channel and macro-averaged to avoid high-variance channels dominating. For each channel c, let Sc = {y(n) 
+
+> h,c
+
+} denote all points flattened over samples and horizon steps, with 
+
+|S c| = N · H. For tail fraction p ∈ { 0.10 , 0.01 }, let k = ⌈p · N · H⌉ and I(p) 
+
+> c
+
+be the indices of the top-k ground-truth values. The tail metrics are: 
+
+MSE (p) 
+
+> c
+
+= 1
+
+k
+
+X
+
+> i∈I (p)
+> c
+
+(yi,c − ˆyi,c )2 , MAE (p) 
+
+> c
+
+= 1
+
+k
+
+X
+
+> i∈I (p)
+> c
+
+|yi,c − ˆyi,c | , (7) with reported values as macro-averages: MSE p = 1
+
+> C
+
+PCc=1 MSE (p) 
+
+> c
+
+(analogously for MAE). We de-note MSE 10 , MSE 1 for p ∈ { 0.10 , 0.01 }. Top-k selection is used rather than percentile thresholding to avoid ambiguity under ties. 
+
+D.2.1 Tail Threshold Assumptions and Limitations 
+
+The tail metric thresholds (10%, 1%) implicitly assume that operationally critical peaks occur at least this frequently. When true peaks are rarer than the selected threshold, the tail set will include non-peak high values (e.g., moderately elevated demand periods that do not constitute distinct events). In such cases, improvements in tail metrics may partially reflect better prediction of routine high values rather than true peak events. 
+
+Threshold selection guidance. We recommend selecting p based on domain knowledge of peak frequency. For the Pedestrian dataset, daily commuting peaks occur roughly twice per day (morning and evening rush hours), yielding peak frequency of approximately 8% of hourly observations, making Top-10% appropriate. For datasets with rarer peaks, Top-1% may be more informative, though sample size decreases accordingly. 
+
+Robustness to data errors. Tail metrics are computed on ground-truth values, so sensor errors or outliers in the data directly affect which points are included in the tail set. Erroneous spikes may be included as “peaks,” penalizing models that correctly ignore them, while missing or under-reported peaks may be excluded from evaluation. We mitigate this by: (i) applying standard data 18 cleaning procedures before evaluation (Section A.4), (ii) computing metrics per-channel and macro-averaging to reduce the influence of individual noisy sensors, and (iii) complementing tail metrics with event-based peak detection (Section D.3), which uses local maxima detection rather than global thresholds. 
+
+Complementarity with event-based metrics. The event-based peak metrics (Peak F1, PTE) use local maxima detection with an amplitude threshold ( α-th percentile within each forecast window), which is less sensitive to global peak frequency assumptions. We recommend interpreting tail metrics and event-based metrics together: tail metrics measure magnitude accuracy at extremes regardless of whether they constitute distinct events, while event-based metrics assess detection and timing of structurally defined peaks. 
+
+D.3 Peak event metrics 
+
+We evaluate peaks as events using a tolerance window of ±∆ steps (default ∆ = 3 ). For each sequence and channel, we detect peaks as local maxima above an amplitude threshold defined by the α-th percentile of the ground-truth values within the forecast window (default α = 90 ). We then compute precision, recall, and F1 using one-to-one greedy matching within tolerance ∆, ensuring that a predicted peak can match at most one true peak and vice versa. This avoids inflated scores in peak clusters. 
+
+Peak timing error (PTE). For each true peak index k, we compute timing error using an argmax-in-window approach: 
+
+PTE( k) = k − arg max  
+
+> t∈[k−∆,k +∆]
+
+ˆyt . (8) Since argmax always returns a position regardless of whether the prediction contains an explicit local maximum, PTE is defined for all true peaks. We report the mean timing error over all true peaks. The window is clipped at sequence boundaries, and with the inclusive window [k − ∆, k + ∆] the per-peak timing error is at most ∆ before boundary clipping. If the predicted values contain ties within the window, the implementation uses the deterministic first maximum returned by the array argmax operation; constant predicted windows therefore yield the leftmost maximum in the clipped window. Changing ∆ changes both match permissiveness and the maximum possible timing error, so 
+
+∆ should be treated as an evaluation tolerance rather than as a model hyperparameter. 
+
+Handling missing peaks. If a sequence contains no true peaks above threshold, it is excluded from event-based averaging for that channel. If true peaks exist but no predicted peaks are detected, precision and recall are computed consistently via the matching procedure (yielding recall 0 and precision 0), while timing error remains defined via argmax-in-window. 
+
+D.4 Additional Diagnostics 
+
+In addition to the core metrics defined above, we report two supplementary diagnostics for com-pleteness. The Pearson Correlation Coefficient (PCC), defined in Appendix D.4.1, measures linear agreement between predictions and ground truth regardless of scale. The Temporal Distortion Index (TDI), defined in Appendix D.4.2, quantifies temporal misalignment between predicted and true peaks. While informative, our main claims are supported by the standard and peak-critical metrics described in the preceding sections. 
+
+D.4.1 Pearson Correlation Coefficient (PCC) 
+
+PCC measures linear agreement between predictions and ground truth, capturing whether the model tracks temporal dynamics regardless of magnitude. Given flattened vectors ˆy, y ∈ RN ·H·C over all samples, time steps, and channels: 
+
+PCC = 
+
+P
+
+> i
+
+(ˆ yi − ¯ˆy)( yi − ¯y)
+
+qP
+
+> i
+
+(ˆ yi − ¯ˆy)2 · pP 
+
+> i
+
+(yi − ¯y)2 + ϵ, (9) where ¯ˆy, ¯y are means and ϵ = 10 −12 ensures numerical stability. PCC ∈ [−1, 1] , with higher values indicating better shape agreement. Because PCC is centered and scale-normalized, it is not aligned 19 with APAL’s asymmetric cost objective. An APAL model can improve tail magnitude or peak recall while lowering PCC if it deliberately shifts high-risk regions upward; we therefore treat PCC as a diagnostic rather than as the primary success criterion for peak-critical forecasting. 
+
+D.4.2 Temporal Distortion Index (TDI) 
+
+TDI [14] quantifies temporal misalignment between predicted and ground-truth peaks. 
+
+Peak detection. For each sequence in channel c, peaks are detected as local maxima exceeding threshold θ = μ + σ, where μ and σ are the sequence mean and standard deviation. Let Ptrue and 
+
+Ppred denote the true and predicted peak indices. 
+
+Computation. For each true peak p ∈ P true :
+
+dp =
+
+( min 
+
+> q∈P pred
+
+|p − q| if Ppred ̸ = ∅,H otherwise (no predicted peaks) , (10) where H is the sequence length (horizon). TDI is averaged over all true peaks per channel, then macro-averaged: 
+
+TDI = 1
+
+C
+
+> C
+
+X
+
+> c=1
+
+1
+
+|P true  
+
+> c
+
+|
+
+X
+
+> p∈P true
+> c
+
+dp. (11) TDI = 0 indicates perfect peak alignment; larger values indicate greater temporal displacement. 
+
+E Hyperparameter Selection Protocol 
+
+General protocol. All hyperparameters are selected using the validation split only. Test data is never used for tuning, early stopping, or model selection. 
+
+APAL search space. We analyze APAL sensitivity over a hyperparameter grid of λp ∈ { 1, 2, 5, 10 },
+
+λu ∈ { 1, 2, 5, 10 }, τ ∈ { 0.8, 0.9, 0.95 } for the Pedestrian dataset and λp ∈ { 1, 2, 5, 10 , 15 , 20 },
+
+λu ∈ { 1, 2, 5, 10 , 15 , 20 }, τ ∈ { 0.8, 0.9, 0.95 } for the Beach dataset to understand trade-offs between average and peak-critical objectives. For the additional cross-domain ablation in Appendix F.4, we use the same 4 × 4 × 3 grid over ETT, Exchange, and Weather at horizons H ∈ { 96 , 192 , 336 , 720 }.We select the best configuration per dataset, backbone, and horizon using a validation criterion aligned with peak-critical performance. 
+
+Recommended default and tuning rule. We recommend (λu, λ p, τ ) = (2 , 2, 0.9) as a conserva-tive initial setting: it introduces moderate under-prediction asymmetry and moderate peak emphasis without assuming that the most aggressive tail-optimized configuration is appropriate for every dataset. If validation results show insufficient peak recall or large Top-1% tail error and false positives are acceptable, practitioners can increase λu or λp to 5. If only the most extreme peaks should be emphasized, increasing τ to 0.95 focuses the mask on fewer points. If overestimation is costly, peaks are weakly structured, or validation aggregate error increases beyond the application tolerance, λu
+
+and λp should be reduced toward 1, with standard MAE/MSE retained as the preferred objective when symmetric accuracy is the primary goal. 
+
+Fairness to baselines. All losses are trained under the same training budget, optimizer settings, early stopping patience, and model configurations. Where comparison losses have additional hyper-parameters, we follow the original authors’ default recommendations and do not tune them beyond standard learning rate and batch size settings shared across all methods. 
+
+F Additional and Diagnostics 
+
+This appendix provides extended experimental results that complement the main text by first intro-ducing a pre-training diagnostic to assess whether a dataset exhibits the structural properties APAL is designed to exploit (Appendix F.1) and then presenting a sensitivity analysis of APAL across different backbone architectures (Appendix F.2) alongside comprehensive tables reporting aggregate and peak detection metrics across all datasets and models (Appendix F.3). 20 F.1 Dataset peak-structure diagnostic experiment for APAL 
+
+APAL is not a universal substitute for MSE. By construction, it redistributes gradient mass toward high-magnitude observations and is therefore expected to improve forecasting accuracy when peaks are prominent, recurrent, stable and forecastable. It may conversely degrade accuracy when peaks are weak, unstable, or dominated by noise. We accordingly introduce a pre-training diagnostic that characterizes the peak structure of a candidate dataset to determine its suitability for APAL. This diagnostic classifies datasets into Strongly Seasonal and Irregularly Structured and Weakly Structured categories based on a set of six interpretable statistics evaluated strictly on the training and validation splits defined in Table 5. To support the choice of these six statistics we rely on established statistical interpretations that map directly to the intended scope of APAL. We define a binary peak indicator using the 90th percentile which aligns with the Top-10 percent tail metric used throughout our evaluation and follows the common use of high empirical quantiles as operational proxies for operationally costly peak demand periods [ 15 , 5 ]. We measure peak prominence using a tail salience statistic based on a quantile generalization of Tukey’s robust outlier scale [ 38 , 18 ]. This expresses extreme values relative to the interquartile range rather than the standard deviation and is therefore less sensitive to distributional asymmetry and heavy-tailed observations [ 19 ]. We assess peak learnability and stability using autocorrelation to measure the serial dependence of recurrent peak events [ 3 , 4, 6]alongside a seasonal-naive baseline to quantify how well standard periodic patterns explain tail variance [21, 20, 31]. Formally we compute the diagnostic exclusively on the chronological train and validation splits defined in Table 5 leaving the test set untouched. Let {xct }Ttr  
+
+> t=1
+
+denote the training portion of channel 
+
+c ∈ { 1, . . . , C } and {xc, val  
+
+> t
+
+}Tval  
+
+> t=1
+
+the corresponding validation portion. We write Qcp for the p-th empirical quantile of the training channel and IQR c = Qc 
+
+> 0.75
+
+− Qc 
+
+> 0.25
+
+for its interquartile range alongside μc and σc for its mean and standard deviation. We define the binary peak indicator 
+
+bct = ⊮[xct ≥ Qc
+
+> 0.90
+
+] and a candidate set L of seasonal lags determined by the sampling frequency. This lag set includes {24 , 48 , 72 , 96 , 168 } for hourly data and {96 , 192 , 288 , 672 } for 15-minute data and {7, 14 , 21 , 28 , 56 , 84 } for daily data. For each channel we compute the six statistics capturing complementary aspects of peak structure. Two statistics describe the marginal distribution where Intermittency Zc 
+
+> 0
+
+= 1
+
+> Ttr
+
+P 
+
+> t
+
+⊮[xct = 0] 
+
+denotes the fraction of exact zeros to quantify intermittency and Skew c = 1
+
+> Ttr
+
+P
+
+> t
+
+(( xct − μc)/σ c)3
+
+measures asymmetry toward high values. Tail salience is captured by Sc 
+
+> 99
+
+= ( Qc 
+
+> 0.99
+
+− Qc
+
+> 0.50
+
+)/IQR c
+
+to reflect the extent to which peaks separate from typical variation. Tail stability is captured by 
+
+V c 
+
+> 90
+
+= 1
+
+> Tval
+
+P 
+
+> t
+
+⊮[xc, val  
+
+> t
+
+≥ Qc
+
+> 0.90
+
+] to measure the validation-set frequency of values at or above the training 90th percentile. These four channel-level quantities are aggregated to the dataset level by taking the median across channels. The two remaining statistics aggregate channels jointly to measure learnability. Peak recurrence 
+
+is captured by Rpeak = max L∈L 1
+
+> C
+
+P 
+
+> c
+
+ACF( bc 
+
+> ·
+
+, L ) representing the maximum channel-averaged autocorrelation of the peak indicator over the candidate seasonal lags, with a higher value indi-cating higher recurrence. Tail forecastability is captured by Ftail = 1 − (P 
+
+> (t,c )∈V +
+
+(xc, val  
+
+> t
+
+−
+
+xc, val  
+
+> t−L⋆
+
+)2)/(P 
+
+> (t,c )∈V +
+
+(xc, val  
+
+> t
+
+− μc)2). Here V+ = {(t, c ) | xc, val  
+
+> t
+
+≥ Qc
+
+> 0.90
+
+} represents the validation tail set. The seasonal-naive lag L⋆ is selected on the training tail as L⋆ =arg min L∈L 
+
+P
+
+> (t,c )∈T +(L)
+
+(xct − xct−L)2 with T+(L) = {(t, c ) | t > L and xct ≥ Qc
+
+> 0.90
+
+}.We aggregate these statistics into a decision rule that reflects the structural conditions under which APAL is expected to apply. A dataset is labeled Strongly Seasonal when peaks are simultaneously salient and recurrent and forecastable. A dataset is labeled Irregularly Structured when peaks are salient but exhibit low seasonal forecastability indicating they are driven by external covariates or irregular events rather than strict periodic schedules. A dataset is labeled Weakly Structured when peaks fail to satisfy the salience criterion entirely. Building on the established statistical properties the thresholds calibrated on the ten datasets considered in this study are S99 ≥ 1.90 and Rpeak ≥ 0.40 
+
+and Ftail ≥ 0.50 . The salience threshold corresponds to a 99th percentile that lies roughly two interquartile widths above the median. The forecastability threshold requires the seasonal baseline to explain at least half of the tail squared error of the constant mean predictor. 21 Establishing truly universal constants is likely impossible because the definition of an operationally meaningful peak depends heavily on domain specific risk tolerances and sensor noise scales. Prac-titioners can instead calibrate these threshold values for a new domain by using the validation set performance as a proxy ground truth. Specifically one would train both APAL and MSE on a representative corpus of historical datasets from the target application and select thresholds that successfully isolate the datasets where APAL yields a lower validation tail error. To assess the rule against observed behavior we report ∆MSE 10 and ∆MSE 1 in Table 8 as the test set relative error reductions of APAL over MSE. Positive values indicate that APAL is preferable averaged over horizons and obtained from the previous experimental tables. Because these thresholds were derived from the evaluated datasets this classification serves to summarize our empirical findings rather than to independently validate the rule. Tail salience S99 alone separates the six datasets with positive average MSE 1 gains from the four with negative gains yielding a one sided Fisher exact 
+
+p = 0 .0048 under fixed margins. The mean APAL MSE 1 gain is +32 .2 percent above the threshold and −101 .2 percent below it. A composite of all six diagnostics correlates positively with APAL gains across the ten datasets with a Pearson r = 0 .472 and Spearman ρ = 0 .507 .The diagnostic further admits interpretable categorizations that explain model behavior. The Pedes-trian dataset is Strongly Seasonal with highly predictable commuting patterns. Datasets such as Beach and Weather are classified as Irregularly Structured because they satisfy tail salience yet lack simple seasonal forecastability. Their peaks are driven by external events or weather conditions rather than rigid periodic schedules. This irregularity is precisely why models trained with standard symmetric losses fail and heavily smooth the predictions. For these datasets APAL provides a crucial corrective mechanism by amplifying the gradient signal on rare extremes forcing the model to utilize available historical context rather than defaulting to the mean. Consequently Beach represents a primary use case for APAL where extreme value accuracy is paramount despite the inherent difficulty of the forecasting task. Datasets like Exchange and ETTh2 are Weakly Structured making them poor candidates for APAL. In summary the proposed diagnostic operationalizes the intended scope of APAL by quantifying peak structures and providing practitioners with a principled pretraining criterion. Table 8: Peak-structure diagnostic for APAL across the ten datasets. Class is assigned from S99 ,
+
+Rpeak , and Ftail using fixed thresholds. ∆MSE 10 and ∆MSE 1 APAL-vs.-MSE comparisons aver-aged over horizons trained on TSMixer backbone Dataset Freq. Class Z0 Skew S99 V90 Rpeak Ftail ∆MSE 10 ∆MSE 1                                                                                                    
+
+> Pedestrian hourly Strongly Seasonal 0.00 1.35 2.49 0.12 0.66 0.69 +5.6% +3.8% Beach hourly Irregularly Structured 0.08 3.11 6.04 0.05 0.35 0.28 +7.2% +18.8% ETTh1 hourly Strongly Seasonal 0.01 -0.06 1.94 0.11 0.47 0.71 +58.3% +72.9% ETTh2 hourly Weakly Structured 0.01 -0.01 1.75 0.00 0.60 0.94 -249.7% -164.7% ETTm1 15-min Strongly Seasonal 0.01 -0.06 1.94 0.11 0.47 0.71 +68.0% +79.0% ETTm2 15-min Weakly Structured 0.01 -0.01 1.75 0.00 0.59 0.94 -188.3% -89.2% Electricity hourly Weakly Structured 0.00 0.20 1.41 0.02 0.66 0.80 -98.9% -20.9% Traffic hourly Strongly Seasonal 0.01 1.66 2.87 0.11 0.66 0.64 -10.6% +17.5% Weather 15-min Irregularly Structured 0.00 0.32 1.94 0.06 0.35 -0.23 -62.3% +1.2% Exchange daily Weakly Structured 0.00 0.35 1.56 0.99 0.90 1.00 -277.1% -129.9%
+
+F.2 Architectural Sensitivity Analysis 
+
+We provide additional analysis of how APAL interacts with different backbone architectures. Among the five backbones evaluated, iTransformer exhibits the most varied response to APAL. While APAL consistently achieves the best MSE 1 on the Beach dataset across all horizons, it underperforms on MSE 10 in some Pedestrian settings with iTransformer. This behavior can be attributed to iTransformer’s variate-centric attention mechanism, which treats each channel (sensor location) as a token and applies attention across channels rather than across time steps. This design already captures cross-channel dependencies and correlations between peak patterns at different locations. When peaks are correlated across channels—as is common in the Pedestrian dataset where commuting patterns affect multiple nearby sensors simultaneously— iTransformer’s built-in cross-channel modeling partially overlaps with APAL’s peak emphasis mecha-nism. 22 In contrast, architectures without explicit cross-channel modeling show more uniform benefits from APAL: • DLinear applies independent linear projections per channel, so APAL’s peak emphasis provides the primary mechanism for coordinating peak-aware learning across locations. • PatchTST uses channel-independent patching and attention, making it similarly receptive to APAL’s gradient concentration on peaks. • TSMixer and TiDE use MLP-based mixing that operates within channels before cross-channel aggregation, allowing APAL to influence the early per-channel representations. For practitioners, this suggests that APAL provides the largest marginal benefit when paired with channel-independent architectures, while still improving tail metrics ( MSE 1) even for cross-channel-aware models like iTransformer. 
+
+F.3 Full Results Tables 
+
+We provide a comprehensive evaluation across complementary metric families on the Pedestrian and Beach datasets. 
+
+MAE-based Metrics. Table 9 reports Mean Absolute Error and its tail-weighted variants (MAE 10 ,MAE 1), offering an alternative to MSE that is less sensitive to outliers while emphasizing extreme value accuracy. 
+
+Peak Detection Metrics. Table 10 presents peak-focused metrics: Temporal Distortion Index (TDI), Peak Recall, Peak Precision, and Peak F1. On the Pedestrian dataset, APAL achieves substantial improvements in Peak Recall (up to 2.2 ×) and TDI (up to 6.7 × reduction), resulting in consistently higher Peak F1 scores across all models and horizons. Performance gains on the Beach dataset are more modest, reflecting its different peak characteristics. We note that APAL’s design prioritizes recall over precision, which is appropriate for applications where missing peaks incur a higher cost than false alarms. 
+
+F.4 Cross-domain APAL hyperparameter ablation 
+
+To assess hyperparameter transfer beyond the two peak-critical crowd datasets, we analyze the APAL grids for ETT, Exchange, and Weather datasets using TSMixer architecture. The grid uses 
+
+λu, λ p ∈ { 1, 2, 5, 10 } and τ ∈ { 0.8, 0.9, 0.95 } for each horizon H ∈ { 96 , 192 , 336 , 720 }. Table 11 reports, for each dataset–horizon pair, the best observed MSE 1 configuration and the corresponding aggregate-MSE change relative to the neutral APAL setting (λu, λ p) = (1 , 1) , which reduces to MAE and makes τ inactive. These comparisons are therefore within the APAL grid and complement, rather than replace, the MSE-vs.-APAL benchmark in Table 2. The results reinforce three practical points. First, strong peak weights can produce large tail-error reductions on the ETTh1 and ETTm1 datasets, but usually at a substantial aggregate MSE cost. Second, the Exchange dataset is a boundary case: the average best MSE 1 gain is 17.7%, but gains are small at shorter horizons and Peak F1 changes little, indicating limited practical value unless tail error is the dominant objective. Third, Weather dataset has consistent tail gains across horizons (15.7–28.2%), but the best tail settings increase aggregate MSE by 69.0–131.2%. Thus, the Weather dataset supports the controllability claim while also showing why APAL should be selected based on validation trade-offs rather than adopted blindly. 
+
+F.5 Ablation details 
+
+In addition to the main text, we provide marginal effect plots (Figure 4) and heatmaps (Figure 5) for different hyperparameters of APAL (λu, λ p, τ ) on the Pedestrian Dataset. Figure 4 shows the marginal effects of each APAL hyperparameter ( λu, λp, τ ) on MSE, MSE 1, and MSE 10 , aggregated across all horizons on the Pedestrian dataset; Beach results in Figure 2 exhibit similar trends. 23 Table 9: Comparison of loss functions for multivariate long-term forecasting (MAE metrics). Predic-tion horizons H ∈ { 96 , 192 , 336 , 720 }. The proposed APAL is highlighted in bold. Best prediction results are bolded ; second-best are underlined. Dataset Model Loss 96 192 336 720 MAE MAE 10 MAE 1 Peak F1 PTE MAE MAE 10 MAE 1 Peak F1 PTE MAE MAE 10 MAE 1 Peak F1 PTE MAE MAE 10 MAE 1 Peak F1 PTE Pedestrian DLinear MSE 0.366 0.565 0.846 0.442 0.987 0.337 0.527 0.801 0.517 0.929 0.340 0.534 0.807 0.513 0.919 0.357 0.560 0.843 0.469 0.956 MAE 0.327 0.524 0.789 0.573 1.028 0.299 0.489 0.751 0.626 0.967 0.302 0.497 0.759 0.612 0.954 0.320 0.527 0.800 0.560 1.000 TildeQ 0.371 0.574 0.853 0.425 1.141 0.339 0.528 0.797 0.529 1.035 0.333 0.524 0.792 0.543 0.908 0.355 0.560 0.840 0.465 0.930 DBLoss 0.335 0.528 0.796 0.568 0.991 0.307 0.491 0.756 0.637 0.920 0.310 0.498 0.762 0.624 0.908 0.327 0.528 0.802 0.573 0.944 PS 0.351 0.539 0.812 0.555 1.037 0.321 0.503 0.773 0.622 0.991 0.324 0.511 0.779 0.608 0.981 0.341 0.539 0.816 0.553 1.013 
+
+APAL 0.387 0.548 0.771 0.832 0.721 0.349 0.511 0.748 0.823 0.731 0.348 0.513 0.747 0.808 0.740 0.361 0.531 0.773 0.803 0.786 
+
+PatchTST MSE 0.246 0.388 0.651 0.741 0.896 0.247 0.390 0.655 0.756 0.934 0.271 0.428 0.699 0.716 0.882 0.286 0.452 0.731 0.702 0.920 MAE 0.231 0.375 0.643 0.721 0.807 0.235 0.385 0.657 0.705 0.831 0.262 0.422 0.692 0.699 0.848 0.278 0.450 0.730 0.664 0.856 TildeQ 0.255 0.388 0.644 0.774 1.002 0.256 0.393 0.652 0.780 0.990 0.273 0.415 0.679 0.768 0.826 0.296 0.447 0.717 0.741 0.859 DBLoss 0.236 0.381 0.649 0.715 0.823 0.236 0.388 0.658 0.695 0.850 0.265 0.431 0.704 0.658 0.834 0.281 0.459 0.741 0.621 0.873 PS 0.250 0.379 0.644 0.781 0.813 0.247 0.383 0.652 0.776 0.844 0.274 0.421 0.690 0.749 0.865 0.288 0.445 0.722 0.732 0.887 
+
+APAL 0.271 0.376 0.620 0.841 0.817 0.271 0.384 0.637 0.835 0.794 0.299 0.417 0.666 0.813 0.712 0.312 0.439 0.696 0.808 0.763 
+
+TSMixer MSE 0.417 0.602 0.830 0.579 1.372 0.387 0.569 0.800 0.635 1.354 0.388 0.579 0.813 0.610 1.337 0.406 0.608 0.857 0.543 1.384 MAE 0.382 0.578 0.816 0.561 1.321 0.349 0.543 0.779 0.610 1.296 0.352 0.551 0.792 0.600 1.283 0.371 0.585 0.837 0.528 1.335 TildeQ 0.421 0.626 0.847 0.506 1.420 0.385 0.575 0.796 0.586 1.393 0.381 0.581 0.804 0.571 1.368 0.402 0.618 0.860 0.475 1.392 DBLoss 0.399 0.596 0.827 0.550 1.345 0.364 0.555 0.787 0.615 1.293 0.365 0.564 0.800 0.592 1.276 0.384 0.597 0.848 0.516 1.324 PS 0.423 0.607 0.832 0.638 1.358 0.385 0.569 0.799 0.668 1.301 0.386 0.579 0.811 0.649 1.289 0.406 0.611 0.853 0.589 1.339 
+
+APAL 0.473 0.604 0.799 0.832 1.199 0.434 0.570 0.783 0.823 1.133 0.430 0.573 0.793 0.809 1.136 0.448 0.593 0.823 0.802 1.256 
+
+TiDE MSE 0.344 0.532 0.807 0.582 0.917 0.314 0.495 0.765 0.637 0.847 0.317 0.502 0.772 0.625 0.838 0.334 0.531 0.811 0.590 0.883 MAE 0.315 0.490 0.743 0.707 0.876 0.286 0.456 0.712 0.735 0.818 0.290 0.465 0.720 0.721 0.815 0.308 0.496 0.763 0.688 0.859 TildeQ 0.357 0.542 0.804 0.637 1.058 0.325 0.498 0.758 0.690 0.951 0.318 0.493 0.753 0.688 0.819 0.341 0.530 0.802 0.630 0.888 DBLoss 0.327 0.509 0.772 0.642 0.960 0.296 0.472 0.735 0.696 0.880 0.299 0.480 0.742 0.681 0.870 0.317 0.511 0.783 0.640 0.907 PS 0.334 0.508 0.771 0.679 0.971 0.302 0.472 0.736 0.716 0.909 0.305 0.480 0.742 0.703 0.898 0.323 0.510 0.782 0.669 0.934 
+
+APAL 0.361 0.529 0.760 0.825 0.690 0.321 0.488 0.732 0.822 0.686 0.323 0.493 0.734 0.807 0.692 0.342 0.520 0.767 0.800 0.736 
+
+iTransformer MSE 0.393 0.645 0.944 0.175 0.788 0.455 0.768 1.053 0.026 1.035 0.528 0.911 1.197 0.004 1.062 0.565 0.968 1.264 0.007 1.074 MAE 0.336 0.532 0.813 0.437 0.922 0.437 0.750 1.034 0.038 1.018 0.471 0.807 1.095 0.031 1.091 0.507 0.888 1.180 0.011 1.177 TildeQ 0.324 0.493 0.767 0.661 0.873 0.315 0.484 0.755 0.703 0.669 0.305 0.469 0.741 0.739 0.579 0.323 0.508 0.791 0.699 0.673 
+
+DBLoss 0.350 0.556 0.841 0.390 0.812 0.427 0.723 1.000 0.062 0.970 0.414 0.687 0.967 0.105 0.935 0.324 0.500 0.783 0.676 0.832 PS 0.347 0.527 0.802 0.567 0.721 0.328 0.497 0.763 0.676 0.593 0.328 0.494 0.759 0.697 0.617 0.354 0.535 0.807 0.616 0.741 
+
+APAL 0.342 0.471 0.714 0.811 0.778 0.313 0.446 0.693 0.825 0.728 0.329 0.464 0.709 0.815 0.723 0.348 0.490 0.747 0.792 0.854 Beach DLinear MSE 0.490 1.413 2.707 0.456 1.677 0.491 1.405 2.617 0.418 1.691 0.498 1.413 2.563 0.392 1.700 0.510 1.428 2.621 0.395 1.674 MAE 0.457 1.525 2.889 0.358 1.712 0.459 1.512 2.790 0.298 1.718 0.466 1.531 2.745 0.280 1.728 0.480 1.549 2.806 0.297 1.713 TildeQ 0.493 1.471 2.822 0.383 1.680 0.494 1.453 2.707 0.334 1.703 0.505 1.466 2.657 0.309 1.710 0.523 1.496 2.742 0.299 1.672 
+
+DBLoss 0.464 1.480 2.824 0.388 1.688 0.462 1.473 2.725 0.314 1.699 0.470 1.488 2.674 0.300 1.706 0.483 1.507 2.739 0.308 1.683 PS 0.476 1.456 2.809 0.415 1.675 0.476 1.444 2.704 0.354 1.696 0.484 1.457 2.659 0.327 1.702 0.497 1.472 2.719 0.346 1.680 
+
+APAL 0.562 1.345 2.354 0.487 1.688 0.519 1.354 2.318 0.418 1.709 0.499 1.385 2.363 0.328 1.717 0.491 1.458 2.598 0.285 1.706 PatchTST MSE 0.466 1.394 2.591 0.478 1.696 0.468 1.414 2.556 0.405 1.703 0.485 1.442 2.559 0.368 1.712 0.498 1.481 2.662 0.349 1.699 TildeQ 0.503 1.443 2.717 0.274 1.700 0.515 1.445 2.627 0.271 1.724 0.544 1.479 2.643 0.249 1.736 0.581 1.524 2.759 0.224 1.727 DBLoss 0.457 1.488 2.816 0.366 1.693 0.454 1.503 2.762 0.257 1.712 0.469 1.542 2.785 0.246 1.721 0.485 1.574 2.867 0.229 1.708 PS 0.467 1.444 2.745 0.442 1.682 0.469 1.445 2.666 0.380 1.701 0.487 1.475 2.666 0.346 1.708 0.502 1.503 2.751 0.346 1.692 APAL 0.565 1.384 2.079 0.537 1.689 0.524 1.388 2.007 0.500 1.702 0.515 1.395 2.102 0.463 1.719 0.496 1.443 2.417 0.363 1.704 TSMixer MSE 0.506 1.366 2.596 0.441 1.667 0.519 1.377 2.586 0.408 1.687 0.519 1.376 2.541 0.393 1.702 0.533 1.389 2.595 0.368 1.680 
+
+MAE 0.456 1.543 2.919 0.247 1.680 0.459 1.545 2.881 0.140 1.700 0.466 1.562 2.855 0.132 1.711 0.479 1.591 2.934 0.142 1.688 TildeQ 0.476 1.446 2.764 0.322 1.681 0.483 1.427 2.682 0.289 1.710 0.493 1.438 2.641 0.260 1.717 0.509 1.477 2.745 0.248 1.687 DBLoss 0.468 1.485 2.834 0.306 1.681 0.472 1.486 2.793 0.224 1.699 0.479 1.500 2.767 0.193 1.712 0.492 1.526 2.843 0.214 1.687 PS 0.495 1.416 2.725 0.396 1.690 0.497 1.415 2.687 0.354 1.713 0.503 1.425 2.666 0.326 1.723 0.517 1.443 2.730 0.308 1.700 
+
+APAL 0.636 1.324 2.037 0.567 1.683 0.582 1.310 2.044 0.522 1.717 0.529 1.308 2.172 0.482 1.728 0.495 1.423 2.599 0.356 1.695 TiDE MSE 0.473 1.435 2.706 0.452 1.690 0.472 1.430 2.607 0.399 1.686 0.481 1.440 2.540 0.390 1.691 0.497 1.462 2.623 0.392 1.673 MAE 0.454 1.544 2.900 0.345 1.705 0.454 1.530 2.792 0.279 1.695 0.463 1.545 2.734 0.289 1.705 0.478 1.568 2.812 0.281 1.681 TildeQ 0.484 1.480 2.812 0.379 1.680 0.494 1.465 2.697 0.319 1.697 0.509 1.475 2.630 0.319 1.703 0.534 1.507 2.725 0.301 1.679 DBLoss 0.457 1.496 2.821 0.382 1.694 0.472 1.481 2.704 0.364 1.675 0.467 1.496 2.647 0.326 1.695 0.482 1.518 2.725 0.321 1.678 PS 0.462 1.482 2.807 0.397 1.684 0.462 1.472 2.696 0.346 1.683 0.470 1.486 2.633 0.336 1.692 0.485 1.507 2.713 0.330 1.673 
+
+APAL 0.584 1.368 2.239 0.519 1.702 0.536 1.370 2.184 0.474 1.681 0.509 1.391 2.236 0.429 1.683 0.495 1.453 2.493 0.369 1.673 
+
+iTransformer MSE 0.457 1.336 2.287 0.559 1.672 0.466 1.328 2.209 0.578 1.680 0.478 1.336 2.192 0.560 1.696 0.506 1.354 2.177 0.561 1.673 
+
+MAE 0.418 1.346 2.312 0.453 1.667 0.438 1.447 2.607 0.354 1.718 0.446 1.458 2.555 0.355 1.729 0.461 1.484 2.560 0.334 1.699 TildeQ 0.451 1.327 2.253 0.528 1.657 0.469 1.348 2.289 0.532 1.692 0.485 1.363 2.257 0.507 1.709 0.510 1.402 2.383 0.466 1.682 DBLoss 0.427 1.322 2.269 0.523 1.663 0.444 1.381 2.441 0.477 1.692 0.453 1.398 2.419 0.447 1.709 0.471 1.438 2.491 0.394 1.697 PS 0.450 1.320 2.284 0.558 1.666 0.464 1.359 2.412 0.521 1.681 0.470 1.381 2.410 0.465 1.705 0.492 1.430 2.516 0.409 1.712 
+
+APAL 0.554 1.504 1.986 0.565 1.654 0.528 1.476 1.895 0.505 1.679 0.515 1.447 1.853 0.480 1.697 0.487 1.358 1.934 0.432 1.674 Table 10: Comparison of loss functions for multivariate long-term forecasting (Peak metrics). Predic-tion horizons H ∈ { 96 , 192 , 336 , 720 }. Best results are bolded ; second-best are underlined. Dataset Model Loss 96 192 336 720 TDI Peak Recall Peak Prec. Peak F1 PCC TDI Peak Recall Peak Prec. Peak F1 PCC TDI Peak Recall Peak Prec. Peak F1 PCC TDI Peak Recall Peak Prec. Peak F1 PCC Beach DLinear MSE 5.532 0.340 0.691 0.456 0.582 9.288 0.320 0.605 0.418 0.586 15.626 0.291 0.599 0.392 0.579 28.541 0.294 0.601 0.395 0.567 
+
+MAE 7.462 0.238 0.718 0.358 0.572 13.887 0.194 0.641 0.298 0.575 21.359 0.180 0.628 0.280 0.567 44.510 0.195 0.630 0.297 0.551 TildeQ 7.723 0.259 0.733 0.383 0.571 11.202 0.226 0.642 0.334 0.576 14.247 0.203 0.647 0.309 0.568 24.406 0.195 0.647 0.299 0.555 DBLoss 7.059 0.267 0.709 0.388 0.573 12.376 0.207 0.646 0.314 0.578 17.746 0.198 0.623 0.300 0.569 35.297 0.203 0.639 0.308 0.555 PS 6.553 0.294 0.704 0.415 0.572 10.011 0.248 0.616 0.354 0.577 11.751 0.227 0.586 0.327 0.568 32.802 0.242 0.603 0.346 0.555 
+
+APAL 14.496 0.396 0.631 0.487 0.574 24.580 0.326 0.583 0.418 0.577 59.551 0.229 0.583 0.328 0.568 177.840 0.190 0.575 0.285 0.553 PatchTST MSE 7.017 0.355 0.731 0.478 0.593 14.929 0.290 0.671 0.405 0.589 21.065 0.260 0.629 0.368 - 46.637 0.239 0.640 0.349 -TildeQ 43.487 0.169 0.724 0.274 0.569 48.904 0.170 0.708 0.271 0.565 88.951 0.157 0.651 0.249 0.533 197.756 0.137 0.653 0.224 0.493 DBLoss 8.903 0.243 0.737 0.366 0.579 18.264 0.157 0.710 0.257 0.581 20.946 0.152 0.648 0.246 0.558 45.166 0.139 0.653 0.229 0.539 PS 6.590 0.325 0.691 0.442 0.586 12.717 0.272 0.631 0.380 0.584 14.192 0.247 0.577 0.346 0.563 39.925 0.243 0.597 0.346 0.544 
+
+APAL 6.476 0.458 0.651 0.537 0.585 7.235 0.426 0.606 0.500 0.580 14.006 0.377 0.602 0.463 0.561 61.219 0.256 0.627 0.363 0.544 
+
+TSMixer MSE 22.100 0.377 0.531 0.441 0.585 42.651 0.360 0.470 0.408 0.575 64.549 0.337 0.472 0.393 0.576 101.023 0.306 0.461 0.368 0.566 MAE 52.390 0.154 0.617 0.247 0.580 103.564 0.080 0.586 0.140 0.580 198.958 0.075 0.531 0.132 0.572 445.101 0.081 0.580 0.142 0.558 TildeQ 40.027 0.219 0.609 0.322 0.587 68.755 0.194 0.563 0.289 0.589 122.524 0.171 0.542 0.260 0.583 304.810 0.163 0.520 0.248 0.569 
+
+DBLoss 44.137 0.206 0.598 0.306 0.580 85.551 0.140 0.557 0.224 0.580 156.180 0.119 0.513 0.193 0.571 379.732 0.135 0.512 0.214 0.558 PS 29.558 0.310 0.551 0.396 0.585 59.699 0.274 0.500 0.354 0.586 110.913 0.246 0.485 0.326 0.580 233.766 0.229 0.470 0.308 0.569 
+
+APAL 4.304 0.575 0.559 0.567 0.581 6.552 0.543 0.502 0.522 0.579 15.495 0.474 0.492 0.482 0.574 119.491 0.280 0.492 0.356 0.562 TiDE MSE 7.762 0.333 0.702 0.452 0.572 12.894 0.291 0.633 0.399 0.575 17.540 0.286 0.614 0.390 0.564 35.033 0.285 0.632 0.392 0.546 
+
+MAE 11.797 0.223 0.754 0.345 0.566 21.126 0.176 0.668 0.279 0.569 27.387 0.185 0.656 0.289 0.559 57.189 0.177 0.677 0.281 0.542 TildeQ 8.729 0.256 0.731 0.379 0.558 13.636 0.210 0.658 0.319 0.558 15.431 0.213 0.631 0.319 0.545 24.883 0.197 0.643 0.301 0.520 DBLoss 9.528 0.259 0.724 0.382 0.569 15.094 0.257 0.626 0.364 0.567 23.248 0.218 0.641 0.326 0.563 47.532 0.213 0.650 0.321 0.545 PS 9.146 0.275 0.712 0.397 0.570 16.640 0.235 0.654 0.346 0.573 23.108 0.228 0.637 0.336 0.563 44.831 0.221 0.644 0.330 0.545 
+
+APAL 9.042 0.455 0.605 0.519 0.570 11.864 0.436 0.519 0.474 0.569 21.312 0.365 0.520 0.429 0.557 64.403 0.272 0.574 0.369 0.541 iTransformer MSE 8.832 0.433 0.786 0.559 0.625 13.326 0.476 0.733 0.578 0.619 14.381 0.458 0.720 0.560 0.604 15.164 0.466 0.704 0.561 0.584 MAE 12.925 0.311 0.833 0.453 0.641 19.805 0.231 0.765 0.354 0.604 24.988 0.232 0.754 0.355 0.596 43.715 0.213 0.770 0.334 0.582 TildeQ 11.277 0.387 0.831 0.528 0.628 17.503 0.401 0.789 0.532 0.611 18.716 0.376 0.778 0.507 0.596 24.002 0.333 0.775 0.466 0.569 DBLoss 10.478 0.384 0.819 0.523 0.640 16.978 0.351 0.746 0.477 0.612 20.044 0.326 0.710 0.447 0.599 31.858 0.275 0.698 0.394 0.577 PS 8.395 0.431 0.792 0.558 0.635 13.567 0.410 0.714 0.521 0.613 16.728 0.352 0.684 0.465 0.600 27.691 0.298 0.652 0.409 0.573 
+
+APAL 3.510 0.469 0.709 0.565 0.627 5.167 0.411 0.653 0.505 0.613 7.114 0.370 0.683 0.480 0.604 15.278 0.309 0.714 0.432 0.592 
+
+The under-prediction penalty λu has the strongest influence on tail metrics: increasing λu from 1 to 2 yields substantial reductions in both MSE 1 and MSE 10 with only a modest increase in overall MSE, while larger values improve tails further at the cost of aggregate error. The peak emphasis weight λp
+
+has a smaller marginal effect, suggesting that asymmetric under-prediction penalties contribute more to tail improvements than explicit peak weighing alone. Increasing the peak threshold τ generally reduces error for both average and extreme cases, as higher thresholds focus on fewer, more extreme peak regions. 
+
+F.6 Comparison to Pinball Loss 
+
+A natural baseline for asymmetric objectives is the quantile (pinball) loss [ 36 , 26 ], widely used in probabilistic forecasting. Since APAL penalizes under-prediction more heavily (via λu > 1), one 24 Table 11: APAL hyperparameter ablation on ETT, Exchange, and Weather dataset with TSMixer architecture. Neutral denotes (λu, λ p) = (1 , 1) , where APAL reduces to MAE. Gain and aggregate-MSE change are relative to the neutral APAL setting for the same dataset and horizon. Best Peak F1 reports the maximum Peak F1 observed in the same grid. Dataset H Neutral MSE 1 Best (λu, λ p, τ ) Best MSE 1 Gain Neutral MSE Best MSE MSE Change Best Peak F1 ETTh1 96 1.791 (5, 10, 0.95) 0.278 84.5% 0.503 1.256 149.9% 0.489 192 1.961 (5, 10, 0.90) 0.357 81.8% 0.597 1.323 121.7% 0.453 336 2.160 (5, 10, 0.90) 0.416 80.8% 0.682 1.194 75.1% 0.422 720 2.475 (10, 10, 0.80) 0.557 77.5% 0.754 1.883 149.7% 0.415 ETTh2 96 0.707 (1, 5, 0.80) 0.460 34.9% 0.815 1.268 55.6% 0.368 192 0.598 (1, 2, 0.90) 0.590 1.4% 1.894 1.933 2.0% 0.309 336 0.836 (1, 10, 0.90) 0.785 6.1% 2.076 2.256 8.6% 0.297 720 1.217 (2, 5, 0.90) 1.087 10.7% 1.906 2.652 39.1% 0.272 ETTm1 96 1.999 (10, 10, 0.95) 0.276 86.2% 0.454 1.044 129.9% 0.428 192 2.039 (10, 5, 0.90) 0.315 84.6% 0.486 1.061 118.2% 0.416 336 2.097 (10, 10, 0.95) 0.362 82.8% 0.532 1.275 139.7% 0.387 720 2.193 (5, 10, 0.80) 0.411 81.3% 0.621 1.332 114.4% 0.369 ETTm2 96 0.416 (2, 10, 0.95) 0.310 25.5% 0.238 0.402 69.1% 0.331 192 0.624 (2, 5, 0.95) 0.441 29.3% 0.296 0.531 79.5% 0.280 336 0.885 (1, 10, 0.90) 0.556 37.2% 0.504 0.841 67.0% 0.258 720 1.038 (1, 10, 0.95) 0.758 27.0% 1.981 2.090 5.5% 0.239 Exchange 96 0.120 (1, 2, 0.90) 0.117 2.1% 0.111 0.118 6.0% 0.211 192 0.201 (1, 2, 0.80) 0.192 4.3% 0.190 0.215 13.1% 0.195 336 0.383 (1, 10, 0.90) 0.285 25.5% 0.299 0.415 38.9% 0.182 720 0.746 (1, 10, 0.80) 0.458 38.6% 0.801 0.860 7.4% 0.278 Weather 96 0.813 (2, 10, 0.80) 0.583 28.2% 0.175 0.354 102.5% 0.303 192 0.916 (2, 10, 0.90) 0.718 21.6% 0.212 0.359 69.0% 0.310 336 0.985 (5, 5, 0.95) 0.822 16.6% 0.256 0.593 131.2% 0.282 720 1.128 (5, 5, 0.95) 0.951 15.7% 0.312 0.673 115.9% 0.249 5 10              
+
+> u
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> MSE
+> (a) Effect of u
+> = 0.8
+> = 0.9
+> = 0.95
+> 510
+> p
+> 0.55
+> 0.60
+> 0.65
+> 0.70
+> MSE
+> (b) Effect of p
+> = 0.8
+> = 0.9
+> = 0.95
+> 0.80 0.90 0.95
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> MSE
+> (c) Effect of
+> 510
+> u
+> 4.1
+> 4.2
+> 4.3
+> MSE 1
+> = 0.8
+> = 0.9
+> = 0.95
+> 510
+> p
+> 4.150
+> 4.175
+> 4.200
+> 4.225
+> MSE 1
+> = 0.8
+> = 0.9
+> = 0.95
+> 0.80 0.90 0.95
+> 0
+> 1
+> 2
+> 3
+> 4
+> MSE 1
+> 510
+> u
+> 1.2
+> 1.4
+> 1.6
+> MSE 10
+> = 0.8
+> = 0.9
+> = 0.95
+> 510
+> p
+> 1.25
+> 1.30
+> 1.35
+> 1.40
+> MSE 10
+> = 0.8
+> = 0.9
+> = 0.95
+> 0.80 0.90 0.95
+> 0.0
+> 0.5
+> 1.0
+> MSE 10
+
+Figure 4: Marginal effects of APAL hyperparameters on MSE, MSE 1, and MSE 10 (Pedestrian Dataset, aggregated across horizons). Columns: (a) effect of λu, (b) effect of λp, (c) effect of τ .Lines in (a) and (b) represent different peak thresholds τ ∈ { 0.8, 0.9, 0.95 }.might expect pinball loss at a high quantile to achieve similar benefits. We compare APAL against pinball loss at q ∈ { 0.90 , 0.95 } across all datasets and horizons (Table 12). 
+
+Pinball loss formulation. For prediction ˆyh,c and ground truth yh,c , pinball loss at quantile q is: 
+
+Lpinball (ˆ yh,c , y h,c ; q) = max  q · (yh,c − ˆyh,c ), (q − 1) · (yh,c − ˆyh,c ). (12) At q = 0 .90 , under-predictions receive 9× the weight of over-predictions. Unlike APAL, pinball loss applies uniform asymmetry across all time steps without any notion of peak regions. Table 12 reveals three patterns: (1) APAL achieves superior aggregate MSE. On the Pedestrian dataset at H = 96 , APAL achieves MSE of 0.537 vs. 0.763 for pinball ( q = 0 .90 ), a 29.6% improvement. 25 1                                                                                                                                                            
+
+> 2
+> 5
+> 10
+> =0.8
+> u
+> 4.15 4.07 3.99 3.96
+> 3.97 3.94 3.93 3.93
+> 3.93 3.97 4.05 4.11
+> 4.05 4.15 4.29 4.37
+> H=96
+> 4.13 4.07 4.02 4.00
+> 4.00 3.98 3.97 3.99
+> 3.97 4.00 4.09 4.17
+> 4.08 4.18 4.34 4.44
+> H=192
+> 4.26 4.21 4.15 4.12
+> 4.12 4.10 4.09 4.10
+> 4.08 4.11 4.20 4.28
+> 4.19 4.27 4.43 4.54
+> H=336
+> 4.43 4.39 4.32 4.29
+> 4.26 4.25 4.23 4.25
+> 4.21 4.24 4.32 4.42
+> 4.32 4.39 4.54 4.66
+> H=720
+> 1
+> 2
+> 5
+> 10
+> =0.9
+> u
+> 4.15 4.09 4.01 3.97
+> 3.97 3.95 3.93 3.94
+> 3.93 3.96 4.04 4.13
+> 4.05 4.13 4.28 4.39
+> 4.13 4.09 4.04 4.01
+> 4.00 3.98 3.97 3.99
+> 3.97 3.99 4.07 4.17
+> 4.08 4.15 4.30 4.45
+> 4.26 4.24 4.18 4.14
+> 4.12 4.11 4.09 4.10
+> 4.08 4.10 4.16 4.25
+> 4.19 4.24 4.37 4.51
+> 4.43 4.41 4.37 4.32
+> 4.26 4.25 4.24 4.24
+> 4.21 4.23 4.27 4.35
+> 4.32 4.36 4.46 4.58
+> 12510
+> p
+> 1
+> 2
+> 5
+> 10
+> =0.95
+> u
+> 4.15 4.11 4.04 3.99
+> 3.97 3.96 3.94 3.94
+> 3.93 3.95 4.02 4.11
+> 4.05 4.11 4.24 4.36
+> 12510
+> p
+> 4.13 4.11 4.06 4.02
+> 4.00 3.99 3.98 3.98
+> 3.97 3.98 4.04 4.12
+> 4.08 4.13 4.25 4.40
+> 12510
+> p
+> 4.26 4.25 4.21 4.18
+> 4.12 4.11 4.10 4.09
+> 4.08 4.09 4.12 4.19
+> 4.19 4.22 4.32 4.44
+> 12510
+> p
+> 4.43 4.42 4.40 4.37
+> 4.26 4.26 4.25 4.24
+> 4.21 4.22 4.24 4.29
+> 4.32 4.34 4.40 4.49
+> 4.0
+> 4.1
+> 4.2
+> 4.3
+> 4.4
+> 4.5
+> 4.6
+> MSE 1
+
+Pedestrian MSE 1 (All Horizons × All )Figure 5: Ablation study of APAL hyperparameters on the Pedestrian dataset, evaluated using MSE 1
+
+(mean squared error on the top 1% peak values). Each panel shows a heatmap of performance across the underestimation penalty, λu (rows), and the peak weight, λp (columns). Rows correspond to peak threshold values τ ∈ { 0.80 , 0.90 , 0.95 }, and columns correspond to forecast horizons 
+
+H ∈ { 96 , 192 , 336 , 720 }. Lower values (darker) indicate better peak prediction accuracy. Blue boxes highlight optimal configurations within each panel. This arises because pinball loss with high q systematically biases predictions upward, inflating errors in non-peak regions, whereas APAL’s peak weighting emphasises local maxima only. 
+
+(2) APAL excels on peak-critical datasets. On Pedestrian and Beach datasets, APAL consistently achieves the best MSE, MSE 10 , and MSE 1 across all horizons, confirming that peak emphasis provides benefits beyond pure asymmetry. 
+
+(3) Dataset characteristics modulate relative advantage. On datasets with less pronounced peaks (ETTh1, ETTm2), pinball ( q = 0 .90 ) achieves competitive tail metrics but at the cost of degraded aggregate MSE. On Exchange, pinball becomes competitive only at H = 720 , where peak structure is less predictable. Increasing q from 0.90 to 0.95 consistently degrades performance, indicating that the optimal quantile is data-dependent and not interpretable in terms of peak-criticality. In contrast, APAL’s hyperparameters ( λu, λp, τ ) directly encode peak-aware objectives and are tunable via validation. These results confirm that APAL’s dual mechanism—asymmetry and peak emphasis—provides complementary benefits that cannot be replicated by asymmetric losses alone. 
+
+F.7 Qualitative examples and failure cases 
+
+Figure 6 illustrates how APAL improves peak fidelity compared to MSE. On Pedestrian (Figure 6a), MSE systematically underestimates the regular periodic peaks, while APAL closely tracks ground-truth amplitudes. On Beach (Figure 6b), peaks are more irregular with greater amplitude variability; MSE underestimates peak magnitude throughout, with largest errors at extreme peaks. APAL reduces this underestimation, consistent with the larger MSE 1 reductions observed on Beach in Table 1. 
+
+G Computation Costs 
+
+Hardware and software. All the experiments were implemented in Python (version 3.12) using PyTorch (version 2.4) and using standard Time Series Library (TSLib) [ 40 ] run on an NVIDIA L4 GPU (24 GB) and 12 cores Intel Xeon CPU. 26 Table 12: Comparison of Pinball Loss ( q ∈ { 0.9, 0.95 }) and APAL Loss. Lower values are better. Best results are bold , second best are underlined. Model used shown in parentheses. Dataset Loss Function H = 96 H = 192 H = 336 H = 720                                                                                                                                                                                                                                                      
+
+> MSE MSE 10 MSE 1MSE MSE 10 MSE 1MSE MSE 10 MSE 1MSE MSE 10 MSE 1
+> Beach (DLinear) Pinball ( τ= 0 .90 )0.961 3.468 8.936 0.969 3.448 8.200 0.988 3.453 7.831 1.029 3.551 8.574 Pinball ( τ= 0 .95 )0.975 3.461 8.878 0.978 3.446 8.176 1.001 3.447 7.789 1.042 3.545 8.530 APAL 0.888 3.590 9.259 0.826 3.685 9.111 0.812 3.897 9.348 0.830 4.321 11.017 Pedestrian (DLinear) Pinball ( τ= 0 .90 )0.763 1.436 4.028 0.669 1.358 4.102 0.674 1.375 4.140 0.712 1.428 4.271 Pinball ( τ= 0 .95 )0.971 1.718 4.212 0.874 1.649 4.305 0.872 1.656 4.329 0.902 1.690 4.441
+> APAL 0.537 1.166 3.929 0.476 1.122 4.013 0.481 1.143 4.064 0.499 1.181 4.206
+> ETTh1 (iTransformer) Pinball ( τ= 0 .90 )1.123 0.402 0.369 1.222 0.432 0.411 1.262 0.438 0.439 1.261 0.471 0.530
+> Pinball ( τ= 0 .95 )1.799 0.739 0.482 1.925 0.777 0.545 2.058 0.780 0.575 3.035 1.131 0.795
+> APAL 1.047 0.477 0.408 1.089 0.498 0.464 1.059 0.467 0.481 0.994 0.472 0.594 ETTm1 (TSMixer) Pinball ( τ= 0 .90 )0.694 0.316 0.564 0.814 0.327 0.499 0.943 0.383 0.579 1.090 0.476 0.675 Pinball ( τ= 0 .95 )1.066 0.362 0.375 1.186 0.408 0.466 1.297 0.461 0.539 1.516 0.523 0.612
+> APAL 0.773 0.304 0.383 0.863 0.330 0.376 0.973 0.371 0.432 1.035 0.441 0.522
+> ETTm2 (TSMixer) Pinball ( τ= 0 .90 )1.574 0.892 0.729 2.079 1.143 0.960 2.657 1.394 1.172 9.269 7.053 5.753
+> Pinball ( τ= 0 .95 )2.012 1.198 0.948 2.475 1.386 1.114 3.283 1.813 1.469 10.973 8.579 7.067
+> APAL 1.321 0.773 0.651 2.022 1.146 0.973 2.604 1.418 1.222 9.655 7.610 6.298 Exchange (TSMixer) Pinball ( τ= 0 .90 )0.718 0.784 0.524 1.375 1.291 0.852 2.494 1.734 1.069 6.835 3.314 1.750
+> Pinball ( τ= 0 .95 )1.561 1.934 1.294 2.951 3.087 1.957 5.413 4.300 2.411 16.058 9.280 5.003
+> APAL 0.563 0.560 0.352 1.221 1.117 0.731 2.499 1.707 1.078 8.384 3.817 1.759 100 120 140 160 180
+> Time Step
+> 1.0
+> 0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> Forecasted Values
+> Ground Truth MSE Prediction APAL Prediction
+
+(a) Pedestrian dataset 100 120 140 160 180    
+
+> Time Step
+> 0
+> 1
+> 2
+> 3
+> Forecasted Values
+> Ground Truth MSE Prediction APAL Prediction
+
+(b) Beach dataset 
+
+Figure 6: Qualitative comparison of long-horizon forecasts trained with MSE versus APAL loss. APAL reduces underestimation at high-demand periods in both the (a) Pedestrian and (b) Beach datasets. Values shown are standardized (z-score normalized). 
+
+Training time and overhead. APAL adds only elementwise operations to the standard loss compu-tation and therefore incurs negligible overhead relative to the model forward pass. Table 13 reports the average per-epoch training time (in seconds) for TSMixer across four datasets (Pedestrian, Beach, Weather, and Exchange) and four prediction horizons (96, 192, 336, 720). We compare APAL against MSE, MAE, and three peak-sensitive baselines: TildeQ, DBLoss, and PS Loss. Among all loss functions, APAL exhibits the lowest computational overhead, adding only +0 .23 sper epoch on average compared to MSE, a relative increase of approximately 4% . In contrast, the other peak-aware losses incur substantially higher overhead: DBLoss adds +0 .85 s ( 15% ), PS adds 
+
++1 .37 s ( 24% ), and TildeQ adds +2 .15 s ( 37% ) per epoch. MAE, which like MSE involves only simple elementwise operations, adds a negligible +0 .09 s ( 1.6% ). These results demonstrate that APAL achieves its peak-sensitivity benefits at a computational cost comparable to standard losses, making it practical for large-scale time-series forecasting applications where training efficiency is critical. 
+
+H Reproducibility Details 
+
+We fix random seeds for data shuffling, initialization, and training, and report the seed used in all experiments. We use chronological splits. Normalization statistics are computed on the training split only. Inverse transformation is applied prior to metric computation. We provide scripts to reproduce training, evaluation, and plotting. We include example commands for each dataset and backbone, and document all hyper-parameters. All reported results are obtained from the checkpoint with best validation performance under the specified selection criterion. The scripts used for training and testing the model will be shared as a GitHub repository to ensure reproducibility of the experiments. 27 Table 13: Computational overhead of various loss functions compared to MSE loss. Per-epoch overhead measures the additional computation time per training epoch (in seconds). 
+
+Dataset Horizon MSE MAE TildeQ DBLoss PS APAL Pedestrian 96 8.59 8.77 (+0.18) 12.70 (+4.11) 10.47 (+1.88) 11.21 (+2.62) 9.12 (+0.53) 192 8.94 9.04 (+0.10) 13.08 (+4.14) 10.71 (+1.77) 11.47 (+2.53) 9.47 (+0.53) 336 9.36 9.47 (+0.11) 13.48 (+4.12) 11.13 (+1.77) 11.71 (+2.35) 9.94 (+0.58) 720 10.32 10.42 (+0.10) 14.54 (+4.22) 12.14 (+1.82) 12.77 (+2.45) 10.88 (+0.56) 
+
+Avg. – 9.30 9.43 (+0.12) 13.45 (+4.15) 11.11 (+1.81) 11.79 (+2.49) 9.85 (+0.55) Beach 96 2.94 3.02 (+0.08) 4.08 (+1.14) 3.38 (+0.44) 3.60 (+0.66) 3.10 (+0.16) 192 3.28 3.35 (+0.07) 4.28 (+1.00) 3.60 (+0.32) 3.80 (+0.52) 3.33 (+0.05) 336 3.77 3.83 (+0.06) 4.96 (+1.19) 4.20 (+0.43) 4.33 (+0.56) 3.93 (+0.16) 720 4.74 4.79 (+0.05) 5.88 (+1.14) 5.27 (+0.53) 5.27 (+0.53) 4.90 (+0.16) 
+
+Avg. – 3.68 3.75 (+0.06) 4.80 (+1.12) 4.11 (+0.43) 4.25 (+0.57) 3.81 (+0.13) Weather 96 6.74 6.96 (+0.22) 9.33 (+2.59) 7.64 (+0.90) 8.53 (+1.79) 7.11 (+0.37) 192 7.46 7.53 (+0.07) 9.93 (+2.47) 8.23 (+0.77) 8.84 (+1.38) 7.74 (+0.28) 336 9.18 9.29 (+0.11) 11.83 (+2.65) 10.14 (+0.96) 10.62 (+1.44) 9.36 (+0.18) 720 12.26 12.41 (+0.15) 15.92 (+3.66) 13.55 (+1.29) 13.52 (+1.26) 12.31 (+0.05) 
+
+Avg. – 8.91 9.05 (+0.14) 11.75 (+2.84) 9.89 (+0.98) 10.38 (+1.47) 9.11 (+0.20) Exchange 96 1.07 1.11 (+0.04) 1.55 (+0.48) 1.25 (+0.18) 1.69 (+0.62) 1.12 (+0.05) 192 1.13 1.15 (+0.02) 1.52 (+0.39) 1.31 (+0.18) 1.89 (+0.76) 1.15 (+0.02) 336 1.19 1.30 (+0.11) 1.77 (+0.58) 1.39 (+0.20) 1.65 (+0.46) 1.22 (+0.03) 720 1.29 1.32 (+0.03) 1.84 (+0.55) 1.42 (+0.13) 3.34 (+2.05) 1.33 (+0.04) 
+
+Avg. – 1.17 1.22 (+0.05) 1.67 (+0.50) 1.34 (+0.17) 2.14 (+0.97) 1.21 (+0.04) 
+
+Overall – 5.77 5.86 (+0.09) 7.92 (+2.15) 6.61 (+0.85) 7.14 (+1.37) 5.99 (+0.23) 
+
+I Dataset Statement and Reproducibility 
+
+The Beach Visitor Count dataset is provided by a third-party data provider (RESONO) and derived from aggregated, anonymised, opt-in mobile location signals [ 34 ]. Due to data-sharing restrictions, raw data cannot be released publicly. To support reproducibility, we release the full preprocessing code, the evaluation code, and all trained model hyperparameters to enable replication on alternative datasets. We also report results on multiple public benchmarks and an open pedestrian dataset to ensure that conclusions do not rely solely on private data. 28 NeurIPS Paper Checklist 
+
+The checklist is designed to encourage best practices for responsible machine learning research, addressing issues of reproducibility, transparency, research ethics, and societal impact. Do not remove the checklist: The papers not including the checklist will be desk rejected. The checklist should follow the references and follow the (optional) supplemental material. The checklist does NOT count towards the page limit. Please read the checklist guidelines carefully for information on how to answer these questions. For each question in the checklist: • You should answer [Yes], [No], or [N/A]. • [N/A] means either that the question is Not Applicable for that particular paper or the relevant information is Not Available. • Please provide a short (1–2 sentence) justification right after your answer (even for [N/A]). 
+
+The checklist answers are an integral part of your paper submission. They are visible to the reviewers, area chairs, senior area chairs, and ethics reviewers. You will also be asked to include it (after eventual revisions) with the final version of your paper, and its final version will be published with the paper. The reviewers of your paper will be asked to use the checklist as one of the factors in their evaluation. While [Yes] is generally preferable to [No], it is perfectly acceptable to answer [No] provided a proper justification is given (e.g., error bars are not reported because it would be too computationally expensive” or “we were unable to find the license for the dataset we used”). In general, answering [No] or [N/A] is not grounds for rejection. While the questions are phrased in a binary way, we acknowledge that the true answer is often more nuanced, so please just use your best judgment and write a justification to elaborate. All supporting evidence can appear either in the main paper or the supplemental material, provided in appendix. If you answer [Yes] to a question, in the justification please point to the section(s) where related material for the question can be found. IMPORTANT, please: • Delete this instruction block, but keep the section heading “NeurIPS Paper Checklist" ,• Keep the checklist subsection headings, questions/answers and guidelines below. 
+
+• Do not modify the questions and only use the provided macros for your answers .1. Claims 
+
+Question: Do the main claims made in the abstract and introduction accurately reflect the paper’s contributions and scope? Answer: [Yes] Justification: The abstract and introduction state the paper’s main contributions: APAL, the peak-critical evaluation protocol, and the empirical trade-off between aggregate and peak performance. These are supported by the method and experimental sections (Sections 3, 5, and 5.3). Guidelines: • The answer [N/A] means that the abstract and introduction do not include the claims made in the paper. • The abstract and/or introduction should clearly state the claims made, including the contributions made in the paper and important assumptions and limitations. A [No] or [N/A] answer to this question will not be perceived well by the reviewers. • The claims made should match theoretical and experimental results, and reflect how much the results can be expected to generalize to other settings. • It is fine to include aspirational goals as motivation as long as it is clear that these goals are not attained by the paper. 2. Limitations 
+
+Question: Does the paper discuss the limitations of the work performed by the authors? 29 Answer: [Yes] Justification: The paper explicitly discusses failure cases and limits of applicability, including false-positive peaks, sensitivity to distribution shift, and weaker benefits on noise-dominated datasets (Section 5.6 and Appendix Section F. Guidelines: • The answer [N/A] means that the paper has no limitation while the answer [No] means that the paper has limitations, but those are not discussed in the paper. • The authors are encouraged to create a separate “Limitations” section in their paper. • The paper should point out any strong assumptions and how robust the results are to violations of these assumptions (e.g., independence assumptions, noiseless settings, model well-specification, asymptotic approximations only holding locally). The authors should reflect on how these assumptions might be violated in practice and what the implications would be. • The authors should reflect on the scope of the claims made, e.g., if the approach was only tested on a few datasets or with a few runs. In general, empirical results often depend on implicit assumptions, which should be articulated. • The authors should reflect on the factors that influence the performance of the approach. For example, a facial recognition algorithm may perform poorly when image resolution is low or images are taken in low lighting. Or a speech-to-text system might not be used reliably to provide closed captions for online lectures because it fails to handle technical jargon. • The authors should discuss the computational efficiency of the proposed algorithms and how they scale with dataset size. • If applicable, the authors should discuss possible limitations of their approach to address problems of privacy and fairness. • While the authors might fear that complete honesty about limitations might be used by reviewers as grounds for rejection, a worse outcome might be that reviewers discover limitations that aren’t acknowledged in the paper. The authors should use their best judgment and recognize that individual actions in favor of transparency play an impor-tant role in developing norms that preserve the integrity of the community. Reviewers will be specifically instructed to not penalize honesty concerning limitations. 3. Theory assumptions and proofs 
+
+Question: For each theoretical result, does the paper provide the full set of assumptions and a complete (and correct) proof? Answer:[N/A] Justification: The paper does not contain formal theoretical results such as theorems, lemmas, or convergence/generalisation guarantees that would require a separate set of assumptions and proofs. The equations in the main manuscript (Section 3) are constructive definitions of the APAL loss, its peak-detection mask, and the peak-critical evaluation metrics. Each component is derived directly from standard operations (smoothed envelopes, asymmetric Huber-style penalties, weighted aggregation) and is fully specified inline, with no claims requiring separate proof. Guidelines: • The answer [N/A] means that the paper does not include theoretical results. • All the theorems, formulas, and proofs in the paper should be numbered and cross-referenced. • All assumptions should be clearly stated or referenced in the statement of any theorems. • The proofs can either appear in the main paper or the supplemental material, but if they appear in the supplemental material, the authors are encouraged to provide a short proof sketch to provide intuition. • Inversely, any informal proof provided in the core of the paper should be complemented by formal proofs provided in appendix or supplemental material. • Theorems and Lemmas that the proof relies upon should be properly referenced. 4. Experimental result reproducibility 
+
+30 Question: Does the paper fully disclose all the information needed to reproduce the main ex-perimental results of the paper to the extent that it affects the main claims and/or conclusions of the paper (regardless of whether the code and data are provided or not)? Answer: [Yes] Justification: In the manuscript, we specify datasets, evaluation metrics, model families, tun-ing protocol, training settings, random seed policy, chronological splits, and reproducibility details (Sections 4–5.3, Appendix H). The scripts for training, evaluation, and plotting will be provided as supplementary material. Guidelines: • The answer [N/A] means that the paper does not include experiments. • If the paper includes experiments, a [No] answer to this question will not be perceived well by the reviewers: Making the paper reproducible is important, regardless of whether the code and data are provided or not. • If the contribution is a dataset and/or model, the authors should describe the steps taken to make their results reproducible or verifiable. • Depending on the contribution, reproducibility can be accomplished in various ways. For example, if the contribution is a novel architecture, describing the architecture fully might suffice, or if the contribution is a specific model and empirical evaluation, it may be necessary to either make it possible for others to replicate the model with the same dataset, or provide access to the model. In general. releasing code and data is often one good way to accomplish this, but reproducibility can also be provided via detailed instructions for how to replicate the results, access to a hosted model (e.g., in the case of a large language model), releasing of a model checkpoint, or other means that are appropriate to the research performed. • While NeurIPS does not require releasing code, the conference does require all submis-sions to provide some reasonable avenue for reproducibility, which may depend on the nature of the contribution. For example (a) If the contribution is primarily a new algorithm, the paper should make it clear how to reproduce that algorithm. (b) If the contribution is primarily a new model architecture, the paper should describe the architecture clearly and fully. (c) If the contribution is a new model (e.g., a large language model), then there should either be a way to access this model for reproducing the results or a way to reproduce the model (e.g., with an open-source dataset or instructions for how to construct the dataset). (d) We recognize that reproducibility may be tricky in some cases, in which case authors are welcome to describe the particular way they provide for reproducibility. In the case of closed-source models, it may be that access to the model is limited in some way (e.g., to registered users), but it should be possible for other researchers to have some path to reproducing or verifying the results. 5. Open access to data and code 
+
+Question: Does the paper provide open access to the data and code, with sufficient instruc-tions to faithfully reproduce the main experimental results, as described in supplemental material? Answer: [Yes] Justification: The code, preprocessing, evaluation scripts, and hyperparameters will be released (Appendix H, Appendix I) , except for one core dataset (the Beach Visitor Count dataset), which cannot be made public due to data-sharing restrictions. Reproducibility is therefore partial rather than fully open. Guidelines: • The answer [N/A] means that paper does not include experiments requiring code. • Please see the NeurIPS code and data submission guidelines ( https://neurips.cc/ public/guides/CodeSubmissionPolicy ) for more details. 31 • While we encourage the release of code and data, we understand that this might not be possible, so [No] is an acceptable answer. Papers cannot be rejected simply for not including code, unless this is central to the contribution (e.g., for a new open-source benchmark). • The instructions should contain the exact command and environment needed to run to reproduce the results. See the NeurIPS code and data submission guidelines ( https: //neurips.cc/public/guides/CodeSubmissionPolicy ) for more details. • The authors should provide instructions on data access and preparation, including how to access the raw data, preprocessed data, intermediate data, and generated data, etc. • The authors should provide scripts to reproduce all experimental results for the new proposed method and baselines. If only a subset of experiments are reproducible, they should state which ones are omitted from the script and why. • At submission time, to preserve anonymity, the authors should release anonymized versions (if applicable). • Providing as much information as possible in supplemental material (appended to the paper) is recommended, but including URLs to data and code is permitted. 6. Experimental setting/details 
+
+Question: Does the paper specify all the training and test details (e.g., data splits, hyperpa-rameters, how they were chosen, type of optimizer) necessary to understand the results? Answer: [Yes] Justification: The experimental sections and appendix describe the model backbones, shared and model-specific hyperparameters, optimizer and scheduler, early stopping, prediction horizons, data splits, and validation-based hyperparameter selection (Section 4, Section 4.2, Appendix A.4, and Appendix H). Guidelines: • The answer [N/A] means that the paper does not include experiments. • The experimental setting should be presented in the core of the paper to a level of detail that is necessary to appreciate the results and make sense of them. • The full details can be provided either with the code, in appendix, or as supplemental material. 7. Experiment statistical significance 
+
+Question: Does the paper report error bars suitably and correctly defined or other appropriate information about the statistical significance of the experiments? Answer: [Yes] Justification: We report extensive comparisons, ablations, and per-channel analyses with error bars for the main results. Guidelines: • The answer [N/A] means that the paper does not include experiments. • The authors should answer [Yes] if the results are accompanied by error bars, confidence intervals, or statistical significance tests, at least for the experiments that support the main claims of the paper. • The factors of variability that the error bars are capturing should be clearly stated (for example, train/test split, initialization, random drawing of some parameter, or overall run with given experimental conditions). • The method for calculating the error bars should be explained (closed form formula, call to a library function, bootstrap, etc.) • The assumptions made should be given (e.g., Normally distributed errors). • It should be clear whether the error bar is the standard deviation or the standard error of the mean. • It is OK to report 1-sigma error bars, but one should state it. The authors should preferably report a 2-sigma error bar than state that they have a 96% CI, if the hypothesis of Normality of errors is not verified. 32 • For asymmetric distributions, the authors should be careful not to show in tables or figures symmetric error bars that would yield results that are out of range (e.g., negative error rates). • If error bars are reported in tables or plots, the authors should explain in the text how they were calculated and reference the corresponding figures or tables in the text. 8. Experiments compute resources 
+
+Question: For each experiment, does the paper provide sufficient information on the com-puter resources (type of compute workers, memory, time of execution) needed to reproduce the experiments? Answer: [Yes] Justification: We report the software stack, GPU/CPU type, GPU memory, and per-epoch training-time overheads for several datasets and horizons, which together provide practical compute requirements for reproduction (Section 5.5, Appendix G). Guidelines: • The answer [N/A] means that the paper does not include experiments. • The paper should indicate the type of compute workers CPU or GPU, internal cluster, or cloud provider, including relevant memory and storage. • The paper should provide the amount of compute required for each of the individual experimental runs as well as estimate the total compute. • The paper should disclose whether the full research project required more compute than the experiments reported in the paper (e.g., preliminary or failed experiments that didn’t make it into the paper). 9. Code of ethics 
+
+Question: Does the research conducted in the paper conform, in every respect, with the NeurIPS Code of Ethics https://neurips.cc/public/EthicsGuidelines ?Answer: [Yes] Justification: The work uses aggregated, anonymised, opt-in mobility data for the private dataset and includes an impact statement discussing risks, deployment caveats, and mit-igation measures, with no apparent conflict with the NeurIPS Code of Ethics (Section 6, Appendix I). Guidelines: • The answer [N/A] means that the authors have not reviewed the NeurIPS Code of Ethics. • If the authors answer [No], they should explain the special circumstances that require a deviation from the Code of Ethics. • The authors should make sure to preserve anonymity (e.g., if there is a special consid-eration due to laws or regulations in their jurisdiction). 10. Broader impacts 
+
+Question: Does the paper discuss both potential positive societal impacts and negative societal impacts of the work performed? Answer: [Yes] Justification: The impact statement describes beneficial uses such as safer resource allocation and contingency planning, while also discussing risks from automated decision-making, sensor bias, and deployment under shift, along with mitigation recommendations (Section 6). Guidelines: • The answer [N/A] means that there is no societal impact of the work performed. • If the authors answer [N/A] or [No], they should explain why their work has no societal impact or why the paper does not address societal impact. • Examples of negative societal impacts include potential malicious or unintended uses (e.g., disinformation, generating fake profiles, surveillance), fairness considerations (e.g., deployment of technologies that could make decisions that unfairly impact specific groups), privacy considerations, and security considerations. 33 • The conference expects that many papers will be foundational research and not tied to particular applications, let alone deployments. However, if there is a direct path to any negative applications, the authors should point it out. For example, it is legitimate to point out that an improvement in the quality of generative models could be used to generate Deepfakes for disinformation. On the other hand, it is not needed to point out that a generic algorithm for optimizing neural networks could enable people to train models that generate Deepfakes faster. • The authors should consider possible harms that could arise when the technology is being used as intended and functioning correctly, harms that could arise when the technology is being used as intended but gives incorrect results, and harms following from (intentional or unintentional) misuse of the technology. • If there are negative societal impacts, the authors could also discuss possible mitigation strategies (e.g., gated release of models, providing defenses in addition to attacks, mechanisms for monitoring misuse, mechanisms to monitor how a system learns from feedback over time, improving the efficiency and accessibility of ML). 11. Safeguards 
+
+Question: Does the paper describe safeguards that have been put in place for responsible release of data or models that have a high risk for misuse (e.g., pre-trained language models, image generators, or scraped datasets)? Answer: [N/A] Justification: The paper does not release a high-risk generative model or dataset. The only non-public dataset remains restricted rather than openly released due to data-sharing restrictions, so special release safeguards are not central to this work (Appendix I). Guidelines: • The answer [N/A] means that the paper poses no such risks. • Released models that have a high risk for misuse or dual-use should be released with necessary safeguards to allow for controlled use of the model, for example by requiring that users adhere to usage guidelines or restrictions to access the model or implementing safety filters. • Datasets that have been scraped from the Internet could pose safety risks. The authors should describe how they avoided releasing unsafe images. • We recognize that providing effective safeguards is challenging, and many papers do not require this, but we encourage authors to take this into account and make a best faith effort. 12. Licenses for existing assets 
+
+Question: Are the creators or original owners of assets (e.g., code, data, models), used in the paper, properly credited and are the license and terms of use explicitly mentioned and properly respected? Answer: [Yes] Justification: All existing assets are credited via citation. The codebase builds on the Time Series Library (TSLib, MIT License) [ 40 ], and we use PyTorch (BSD-style license). Public benchmark datasets (ETT, Electricity, Exchange, Traffic, Weather, PEMS) are used under the licenses provided by their respective releases and are cited with their original sources (Appendix A.3). The Melbourne Pedestrian Counting data is provided by the City of Melbourne under its open-data terms (Creative Commons Attribution 4.0) and is credited in Appendix A.1. Baseline loss implementations (TILDE-Q, PS, DBLoss) follow author-recommended settings and are cited in Appendix C. Guidelines: • The answer [N/A] means that the paper does not use existing assets. • The authors should cite the original paper that produced the code package or dataset. • The authors should state which version of the asset is used and, if possible, include a URL. • The name of the license (e.g., CC-BY 4.0) should be included for each asset. 34 • For scraped data from a particular source (e.g., website), the copyright and terms of service of that source should be provided. • If assets are released, the license, copyright information, and terms of use in the package should be provided. For popular datasets, paperswithcode.com/datasets 
+
+has curated licenses for some datasets. Their licensing guide can help determine the license of a dataset. • For existing datasets that are re-packaged, both the original license and the license of the derived asset (if it has changed) should be provided. • If this information is not available online, the authors are encouraged to reach out to the asset’s creators. 13. New assets 
+
+Question: Are new assets introduced in the paper well documented and is the documentation provided alongside the assets? Answer: [Yes] Justification: The new assets introduced by this paper, namely the APAL loss implemen-tation, the peak-critical evaluation protocol, and the training, evaluation, and plotting scripts, are released as supplementary material with documentation covering dependencies, usage commands, dataset preparation, and hyperparameter configurations (Appendix H, Ap-pendix A.4). The Beach Visitor Count dataset is not released due to data-sharing restrictions and is documented as such (Appendix I). The Melbourne Pedestrian Count dataset used in the study is already publicly available, and we only use a production-ready subset of it. The preprocessing, sensor selection, and train/validation/test splits used to construct this subset are fully documented in Appendix A.1 and Appendix A.4, alongside the released code in the supplementary material. The processed subset is also included in the supplementary material for direct reproducibility. The code will be released upon acceptance of the paper. Guidelines: • The answer [N/A] means that the paper does not release new assets. • Researchers should communicate the details of the dataset/code/model as part of their submissions via structured templates. This includes details about training, license, limitations, etc. • The paper should discuss whether and how consent was obtained from people whose asset is used. • At submission time, remember to anonymize your assets (if applicable). You can either create an anonymized URL or include an anonymized zip file. 14. Crowdsourcing and research with human subjects 
+
+Question: For crowdsourcing experiments and research with human subjects, does the paper include the full text of instructions given to participants and screenshots, if applicable, as well as details about compensation (if any)? Answer: [N/A] Justification: The study does not conduct crowdsourcing experiments or direct research with human participants. Guidelines: • The answer [N/A] means that the paper does not involve crowdsourcing nor research with human subjects. • Including this information in the supplemental material is fine, but if the main contribu-tion of the paper involves human subjects, then as much detail as possible should be included in the main paper. • According to the NeurIPS Code of Ethics, workers involved in data collection, curation, or other labor should be paid at least the minimum wage in the country of the data collector. 15. Institutional review board (IRB) approvals or equivalent for research with human subjects 
+
+35 Question: Does the paper describe potential risks incurred by study participants, whether such risks were disclosed to the subjects, and whether Institutional Review Board (IRB) approvals (or an equivalent approval/review based on the requirements of your country or institution) were obtained? Answer: [N/A] Justification: The work does not involve direct human-subject experiments or interventions by the authors, so IRB-style approval reporting is not applicable to the study as presented. Guidelines: • The answer [N/A] means that the paper does not involve crowdsourcing nor research with human subjects. • Depending on the country in which research is conducted, IRB approval (or equivalent) may be required for any human subjects research. If you obtained IRB approval, you should clearly state this in the paper. • We recognize that the procedures for this may vary significantly between institutions and locations, and we expect authors to adhere to the NeurIPS Code of Ethics and the guidelines for their institution. • For initial submissions, do not include any information that would break anonymity (if applicable), such as the institution conducting the review. 16. Declaration of LLM usage 
+
+Question: Does the paper describe the usage of LLMs if it is an important, original, or non-standard component of the core methods in this research? Note that if the LLM is used only for writing, editing, or formatting purposes and does not impact the core methodology, scientific rigor, or originality of the research, declaration is not required. Answer: [N/A] Justification: The core methodology is a loss function for time-series forecasting and does not use LLMs as part of the scientific method or experimental pipeline. Guidelines: • The answer [N/A] means that the core method development in this research does not involve LLMs as any important, original, or non-standard components. • Please refer to our LLM policy in the NeurIPS handbook for what should or should not be described. 36

@@ -1,0 +1,886 @@
+Title: Surrogate modeling of drift-reduced Braginskii turbulence with resistivity-conditioned Koopman neural operators
+
+URL Source: https://arxiv.org/pdf/2607.15857v1
+
+Published Time: Mon, 20 Jul 2026 01:07:32 GMT
+
+Number of Pages: 24
+
+Markdown Content:
+# Surrogate modeling of drift-reduced Braginskii turbulence with resistivity-conditioned Koopman neural operators 
+
+Ameir Shaa 1, Kyungtak Lim 1,∗, Long Shan Chan 1, Claude Guet 1
+
+> 1
+
+School of Physical and Mathematical Sciences, Nanyang Technological University, Singapore 637371, Singapore 
+
+> ∗
+
+Corresponding author 
+
+Abstract 
+
+Machine-learning-driven surrogate operators are developed for three-dimensional, non-linear, flux-driven simulations of boundary plasma turbulence based on the two-fluid drift-reduced Braginskii model. Resistivity-conditioned Koopman neural operators (KNOs) are trained on Global Braginskii Solver (GBS) simulations, spanning low- to high-resistivity regimes. Separate fieldwise models are constructed for plasma density, electron tempera-ture, electric potential, and vorticity. Evaluation at a held-out resistivity shows that the surrogates reproduce key short-horizon statistical features, including strong one-step agree-ment, spectral trends, and reduced pressure-gradient diagnostics. Field-dependent limi-tations remain, with vorticity showing the largest discrepancies and autoregressive roll-out progressively departing from the reference simulation. The results demonstrate that resistivity-conditioned fieldwise neural operators provide useful fast emulators for selected boundary-plasma turbulence diagnostics, while stable long-horizon dynamical closure re-mains unresolved. 
+
+Keywords: Boundary plasma turbulence, magnetic confinement fusion, drift-reduced Bragin-skii model, Koopman neural operators, surrogate modeling 
+
+# 1 Introduction 
+
+Anomalous cross-field transport remains a central limitation in magnetic-confinement fusion, degrading energy confinement through multiscale dynamics ranging from micro-instabilities to large intermittent transport events [1, 2, 3]. In the tokamak boundary, two-fluid models based on the drift-reduced Braginskii equations provide a tractable yet physically faithful description of these dynamics [4, 5]. Nevertheless, fully three-dimensional, nonlinear, flux-driven simula-tions remain computationally demanding, particularly when systematic scans over operating parameters such as plasma density, heating power, or magnetic geometry are required. This motivates machine-learning surrogate operators that can emulate selected observables across the parameter space without rerunning the full simulation. Recent surrogate studies in plasma physics demonstrate the breadth of this effort, including generative models for Hasegawa–Wakatani turbulence [6], interpolation surrogates for toka-mak edge profiles [7], Fourier neural operator (FNO) surrogates for plasma evolution and edge simulations [8, 9], machine-learning-accelerated gyrokinetic workflows [10], and data-efficient learning methods from limited high-fidelity data and coarse-grid simulations [11, 12]. These studies show that learned surrogates can reproduce useful statistical and parametric trends at a fraction of the simulation cost, also highlighting that surrogate fidelity depends strongly on the chosen diagnostic, the intended prediction horizon, and the explicit conditioning of physical control parameters when the dataset spans distinct turbulent regimes. Leveraging the GBS surrogate framework in Ref. [13], which demonstrated proper-orthogonal-decomposition (POD)-based quasi-steady profile reconstruction in two-dimensional cross-sections, 1arXiv:2607.15857v1 [physics.plasm-ph] 17 Jul 2026 the present work extends data-driven modeling to the fully three-dimensional, time-dependent setting. We introduce resistivity-conditioned Koopman neural operators (KNOs) trained on electrostatic GBS simulations of drift-reduced Braginskii turbulence in toroidal geometry [14, 15, 16]. The scope is deliberately focused on whether a KNO surrogate can interpolate across a resistivity scan within a fixed reduced-fluid configuration, while preserving the short-horizon sta-tistical signatures relevant to plasma-turbulence diagnostics. The surrogate is therefore treated as a fast conditional emulator for selected observables, rather than as a replacement for the un-derlying solver. Beyond diagnostic emulation, such low-cost three-dimensional predictions may also serve as approximate initial states for GBS restarts, bypassing the costly initial growth phase before quasi-steady turbulence [13]. Reduced-order modeling and neural operators provide a systematic route to learning state-to-state maps for PDE-governed dynamics [17, 18, 19, 20, 21]. The Koopman framework is particularly attractive for nonlinear systems because it represents the dynamics in a lifted ob-servable space where the evolution can be approximated as linear [22, 23, 24, 25, 26, 27, 28]. Within this framework, KNOs offer a structured surrogate representation of nonlinear plasma evolution, allowing the dominant spatiotemporal dynamics to be learned efficiently in a latent space. In the present construction, the resistivity label ν0 is embedded directly into the Koop-man mixing matrices, so that the learned evolution operator carries the parameter dependence. This provides a direct route to resistivity-conditioned interpolation across turbulent regimes. Separate KNO surrogates are trained for plasma density, electron temperature Te, electric potential ϕ, and vorticity Ω across a five-point resistivity scan ( ν0 ∈ { 0, 0.01 , 1, 3, 10 }) and are evaluated at the held-out value ν0 = 0 .1 as a controlled interpolation test. The results show strong one-step agreement for electron temperature and density, good preservation of the density spectral trend, and accurate recovery of reduced pressure-gradient structure, while vorticity remains the most challenging observable. At the same time, autoregressive rollout reveals that short-horizon statistical fidelity does not guarantee stable free-running emulation. Errors accumulate and spectral amplitudes drift as the model is iterated. The main contribution of this work is therefore to quantify where resistivity-conditioned fieldwise emulation succeeds at an unseen resistivity, and where long-horizon dynamical closure and coupled-field consistency remain unresolved. Figure 1 shows the resistivity-conditioned training and inference workflow, illustrated for the density channel and used consistently across the reported fieldwise surrogates. 
+
+Figure 1: Resistivity-conditioned Koopman neural operator workflow, illustrated for the density channel. A two-frame field history and the resistivity label ν0 are encoded, advanced in a latent Koopman space, and decoded to predict the next field snapshot. The same fieldwise workflow is used for all reported surrogate models. The remainder of the paper is organized as follows. Section 2 summarizes the drift-reduced Braginskii model, the GBS simulation setup, and the physical role of the resistivity label ν0. Sec-tion 3 introduces the resistivity-conditioned fieldwise KNO architecture, together with the train-ing objective and data configuration. Section 4 presents the held-out validation results, including pointwise, reduced-diagnostic, temporal, spectral, blob-detection, rollout, and computational-2cost assessments. Finally, Section 5 concludes the paper. 
+
+# 2 Physical model and simulation data 
+
+The reference data are generated with the three-dimensional drift-reduced Braginskii equations [5], as implemented in the GBS code [29, 16]. GBS evolves a nonlinear two-fluid model for boundary plasma turbulence in a non-field-aligned cylindrical coordinate system, making it suitable for surrogate studies under controlled variations of physical parameters. In the present work, we consider electrostatic simulations in an axisymmetric single-null magnetic equilib-rium and use them as reference trajectories for training and validating resistivity-conditioned surrogate models. The plasma variables considered here are collected as 
+
+q(t, r) =  n, Ω, v ∥i, v ∥e, T i, T e, ϕ , (1) where n is the plasma density, Ω is the scalar vorticity, v∥i and v∥e are the ion and electron parallel velocities, and Ti and Te are the ion and electron temperatures. The ion and electron pressures are pi = nτ T i and pe = nT e, with τ = Ti0/T e0.Under these assumptions, the GBS model is written as 
+
+∂n ∂t = − ρ−1
+
+> ∗
+
+B [ϕ, n ] + 2
+
+B
+
+C(pe) − nC (ϕ) − ∇ ∥(nv ∥e) + Dn∇2
+
+> ⊥
+
+n + sn, (2) 
+
+∂Ω
+
+∂t = − ρ−1
+
+> ∗
+
+B ∇ · [ϕ, ω] − ∇ ·  v∥i∇∥ω + B2∇∥j∥ + 2 BC (pe + τ p i) + B
+
+3 C(Gi) + DΩ∇2
+
+> ⊥
+
+Ω, (3) 
+
+∂v ∥i
+
+∂t = − ρ−1
+
+> ∗
+
+B [ϕ, v ∥i] − v∥i∇∥v∥i − 1
+
+n ∇∥(pe + τ p i) − 23n ∇∥Gi + Dv∥i ∇2
+
+> ⊥
+
+v∥i, (4) 
+
+∂v ∥e
+
+∂t = − ρ−1
+
+> ∗
+
+B [ϕ, v ∥e] − v∥e∇∥v∥e + mi
+
+me
+
+
+
+νj ∥ + ∇∥ϕ − 1 
+
+> n
+
+∇∥pe − 0.71 ∇∥Te − 23n ∇∥Ge
+
+
+
++ Dv∥e ∇2
+
+> ⊥
+
+v∥e, (5) 
+
+∂T i
+
+∂t = − ρ−1
+
+> ∗
+
+B [ϕ, T i] − v∥i∇∥Ti + 43
+
+Ti
+
+B
+
+h
+
+C(Te) + Te 
+
+> n
+
+C(n) − C(ϕ)
+
+i
+
+− 10 3 τ Ti
+
+B C(Ti)+ 23 Ti
+
+h
+
+(v∥i − v∥e) ∇∥nn − ∇ ∥v∥e
+
+i
+
++ 2 .61 νn (Te − τ T i) + ∇∥(χ∥i∇∥Ti) + DTi ∇2
+
+> ⊥
+
+Ti + sTi ,
+
+(6) 
+
+∂T e
+
+∂t = − ρ−1
+
+> ∗
+
+B [ϕ, T e] − v∥e∇∥Te + 23 Te
+
+h
+
+0.71 ∇∥j∥ 
+
+> n
+
+− ∇ ∥v∥e
+
+i
+
+− 2.61 νn (Te − τ T i)+ 43
+
+Te
+
+B
+
+h 72 C(Te) + Te 
+
+> n
+
+C(n) − C(ϕ)
+
+i
+
++ ∇∥(χ∥e∇∥Te) + DTe ∇2
+
+> ⊥
+
+Te + sTe . (7) The electrostatic potential is obtained from the generalized Poisson equation 
+
+∇ ·  n∇⊥ϕ = Ω − τ ∇2
+
+> ⊥
+
+pi. (8) Here ω = n∇⊥ϕ + τ ∇⊥pi is the generalized vorticity vector, Ω = ∇ · ω is the scalar vorticity, 
+
+j∥ = n(v∥i − v∥e) is the parallel current, [ f, g ] = b · (∇f × ∇ g) denotes the Poisson bracket associated with E × B advection, and C(·) is the magnetic-curvature operator. The system includes the main physical ingredients required for boundary-plasma turbulence, such as E × B
+
+advection, curvature drive, parallel dynamics, resistive electron response, thermal conduction, sources, and perpendicular diffusion. Since this work focuses on surrogate-model construction and validation rather than on rederiving the GBS formulation, details of the numerical scheme, source profiles, and boundary conditions are not repeated here and can be found in Refs. [29, 16]. Density and temperature sources are applied inside the last closed flux surface, representing the combined effect of ionisation and ohmic heating that sustains the flux-driven turbulence: 3the density source is a Gaussian in the equilibrium flux function ψ(R, Z ) and the temperature source a tanh profile in ψ, with fixed amplitudes and radial widths. The magnetic equilibrium is a single-null configuration generated by an external poloidal-field coil set, held fixed across the resistivity scan, so all simulations share the same geometry and source placement relative to the last closed flux surface [16]. All quantities follow the standard GBS normalization. Density is normalized to a reference density n0, ion and electron temperatures to Ti0 and Te0, parallel velocities to the reference sound speed cs0 = pTe0/m i, and the electrostatic potential to Te0/e . Perpendicular lengths are normalized to the ion sound Larmor radius ρs0 = cs0/Ωci , parallel lengths to the tokamak major radius R0, and time to R0/c s0.A key control parameter in this study is the normalized Spitzer resistivity 
+
+ν = ν0T −3/2 
+
+> e
+
+, (9) where ν0 denotes the nominal resistivity label assigned to each simulation. In the normalized GBS formulation, ν0 is proportional to the reference density n0 when the other reference quan-tities are fixed. Therefore, scanning ν0 from low to high values corresponds to moving from lower- to higher-density boundary-plasma regimes. As shown in Figure 2, the resistivity scan modifies both the mean profiles and fluctuation activity, showing a more peaked density profile and weaker electrostatic-potential fluctuations in the lower-resistivity case, whereas the higher-resistivity case exhibits a broader density profile and stronger fluctuation activity. This makes 
+
+ν0 a natural conditioning variable for testing surrogate interpolation across resistivity-dependent turbulent states. The surrogate is trained on GBS simulations with 
+
+ν0 ∈ { 0, 0.01 , 1, 3, 10 }, (10) and evaluated at the held-out value ν0 = 0 .1, with ν0 = 0 .5 used for validation-based checkpoint selection. The test case therefore probes interpolation in the resistivity label within the same reduced-fluid configuration, rather than extrapolation beyond the training range. All other input parameters are kept fixed in the present study, so that the role of resistivity in the learned dynamics can be isolated. 0 250 500                         
+
+> R/s0
+> 0
+> 200
+> 400
+> 600
+> 800
+> Z/ s0
+> (a) n(0= 1)
+> 0250 500
+> R/s0
+> (b) n(0= 10)
+> 0250 500
+> R/s0
+> (c) (0= 1)
+> 0250 500
+> R/s0
+> (d) (0= 10)
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> 1.2
+> 1.4
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> 4
+> 2
+> 0
+> 2
+> 4
+> 6
+> 5
+> 0
+> 5
+> 10
+
+Figure 2: Two-dimensional snapshots from GBS simulations at different resistivities. Panels (a,b) show the mean density ¯ n, averaged over the toroidal angle and a 10 t0 (where t0 = R0/c s0)time window in the quasi-steady phase (after initial transients have decayed), for ν0 = 1 and 
+
+ν0 = 10, while panels (c,d) show the corresponding electric potential fluctuations ˜ϕ. The white contour denotes the separatrix, and R and Z are normalized to ρs0.GBS stores the simulation output on a three-dimensional grid with ( nR × nZ × nφ) = (244 × 324 × 80). The full simulation state can be written as 
+
+X (t, r) ∈ R8×nR×nZ ×nφ , (11) 4where the eight stored channels are the seven evolved fields— theta (θ = ln n, log-density), 
+
+omega (Ω, vorticity), vpari (v∥i, ion parallel velocity), vpare (v∥e, electron parallel velocity), 
+
+temperaturi (Ti, ion temperature), temperature (Te, electron temperature), and strmf (ϕ,electrostatic potential)—together with the magnetic flux psi (ψ) as an additional diagnostic quantity. In this work, the surrogate is not trained to learn a coupled map for the full GBS state vector. Instead, separate fieldwise models are constructed for selected scalar observables: plasma density, electron temperature, electric potential, and vorticity. The full GBS simulations then provide the reference dynamics against which the resistivity-conditioned surrogate predictions are evaluated. 
+
+# 3 Resistivity-conditioned Koopman neural operator 
+
+The surrogate model is formulated for selected diagnostic fields rather than the full Braginskii state vector. We train independent fieldwise models for the learned density variable θ = ln n,electron temperature Te, electric potential ϕ, and vorticity Ω. This fieldwise formulation reduces the dimensionality of the learning problem and allows the fidelity of each physical observable to be assessed independently. For a target field f (x, t ; ν0), the model learns a short-time evolution map, 
+
+Gf :  f (x, t − ∆t), f (x, t ), ν 0
+
+ 7 → ˆf (x, t + ∆ t). (12) Here f (x, t ) denotes a three-dimensional field snapshot on the GBS grid, and ν0 labels the resistivity regime of the corresponding simulation. The model, therefore, acts as a resistivity-conditioned emulator of the local-in-time field evolution. During training, a single forward pass jointly predicts the next four frames and the loss is averaged over all four horizons, providing multi-horizon supervision over a short window rather than autoregressive feedback, while the validation metrics reported in Section 4 use only the first predicted frame. The architecture follows the Koopman operator framework, in which nonlinear dynamics are represented by approximately linear evolution in a lifted observable space [22, 23, 24, 25, 26, 27, 28]. Building on Koopman-based studies of nonlinear plasma dynamics [30], we extend this idea to a resistivity-conditioned, fieldwise neural operator for three-dimensional boundary plasma. Unlike standard FNO surrogates [8, 9], where physical parameters enter through the input channels or through the training distribution, the present model embeds the resistivity label ν0 directly into the latent Koopman evolution operator. In this way, the learned evolution operator itself carries the resistivity dependence. 
+
+3.1 Fieldwise latent evolution 
+
+The input history is first encoded into a latent representation. At each grid point, the two most recent values of the target field are collected as 
+
+hf (x, t ) =  f (x, t − ∆t), f (x, t ), (13) and mapped to a local latent vector by a temporal encoder, 
+
+z(x, t ) = tanh Etemp 
+
+ hf (x, t ) . (14) A three-dimensional spatial encoder then maps z to an initial latent field, 
+
+Z(0) = E3D (z). (15) This latent field contains both the short-time history and the spatial structure needed to advance the target field by one step. 5The resistivity dependence is introduced in the latent evolution operator. In Fourier space, the direction-wise Koopman operator is written as the sum of a baseline contribution, a resistivity-dependent correction, and a timestep-dependent correction, 
+
+Kd(ν0, ∆t) = K(0)  
+
+> d
+
++ K(ν) 
+
+> d
+
+(ν0) + K(∆ t) 
+
+> d
+
+(∆ t), d ∈ { R, Z, φ }. (16) Here K(0)  
+
+> d
+
+is a baseline operator, while K(ν) 
+
+> d
+
+and K(∆ t) 
+
+> d
+
+are learned corrections associated with the resistivity label and timestep. Thus, ν0 does not simply enter as an additional input channel. Instead, it modifies the latent evolution operator, so that different resistivity regimes correspond to different learned short-time dynamics within the same architecture. This is the main dis-tinction from standard FNO-type surrogates, where parameter dependence is typically supplied through the input data or the training distribution [8, 9]. The spectral update is applied sequentially along the retained R, Z, and φ Fourier directions. In compact form, the latent field is advanced by 
+
+Z(n+1) = Z(n) + K Z(n), ν 0, ∆t, n = 0 , . . . , N iter − 1, (17) where K denotes the composed Fourier-space update followed by the inverse transform back to physical space. The residual form is used because the surrogate predicts a short-time correction to the latent state rather than replacing the full latent representation in one step. In the reported models, Niter = 2 residual Koopman updates are used, and 122 × 162 × 10 Fourier modes are retained. The 122 × 162 × 10 mode cube (122 = 244 /2, 162 = 324 /2, 10 = 20 /2) follows the torch.fft.rfftn convention on ( R, Z, φ ) and does not impose an extra spectral cut along R and Z. Training uses a 20-plane contiguous toroidal subset of the full 80-plane GBS grid, with the full torus recovered spectrally as in Appendix B. After the latent evolution, the spatially decoded Koopman correction is combined with the temporally encoded latent and passed through a pointwise tanh nonlinearity, 
+
+zfinal = tanh  W0 ⋆ z + D3D (Z(Niter )), (18) ˆf (t + ∆ t) = Dtemp (zfinal ), (19) where W0 is a learned 1 × 1 × 1 convolution that mixes latent channels and ⋆ denotes that con-volution. The skip retains information from the original two-frame history, while the Koopman block supplies the nonlocal spatial correction. The overall workflow is summarized in Figure 3.                          
+
+> Input history
+> fat fixed ν0, ∆ tEtemp E3D
+> Spectral K
+> FFT →R→Z→φ→IFFT
+> Z(n+1) =Z(n)+K×Niter
+> D3D tanh( W0⋆z+D3D (· · · )) Dtemp ˆf(t+ ∆ t)
+
+Figure 3: Fieldwise resistivity-conditioned KNO workflow. A two-frame history of a target field is encoded, lifted to a three-dimensional latent field, evolved by a Koopman operator conditioned on ν0, and decoded to the next field snapshot. The resistivity label enters through the latent evolution operator rather than through the encoder or decoder. For reproducibility, the fieldwise forward pass is summarized in Algorithm 1. The algorithm provides a schematic description of the model operation, in which a two-frame field history is encoded, evolved in a resistivity-conditioned latent Koopman space, and decoded into a short forecast window. The first predicted frame is used for the one-step validation metrics, while all predicted frames enter the training loss. In the reported configuration, H = 2 (the number of input time frames), Niter = 2, and 
+
+Npred = 4. Training samples are drawn from the late, quasi-steady turbulent phase of the 6Algorithm 1 Fieldwise KNO forward pass 
+
+Require: Field history {f (x, t j )}H−1 
+
+> j=0
+
+, resistivity label ν0, timestep ∆ t, number of Koopman updates Niter 
+
+Ensure: Predicted sequence { ˆf (x, t + s∆t)}Npred  
+
+> s=1
+> 1:
+
+z ← tanh Etemp 
+
+ {f (x, t j )}H−1
+
+> j=0
+
+ {encode local temporal history } 
+
+> 2:
+
+Z(0) ← E 3D (z) {lift to spatial latent field } 
+
+> 3:
+
+for n = 0 to Niter − 1 do  
+
+> 4:
+
+˜Z ← FFT Z(n) 
+
+> 5:
+
+for d ∈ { R, Z, φ } do  
+
+> 6:
+
+Kd ← K (0)  
+
+> d
+
++ K(ν) 
+
+> d
+
+(ν0) + K(∆ t) 
+
+> d
+
+(∆ t) 
+
+> 7:
+
+˜Z ← K d ˜Z {direction-wise spectral mixing } 
+
+> 8:
+
+end for  
+
+> 9:
+
+Z(n+1) ← Z(n) + IFFT ˜Z {residual latent update } 
+
+> 10:
+
+end for  
+
+> 11:
+
+zfinal ← tanh  W0 ⋆ z + D3D 
+
+ Z(Niter ) {spatial decode, then skip } 
+
+> 12:
+
+{ ˆf (x, t + s∆t)}Npred  
+
+> s=1
+
+← D temp 
+
+ zfinal  
+
+> 13:
+
+return { ˆf (x, t + s∆t)}Npred 
+
+> s=1
+
+trajectories. The one-step diagnostics in Section 4 use ˆf (x, t + ∆ t), while the full four-frame prediction window is used in the training loss. 
+
+3.2 Training objective and data configuration 
+
+The model is trained by minimizing a weighted combination of a decoded prediction loss and auxiliary latent-consistency terms, 
+
+Ltotal = 5 Lpred + 0 .5 Laux . (20) The primary prediction loss is 
+
+Lpred = MSE  ˆf1:4 , f target 1:4 
+
+, (21) where ˆf1:4 = { ˆf (x, t +s∆t)}4 
+
+> s=1
+
+is the predicted multi-frame sequence, f target 1:4 is the corresponding GBS target sequence, and MSE denotes the mean over all retained grid points and prediction steps. The auxiliary loss Laux contains one additional prediction route and three encode–decode consistency terms applied before and after the Koopman stack. These auxiliary terms improve training stability by encouraging consistent encode–decode behavior in latent space; they are not constraints derived from the Braginskii equations. The auxiliary loss terms are detailed in full in Section A. Each target field is standardized using the training-set mean and standard deviation 
+
+fstd = f − μf
+
+σf
+
+, (22) while ν0 and the time coordinate are passed in their native normalized GBS (simulation) units rather than being re-standardized; in particular ν0 is the normalized (Spitzer) resistivity label. For each trajectory, the available time samples are divided into training, validation, and testing subsets using a 70 /15 /15 temporal split. The full optimization settings are listed in Table 1. The fieldwise models are trained on GBS simulations with ν0 ∈ { 0, 0.01 , 1, 3, 10 } and evalu-ated at the held-out value ν0 = 0 .1. Thus, the main validation case tests interpolation within the resistivity range rather than extrapolation outside the training domain. The case ν0 = 0 .57is used only for validation-based checkpoint selection and is not included in the main validation figures. The reference data are defined on a 244 × 324 × 80 structured grid in ( R, Z, φ ). The surrogate is trained and evaluated on a retained contiguous 20-plane toroidal subset of the same poloidal mesh. Unless otherwise stated, the representative toroidal plane iφ = 10 is used for the poloidal-slice diagnostics in Section 4. Code field identifiers are listed in Section A. Table 1: Optimization settings for all reported fieldwise KNO runs. Setting Value Optimizer Adam [31] Learning rate 10 −3
+
+LR schedule Step decay, factor 0.8 every 500 epochs Weight decay 10 −4
+
+Batch size 8 for Ω, ϕ, Te and 4 for θ
+
+Maximum epochs 20000 Loss weights λpred = 5 and λaux = 0 .5
+
+Figure 4: Training and within-trajectory validation prediction loss versus epoch for the four fieldwise surrogates. The validation curve is obtained from the temporal validation split of each training-ν0 trajectory. Loss spikes coincide with the step-decay learning-rate schedule applied every 500 epochs and are most pronounced for vorticity, consistent with its higher spatial complexity. The validation-based checkpoint-selection case at ν0 = 0 .5 is not shown. 
+
+# 4 Validation and Statistical Fidelity 
+
+This section evaluates the resistivity-conditioned fieldwise KNO surrogates against the GBS ref-erence at the held-out resistivity ν0 = 0 .1. The validation is organized from local short-horizon accuracy to increasingly physics-oriented and dynamical diagnostics. We first assess one-step field reconstruction on a representative poloidal slice, followed by the three-dimensional density prediction, reduced pressure-gradient structure, teacher-forced temporal statistics, spectral con-tent, blob detection, autoregressive rollout stability, and inference cost. This ordering separates conditional short-horizon statistical fidelity, where the surrogate remains close to the reference trajectory, from the more stringent requirement of autonomous long-horizon stability. 
+
+4.1 Pointwise fidelity 
+
+We first assess whether the fieldwise KNOs reproduce the GBS state at the omitted resistivity value ν0 = 0 .1. Table 2 summarizes one-step slice metrics at the representative toroidal plane 8iφ = 10, while Figure 5 compares the GBS reference, KNO prediction, and absolute error for each field. Here the forecast interval is the spacing between consecutive saved GBS frames, ∆tout = 0 .1 (in R0/c s0), so the one-step prediction maps t → t + ∆ tout . As a reference, the persistence prediction ˆ x(t+∆ tout ) = x(t), whose error equals the inter-frame change, is reported in the last column of Table 2: the KNO one-step error is below the inter-frame change for every field. 0
+
+> 200
+> 400
+> 600
+> 800
+> Z/ s0
+
+n
+
+Reference Predicted Error 
+
+> 0
+> 200
+> 400
+> 600
+> 800
+> Z/ s0
+
+Te   
+
+> 0
+> 200
+> 400
+> 600
+> 800
+> Z/ s0
+> 0200 400 600
+
+R/ s0   
+
+> 0
+> 200
+> 400
+> 600
+> 800
+> Z/ s0
+> 0200 400 600
+
+R/ s0   
+
+> 0200 400 600
+
+R/ s0
+
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> 0.3
+> 0.2
+> 0.1
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> 0.4
+> 0.2
+> 0.0
+> 0.2
+> 0.4
+> 0.20
+> 0.15
+> 0.10
+> 0.05
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.20
+> 0.15
+> 0.10
+> 0.05
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.10
+> 0.05
+> 0.00
+> 0.05
+> 0.10
+> 6
+> 4
+> 2
+> 0
+> 2
+> 4
+> 6
+> 6
+> 4
+> 2
+> 0
+> 2
+> 4
+> 6
+> 1.00
+> 0.75
+> 0.50
+> 0.25
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+
+Autoregressive rollout | step 1 | = 0.1 | z = 10 
+
+Figure 5: Held-out interpolation at ν0 = 0 .1 on the poloidal slice at iφ = 10. Rows show, from top to bottom, plasma density n, electron temperature Te, vorticity Ω, and electric potential ϕ.Columns show the GBS reference, the KNO prediction, and the absolute error. The separatrix is represented as solid contours. Figure 5 shows that the density and electron temperature fields are reproduced with high pointwise fidelity across both the core and SOL regions, consistent with their near-unity R2
+
+values in Table 2. The largest residuals are localized near steep-gradient regions, particularly around the separatrix and inner boundary. The electric potential is also well reconstructed, 9although its errors show coherent structure along the separatrix, indicating sensitivity to the phase of the large-scale E×B pattern rather than a global amplitude mismatch. Vorticity remains the most challenging field, with the largest absolute errors concentrated in fine-scale filamentary structures, where derivative sensitivity is strongest.                                                      
+
+> Field MSE R2∥ˆu−u∥2/∥u∥2mGBS mpred
+> mpred −mGBS
+> |mGBS |KNO ∥ · ∥ 2Pers. ∥ · ∥ 2
+> Ω7.76 ×10 −50.759 0.491 −3.31 −3.43 −0.036 0.491 0.784
+> ϕ1.20 ×10 −20.998 0.0416 −6.91 −6.27 0.093 0.0416 0.0798
+> Te1.70 ×10 −40.9997 0.0161 −4.61 −5.26 −0.141 0.0161 0.0329
+> n9.94 ×10 −40.9982 0.0338 −5.71 −5.72 −0.002 0.0338 0.0487
+
+Table 2: Fieldwise one-step metrics for the held-out case ν0 = 0 .1 at iφ = 10 within the retained 20-plane subset. MSE, R2, and relative L2 quantify slice accuracy; mGBS and mpred 
+
+are midplane kR spectral slopes, with relative slope error measuring spectral mismatch. The last two columns compare KNO and persistence relative L2 errors. The one-step metrics confirm this field-dependent hierarchy. Electron temperature achieves near-unity agreement, with R2 > 0.999, while the density and electric potential remain highly accurate with R2 > 0.99. Vorticity shows the lowest pointwise fidelity, with R2 ≃ 0.76 and the largest relative L2 error. This ranking is physically expected because Te and n are relatively smooth, whereas vorticity emphasizes small-scale derivative structure and is therefore more sensitive to high-wavenumber errors. The vorticity error should also be interpreted in view of the fieldwise training strategy. In the electrostatic Braginskii system, Ω and ϕ are coupled through the generalized polarization relation (8), in which Ω follows from density-weighted perpendicular derivatives of ϕ. This derivative coupling enhances sensitivity to high-k⊥ content, so modest spatial errors in ϕ are amplified in Ω. Because the present surrogates predict Ω and ϕ independently, this polariza-tion consistency is not enforced during inference. This single limitation underlies both the instantaneous vorticity error here and the spectral and stability results discussed below. 10 Figure 6: Three-dimensional cutaway of the toroidal simulation domain at held-out ν0 = 0 .1, colored by the surrogate-predicted electron density n = exp( θ) produced by the resistivity-conditioned KNO. The high-density core transitions through a steep gradient to the low-density scrape-off layer, with magnetic field lines overlaid on the poloidal cross-sections. The slice metrics above quantify local one-step fidelity. Figure 6 complements this analy-sis by showing the surrogate-predicted electron density, n = exp( θ), over the retained three-dimensional toroidal subset. The prediction preserves a coherent toroidal density structure, including the transition from the high-density core to the lower-density SOL and visible tur-bulent structures in the boundary region. Although this figure is intended as a qualitative visualization rather than a full volumetric error analysis, it indicates that the KNO output remains spatially coherent in three dimensions. Such low-cost three-dimensional predictions may be useful as approximate initial states for GBS restarts, reducing the need to evolve full simulations through the initial growth phase before reaching quasi-steady turbulence [13]. 
+
+4.2 Pressure-gradient length 
+
+Beyond instantaneous field agreement, a physically meaningful test is whether the surrogate reproduces reduced radial quantities relevant to turbulence drive. We assess this using the electron pressure-gradient scale length Lpe = −pe/|∇ pe|, which characterizes the local pressure-gradient strength available to drive interchange instabilities and is closely related to radial SOL-width scaling. Figure 7 compares the time-averaged radial profile Lpe between the GBS reference and the KNO prediction, averaged over poloidal angle and 50 snapshots with ∆ t = 0 .1. 11 Figure 7: Radial profiles of the time-averaged electron pressure-gradient scale length Lpe at held-out ν0 = 0 .1: GBS reference and KNO prediction. Shading indicates variability where provided by the plotting routine. The average is taken over poloidal angle and 50 snapshots with timestep ∆ t = 0 .1 on the poloidal slice at toroidal plane index iφ = 10. The surrogate captures the broad mid-radius and outer-region structure of Lpe , indicating that the radial pressure-gradient structure is statistically reproduced at the held-out resistivity. The sharpest inner-gradient features are less accurately recovered, consistent with the tendency of finite-bandwidth spectral operators to smooth localized gradients. This result shows that the KNO does not merely interpolate pointwise field values, but also preserves an integrated boundary-plasma diagnostic relevant to turbulence drive. 
+
+4.3 Teacher-forced temporal statistics 
+
+We next examine whether the surrogate preserves short-time temporal memory when it is kept close to the reference trajectory. Figure 8 compares Eulerian autocorrelations at held-out ν0 = 0 .1 under teacher forcing. In this diagnostic, the input history is taken from the GBS trajectory at each step, so the test isolates conditional temporal statistics from error accumulation during free-running rollout. 12 Figure 8: Teacher-forced Eulerian autocorrelation C(τ ) at the held-out resistivity ν0 = 0 .1for Ω, ϕ, Te, and θ. GBS reference curves are shown in black and KNO predictions in blue. Annotated e-folding times τe are shown where the plotting routine converges. Fluctuations are formed by subtracting the per-pixel time mean before computing the autocorrelation. The KNO reproduces the GBS autocorrelation well for ϕ, Te, and θ, showing that the model captures the short-time temporal decorrelation of these fields when it is conditioned on reference histories. For Ω, the surrogate also captures the rapid loss of correlation and the remaining oscillatory behavior with comparable e-folding times, although vorticity remains the most challenging field in terms of instantaneous slice accuracy. Overall, the teacher-forced statistics indicate that the model has learned meaningful short-horizon conditional dynamics. However, they do not by themselves demonstrate that the same dynamics remain stable during fully autoregressive rollouts, where no reference correction is applied. 
+
+4.4 Spectral fidelity and scale-by-scale errors 
+
+We now turn from pointwise and reduced-profile diagnostics to scale-by-scale turbulent struc-ture. Spectral fidelity is assessed using radial power spectra on a midplane kR band. Figure 9 compares the one-step KNO and GBS spectra, while Table 2 reports the corresponding log–log slope fits. Slopes are fit over 0 .3 ≤ kR ≤ 3.0. 13 10 −8              
+
+> 10 −6
+> 10 −4
+> 10 −2
+> 10 0
+> P(kR)
+> mpred = −5.72
+> mGBS = −5.71
+> Density, ̃ n
+> 10 −11
+> 10 −9
+> 10 −7
+> 10 −5
+> 10 −3
+> 10 −1
+> 10 1
+> mpred = −5.26
+> mGBS = −4.61
+> Temperature, ̃ Te
+> 10 −1 10 0
+> kR
+> 10 −8
+> 10 −6
+> 10 −4
+> 10 −2
+> 10 0
+> P(kR)
+> mpred = −6.27
+> mGBS = −6.91
+> Potential, ̃ ϕ
+> 10 −1 10 0
+> kR
+> 10 −7
+> 10 −5
+> 10 −3
+> 10 −1
+> 10 1
+> mpred = −3.43
+> mGBS = −3.31
+> Vorticity, ̃ Ω
+
+Prediction GBS Figure 9: Radial power spectra (log–log) at held-out ν0 = 0 .1, one-step prediction: KNO (solid) versus GBS (dashed) for ˜ n, ˜Te, ˜ϕ, and ˜Ω. Tildes (˜ .) denote fluctuating components about the mean, ˜A = A − ⟨ A⟩. Dotted lines are log–log slope fits ( mpred , mGBS ). At the held-out value ν0 = 0 .1, the density channel gives the closest spectral-slope agreement, with a relative slope error of 0 .2%. The potential and temperature channels have slope errors of 9.3% and 14 .1% respectively, with the temperature surrogate overestimating large-scale ( kR ≲
+
+0.3) power by one to two orders of magnitude before recovering the correct spectral trend at mid-to-high wavenumbers. Vorticity shows the largest spectral discrepancy. Although its fitted slope error is modest, 3.6% with mpred = −3.43 and mGBS = −3.31, the KNO overestimates broadband vorticity power by roughly two to three orders of magnitude across the resolved kR range. The two spectra are nearly parallel in log–log space but vertically offset, indicating that the surrogate captures the spectral exponent but not the absolute fluctuation level. This is the spectral signature of the unenforced polarization coupling discussed above: with the amplitude relation between Ω and ϕ left unconstrained, the vorticity spectrum can retain the correct slope while settling at an incorrect level. The slope error alone therefore overstates vorticity fidelity, and broadband amplitude agreement should be treated as a separate diagnostic requirement. 14 1 0 1                                       
+
+> Re
+> 1
+> 0
+> 1
+> Im
+> Density (= 0.04 )
+> 101
+> Re
+> 1
+> 0
+> 1
+> Im
+> Temperature Te(= 0.04 )
+> 101
+> Re
+> 1
+> 0
+> 1
+> Im
+> Potential (= 0.23 )
+> 202
+> Re
+> 2
+> 0
+> 2
+> Im
+> Vorticity (= 2.41 )
+> | | > 1 (138)
+> (a) Koopman block eigenvalues (k)at 0= 0.1 (= max| | , spectral radius)
+> Density Temperature TePotential Vorticity
+> 10 0
+> 10 1
+> 10 2
+> 10 3
+> single-step residual power gain
+> 1.1 1.2
+> 1.6
+> 90.9
+> 1.7 1.5
+> 4.0
+> 462
+> (b) Power injected per residual step
+> Z(I+)2Z
+> eigenvalue bound max|1 + |4
+> operator norm (I+)222
+
+Figure 10: Spectral stability of the learned Koopman operators at the held-out ν0 = 0 .1. (a) 
+
+Eigenvalues λ(Kk) of the per-mode block of the spectral operator K on the complex plane, against the unit circle: only vorticity leaves the unit disk (spectral radius ρΩ = 2 .41, with 138 unstable eigenvalues), whereas θ, Te, and ϕ remain tightly contractive ( ρ ≤ 0.23; each field in its own panel). (b) Single-step power gain of the residual update Z ← (I + K)2Z: the eigenvalue bound max |1 + λ|4 and the operator norm ∥(I + K)2∥22.Vorticity’s spectral amplitude overestimate and rollout divergence both arise from a single non-contractive learned operator. The vorticity operator has spectral radius ρΩ = 2 .41 (eigen-values outside the unit circle), so it amplifies fluctuations at every step, whereas the operators for the other three fields are contractive ( ρ ≤ 0.23). The tanh output activation masks this instability in one-step prediction by capping the variance, but the amplification compounds under autoregressive rollout, contributing to the error growth in Figure 12. The learned vortic-ity update has a single-step power gain of 90 .9× (eigenvalue bound) to 462 × (operator norm), versus at most 4 × for the other three fields (Figure 10). This isolated non-contractivity is the operator-level counterpart of the same polarization coupling (8), which the fieldwise surrogate does not enforce. 
+
+4.5 Blob detection 
+
+The spectral diagnostics identify how the surrogate distributes fluctuation power across scales. We next examine how these scale-dependent errors appear in physical space through blob detec-tion technique. Figure 11 overlays blob-detection contours on the normalized density fluctuation 
+
+|˜n|/¯n in the poloidal plane at the held-out resistivity ν0 = 0 .1, using a threshold |˜n|/¯n > 0.10 in the SOL region following Ref. [32] with a common GBS-derived background ¯ n (toroidal average over the 20 retained planes at the matched one-step frame). 15 0 50 100 150 200         
+
+> R[s0]
+> 0
+> 50
+> 100
+> 150
+> 200
+> 250
+> 300
+> Z [ s0]
+> GBS
+> 050 100 150 200
+> R[s0]
+> Prediction
+> 0.000
+> 0.025
+> 0.050
+> 0.075
+> 0.100
+> 0.125
+> 0.150
+> 0.175
+> 0.200
+> |n|/ n
+
+SOL blob detection Figure 11: Normalized density fluctuation |˜n|/¯n on the poloidal ( R, Z ) plane at the held-out resistivity ν0 = 0 .1. White contours and cyan centroids indicate blobs detected using the threshold |˜n|/¯n > 0.10 in the SOL region where the background density ¯ n (toroidal average over the 20 retained planes) is taken from the GBS reference for both fields to remove normalization differences. The surrogate captures the blob structures and radial locations well. The KNO prediction captures the main SOL blob structures and their approximate radial locations, including elongated features along the separatrix and in the outer SOL. With the common GBS background, the one-step blob populations agree quantitatively (63 versus 71 blobs; blob-mask IoU 0.79). This is the physical-space counterpart of the small-scale spectral over-prediction in Section 4.4. 
+
+4.6 Autoregressive rollout and stability limit 
+
+The diagnostics discussed above are based on either one-step prediction or teacher-forced eval-uation. They therefore measure the conditional statistical fidelity of the surrogate while its input remains close to the reference GBS trajectory. To assess autonomous performance, we perform autoregressive rollouts for up to 12 steps at the held-out value ν0 = 0 .1, where each predicted field is fed back into the input history for the next prediction. The corresponding one-step persistence baselines are reported in Table 2. 16 2 4 6 8 10 12                
+
+> Autoregressive rollout step k
+> 10 1
+> 10 0
+> 10 1
+> Relative  L2 slice error
+> Multistep autoregressive rollout: relative L2error on the poloidal slice
+> (= 0.1, z= 10; density on n= exp )
+> Vorticity ( )Electric potential ( )Electron temperature ( Te)Density ( n)
+
+Figure 12: Relative L2 rollout error over the first 12 autoregressive steps at the held-out ν0 = 0 .1on the poloidal slice iφ = 10, for Ω, ϕ, Te, and density ( n = exp( θ)). Vorticity grows fastest, consistent with its non-contractive learned operator (Figure 10), while density, potential, and temperature remain comparatively stable over this window. The vertical axis is logarithmic. Figure 12 shows that good one-step accuracy does not necessarily lead to stable free-running predictions. In training and teacher-forced validation, each surrogate is conditioned on ground-truth histories over a short prediction window. In autoregressive rollout, however, the model is fed with its own previous predictions. As soon as the predicted state moves away from the distribution seen during ground-truth-conditioned prediction, errors can accumulate and the trajectory may drift from the GBS reference. The 12-step rollout window highlights the field-dependent divergence rate: vorticity ac-cumulates error fastest, in line with its non-contractive Koopman operator, whereas density, potential, and electron temperature grow more slowly while the input stays near the refer-ence trajectory. Overall, the rollout results define the present scope of the model: an effective short-horizon, resistivity-conditioned statistical emulator. 
+
+4.7 Computational cost 
+
+Finally, we report the inference cost of the retained KNO configuration. Table 3 lists the trainable parameter count and forward-pass latency. Since all four fieldwise models use the same Fourier-mode set, their parameter counts are identical. A direct wall-clock comparison with GBS would require matched hardware, solver settings, grid resolution, timestep, and output cadence, which can vary substantially between runs. We therefore report the neural inference latency directly, rather than quoting a universal speedup factor. A full drift-reduced Braginskii time integration remains substantially more expensive than a single neural forward pass [33, 34]. The measured per-field forward time of approximately 124 ms indicates that the resistivity-conditioned KNO is suitable for rapid exploratory studies and diagnostic-dashboard applications within the parameter range considered here. 17 Quantity Value Trainable parameters ( ϕ, Te, θ; each) 40 ,540 ,324 Trainable parameters (vorticity Ω) 40 ,540 ,324 Mean forward time ∼ 123 .64 ms Field-to-latent ratio ( nfields /d ℓ, nfields = 8) ∼ 0.25 Table 3: Architecture benchmark for the retained ν0-conditioned fieldwise configuration. Pa-rameter counts are exact trainable totals. Forward time is measured for the retained electron-temperature surrogate at batch size one on an NVIDIA A100 80GB PCIe using PyTorch 2.5.1+cu121, giving 123 .64 ± 0.65 ms over 200 timed passes, with a minimum of 122 .14 ms. These numbers characterize the neural inference cost for the retained configuration. The computational advantage should therefore be interpreted together with the validation results above: the KNO is inexpensive and useful for short-horizon interpolation and diagnostic evalu-ation, while stable long-horizon replacement of the GBS dynamics remains an open challenge. 
+
+# 5 Conclusion 
+
+We developed resistivity-conditioned KNOs for electrostatic drift-reduced Braginskii turbulence using three-dimensional, flux-driven, nonlinear GBS simulations. The nominal resistivity la-bel ν0 was used as the conditioning parameter because it controls the resistive response and separates boundary-plasma regimes with different profile relaxation, fluctuation activity, and spectral content. Independent fieldwise surrogates were trained for the learned density channel 
+
+θ = ln n, electron temperature Te, electric potential ϕ, and vorticity Ω. Their performance was assessed at the held-out resistivity ν0 = 0 .1, providing an in-range interpolation test. The key positive result is that the model achieves good statistical fidelity at an unseen resistivity over short horizons—the one-step forecast interval ∆ tout = 0 .1 ( R0/c s0) on which the pointwise, spectral, and teacher-forced diagnostics are evaluated, with free-running rollouts assessed up to 12 steps ( ≈ 1.2). The Te surrogate achieves near-unity one-step slice agree-ment ( R2 > 0.999), while the density and electric-potential surrogates remain highly accurate (R2 > 0.99). Among the four fields, the density channel preserves the radial spectral slope most accurately. Reduced physical diagnostics, such as the time-averaged electron pressure-gradient scale length, are also well reproduced. The density-fluctuation analysis further shows that the surrogate captures the main SOL blob locations and gross morphology, although smaller-scale structures and local amplitudes are less accurately recovered. These results indicate that resistivity-conditioned KNOs can provide fast conditional emulators for selected pointwise, spec-tral, and reduced physical diagnostics within the parameter range considered. The main limitations are field dependence and free-running stability. Among the four field-wise surrogates, Ω remains the most challenging field, because it is a derivative quantity, is sensitive to high-wavenumber fluctuations, and is predicted independently from ϕ without ex-plicitly enforcing the polarization relation. In addition, the autoregressive rollouts progressively depart from the GBS reference trajectory, despite good one-step and teacher-forced perfor-mance. The present model therefore captures useful short-horizon conditional statistics, but does not yet provide a stable long-horizon closure for the full GBS dynamics. Overall, these results support the use of resistivity-conditioned fieldwise neural operators as fast surrogates for rapid exploratory studies, interpolation tests, and diagnostic-dashboard applications, especially when repeated full GBS simulations are costly. Stable long-horizon emu-lation and coupled multi-field consistency remain open challenges. Future work should therefore focus on coupled-field training, physics-informed constraints on the vorticity–potential relation, rollout-aware training objectives, and nonlinear latent dynamics that can better represent tur-bulent mixing beyond short-step Koopman evolution; a concrete instance is constraining the 18 vorticity operator to be contractive (spectral radius below unity), as it already is for the other three fields, which would suppress the spurious small-scale power amplification identified here. 
+
+# 6 Acknowledgments 
+
+This work is partly funded by Ministry of Education (MOE) AcRF Tier 1 grants RS38/24 and RG178/25, and National Research Foundation Singapore (NRF) core funding “Fusion Science for Clean Energy”, under the framework of Singapore Alliance with France for Fusion Energy (SAFE). The computational work for this article was performed on resources of the National Supercomputing Centre (NSCC), Singapore (Project 12003525). 
+
+# A Implementation details 
+
+This appendix records implementation details that complement the architecture summarised in Section 3. Equations already given there—the temporal lift and spatial encoding (Equa-tions (14) and (15)), the additive resistivity-conditioned operator (Equation (16)), the residual latent update (Equation (17)), the skip and decode (Equations (18) and (19)), and the training objective (Equations (20) and (21))—are referenced rather than repeated. 
+
+A.1 Spectral operator: explicit form 
+
+After the spatial encoding, the latent field is transformed to Fourier space and updated by the direction-wise complex matrices of Equation (16). Writing ˜Z for the transformed latent, the update is applied sequentially across the retained directions, ˜Z[R](k) = 
+
+> 32
+
+X
+
+> j=1
+
+Kij R (ν0, ∆t, k R) ˜Zj (k), (23) ˜Z[Z](k) = 
+
+> 32
+
+X
+
+> j=1
+
+Kij Z (ν0, ∆t, k Z ) ˜Z[R] 
+
+> j
+
+(k), (24) ˜Z[φ](k) = 
+
+> 32
+
+X
+
+> j=1
+
+Kij φ (ν0, ∆t, k φ) ˜Z[Z] 
+
+> j
+
+(k). (25) We write K(Z, ν 0, ∆t) for the operator on grid-valued latents obtained by composing the forward transform, the three directional updates above on the truncated mode cube, and the inverse transform back to real space. At a single Fourier triplet k = ( kR, k Z , k φ) the action of K reduces to a complex block Kk = Kφ(kφ) KZ (kZ ) KR(kR) ∈ Cdℓ×dℓ acting on the dℓ = 32 latent channels. Only a truncated set of 122 × 162 × 10 Fourier modes is retained, so the spectral block acts as a practical low-mode regulariser, distinct from the over-complete latent width dℓ = 32. 
+
+A.2 Residual evolution and decoding 
+
+The composed operator enters the residual latent update of Equation (17), applied for Niter = 2 steps, after which the skip combination and temporal decoder (Equations (18) and (19)) emit the physical prediction. No intermediate nonlinearity is applied between the Niter residual updates; the pointwise tanh appears only in the temporal encoder and in the final skip. The residual form supplies a short-time correction to the latent state rather than replacing it: during training the temporal decoder jointly emits 4 frames, while the one-step slice metrics of Section 4 use only the first. 19 A.3 Spectral stability of the learned operators 
+
+For each fieldwise surrogate we extract, from the retained checkpoint at the held-out resistivity 
+
+ν0 = 0 .1, the per-mode block Kk of the composed spectral operator K (Section A.1) at each Fourier triplet k = ( kR, k Z , k φ). Because the latent state is advanced by the residual update 
+
+Z ← Z + K(Z) applied Niter = 2 times per step (Equation (17)), the single-step amplification of modal power is bounded below by the eigenvalue gain max i |1 + λi(Kk)|2Niter and exactly by the operator-norm gain ∥(I + Kk)Niter ∥22; the two coincide for a normal operator and diverge under non-normal transient growth. We evaluate both over the 4 × 4 × 4 = 64 lowest-order Fourier modes (results are insensitive to including higher modes, which are strongly contractive for all fields). The resulting per-field gains are reported in Figure 10. 
+
+A.4 Network blocks 
+
+The surrogate contains four main components. 
+
+• A temporal encoder-decoder pair operating pointwise at each grid point. The encoder is a single learned linear layer (bias included) from the H-history to a latent vector of width 32, followed by a pointwise tanh activation. The decoder is a single learned linear layer from width 32 to a vector of width 4 (the joint prediction horizon) with no activation. The decoder width matches the prediction horizon rather than the input history, so the temporal encoder-decoder round trip functions as an auxiliary prediction head rather than a strict reconstruction. 
+
+• A spatial encoder-decoder pair built from three-dimensional convolutions that mix neigh-bouring structure on the simulation grid. Each of the encoder and decoder is a stack of three Conv3d layers with ReLU activations; channel widths are (32 , 4×32 , 32) inside the stack so that the spatial tensor entering and leaving the stack has width 32. 
+
+• A direction-wise Fourier-space update whose learned matrices depend on the conditioning parameter ν0 and the timestep ∆ t. In minibatches that contain more than one ν0 (or ∆ t)value, the complex corrections K(ν) 
+
+> d
+
+(ν0) and K(∆ t) 
+
+> d
+
+(∆ t) are averaged across the batch before application, so the effective operator within a batch is the scalar-averaged version. The implementation applies a truncated complex Fourier cube on ( R, Z, φ ) with axis ordering and torch.fft.rfftn conventions matching the released code. 
+
+• A final skip zfinal = tanh( W0 ⋆z+D3D (Z(Niter ))), where W0 is a 1 ×1×1 Conv3d preserving the latent-channel width 32. This skip sits outside the E3D /D3D pair, so no additional E3D 
+
+pass is applied on that branch. Mapping from paper symbols to code field identifiers used in the released repository: Ω ↔
+
+omega , ϕ ↔ strmf (the GBS streamfunction label denotes the same electrostatic potential ϕ), 
+
+Te ↔ temperature , and the learned density channel θ ↔ theta (physical density n = exp( θ)when mapped). All four fieldwise models retain up to 122 × 162 × 10 Fourier modes and apply 2 residual updates in latent space. 
+
+A.5 Auxiliary prediction and latent-consistency losses 
+
+The auxiliary stack Laux of Equation (20) contains one auxiliary prediction term and three latent-consistency terms evaluated in MSE, 
+
+Laux = MSE  Dtemp (z), f target 1:4 
+
+ + MSE  Etemp (Dtemp (z)) , z
+
++ MSE  D3D (E3D (Zpre )) , Zpre 
+
+ + MSE  E3D (D3D (Zpost )) , Zpost 
+
+, (26) 20 where z = tanh( Etemp (·)) is the temporal latent of (14), Zpre = Z(0) = E3D (z) is the spatial latent before the Koopman stack, and Zpost = Z(Niter ) is the latent after Niter residual updates. Because the temporal decoder has output width 4, the first term is an auxiliary four-frame prediction head trained against f target 1:4 rather than a reconstruction of the input history. The remaining three terms regularise temporal and spatial encode-decode consistency before and after the Koopman stack; they are practical regularisers that encourage informative latents and stable decoding, not proofs of invertibility or physical consistency. 
+
+A.6 Retained checkpoint optimisation metrics 
+
+Table 4 lists the training epoch and composite optimisation objectives for the same fieldwise checkpoints summarised in Table 2. Train and Val are the main prediction losses (components of Lpred , Equation (21)) on the training and within-trajectory validation loaders at the listed epoch; Val pred , Val recon , and Train pred are auxiliary-stack components introduced alongside Equation (20). These entries are not physical error percentages.                               
+
+> Field Epoch Train Val Val pred Val recon Train pred Ω19980 0.012206 0.012008 0.012008 1.799853 0.012206
+> ϕ17720 0.000733 0.000732 0.000732 0.062821 0.000733
+> Te13180 0.000565 0.000565 0.000565 0.007843 0.000565
+> θ19340 0.000404 0.000422 0.000422 0.005157 0.000404
+
+Table 4: Retained checkpoint epochs and composite losses for the fieldwise runs referenced in Table 2. 
+
+A.7 Latent width and memory 
+
+The latent tensor uses dℓ = 32 scalar channels per grid point, which is wider than the eight physical fields of the full Braginskii state (expansion ratio dℓ/n fields ≈ 4). This over-complete representation provides additional degrees of freedom for the Koopman-style spectral update to approximate nonlinear dynamics in a lifted, approximately linear space. Storing latent ac-tivations during training therefore scales with dℓ rather than implying channel-wise reduction relative to the full multi-field state. 
+
+# B Toroidal dimension reconstruction 
+
+The surrogate is trained on a contiguous subset of 20 toroidal planes (indices 0 , . . . , 20 − 1 of the full 80-plane GBS grid). Because the toroidal coordinate φ is 2 π-periodic, one can in principle recover the full toroidal field from a reduced set of samples by spectral reconstruction. This section records the reconstruction method and its conditioning. 
+
+B.1 GBS toroidal grid convention 
+
+The GBS simulation stores 80 toroidal planes at coordinates 
+
+φk = k 2πNφ
+
+, k = 0 , . . . , N φ − 1, Nφ = 80 , (27) i.e. an endpoint-exclusive periodic partition with uniform spacing ∆ φ = 2 π/N φ. The recon-struction target grid must match this convention exactly; an endpoint-inclusive grid (spacing 2π/ (Nφ − 1)) introduces a coordinate bias that grows with toroidal index and corrupts the reconstructed field. 21 B.2 Complex-exponential Fourier reconstruction 
+
+Given field values f (φj ) at Ns = 20 sparse toroidal locations, the reconstructor fits a truncated complex Fourier series using the basis {eikφ }Kk=−K with K = 10, giving 2 K + 1 = 21 complex basis functions. The design matrix Bs ∈ CNs×(2 K+1) is assembled by evaluating eikφ j at each sample location, yielding a slightly underdetermined complex system ( Ns = 20 < 2K + 1 = 21). The coefficient vector is found as the minimum-norm least-squares solution, 
+
+c = arg min  
+
+> c∈C2K+1
+
+∥Bs c − fs∥2, (28) computed via torch.linalg.lstsq . The reconstructed field at all Nφ target locations is then ˆf = Re( Bt c), where Bt ∈ CNφ×(2 K+1) evaluates the same basis at the full grid. No explicit conjugate-symmetry constraint is imposed; the real part is taken as the final reconstruction, which is sufficient for real-valued plasma fields. 
+
+B.3 Conditioning and contiguous-subset limitations 
+
+When the Ns sparse samples are uniformly distributed around the full period (e.g. every (Nφ/N s)-th plane), the basis matrix Bs inherits the orthogonality of the DFT and is well conditioned. In the present work, however, the 20 training planes are contiguous (indices 0, . . . , 20 − 1), covering approximately 20 /80 of the toroidal domain. 
+
+# References 
+
+[1] J. W. Connor and H. R. Wilson, “A review of theories of the L-H transition,” Plasma Phys. Control. Fusion , vol. 42, no. 1, pp. R1–R74, 2000. [2] X. Garbet, Y. Idomura, L. Villard, and T. H. Watanabe, “Gyrokinetic simulations of turbulent transport,” Nucl. Fusion , vol. 50, no. 4, p. 043002, 2010. [3] W. Horton, “Drift waves and transport,” Rev. Mod. Phys. , vol. 71, no. 3, pp. 735–778, 1999. [4] S. I. Braginskii, “Transport processes in a plasma,” in Reviews of Plasma Physics (M. A. Leontovich, ed.), vol. 1, pp. 205–311, New York: Consultants Bureau, 1965. [5] A. Zeiler, J. F. Drake, and B. Rogers, “Nonlinear reduced braginskii equations with ion thermal dynamics in toroidal plasma,” Phys. Plasmas , vol. 4, no. 6, pp. 2134–2138, 1997. [6] B. Clavier, D. Zarzoso, D. del Castillo-Negrete, and E. Fr ’enod, “Generative-machine-learning surrogate model of plasma turbulence,” Phys. Rev. E, vol. 111, no. 1, p. L013202, 2025. [7] S. Dasbach and S. Wiesen, “Towards fast surrogate models for interpolation of tokamak edge plasmas,” Nucl. Mater. Energy , vol. 34, p. 101396, 2023. [8] V. Gopakumar, S. Pamela, L. Zanisi, Z. Li, A. Gray, D. Brennand, N. Bhatia, G. Stathopou-los, M. Kusner, M. P. Deisenroth, and A. Anandkumar, “Plasma surrogate modelling using fourier neural operators,” Nucl. Fusion , vol. 64, no. 5, p. 056025, 2024. [9] N. Carey, L. Zanisi, S. Pamela, V. Gopakumar, J. Omotani, J. Buchanan, J. Brandstetter, F. Paischer, G. Galletti, and P. Setinek, “Neural operator surrogate models of plasma edge simulations: feasibility and data efficiency,” Nucl. Fusion , vol. 65, no. 10, p. 106010, 2025. 22 [10] E. Narita, M. Honda, S. Maeyama, and T.-H. Watanabe, “Toward efficient runs of nonlin-ear gyrokinetic simulations assisted by a convolutional neural network model recognizing wavenumber-space images,” Nucl. Fusion , 2022. [11] C. Wan et al. , “A high-fidelity surrogate model for the ion temperature gradient (ITG) instability using a small expensive simulation dataset,” Nucl. Fusion , vol. 65, p. 054001, 2025. [12] K. Li et al. , “Reconstructing High-fidelity Plasma Turbulence with Data-driven Tuning of Diffusion in Low Resolution Grids,” arXiv preprint arXiv:2509.11576 , 2025. [13] A. Solheim, K. Lim, S. Deparis, and P. Ricci, “Data-driven model order reduction for accelerating boundary plasma turbulence simulations,” J. Plasma Phys. , vol. 92, no. 1, p. E1, 2026. [14] J. A. Krommes, “Fundamental statistical descriptions of plasma turbulence in magnetic fields,” Phys. Rep. , vol. 360, no. 1–4, pp. 1–352, 2002. [15] B. D. Scott, “Derivation via free energy conservation constraints of gyrofluid equations with finite-gyroradius electromagnetic nonlinearities,” Phys. Plasmas , vol. 12, no. 10, p. 102307, 2005. [16] M. Giacomin, P. Ricci, A. Coroado, G. Fourestey, D. Galassi, E. Lanti, D. Mancini, N. Richart, L. N. Stenger, and N. Varini, “The gbs code for the self-consistent simula-tion of plasma turbulence and kinetic neutral dynamics in the tokamak boundary,” J. Comput. Phys. , vol. 463, p. 111294, 2022. [17] A. A. Kaptanoglu, K. D. Morgan, C. J. Hansen, and S. L. Brunton, “Physics-constrained, low-dimensional models for magnetohydrodynamics: First-principles and data-driven ap-proaches,” Phys. Rev. E , vol. 104, no. 1, p. 015206, 2021. [18] V. Vlasov, T. Eberl, and K. Rath, “Data-driven modeling of plasma turbulence using neural networks,” Phys. Plasmas , vol. 28, no. 5, p. 052301, 2021. [19] Z. Li, N. Kovachki, K. Azizzadenesheli, B. Liu, K. Bhattacharya, A. Stuart, and A. Anand-kumar, “Fourier neural operator for parametric partial differential equations,” in Interna-tional Conference on Learning Representations (ICLR) , 2021. [20] L. Lu, P. Jin, G. Pang, Z. Zhang, and G. E. Karniadakis, “Learning nonlinear operators via deeponet based on the universal approximation theorem of operators,” Nat. Mach. Intell. ,vol. 3, no. 3, pp. 218–229, 2021. [21] N. Kovachki, Z. Li, B. Liu, K. Azizzadenesheli, K. Bhattacharya, A. Stuart, and A. Anand-kumar, “Neural operator: Learning maps between function spaces with applications to pdes,” J. Mach. Learn. Res. , vol. 24, no. 89, pp. 1–97, 2023. [22] B. O. Koopman, “Hamiltonian systems and transformation in Hilbert space,” Proc. Natl. Acad. Sci. USA , vol. 17, no. 5, pp. 315–318, 1931. [23] I. Mezic, “Spectral properties of dynamical systems, model reduction and decompositions,” 
+
+Nonlinear Dyn. , vol. 41, no. 1–3, pp. 309–325, 2005. [24] I. Mezic, “Analysis of fluid flows via spectral properties of the koopman operator,” Annu. Rev. Fluid Mech. , vol. 45, pp. 357–378, 2013. [25] J. N. Kutz, S. L. Brunton, B. W. Brunton, and J. L. Proctor, Dynamic Mode Decomposi-tion: Data-Driven Modeling of Complex Systems . Philadelphia: SIAM, 2016. 23 [26] M. O. Williams, I. G. Kevrekidis, and C. W. Rowley, “A data-driven approximation of the koopman operator: Extending dynamic mode decomposition,” J. Nonlinear Sci. , vol. 25, no. 6, pp. 1307–1346, 2015. [27] J. H. Tu, C. W. Rowley, D. M. Luchtenburg, S. L. Brunton, and J. N. Kutz, “On dynamic mode decomposition: Theory and applications,” J. Comput. Dyn. , vol. 1, no. 2, pp. 391– 421, 2014. [28] H. Arbabi and I. Mezic, “Ergodic theory, dynamic mode decomposition, and computation of spectral properties of the Koopman operator,” SIAM J. Appl. Dyn. Syst. , vol. 16, no. 4, pp. 2096–2126, 2017. [29] P. Ricci, F. D. Halpern, S. Jolliet, J. Loizu, A. Mosetto, A. Fasoli, I. Furno, and C. Theiler, “Simulation of plasma turbulence in scrape-off layer conditions: the gbs code, simulation results and code validation,” Plasma Phys. Control. Fusion , vol. 54, no. 12, p. 124047, 2012. [30] F. Faraji and M. Reza, “Machine learning applications to computational plasma physics and reduced-order plasma modeling: a perspective,” J. Phys. D: Appl. Phys. , vol. 58, p. 102002, 2025. [31] D. P. Kingma and J. Ba, “Adam: A method for stochastic optimization,” in International Conference on Learning Representations (ICLR) , 2015. [32] K. Lim, P. Ricci, and L. Lebrun, “Effect of negative triangularity on scrape-off layer plasma turbulence in double-null L-mode plasmas,” J. Plasma Phys. , vol. 92, p. E2, 2026. [33] B. D. Dudson, M. V. Umansky, X. Q. Xu, P. B. Snyder, and H. R. Wilson, “BOUT++: A framework for parallel plasma fluid simulations,” Comput. Phys. Commun. , vol. 180, no. 9, pp. 1467–1480, 2009. [34] C. S. Chang, S. Ku, P. H. Diamond, Z. Lin, S. Parker, T. S. Hahm, and N. Samatova, “Compressed ion temperature gradient turbulence in diverted tokamak edge,” Phys. Plas-mas , vol. 16, no. 5, p. 056108, 2009. 24
