@@ -6,37 +6,37 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-20
-- 运行时间：2026-07-20 21:02:56 UTC
+- 最新运行日期：2026-07-21
+- 运行时间：2026-07-21 21:43:26 UTC
 - 运行状态：成功
 - 本次总论文数：5
-- 精读区：1
-- 速读区：4
+- 精读区：3
+- 速读区：2
 
 ### 今日简报（AI）
-今日精读一篇等离子体湍流代理模型研究，速读4篇涵盖降水预报、PDE发现及环境监测公民科学。
-最值得关注的是Koopman神经算子对Braginskii湍流的代理建模，以及基于物理的U-Net高分辨率降水预报方法。
-建议普通读者重点跟踪机器学习与物理模拟结合的思路，尤其关注气象预测和等离子体领域的代理模型进展。
-- 详情：[/202607/20/README](/202607/20/README)
+1) 今日精读聚焦神经PDE求解器加速库FlashPDE与空气动力学代理的可靠性校准方法，速读涵盖空气质量建模与地面观测融合预测。  
+2) 最值得关注方向：FlashPDE作为即插即用的Triton算子库可显著提升偏微分方程求解效率；多粒度共形预测为汽车空气动力学神经网络代理提供置信区间保障。  
+3) 建议扩展：可尝试将FlashPDE集成到现有物理模拟流程中，并对比共形预测与传统不确定性量化方法的实际表现。
+- 详情：[/202607/21/README](/202607/21/README)
 
 ### 精读区论文标签
-1. [Surrogate modeling of drift-reduced Braginskii turbulence with resistivity-conditioned Koopman neural operators](/202607/20/2607.15857v1-surrogate-modeling-of-drift-reduced-braginskii-turbulence-with-resistivity-conditioned-koopman-neural-operators)  
+1. [FlashPDE: A Drop-in Fused Triton Operator Library for Neural PDE Solvers](/202607/21/2607.18020v1-flashpde-a-drop-in-fused-triton-operator-library-for-neural-pde-solvers)  
+   标签：评分：9.0/10、query:aqac
+   evidence：FlashPDE是用于神经PDE求解器的即插即用融合算子库，直接支持环境PDE的物理信息机器学习
+2. [Multi-Granularity Conformal Prediction for Reliable Neural-Operator Automotive Aerodynamic Surrogates](/202607/21/2607.17297v1-multi-granularity-conformal-prediction-for-reliable-neural-operator-automotive-aerodynamic-surrogates)  
    标签：评分：8.0/10、query:aqac
-   evidence：使用Koopman神经算子对等离子体湍流进行代理建模
+   evidence：神经算子代理模型用于空气动力学建模；共形预测提升可靠性
+3. [Adaptive Mamba Neural Operators](/202607/21/2607.18043v1-adaptive-mamba-neural-operators)  
+   标签：评分：8.0/10、query:aqac
+   evidence：任意几何上的神经算子
 
 ### 速读区论文标签
-1. [Physics-Based Deep Spatiotemporal Hyperlocal Radar Nowcasting with a Multi-Variable U-Net for High-Resolution Precipitation Forecasting](/202607/20/2607.16080v1-physics-based-deep-spatiotemporal-hyperlocal-radar-nowcasting-with-a-multi-variable-u-net-for-high-resolution-precipitation-forecasting)  
+1. [Interpretable Machine Learning for Air Pollution and Respiratory Health Prediction: A Socioeconomic Subgroup Analysis](/202607/21/2607.17024v1-interpretable-machine-learning-for-air-pollution-and-respiratory-health-prediction-a-socioeconomic-subgroup-analysis)  
    标签：评分：7.0/10、query:aqac
-   evidence：基于物理的深度学习用于降水临近预报，属于环境建模任务
-2. [LLM-PDESR: Robust PDE Discovery via Subdomain Weighted Residuals and LLM-Guided Symbolic Hypothesis Generation](/202607/20/2607.10546v1-llm-pdesr-robust-pde-discovery-via-subdomain-weighted-residuals-and-llm-guided-symbolic-hypothesis-generation)  
+   evidence：用于空气污染预测和健康的机器学习
+2. [OCELOT: Direct Atmospheric Forecasting from Heterogeneous Earth Observations Using a Graph-Transformer Hybrid Model](/202607/21/2607.14196v1-ocelot-direct-atmospheric-forecasting-from-heterogeneous-earth-observations-using-a-graph-transformer-hybrid-model)  
    标签：评分：6.0/10、query:aqac
-   evidence：用于PDE发现的物理信息机器学习
-3. [RACiMo: Red Ambiental Ciudadana de Monitoreo: A Student-Centred Citizen Science Network for Environmental Monitoring, Data Literacy, and Climate Awareness in Colombia](/202607/20/2607.14805v1-racimo-red-ambiental-ciudadana-de-monitoreo-a-student-centred-citizen-science-network-for-environmental-monitoring-data-literacy-and-climate-awareness-in-colombia)  
-   标签：评分：6.0/10、query:aqac
-   evidence：整合气象与空气质量数据的公民科学网络
-4. [Asymmetric Peak-Aware Loss for Peak-Critical Time Series Forecasting](/202607/20/2607.14871v1-asymmetric-peak-aware-loss-for-peak-critical-time-series-forecasting)  
-   标签：评分：6.0/10、query:aqac
-   evidence：非对称损失用于峰值关键时间序列预测，可用于空气质量峰值
+   evidence：OCELOT是基于图-变换器混合的直接大气预报系统，与空气质量预报和数据同化相关
 
 
 <div class="dpr-home-promo-card">
