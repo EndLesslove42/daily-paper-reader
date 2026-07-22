@@ -1,0 +1,1225 @@
+Title: Differentiable Hybrid Neural-CFD Modelling of Wall-Bounded Turbulence: Coupled Learning of Subgrid-Scale and Wall Closures
+
+URL Source: https://arxiv.org/pdf/2607.17357v1
+
+Published Time: Tue, 21 Jul 2026 01:29:35 GMT
+
+Number of Pages: 39
+
+Markdown Content:
+> Under consideration for publication in J. Fluid Mech.
+
+Banner appropriate to article type will appear here in typeset article 
+
+# Differentiable Hybrid Neural–CFD Modelling of Wall-Bounded Turbulence: Coupled Learning of Subgrid-Scale and Wall Closures 
+
+Xiantao Fan 1, Yi Liu 1, Meng Wang 2, and Jian-Xun Wang 1 
+
+> 1Sibley School of Mechanical and Aerospace Engineering, Cornell University, Ithaca, NY, USA
+> 2Department of Aerospace and Mechanical Engineering, University of Notre Dame, Notre Dame, IN, USA
+> Corresponding author: Jian-Xun Wang, jw2837@cornell.edu (Received xx; revised xx; accepted xx)
+
+Wall-modelled large-eddy simulation (WMLES) conventionally treats the subgrid-scale (SGS) closure, the wall closure and the numerical discretization as independent compo-nents, even though their effects are coupled through the same resolved field. We present a differentiable hybrid neural–CFD framework in which the SGS and wall closures are learned jointly, end-to-end, within a discretized differentiable flow solver, using only low-order statistics as the training target. Each closure is a composed neural operator: a trainable neural network followed by a fixed, differentiable layer that carries the structure of its conventional counterpart, so that the network learns only the functions/operators that the conventional form leaves undetermined. Because every operation in this composition is differentiable, gradients of the training loss are back-propagated through the coupled solver, allowing both neural closures to be optimized consistently against the flow field simulated from the discretized system, rather than fitted offline or in isolation. We demonstrate the framework, denoted Hybrid-Joint , on a zero-pressure-gradient turbu-lent boundary layer across a series of a posteriori test configurations spanning 𝑅𝑒 𝜃 = 600– 6500, computational domains, and mesh resolutions. The model consistently outperforms conventional WMLES baselines, extrapolates without appreciable degradation to more than four times the highest training Reynolds number, and transfers to grids and domains absent from training. The trained model recovers a logarithmic mean-velocity region, which the wall closure never imposes, and reproduces the resolved-scale energy spectra accurately, even though spectral information is never included in the training objective. Ablation studies show that learning either closure alone is insufficient and that only their joint optimization recovers the full set of statistics, confirming that the SGS closure, the wall closure and the discretization are coupled and must be trained as such. Once trained, the closures are reused without retraining across every configuration examined, so that training cost is amortized over repeated deployment. 
+
+Key words: Turbulence modelling; wall-modelled LES; machine learning; differentiable physics; computational methods. 
+
+Abstract must not spill onto p.2 0 X0-1 arXiv:2607.17357v1 [physics.flu-dyn] 19 Jul 2026 X. Fan, Y. Liu, M. Wang and J.-X. Wang 
+
+> 1. Introduction
+
+Simulating the unsteady, three-dimensional evolution of wall-bounded turbulence at high Reynolds number remains prohibitively expensive. The total space–time degrees of freedom of a direct numerical simulation (DNS) scale as 𝑁 𝑡 𝑁 𝑥 𝑁 𝑦 𝑁 𝑧 ∼ 𝑅𝑒 2.91  
+
+> 𝐿 𝑥
+
+, where 
+
+𝑁 𝑡 is the number of time steps, 𝑁 𝑖 the number of grid points in the 𝑥 𝑖 direction, and 𝑅𝑒 𝐿 𝑥 
+
+a Reynolds number based on the streamwise development length (Chapman 1979; Yang & Griffin 2021). Wall-resolved large-eddy simulation (WRLES) relaxes this cost only modestly (as 𝑅𝑒 2.72  
+
+> 𝐿 𝑥
+
+), since resolving the near-wall motions still dominates the expense at high Reynolds number. For outer-loop applications such as design, optimization and uncertainty quantification, the flow must be simulated repeatedly, so the constraint is the cost per simulation rather than the fidelity of any individual run. Reducing this cost requires coarsening the mesh and the time step together, so that the space–time degrees of freedom are reduced along every axis. The difficulty is that coarsening the resolution changes what the simulation can represent: the discretization no longer resolves the full range of turbulent scales, and simply advancing the original governing equations on a coarse grid does not recover the correct dynamics. Two broad strategies have emerged to simulate turbulence in this under-resolved regime. The first replaces the solver altogether with a purely data-driven surrogate, typically an autoregressive neural operator that advances the resolved field from one step to the next (Fukami et al. 2019; Guastoni et al. 2021; Li et al. 2023; Kohl et al. 
+
+2026). Such surrogates can operate at coarse space-time resolution, but by discarding the governing equations they sacrifice the built-in physical constraints of the solver and tend to compromise stability and generalization, particularly for three-dimensional high-Reynolds-number turbulence. The second, and in our view more promising, strategy retains the discretized governing equations as a physical backbone and introduces additional modelling/learning only for the scales the coarse discretization cannot resolve. This hybrid strategy preserves the structure, conservation properties and boundary conditions of the numerical solver, while relying on closures to account for the unresolved physics. Within this hybrid strategy, the unresolved contribution can either be learned from data or prescribed from physical reasoning about the unresolved scales. When it is prescribed, the hybrid strategy reduces to the classical framework of wall-modelled large-eddy simulation (WMLES) (Piomelli 2008; Larsson et al. 2016; Bose & Park 2018), in which two prescribed closures act on the resolved field. In the interior, a subgrid-scale (SGS) model represents the effect of the unresolved small scales, for which a wide range of algebraic and dynamic eddy-viscosity models has been developed (Smagorinsky 1963; Germano et al. 1991; Vreman 2004; Bardina et al. 1980; Clark et al. 1979; Meneveau & Katz 2000). Near the wall, where the mesh is too coarse to resolve the inner layer, a wall model supplies the wall shear stress that the resolved field cannot itself provide, most commonly through an equilibrium wall-stress model that infers the friction velocity from the resolved outer-layer velocity via an assumed law of the wall (Piomelli & Balaras 2002; Piomelli 2008; Bose & Park 2018). Casting WMLES in this way, as the physics-based limit of the hybrid strategy rather than as a standalone method, makes clear where its well-known difficulties come from and what a learning-based approach must address. Conventional WMLES treats these two closures as independent components, yet in practice its accuracy is governed by neither closure alone. A well-known symptom is the log-layer mismatch, a systematic error in the mean velocity profile near the wall. This mismatch can be alleviated by adjusting the matching location (Kawai & Larsson  
+
+> 0X0-2
+
+Journal of Fluid Mechanics 
+
+2012), by modifying the SGS stress model (Port´ e-Agel et al. 2000), or by filtering the resolved velocity supplied to the wall model (Yang et al. 2017), three routes acting on very different parts of the simulation. That such different interventions all reduce the same error shows that the wall-stress prediction depends on the resolved outer-layer flow, which is itself shaped by the SGS closure and the numerical discretization (Larsson 
+
+et al. 2016). The coupling extends to the boundary treatment as well: imposing the wall stress by augmenting the wall eddy viscosity, rather than through a Neumann condition, changes the near-wall statistics (Bae & Lozano-Dur´ an 2021). The interdependence can even determine the qualitative flow response: in non-equilibrium flows, whether separation occurs is also governed by the SGS closure rather than the wall model alone (Zhou & Bae 2024, 2025). Designing the SGS and wall models separately, as fixed functional forms calibrated in isolation, cannot account for this interdependence (Rezaeiravesh et al. 2019). A second limitation is that these closures are derived at the continuous level and calibrated independently of the numerical solver in which they operate. In the coarse space–time regime, however, the discretization is itself a leading-order source of error: the coarse mesh and large time step introduce numerical dissipation and dispersion that act directly on the resolved field, alongside commutation errors between filtering and differentiation (Huang 
+
+et al. 2026). Because conventional closures are formulated without reference to a particular discretization, they cannot compensate for these numerical errors, and a model calibrated in the continuum may behave quite differently once embedded in a specific discrete solver. The SGS closure, wall model and numerical schemes are therefore not separable: they act on the same resolved field and their errors compound. Conventional WMLES nonetheless designs the two closures independently and in the continuum, leaving their coupling, and their interaction with the discretization, unaddressed. Machine learning offers a way to relax these fixed functional forms, replacing prescribed closures with models learned from high-fidelity data while retaining the governing equations as a backbone (Wang et al. 2017; Maulik et al. 2019; Yang et al. 2019). Most such closures, however, are trained a priori : the network is fitted offline to reproduce a target field, such as the SGS stress or the wall shear stress, and only afterwards inserted into the solver. This offline strategy inherits the very limitations it was meant to remove, and adds one of its own. First, fitting each closure separately to its own target reproduces the isolated design of conventional WMLES: the SGS and wall models are learned independently, so their coupling, the very interdependence that governs a posteriori accuracy, remains outside the training objective. Second, because the closure never sees the discretized solver during training, good a priori accuracy does not guarantee good a posteriori behaviour, and models that match their target offline may be inaccurate or unstable once coupled to the solver, where commutation and numerical errors alter their effect (Wu et al. 2019; MacArt et al. 2021; Guan et al. 2022; Ling & Lozano-Duran 2025; Huang et al. 2026). Third, a priori training presumes access to the target field, yet reliable pointwise labels for high-order quantities such as the SGS stress are rarely available for high-Reynolds-number wall-bounded turbulence (McConkey et al. 2021; Zhang et al. 2022). These difficulties have motivated a shift towards a posteriori , or in-the-loop, training, in which the closure is optimized through the behaviour of the full numerical solver rather than against offline labels (Duraisamy et al. 2019). Realizing a posteriori training requires gradients of the simulated statistics with respect to the closure parameters, propagated backward through the time-stepping solver. A first route is the adjoint method, which has been used to learn SGS closures for several canonical flows (MacArt et al. 2021; Sirignano & MacArt 2023; Kim et al. 2025). Deriving and implementing an adjoint solver by hand is laborious, however, and the cost grows with the length of the unsteady rollout. Differentiable programming offers a more general route: by  
+
+> 0X0-3
+
+X. Fan, Y. Liu, M. Wang and J.-X. Wang 
+
+implementing the discretized governing equations in a framework that supports automatic differentiation, the solver itself becomes differentiable, and learnable closures embedded within it can be trained end-to-end against the flow the solver produces. We refer to hybrid models built in this way, in which trainable neural sub-models are coupled to a differentiable numerical solver and optimized through it, as differentiable hybrid neural–CFD modelling (Kochkov et al. 2021; Fan & Wang 2024; Akhare et al. 2025; Fan et al. 2025 b). The enabling component is a differentiable CFD platform. A growing number of such CFD solvers have been developed on modern array-programming frameworks ( JAX and 
+
+Julia ), including JAX-CFD (Kochkov et al. 2021), JAX-fluids (Bezgin et al. 2023), 
+
+WaterLily.jl (Weymouth & Font 2025), Diff-FlowFSI (Fan et al. 2026), DiFVM (Du 
+
+et al. 2026), among others. These platforms leverage a range of modern differentiable-programming techniques to obtain gradients efficiently and stably: reverse-mode automatic differentiation for explicit operations, implicit differentiation, or discrete adjoints, for the implicit components such as the pressure Poisson solve and implicit diffusion, and gradient checkpointing to keep the memory of long space–time rollouts tractable. Together, these techniques allow end-to-end gradients to be propagated stably through three-dimensional, long-horizon simulations, a capability that has been demonstrated for canonical two-dimensional flows (Kochkov et al. 2021; List et al. 2022; Shankar et al. 2025; Fan et al. 
+
+2025 b) and, more recently, three-dimensional channel flow (Franz et al. 2025), though training stability and the admissible rollout length remain delicate (List et al. 2025). Progress along this direction, however, remains partial in ways that matter for wall-bounded turbulence. Many differentiable hybrid-neural modelling studies treat the network as a generic correction to the resolved dynamics rather than as a physically structured closure, and their generalization across flow conditions/regimes has not been established. A more promising way is to make the learnable component itself physically structured, embedding it into the differentiable solver as a constrained closure inspired by conventional WMLES rather than as an unconstrained correction. Such physics-inspired architectural biases were found to be decisive (Shankar et al. 2025). Work of this kind, however, remains scarce for wall-bounded turbulence. Very recent efforts have so far addressed a single component only: a wall model (Zhang et al. 2026) or an SGS closure (Kim et al. 2025), but not both. As a result, the coupled effect of the SGS and wall closures, which conventional and a priori approaches also fail to capture, has yet to be addressed within a differentiable framework, and the design of objective functions, architectures and training procedures for such stochastic, chaotic flows remains an open question. In this work, we address this gap by developing a differentiable hybrid neural–CFD framework for simulating unsteady three-dimensional wall-bounded turbulence at coarse space–time resolution, in which the unresolved SGS and wall closures are jointly learned within the discretized flow solver using turbulence statistics as the only training labels. The framework has four main features. First, the two neural closures are structure-constrained rather than free-form, each built on the form of its conventional counterpart, so that physical structure is imposed while only the undetermined part is learned. Second, they are trained jointly and end-to-end, so that their coupling and their interaction with the numerical discretization are optimized consistently against the flow the solver produces. Third, training uses only low-order turbulence statistics, requiring neither instantaneous field matching nor pointwise SGS-stress labels, which makes the approach applicable where only limited statistical data are available. Fourth, the trained model generalizes across Reynolds numbers, computational domains, mesh resolutions and grid distributions, and reproduces the resolved-scale energy spectra accurately on very coarse meshes even though spectral information is never included in the training.   
+
+> 0X0-4
+
+Focus on Fluids articles must not exceed this page length Journal of Fluid Mechanics 
+
+We demonstrate the framework on the canonical zero-pressure-gradient turbulent bound-ary layer (TBL) across a wide range of Reynolds numbers, for which high-fidelity reference data are available, and leave its extension to non-equilibrium flows, such as adverse-pressure-gradient and separated boundary layers, to future work. The remainder of the paper is organized as follows. Section 2 presents the framework and its components; Section 3 reports a posteriori results for nine test cases; Section 4 analyses what the neural SGS and wall models learn; and Section 5 summarizes the findings and outlines future directions. 
+
+> 2. Methodology
+
+2.1. Problem formulation and closure strategies 
+
+We consider the incompressible Navier–Stokes equations solved on space–time resolutions far coarser than those required by DNS or WRLES. On such coarse grids the discretization resolves only the large, energy-containing motions, and the effect of the unresolved scales must be reintroduced through modelling. Applying a spatial filter to the incompressible Navier–Stokes equations gives the governing equations for the resolved field, 
+
+𝜕𝑢 𝑖 
+
+𝜕𝑡 + 𝜕 𝜕𝑥 𝑗 
+
+ 𝑢 𝑖 𝑢 𝑗 
+
+ = − 1
+
+𝜌 𝜕 𝑝 𝜕𝑥 𝑖 
+
++ 2𝜈 𝜕𝑆 𝑖 𝑗 
+
+𝜕𝑥 𝑗 
+
+− 𝜕𝜏 𝑖 𝑗 
+
+𝜕𝑥 𝑗 
+
+,𝜕𝑢 𝑖 
+
+𝜕𝑥 𝑖 
+
+= 0,
+
+(2.1) where 𝑢 𝑖 , 𝑝 , 𝜈 and 𝑆 𝑖 𝑗 = (𝜕𝑢 𝑖 /𝜕𝑥 𝑗 + 𝜕𝑢 𝑗 /𝜕𝑥 𝑖 )/ 2 denote the filtered velocity, filtered pres-sure, kinematic viscosity and resolved strain-rate tensor, with 𝑖, 𝑗 = 1, 2, 3 the streamwise, wall-normal and spanwise directions. Coarsening leaves two quantities unclosed. The first is the deviatoric SGS stress 𝜏 𝑖 𝑗 , which represents the effect of the unresolved small scales on the resolved field. The second arises at the wall: on a mesh too coarse to resolve the inner layer, a no-slip condition can no longer recover the near-wall momentum transfer, so the wall shear stress 𝜏 𝑤 must be supplied as a model rather than computed from the resolved velocity gradient. Both closures act on, and feed back through, the same resolved field, and their effect is further entangled with the numerical dispersion and dissipation introduced by the coarse mesh and large time step, so that the accuracy of the simulation is determined jointly by the two closures and the discrete solver in which they operate. Two strategies exist for supplying these closures. The conventional strategy prescribes both in fixed functional form, as in standard WMLES. The SGS stress is most commonly represented by an eddy-viscosity model, 
+
+𝜏 𝑖 𝑗 = −2𝜈 𝑡 𝑆 𝑖 𝑗 , 𝜈 𝑡 = 𝑐 F ( 𝑢 𝑖 ), (2.2) in which the unresolved stress is aligned with the resolved strain rate through a scalar eddy viscosity 𝜈 𝑡 , written as a dimensionless model coefficient 𝑐 times a prescribed functional 
+
+F that is built from the resolved velocity field. Eddy-viscosity models differ in the choice of F ; the Smagorinsky model, for instance, takes F ( 𝑢 𝑖 ) = |𝑆 | (Smagorinsky 1963; Lilly 1966). The wall stress is often supplied by an equilibrium wall model, which assumes local equilibrium in the near-wall region, so that it follows a universal law of the wall, 
+
+𝜏 𝑤 = 𝜌𝑢 2 
+
+> 𝜏
+
+, 𝑈 (𝑦 𝑚 )
+
+𝑢 𝜏 
+
+= 𝑓 
+
+ 𝑦 𝑚 𝑢 𝜏 
+
+𝜈 
+
+
+
+, (2.3) 
+
+0 X0-5 X. Fan, Y. Liu, M. Wang and J.-X. Wang 
+
+where 𝑈 (𝑦 𝑚 ) is the resolved wall-parallel velocity at a matching location 𝑦 𝑚 , 𝑓 a prescribed profile such as the log law or Spalding’s law, and the friction velocity 𝑢 𝜏 , hence 𝜏 𝑤 , is recovered by inverting this relation. Both closures are thus fixed in advance: the coefficient 
+
+𝑐 and the profile 𝑓 are calibrated a priori , independently of each other and of the discrete solver on which they run. Such isolated, continuous-level calibration is inadequate in the coarse, coupled regime considered here, since it cannot account for the interdependence of the two closures or for their interaction with the numerical scheme. The alternative strategy is to learn the closures from data. Instead of prescribing them in fixed functional form, one represents them by ML-based closures that are informed by the conventional forms but learned using high-fidelity data, 
+
+𝜏 𝑖 𝑗 = Msgs  𝑢 𝑖 , 𝑝 ; 𝜃 sgs 
+
+ , 𝜏 𝑤 = Mwall (𝑢 𝑖 , 𝑝 ; 𝜃 wall ) , (2.4) where Msgs and Mwall are neural closures with trainable parameters 𝜃 sgs and 𝜃 wall . When such closures are embedded in a differentiable solver and optimized through it, they are trained on the flow the discrete solver actually produces, rather than fitted offline to precomputed targets, so that their coupling and their interaction with the discretization are reflected in the training signal itself. This hybrid, solver-consistent formulation is the approach we adopt. Specifically, we treat the closures and the discretized solver as a single differentiable system, using our GPU-native differentiable CFD platform Diff-FlowFSI .In this framework, the SGS and wall closures are represented by neural networks built upon the conventional WMLES forms, and learned jointly within the differentiable solver from turbulence statistics alone, where the gradients can be propagated through the entire time integration. The hybrid model architecture and differentiable training strategies are presented in following sections: §2.2 and §2.3. 2.2. Proposed differentiable hybrid neural–CFD framework 
+
+2.2.1. Overview of the hybrid architecture 
+
+The overall architecture of the proposed hybrid model is shown in figure 1(a). The framework is built on Diff-FlowFSI , our in-house GPU-native, fully differentiable finite-volume CFD platform for turbulent flow and fluid–structure interaction (Fan et al. 2026), which provides the differentiable numerical backbone into which the neural closures are embedded. Over a single time step, the hybrid-neural solver takes the resolved state X𝑡 = (𝑢 𝑖 𝑡 , 𝑝 𝑡 ), evaluates the two neural closures Msgs and Mwall introduced in equation (2.4), and advances the filtered Navier–Stokes equations (2.1) to X𝑡 +1. The two closures act on the same resolved field and their outputs enter the momentum equation together, so that the solver evolves the flow under their combined effect. Each closure is constructed as a composed operator : a trainable neural network followed by a fixed, differentiable operator that carries the physical structure of conventional closure models. Rather than mapping the resolved field directly to the closure quantity with an unconstrained network, we let the network parameterize only the part that the conventional form leaves undetermined, while the conventional form itself is retained as a fixed layer of the composed hybrid operator. In the SGS closure, a 3-D U-Net outputs a spatially varying coefficient field that is passed to the fixed Vreman form; in the wall closure, a 2-D U-Net supplies a fluctuating wall stress that is added to a mean wall stress estimation from a skin-friction scaling law. In both cases the physical operator is free of trainable parameters, so that the learnable network’s influence on each closure is restricted to a scalar coefficient field in the SGS closure and the stress fluctuations in the wall closure, while realizability, near-wall behaviour and invariance are inherited from the retained physical structure.  
+
+> 0X0-6
+
+Journal of Fluid Mechanics 𝜈 𝑡  
+
+> 𝐗 𝑡 𝐗 𝑡 +1
+> (a)
+> Differentiable
+> solver
+> Hybrid -neural
+> solver
+> 𝐗 0
+
+Training (b)    
+
+> 𝐗 𝑇 2
+> Hybrid -neural
+> solver
+> II: Differentiable rollout
+> Statistics
+> Loss
+> I: Warm -up
+
+x Τ𝜕ℒ 𝜕 𝜽 
+
+> Hybrid -neural
+> solver
+> 𝑋 0
+> 0
+> ⋮
+> 𝑋 𝑛
+> 0
+> 𝑅𝑒 𝜃
+
+Inference            
+
+> 𝑋 0
+> 𝑇
+> ⋮
+> 𝑋 𝑛
+> 𝑇
+> 𝑅𝑒 𝜃
+> (c)
+> 𝑇 1𝑇 2
+> 𝑅𝑒 𝜃 ∈{600, 800,1200,2400,3000,4000, 5000}
+> 𝑇
+> ത𝑢 𝑖 ,ҧ𝑆 𝑖𝑗 ҧ𝑝 ,Vreman form 𝐶 𝑚 (𝒙 )3D U -Net
+> Trainable
+> 𝜃 𝑠𝑔𝑠
+> Fixed no params
+> Neural SGS model 𝑀 𝑠𝑔𝑠
+
+𝜈 𝑡        
+
+> 𝑤𝑎𝑙𝑙
+> ത𝑢 𝑖 ,ҧ𝑝
+> 𝐶 𝑓 Scaling law
+> 2D U-Net 𝜏 ′𝑤 𝑢 𝜏
+
++    
+
+> Average velocity
+> Trainable
+> 𝜃 𝑤𝑎𝑙𝑙
+> Fixed
+> Residual
+> connect
+> 𝜏 𝑤
+> Neural wall model 𝑀 𝑤𝑎𝑙𝑙
+> Filtered Navier -Stokes
+> operator
+> (Fixed, no trainable
+> params)
+> 𝑁 𝑆 𝑓 (𝜈 𝑡 ,𝜈 𝑡
+> 𝑤𝑎𝑙𝑙 ,𝑋 𝑡 )
+
+Hybrid 
+
+architecture           
+
+> 𝑅𝑒 𝜃 ∈{600, 1200}
+> Fixed
+> Trainable
+> 𝐗 𝑡 =(ത𝑢 𝑡 ,ҧ𝑝 𝑡 )
+> 𝐶 𝑚 𝑥 1,𝑥 3𝐵 𝛽 /𝛼 𝑖𝑗 𝛼 𝑖𝑗
+
+Figure 1. Overview of the proposed differentiable hybrid neural–CFD framework. (a) Architecture of the hybrid-neural solver over a single time step. From the resolved state X𝑡 = (𝒖 𝑡 , 𝑝 𝑡 ), two composed neural closures are evaluated. The neural SGS closure Msgs passes the instantaneous field through a 3-D U-Net (trainable, 𝜃 sgs )that outputs a coefficient field 𝑐 𝑚 (𝒙 ), which is averaged in the wall-parallel directions and inserted into the fixed Vreman form to give the eddy viscosity 𝜈 𝑡 . The neural wall closure Mwall combines a mean wall stress from a fixed skin-friction scaling law with a fluctuating component from a 2-D U-Net (trainable, 𝜃 wall ), yielding the friction velocity 𝑢 𝜏 and the wall eddy viscosity 𝜈 wall  
+
+> 𝑡
+
+. Both are passed to the differentiable Navier–Stokes solver to advance the flow to X𝑡 +1. Trainable and fixed components are shown in blue and red, respectively. (b) Differentiable training: the solver is advanced over a warm-up window 𝑇 1 and a gradient-tracking window 𝑇 2,and the parameters are updated from a statistics-based loss by backpropagating 𝜕 L/ 𝜕 𝜽 through the solver. (c) Inference: the trained model is deployed as a conventional WMLES solver over a range of Reynolds numbers. 
+
+Because every operation in this sequence, including the U-Nets, the Vreman form, the wall model and the discrete Navier–Stokes update, is differentiable, the single-step map from X𝑡 to X𝑡 +1 is differentiable in the closure parameters 𝜽 = [𝜃 sgs , 𝜃 wall ]. This is what allows the two closures to be trained jointly and consistently with the discrete solver: during training (figure 1b), the solver is rolled out over a gradient-tracking window and the parameters are updated from a statistics-based loss by backpropagating through the entire sequence of steps, as detailed in §2.3. Once trained, the closures are frozen and the model is deployed as a conventional WMLES solver (figure 1c). The specific construction of the two composed closures is presented next. 2.2.2. Neural SGS closure 
+
+The neural SGS closure is a neural operator Msgs that maps the instantaneous resolved field to the SGS stress, structured so that its output takes the form of physically admissible eddy viscosity. It consists of a convolutional network backbone followed by a physics-structured output layer, and produces the stress through the eddy-viscosity relation, 
+
+𝜏 𝑖 𝑗 = −2𝜈 𝑡 𝑆 𝑖 𝑗 . (2.5) The backbone is a three-dimensional convolutional U-Net Nsgs that maps the instantaneous filtered velocity, pressure and strain-rate tensor, normalized by outer variables, to a spatially varying scalar field, 
+
+𝑐 𝑚 = Nsgs 
+
+
+
+𝑢 𝑖 , 𝑝, 𝑆 𝑖 𝑗 ; 𝜃 sgs 
+
+
+
+. (2.6) 
+
+0 X0-7 X. Fan, Y. Liu, M. Wang and J.-X. Wang 
+
+Because the backbone is convolutional, 𝑐 𝑚 depends non-locally on the surrounding resolved motions rather than on the pointwise velocity gradient alone, and it varies in space and time with the flow. The field is then averaged over the wall-parallel directions, 𝑐 = ⟨𝑐 𝑚 ⟩𝑥 1 ,𝑥 3 ,leaving a coefficient that varies only in the wall-normal direction. This reduces the learned degrees of freedom, which suppresses spurious streamwise and spanwise variability, and improves robustness during long rollouts. The output layer maps this learned scalar coefficient field 𝑐 to an eddy viscosity through 
+
+𝜈 𝑡 = 𝑐 F ( 𝑢 𝑖 ) with the Vreman functional (Vreman 2004), 
+
+F ( 𝑢 𝑖 ) =√︄ 𝐵 𝛽 
+
+𝛼 𝑖 𝑗 𝛼 𝑖 𝑗 
+
+, 𝛼 𝑖 𝑗 = 𝜕𝑢 𝑗 
+
+𝜕𝑥 𝑖 
+
+, 𝛽 𝑖 𝑗 = 𝛥 2
+
+> 𝑚
+
+𝛼 𝑚𝑖 𝛼 𝑚 𝑗 , (2.7) 
+
+𝐵 𝛽 = 𝛽 11 𝛽 22 − 𝛽 212 + 𝛽 11 𝛽 33 − 𝛽 213 + 𝛽 22 𝛽 33 − 𝛽 223 . (2.8) where 𝛼 𝑖 𝑗 is the resolved velocity-gradient tensor, 𝛼 𝑖 𝑗 𝛼 𝑖 𝑗 denotes summation over both indices, and 𝛥 𝑚 is the filter width in each direction, taken as the local grid spacing, since no explicit filter is applied and the filtering is performed implicitly by the mesh. We adopt the Vreman functional as the output structure because of the guarantees it provides for 
+
+any coefficient the network produces: the resulting stress is of eddy-viscosity form and is Galilean and rotationally invariant, and the invariant 𝐵 𝛽 vanishes in laminar and pure-shear regions and near the wall, so that the eddy viscosity switches off there automatically, without the ad hoc near-wall damping that a Smagorinsky output layer would require. These properties are enforced by the output layer rather than learned, so the closure does not produce nonphysical SGS stresses regardless of backbone predictions. The complete closure is thus the composed operator, 
+
+𝜏 𝑖 𝑗 = Msgs  𝒖 , 𝑝 ; 𝜃 sgs 
+
+ = −2
+
+"D
+
+Nsgs (𝑢 𝑖 , 𝑝, 𝑆 𝑖 𝑗 ; 𝜃 sgs )
+
+E 
+
+> 𝑥 1,𝑥 3
+
+√︄ 
+
+𝐵 𝛽 
+
+𝛼 𝑖 𝑗 𝛼 𝑖 𝑗 
+
+#
+
+𝑆 𝑖 𝑗 . (2.9) Unlike dynamic procedures, which set the coefficient from an instantaneous local-equilibrium assumption and an auxiliary test-filter operation, the backbone learns it a posteriori ,optimized in the loop against the discrete solver, so that the output prediction reflects the behaviour of the full discretized system rather than a pointwise balance. The trainable backbone thus supplies a flow-dependent, non-local coefficient field, while the Vreman output layer fixes the tensor structure and invariance of the eddy viscosity. 2.2.3. Neural wall closure 
+
+The neural wall closure Mwall supplies the wall shear stress 𝜏 𝑤 as a composed operator: a fixed layer that sets a reference mean stress from a skin-friction scaling law, and a trainable network that corrects this mean and adds the fluctuating component. The two are combined additively, 
+
+𝜏 𝑤,𝑖 = ⟨𝜏 𝑤,𝑖 ⟩ + 𝜏 ′ 
+
+> 𝑤,𝑖
+
+(𝒖 , 𝑝 ; 𝜃 wall ) , 𝑖 = 1, 3, (2.10) where ⟨𝜏 𝑤,𝑖 ⟩ is the scaling-law mean estimate and 𝜏 ′ 
+
+> 𝑤,𝑖
+
+is the network output. This decomposition is motivated by the coarse-resolution regime: at high 𝑅𝑒 and very coarse near-wall resolution, the instantaneous wall stress is only weakly correlated with the resolved velocity at an off-wall matching point, so a purely local wall-stress relation is unreliable. A scaling law instead ties the mean wall stress to integral boundary-layer quantities and provides the correct 𝑅𝑒 -scaling, which the network need not to relearn; the network then supplies the correction and the fluctuations that the mean-only law omits. 
+
+0 X0-8 Journal of Fluid Mechanics 
+
+Mean estimate from scaling law. For the zero-pressure-gradient boundary layers (ZPG TBL) considered here, the mean streamwise wall stress is set by the empirical skin-friction law of Smits et al. (1983), 
+
+𝐶 𝑓 = ⟨𝜏 𝑤, 1⟩ 
+
+> 12
+
+𝜌𝑈 2
+
+> ∞
+
+= 0.024 𝑅𝑒 −1/4 
+
+> 𝜃
+
+, ⟨𝜏 𝑤, 3⟩ = 0, (2.11) where ⟨𝜏 𝑤, 1⟩ and ⟨𝜏 𝑤, 3⟩ are the mean streamwise and spanwise wall shear stresses, 𝑈 ∞
+
+is the free-stream velocity, and 𝑅𝑒 𝜃 = 𝜃𝑈 ∞/𝜈 is the Reynolds number based on the momentum thickness 𝜃 . This law provides an initial accurate estimate of the mean skin friction over the Reynolds-number range considered here, with an error remaining within approximately 5% up to 𝑅𝑒 𝜃 = 10 8, as reported by Cantwell (2021); any comparable correlation, such as the Coles–Fernholz relation (Nagib et al. 2023), could be used in its place. The momentum-thickness Reynolds number 𝑅𝑒 𝜃 is evaluated online during the simulation. To avoid sensitivity to instantaneous fluctuations, the momentum thickness 𝜃 
+
+is computed from a running-averaged streamwise velocity profile, 
+
+e𝑈 𝑡 +𝛥𝑡  
+
+> 1
+
+= 𝛥𝑡 𝑇 ⟨𝑢 1⟩𝑥 3 +
+
+
+
+1 − 𝛥𝑡 𝑇 
+
+e𝑈 𝑡 
+
+> 1
+
+, 𝜃 =
+
+∫ ∞
+
+> 0
+
+e𝑈 1
+
+𝑈 ∞
+
+1 − e𝑈 1
+
+𝑈 ∞
+
+!
+
+d𝑥 2. (2.12) where ⟨𝑢 1⟩𝑥 3 is the spanwise average of the instantaneous filtered streamwise velocity, e𝑈 1
+
+its running time-average, 𝛿 99 the 99% boundary-layer thickness, and 𝑇 = 10 𝛿 99 /𝑈 ∞ the averaging window (Lund et al. 1998). The resulting 𝑅𝑒 𝜃 is substituted into equation (2.11) to give the reference mean stress. 
+
+Learned correction and fluctuation. The correction is produced by a two-dimensional U-Net Nwall that takes the instantaneous filtered velocity components and pressure at the matching location, the third off-wall cell centre, and outputs the two wall-parallel stress components 𝜏 ′ 
+
+> 𝑤,𝑖
+
+over the wall plane, 
+
+𝜏 ′ 
+
+> 𝑤,𝑖
+
+= Nwall (𝒖 , 𝑝 ; 𝜃 wall ) , 𝑖 = 1, 3. (2.13) No zero-mean constraint is imposed on the output; the network therefore both corrects the scaling-law mean and supplies the fluctuations. Because both components are predicted directly, the model does not assume the wall stress to be aligned with the local wall-parallel velocity, as equilibrium wall models do, but can represent a misalignment between the wall stress and the near-wall velocity. Retaining the fluctuating part is important because coherent near-wall stress fluctuations provide unsteady forcing to the resolved flow that a mean-only wall stress cannot reproduce, and that is needed to recover the near-wall momentum transfer at coarse resolution. 
+
+Imposition of the wall stress. Rather than prescribing 𝜏 𝑤 directly as a Neumann condition, its effect is imposed by modifying the wall eddy viscosity while retaining a Dirichlet condition for the velocity (Bae & Lozano-Dur´ an 2021). Namely, the wall eddy viscosity is set so that each modelled stress component is recovered at the wall, 
+
+𝜈 wall  
+
+> 𝑡
+
+= max 
+
+ 𝜏 𝑤,𝑖 
+
+𝜌𝜕𝑢 𝑖 /𝜕𝑥 2 + 𝜖 − 𝜈, 0
+
+
+
+, 𝑖 = 1, 3, (2.14) where 𝜖 is a small constant preventing division by zero. Clipping the eddy viscosity at zero guarantees 𝜈 wall  
+
+> 𝑡
+
+≥ 0 and hence a non-negative total near-wall viscosity, which is required for numerical stability. This bound acts only on the eddy viscosity for imposing the stress at the wall. 
+
+0 X0-9 X. Fan, Y. Liu, M. Wang and J.-X. Wang 
+
+The complete wall closure is thus the composed operator, 
+
+𝜏 𝑤,𝑖 = Mwall (𝒖 , 𝑝 ; 𝜃 wall ) = ⟨𝜏 𝑤,𝑖 ⟩  𝑅𝑒 𝜃 
+
+ + N wall (𝒖 , 𝑝 ; 𝜃 wall ) , 𝑖 = 1, 3. (2.15) where the scaling law fixes the Reynolds-number scaling of the mean streamwise stress, while the trainable network supplies the flow-dependent correction and the two-component fluctuations, and the stress is imposed through the non-negative wall eddy viscosity. 2.3. Differentiable training and inference 
+
+The entire hybrid solver is trained as a whole, end-to-end. Namely, the neural SGS and wall closures are not fitted separately or offline, but are optimized jointly against the flow produced by the differentiable solver Diff-FlowFSI in which they are embedded. Because turbulence is chaotic, matching instantaneous fields over a rollout is ill-posed (Fan et al. 
+
+2025 b); the training objective is therefore defined in terms of turbulence statistics. At each iteration, the coupled solver is rolled out to accumulate these statistics, a statistics-based loss is evaluated against reference data, and its gradient is back-propagated through the entire rollout to update the neural-closure parameters 𝜽 = [𝜃 sgs , 𝜃 wall ] in a single optimization. The loss, the rollout and the deployment of the trained model are described below. 
+
+Statistics-based loss. The loss compares the predicted and reference profiles of the mean streamwise velocity, the root-mean-square (r.m.s.) velocity fluctuations and the r.m.s. pressure fluctuations, together with the friction velocity. All statistics are expressed in inner (wall) units, denoted by a superscript +: velocities are normalized by the friction velocity 𝑢 𝜏 =√︁ 𝜏 𝑤 /𝜌 , with 𝜏 𝑤 = (𝜏 2 
+
+> 𝑤, 1
+
++ 𝜏 2
+
+> 𝑤, 3
+
+)1/2 the wall-stress magnitude, and the wall-normal coordinate by 𝑦 + = 𝑥 2𝑢 𝜏 /𝜈 , so that 𝑢 + 
+
+> 𝑖
+
+= 𝑢 𝑖 /𝑢 𝜏 , 𝑢 + 
+
+> 𝑖, rms
+
+= 𝑢 𝑖, rms /𝑢 𝜏 and 
+
+𝑝 + 
+
+> rms
+
+= 𝑝 rms /( 𝜌𝑢 2 
+
+> 𝜏
+
+). Here 𝑢 𝜏 is evaluated from the model-predicted wall stress, while 
+
+𝑢 𝜏, GT denotes the reference value. The loss is defined as 
+
+L( 𝜽 ) = 𝑤 1 𝑢 + 
+
+> 1
+
+− 𝑢 +  
+
+> 1,GT 2
+
++
+
+> 3
+
+∑︁ 
+
+> 𝑖 =1
+
+𝑤 2,𝑖 𝑢 + 
+
+> 𝑖, rms
+
+− 𝑢 + 
+
+> 𝑖, rms ,GT 2
+
++ 𝑤 3 𝑝 + 
+
+> rms
+
+− 𝑝 +  
+
+> rms ,GT 2
+
++ 𝑤 4 𝑢 𝜏 − 𝑢 𝜏, GT ,
+
+(2.16) where ⟨𝑢 + 
+
+> 1
+
+⟩ is the mean streamwise velocity profile, 𝑢 + 
+
+> 𝑖, rms
+
+the r.m.s. velocity-fluctuation profiles and 𝑝 + 
+
+> rms
+
+the r.m.s. pressure fluctuation, all as functions of the wall-normal coordinate; the subscript GT denotes the reference (ground-truth) data, and ∥ · ∥ 2 is the 
+
+𝐿 2 norm over the wall-normal profile. Because 𝑦 + depends on the model through the predicted 𝑢 𝜏 , the predicted and reference profiles are interpolated onto a common 𝑦 + grid before the norm is evaluated. The mean and fluctuation profiles constrain the inner-scaled shape of the solution, while the final term anchors the absolute magnitude of 𝑢 𝜏 , which inner scaling alone leaves undetermined. The weights 𝑤 1, 𝑤 2,𝑖 , 𝑤 3 and 𝑤 4 balance the terms so that each contributes comparably. Each is set to the inverse magnitude of its term evaluated at the current epoch, 𝑤 𝑘 = 1/|L 𝑘 |, and detached from the computational graph during back-propagation, so that the weighting rescales the terms without contributing to the gradient. Because the weights are recomputed each epoch, the effective objective is non-stationary, but the terms remain balanced as their magnitudes evolve during training. 
+
+Differentiable rollout. The statistics in equation (2.16) are accumulated over a two-stage rollout of the differentiable solver, illustrated in figure 1(b). Starting from the initial state 
+
+𝑿 0, the flow is first advanced over a warm-up window of 𝑁 1 steps ( 𝑇 1 flow-through times), with the closures active but gradients detached, which reduces the influence of the initial condition and lets the flow reach a statistically developed state. It is then rolled out over a 
+
+0 X0-10 Rapids articles must not exceed this page length Journal of Fluid Mechanics                                                
+
+> 𝑅𝑒 𝜃 Mesh Domain / ( 𝜃 )𝛥𝑡 𝑇 1𝑁 1𝑇 2𝑁 2
+> 600 64 ×80 ×128 100 ×80 ×80 0.25 1.0 400 0.25 100 1200 64 ×80 ×128 100 ×80 ×80 0.25 1.0 400 0.25 100
+> Table 1. Training settings for the differentiable hybrid neural solver. All quantities are normalized by outer variables. Here, 𝑇 1and 𝑇 2are normalized by the flow-through time, while 𝑁 1and 𝑁 2are the corresponding numbers of time steps.
+
+gradient-tracking window of 𝑁 2 steps ( 𝑇 2 flow-through times), over which the statistics are collected, spatially averaged in the homogeneous spanwise direction, and through which gradients are back-propagated. During training, 𝑿 0 is taken from a fully developed turbulent field, which keeps the required warm-up short; otherwise 𝑇 1 would need to be long enough for the flow to become statistically developed, typically more than 20 flow-through times. We use 𝑁 1 = 400 and 𝑁 2 = 100, corresponding to 𝑇 1 = 1 and 𝑇 2 = 0.25 flow-through times. This 𝑇 1 is sufficient to remove the initial-condition dependence, while 𝑇 2 yields converged statistics for the loss and also affects training stability under the differentiable rollout; an ablation on 𝑇 1 and 𝑇 2 is presented in §4.2. Training is carried out for two boundary layers at 𝑅𝑒 𝜃 ∈ { 600 , 1200 }, with the numerical settings summarized in table 1. The filtered Navier–Stokes equations (2.1) are discretized with a finite-volume method and a fractional-step projection scheme. The convective term uses second-order linear interpolation with Rhie–Chow interpolation to suppress checkerboard pressure oscillations, and the viscous term a second-order central scheme. Time advancement is semi-implicit: the advection term is integrated with an explicit fourth-order Runge–Kutta method and the diffusion term with the Crank–Nicolson method. At the inlet, a recycling–rescaling method is used (Lund et al. 1998); a convective outflow condition is imposed at the outlet; the free-stream velocity is prescribed at the top boundary; and periodic conditions are applied in the spanwise direction. Further details and validation of the differentiable solver are given in Fan et al. (2026). 
+
+Training stability. Differentiating through long chaotic rollouts is known to be delicate, and numerical stability and rollout length are often critical for successful training (Fan et al. 
+
+2025 b; Franz et al. 2025; List et al. 2025). To keep training stable, existing differentiable-physics studies typically resort to short gradient-tracking windows, offline pretraining of the network, curriculum strategies that gradually increase the rollout length, or selectively disabling gradients through certain operators (Zhang et al. 2026; List et al. 2025; Franz 
+
+et al. 2025; Fan et al. 2025 b; Fan & Wang 2024). In the present framework, by contrast, stable training from scratch over a 100-step gradient-tracking window is achieved without any pretraining. We attribute this to two factors: the semi-implicit time integration, which damps the fastest numerical modes, and the structure-constrained closures, whose network outputs are confined to a scaled Vreman coefficient and a wall-stress correction rather than the full stress fields. The framework is implemented in JAX , and gradient checkpointing (jax.checkpoint ) is used so that gradients can be propagated through the long space–time rollout with manageable memory, in contrast to existing differentiable wall-model (Zhang 
+
+et al. 2026) and SGS-model (Kim et al. 2025) formulations that learn a single closure over shorter windows. The parameters are updated with the Adam optimizer. The full procedure is summarized in algorithm 1, and the network architectures and training hyper-parameters are given in appendix A. 
+
+0 X0-11 X. Fan, Y. Liu, M. Wang and J.-X. Wang 
+
+Inference and deployment. Once trained, the closures are frozen and the hybrid model is deployed as a standard WMLES solver, as illustrated in figure 1(c). For a prescribed momentum-thickness Reynolds number 𝑅𝑒 𝜃 , the solver advances an initial state 𝑿 0 over a time horizon 𝑇 to the final state 𝑿 𝑇 , exactly as a conventional solver would and with no further training. At inference the initial state is constructed from a mean profile based on the Blasius solution with superposed random perturbations, from which the flow transitions to turbulence. Although trained only at 𝑅𝑒 𝜃 ∈ { 600 , 1200 }, the model is applied across a range of Reynolds numbers up to 𝑅𝑒 𝜃 = 6500, as examined in § 3.                                                                    
+
+> 1: Initialize the trainable parameters 𝜽 =[𝜃 sgs , 𝜃 wall ]
+> 2: Specify the training Reynolds numbers R={600 ,1200 }
+> 3: for each training epoch do
+> 4: Distribute the training cases 𝑅𝑒 𝜃 ∈ R across devices using jax.pmap
+> 5: for each 𝑅𝑒 𝜃 ∈ R in parallel do
+> 6: Initialize 𝑿 0from a fully developed turbulent field
+> 7: Advance the solver over the warm-up window 𝑇 1(gradients detached) to obtain 𝑿 𝑇 1
+> 8: Continue the differentiable rollout from 𝑿 𝑇 1over the gradient-tracking window 𝑇 2
+> 9: Accumulate the turbulence statistics over 𝑇 2:⟨𝑢 +
+> 1⟩,𝑢 +
+> 𝑖, rms ,𝑝 +
+> rms and 𝑢 𝜏
+> 10: Compute the case-wise loss L𝑅𝑒 𝜃 (𝜽 )and loss weights 𝑤 𝑘 =1/|L 𝑘 |(detached) from equation (2.16)
+> 11: end for
+> 12: Aggregate the total loss L( 𝜽 )=∑︁
+> 𝑅𝑒 𝜃 ∈ R
+> L𝑅𝑒 𝜃 (𝜽 )
+> 13: Back-propagate through the differentiable solver to obtain 𝒈 =∇𝜽 L( 𝜽 )
+> 14: Update 𝜽 using the Adam optimizer
+> 15: end for
+
+Algorithm 1: Training of the differentiable hybrid neural framework 
+
+3. Numerical results 
+
+In this section, the performance of the proposed framework is assessed through a series of 
+
+a posteriori tests, summarized in table 2. Unless otherwise stated, each case is simulated for more than 40 flow-through times, and the final 20 are used to compute the turbulence statistics. For cases 1–8, the statistics are reported at the streamwise location where 𝑅𝑒 𝜃 
+
+attains the value listed in the table. Case 9 is treated differently: it is run in a very long domain with inlet Reynolds number 𝑅𝑒 𝜃 , in = 5000, so that 𝑅𝑒 𝜃 grows in the streamwise direction, and statistics are reported at several downstream stations. Together, these cases probe the generalizability of the trained model across Reynolds numbers, computational domains, mesh resolutions and time steps. The proposed differentiable hybrid neural model is denoted Hybrid-Joint . We compare it against two conventional WMLES references, both using the equilibrium wall-stress model but different SGS closures. The first, denoted Baseline: Smagorinsky , uses the standard Smagorinsky model with van Driest near-wall damping (Van Driest 1956; Nabae et al. 
+
+2025), a combination widely used in WMLES. The second, denoted Baseline: Vreman ,uses the standard constant-coefficient Vreman model (Vreman 2004). Further details of both baselines are given in appendix B. Reference data are obtained from DNS, WRLES or wall-resolved-quality fine-mesh WMLES, depending on the case when DNS becomes prohibitively expensive; when turbulence statistics are compared, the reference fields are filtered and downsampled onto the same coarse mesh as Hybrid-Joint solutions, and these processed data are referred to as the ground truth (GT). The results are organized as follows. First, the hybrid model is tested at 𝑅𝑒 𝜃 = 600 with a detailed comparison against DNS reference data and the two baseline models. Secondly, the model is tested over a broad Reynolds-number range, 𝑅𝑒 𝜃 ∈ [ 800 , 5000 ],
+
+0 X0-12 Journal of Fluid Mechanics                                                                                                                                                          
+
+> Case 𝑅𝑒 𝜃 Mesh ( 𝑁 1×𝑁 2×𝑁 3)Domain / (𝜃 )𝛥𝑥 +
+> 2𝛥𝑡 𝑇
+> 1600 64 ×80 ×128 100 ×80 ×80 30 0.25 40 2800 64 ×80 ×128 100 ×80 ×80 38 0.25 40 31200 64 ×80 ×128 100 ×80 ×80 55 0.10 40 41200 256 ×80 ×128 400 ×80 †×80 24–78 0.10 40 52400 64 ×80 ×128 100 ×80 ×80 102 0.05 40 63000 64 ×80 ×128 100 ×80 ×80 123 0.04 40 74000 64 ×80 ×128 100 ×80 ×80 160 0.03 40 85000 64 ×80 ×128 100 ×80 ×80 194 0.025 40 95000 in 512 ×80 ×128 800 ×80 ×80 194 0.025 10
+> Table 2. Testing settings for the a posteriori cases; the same settings are used for Hybrid-Joint and both baselines. All quantities are normalized by outer variables, and 𝛥𝑥 +
+> 2denotes the wall-normal spacing of the first off-wall cell in wall units. Case 9 is a spatially developing boundary layer with inlet Reynolds number
+> 𝑅𝑒 𝜃 , in =5000; its statistics are collected at several downstream stations. †Wall-normal grid stretching with a factor of 1 .2 is applied in the extended-domain case at 𝑅𝑒 𝜃 =1200 (Case 4).
+
+on the standard uniform coarse mesh, to examine its Reynolds-number generalizability, with 𝑅𝑒 𝜃 = 800 and 𝑅𝑒 𝜃 = 5000 examined in detail as representative interpolation and extrapolation testing cases at unseen Reynolds numbers, respectively. Finally, additional tests in enlarged computational domains and with modified mesh distributions, including the case at 𝑅𝑒 𝜃 = 1200 in a long domain and the case at 𝑅𝑒 𝜃 = 5000 in a very long domain, evaluate the sensitivity of the model to domain size, mesh distribution and resolution. 3.1. A posteriori test at the training Reynolds number 
+
+We first examine Case 1 at 𝑅𝑒 𝜃 = 600, one of the two Reynolds numbers used in training. Although the Reynolds number is seen during training, this test is far from an in-sample check: the model is trained over a rollout of only 1 .25 flow-through times from a fully developed turbulent field, whereas here it is deployed from a randomly-perturbed Blasius profile and advanced autonomously for 40 flow-through times. The test therefore probes whether closures optimized over a short window remain stable and statistically faithful over a rollout more than thirty times longer, and whether they can carry the flow through transition from an initial condition never seen in training. Figure 2 shows the first- and second-order turbulence statistics for Case 1 at 𝑅𝑒 𝜃 =
+
+600. For the mean velocity profile in figure 2(a), Hybrid-Joint agrees closely with the reference data across the inner and outer layers and recovers the logarithmic region. 
+
+Baseline: Smagorinsky fails to recover the correct profile, with a pronounced mismatch in the logarithmic region, while Baseline: Vreman improves substantially on it but still departs from the reference, slightly underpredicting the velocity in the buffer layer. The mismatch of the baselines should not be interpreted as an artificial weakening of the baseline. Rather, it reflects the difficulty of combining a constant-coefficient eddy-viscosity SGS closure with an equilibrium wall-stress model on the present very coarse mesh. WMLES of TBLs typically requires at least 20–30 grid points across the boundary-layer thickness (Abkar & Port´ e-Agel 2015), whereas only about 10 wall-normal points lie within 𝛿 99 here. The outer-layer motions are therefore strongly under-resolved, which corrupts the wall-stress prediction even with the third off-wall point used as the matching location, and the van Driest damping introduces further near-wall sensitivity. These effects 
+
+0 X0-13 X. Fan, Y. Liu, M. Wang and J.-X. Wang (a) 
+
+(b) (c) 
+
+(d) (e)         
+
+> Figure 2. Turbulence statistics for Case 1 ( 𝑅𝑒 𝜃 =600), compared with the two baselines and the ground truth (DNS). (a) Mean streamwise velocity profile. (b)–(d) Root-mean-square (RMS) velocity fluctuations 𝑢 +
+> 𝑖, rms . (e) Reynolds shear stress −⟨ 𝑢 ′
+> 1𝑢 ′
+> 2⟩+. All statistics are normalized by the friction velocity 𝑢 𝜏 .
+
+lead to an underprediction of the friction velocity 𝑢 𝜏 by approximately 12% and hence to the observed log-layer mismatch (Kawai & Larsson 2012; Yang et al. 2017). The baseline profile improves at higher Reynolds numbers ( § 3.2), confirming that the implementation is consistent while its robustness on this coarse grid is limited. That Hybrid-Joint recovers the correct profile under the same numerical setting demonstrates its ability to compensate for the coupled effects of SGS modelling, wall modelling and numerical under-resolution. The r.m.s. velocity fluctuations and the Reynolds shear stress are shown in figures 2(b)– (e). Hybrid-Joint agrees well with the ground truth overall, with a slight overprediction of the near-wall peaks of 𝑢 +
+
+> 1,rms
+
+, 𝑢 + 
+
+> 3,rms
+
+and −⟨ 𝑢 ′
+
+> 1
+
+𝑢 ′
+
+> 2
+
+⟩+. Baseline: Smagorinsky is markedly over-dissipative: it overpredicts 𝑢 + 
+
+> 1,rms
+
+while strongly underpredicting the wall-normal and spanwise fluctuations and the Reynolds shear stress. Baseline: Vreman follows the reference trends for all components but with lower accuracy than Hybrid-Joint , consistently underpredicting the fluctuation peaks. Such discrepancies are common in WMLES and 
+
+0 X0-14 Journal of Fluid Mechanics 
+
+are known to depend on the SGS closure, grid resolution and numerical dissipation (Fan 
+
+et al. 2025 a; Fowler et al. 2022). (a) (b) (c) 
+
+Figure 3. One-dimensional wavenumber energy spectra of the velocity components for Case 1 ( 𝑅𝑒 𝜃 = 600) at 
+
+𝑦 + = 138. (a) Streamwise velocity. (b) Wall-normal velocity. (c) Spanwise velocity. The spectra are normalized by 𝑢 𝜏 . For consistency, the GT is filtered at the cut-off wavenumber associated with the same mesh. Baseline: Smagorinsky 
+
+Ground truth (c) 
+
+(a)  (b) 
+
+Hybrid -Joint  (d) 
+
+Baseline: Vreman 
+
+Figure 4. Comparison of the instantaneous velocity field predicted by different models for Case 1 ( 𝑅𝑒 𝜃 = 600). (a) Baseline: Smagorinsky (b) Baseline: Vreman (c) Hybrid-Joint (d) Ground truth, obtained by filtering the DNS solution and downsampling it onto the same coarse mesh. The isosurfaces are defined by the 𝑄 criterion at 𝑄 = 10 −3, and the colour denotes the velocity magnitude. 
+
+Figure 3 shows the one-dimensional spanwise wavenumber spectra of the three velocity components at 𝑦 + = 138. Hybrid-Joint accurately reproduces the reference spectra across the resolved wavenumber range, indicating that the distribution of resolved kinetic energy 
+
+0 X0-15 X. Fan, Y. Liu, M. Wang and J.-X. Wang 
+
+across scales is well preserved; the spectral shape is recovered even though the spectra are not part of the training loss, being constrained only indirectly through the r.m.s. fluctuations. 
+
+Baseline: Smagorinsky underpredicts the energy over a broad range of wavenumbers, most severely for the wall-normal and spanwise components, while Baseline: Vreman lies closer to the reference but remains less accurate than Hybrid-Joint . The instantaneous fields visualized by the 𝑄 -criterion in figure 4 are consistent with these statistics: Hybrid-Joint 
+
+recovers near-wall turbulent structures in close agreement with the ground truth, Baseline: Vreman recovers somewhat fewer, and Baseline: Smagorinsky retains only the largest near-wall motions, filtering out most of the smaller-scale activity. 3.2. A posteriori tests at unseen Reynolds numbers 
+
+Having been trained only at 𝑅𝑒 𝜃 = 600 and 1200, the model is now applied across 
+
+𝑅𝑒 𝜃 ∈ [ 800 , 5000 ], spanning an interpolation case ( 𝑅𝑒 𝜃 = 800) and extrapolation to more than four times the highest training Reynolds number ( 𝑅𝑒 𝜃 = 5000). All cases use the same coarse uniform mesh, so that the near-wall resolution coarsens from 𝛥𝑥 + 
+
+> 2
+
+≈ 38 to 194 as the Reynolds number increases (table 2). Figure 5(a) shows the mean velocity profiles over the range. A clear logarithmic region develops at every Reynolds number, in agreement with the law of the wall, with a slight departure only at the first off-wall point. This agreement is a genuine test of the model: unlike conventional equilibrium wall models, which invert an assumed law of the wall at a matching location, the present wall closure never matches the resolved velocity to a law of the wall. The logarithmic behaviour is therefore not imposed but emerges from the simulated flow. Figure 5(b) shows the corresponding skin-friction coefficient against the (a) (b)          
+
+> Figure 5. Assessment of the model performance over the Reynolds-number range 𝑅𝑒 𝜃 =600–5000. (a) Mean streamwise velocity profiles, compared with the law of the wall. (b) Skin-friction coefficient as a function of the momentum-thickness Reynolds number, both evaluated from the simulated flow, compared with the empirical correlations of Smits et al. (1983) and Nagib et al. (2023), and with the reference data of Fernholz & Finley (1996).
+
+momentum-thickness Reynolds number, both evaluated a posteriori from the simulated flow. The predictions follow the expected 𝑅𝑒 𝜃 scaling across the whole range and lie within the scatter of the reference data of Fernholz & Finley (1996) and the empirical correlations of Smits et al. (1983) and Nagib et al. (2023). Because 𝑅𝑒 𝜃 follows from the momentum thickness, and hence from the mean velocity profile shaped jointly by the SGS and wall closures, reproducing this relation as the Reynolds number increases requires the two closures to remain consistent with one another. 
+
+0 X0-16 Journal of Fluid Mechanics 
+
+Two representative cases are then examined in detail against the ground truth: the interpolation case at 𝑅𝑒 𝜃 = 800 (Case 2) and the extrapolation case at 𝑅𝑒 𝜃 = 5000 (Case 8). The first- and second-order turbulence statistics are reported in figures 19 and 20 in Appendix C. In both cases the behaviour is similar to that at 𝑅𝑒 𝜃 = 600: Hybrid-Joint agrees closely with the ground truth and clearly outperforms Baseline: Smagorinsky ,while Baseline: Vreman follows the reference reasonably well and Hybrid-Joint remains somewhat closer, most visibly in 𝑢 + 
+
+> 3,rms
+
+and in the outer part of the mean profile. That the agreement is retained at 𝑅𝑒 𝜃 = 5000 indicates that extrapolating more than fourfold beyond the training range does not degrade the prediction. (a) (b) (c)         
+
+> Figure 6. One-dimensional wavenumber energy spectra of the velocity components for Case 2 ( 𝑅𝑒 𝜃 =800) at
+> 𝑦 +=170. (a) Streamwise velocity. (b) Wall-normal velocity. (c) Spanwise velocity. The spectra are normalized by 𝑢 𝜏 . For consistency, the GT is filtered at the cut-off wavenumber associated with the same mesh.
+
+(a) (b) (c)         
+
+> Figure 7. One-dimensional wavenumber energy spectra of the velocity components for Case 8 ( 𝑅𝑒 𝜃 =5000) at
+> 𝑦 +=600. (a) Streamwise velocity. (b) Wall-normal velocity. (c) Spanwise velocity. The spectra are normalized by 𝑢 𝜏 . For consistency, the GT is filtered at the cut-off wavenumber associated with the same mesh.
+
+The corresponding spanwise wavenumber spectra are shown in figures 6 and 7. At 
+
+𝑅𝑒 𝜃 = 800, Hybrid-Joint follows the reference spectra across the resolved wavenumber range for all three components, and Baseline: Vreman remains reasonably close, while 
+
+Baseline: Smagorinsky overpredicts the streamwise energy 𝐸 + 
+
+> 𝑢 1𝑢 1
+
+at low wavenumbers and is excessively dissipative at high wavenumbers. At 𝑅𝑒 𝜃 = 5000, Hybrid-Joint continues to track the reference, whereas Baseline: Vreman deteriorates markedly: it overpredicts the 
+
+0 X0-17 X. Fan, Y. Liu, M. Wang and J.-X. Wang 
+
+energy at low and intermediate wavenumbers for all three components and, like Baseline: Smagorinsky , falls off too rapidly at the highest wavenumbers. The distribution of resolved energy across scales is therefore preserved by Hybrid-Joint even four times beyond the training range, where both fixed-coefficient closures degrade. A slight excess in the high-wavenumber tail of the spanwise component 𝐸 + 
+
+> 𝑢 3𝑢 3
+
+is observed for Hybrid-Joint and appears consistently across the tested cases. 3.3. Transferability to a different mesh distribution 
+
+The model is trained in the loop on a uniform grid in a domain of 100 𝜃 . We now examine whether the trained closures transfer when both the domain and the wall-normal grid distribution are changed. The test is performed at 𝑅𝑒 𝜃 = 1200 with two configurations: Case 3, which uses the same uniform grid and domain as in training, and Case 4, which uses a domain four times longer (400 𝜃 ) together with wall-normal stretching at a factor of 1 .2, keeping the streamwise spacing unchanged (table 2). The stretching redistributes the wall-normal points, refining the first cell from 𝛥𝑥 + 
+
+> 2
+
+≈ 55 to ≈ 24 while coarsening the outer layer to ≈ 78. Case 4 therefore departs from the training configuration in both domain length and mesh distribution simultaneously. The reference DNS data are obtained in a domain comparable to that of Case 3, so the comparison for Case 4 is made at matched 
+
+𝑅𝑒 𝜃 but in a longer domain than the reference. Figure 8(a) compares the mean velocity profiles. Hybrid-Joint follows the ground truth on both configurations and captures the logarithmic region, whereas both baselines underpredict the velocity through the buffer layer. On the stretched grid the profile extends to 𝑦 + ≈ 10, inside a region that the training mesh never resolved, and the prediction there remains close to the reference. The r.m.s. velocity fluctuations are shown in figures 8(b)– (d). The wall-normal and spanwise components are reproduced well in both configurations and are substantially closer to the reference than the baselines, which are markedly over-dissipative throughout, especially for Smagorinsky baseline. The streamwise fluctuations in panel (b) show the largest difference between the two configurations: on the longer stretched-grid domain, the near-wall peak of 𝑢 + 
+
+> 1,rms
+
+exceeds the reference, whereas on the matched short domain it follows it closely. Since 𝑢 + 
+
+> 1,rms
+
+is the component most sensitive to the large-scale streamwise motions, and since the reference is computed in the shorter domain, this difference cannot be attributed to the mesh distribution alone: the longer domain accommodates streamwise scales that the reference domain truncates, which is expected to raise the streamwise fluctuation level. The model thus remains stable and accurate on a domain and grid distribution absent from training, which reflects two features of the framework: the closures are convolutional and act on the resolved field rather than on a fixed grid, and they are trained a posteriori ,so that they respond to the fully discretized solver rather than to a prescribed target. 3.4. A spatially developing boundary layer in a very long domain 
+
+The final and most demanding test is Case 9, a spatially developing boundary layer in a domain 800 𝜃 in long, eight times the training domain, with inlet Reynolds number 𝑅𝑒 𝜃 , in =
+
+5000. The boundary layer grows continuously downstream, so that 𝑅𝑒 𝜃 increases from its inlet value to approximately 6500 at the outlet, and the model must sustain this development on the coarsest mesh considered here, without the statistics being anchored to a single streamwise station. Figure 9(a) shows the mean streamwise velocity field together with the boundary-layer thickness. The downstream growth of 𝛿 99 is captured smoothly across the whole domain, and the mean profiles at the selected stations retain their shape as the layer thickens. The  
+
+> 0X0-18
+
+Journal of Fluid Mechanics (a) (b) 
+
+(c) (d)           
+
+> Figure 8. Turbulence statistics at 𝑅𝑒 𝜃 =1200 for Case 3 (uniform grid, 100 𝜃 domain) and Case 4 (wall-normal stretched grid, 400 𝜃 domain), compared with the two baselines and the ground truth (DNS). (a) Mean streamwise velocity profile. (b)–(d) Root-mean-square velocity fluctuations 𝑢 +
+> 𝑖, rms . All statistics are normalized by the friction velocity 𝑢 𝜏 . The reference and baselines are obtained in the same domain of Case 3.
+
+instantaneous field in figure 9(b) shows rich near-wall structures sustained over the full domain length despite the very coarse resolution, whereas WMLES baselines oversmooth them (figure 21). A quantitative assessment is given in figure 10. Panel (a) shows the streamwise development of the skin-friction coefficient against the local 𝑅𝑒 𝜃 , both evaluated from the simulated flow, over the same simulated distance and duration for all three models. All three follow the expected 𝐶 𝑓 –𝑅𝑒 𝜃 trend, but reach markedly different states over that distance. Hybrid-Joint starts at the prescribed inlet value 𝑅𝑒 𝜃 ≈ 5000 and develops to 
+
+≈ 6500. Baseline: Smagorinsky starts substantially below the target, near 𝑅𝑒 𝜃 ≈ 4100 (18% low), consistent with its momentum thickness being corrupted from the outset by excessive SGS dissipation ( § 4.1). Baseline: Vreman , by contrast, starts at the correct inlet value but develops much faster than Hybrid-Joint , reaching 𝑅𝑒 𝜃 ≈ 8000 over the same distance: its fixed, comparatively low dissipation lets the momentum thickness grow at an unphysically high rate. In panel (b), the friction Reynolds number 𝑅𝑒 𝜏 = 𝑢 𝜏 𝛿 99 /𝜈 involves the boundary-layer thickness, which no correlation prescribes, so the 𝑅𝑒 𝜏 –𝑅𝑒 𝜃 relation provides an independent check on the development of the layer. Hybrid-Joint follows the correlation of Schlatter & ¨ Orl¨ u (2010) closely over the whole range. Both baselines deviate, in opposite directions and to different degrees: Baseline: Smagorinsky underpredicts 𝑅𝑒 𝜏 
+
+at a given 𝑅𝑒 𝜃 , while Baseline: Vreman overpredicts it more severely, consistent with its faster and unphysical growth of 𝑅𝑒 𝜃 in panel (a). The two panels together show that 
+
+0 X0-19 X. Fan, Y. Liu, M. Wang and J.-X. Wang 𝛿 !! 
+
+(a) 
+
+(b)    
+
+> 𝑥 /𝜃 !" =160 𝑥 /𝜃 !" =320 𝑥 /𝜃 !" =480 𝑥 /𝜃 !" =640
+
+Figure 9. Streamwise velocity for Case 9 ( 𝑅𝑒 𝜃 , in = 5000). (a) Mean streamwise velocity contour, boundary-layer thickness, and velocity profiles at selected streamwise locations. For clarity, the velocity profiles are scaled by a factor of 50. (b) Instantaneous streamwise velocity contour. (a) (b) 
+
+Figure 10. Streamwise development of wall-friction quantities for Case 9 ( 𝑅𝑒 𝜃 , in = 5000). (a) Skin-friction coefficient along the streamwise direction. (b) Predicted friction Reynolds number 𝑅𝑒 𝜏 as a function of the Reynolds number based on momentum thickness, 𝑅𝑒 𝜃 .
+
+only the jointly trained closures keep the inner scaling, reflected in 𝑅𝑒 𝜏 , and the integral development of the layer, reflected in 𝑅𝑒 𝜃 , simultaneously consistent with the reference correlations; each WMLES baseline instead reaches an incorrect boundary-layer state. 
+
+4. Discussion 
+
+4.1. What is learned by the Hybrid-Joint model? 
+
+In this section, we analyse the individual components of the proposed Hybrid-Joint 
+
+framework to clarify what is learned by the neural SGS and wall models when only turbulence statistics are used as training targets. This analysis provides insight into how the accuracy and generalizability observed in the a posteriori tests arise from the design 
+
+0 X0-20 Journal of Fluid Mechanics 
+
+of the framework, and it identifies a structural consequence of the eddy-viscosity form that the neural SGS closure inherits. 4.1.1. Neural SGS model 
+
+The neural SGS and wall closures each augment the near-wall viscosity through in-dependent mechanisms: the SGS closure sets the eddy viscosity 𝜈 𝑡 at the interior cell centres ( § 2.2.2), while the wall closure sets 𝜈 wall  
+
+> 𝑡
+
+through the modified boundary condition (§ 2.2.3). Although structurally separate, the two are optimized jointly against the same resolved field, so that the near-wall viscous augmentation they produce is coupled through training rather than through a shared functional form. Figure 11(a) shows both contributions together as a function of wall-normal distance for different Reynolds numbers, with the first point corresponding to ⟨𝜈 wall  
+
+> 𝑡
+
+⟩ and the remaining points to the interior values, illustrating how the two closures jointly augment the near-wall viscosity. The predicted eddy viscosity is much larger than the molecular viscosity within the boundary layer, with a pronounced peak a few cells off the wall, indicating substantial SGS-mediated energy transfer from the resolved to the unresolved scales. The magnitude of ⟨𝜈 𝑡 ⟩/ 𝜈 within the boundary layer increases with 𝑅𝑒 𝜃 , consistent with the expected Reynolds-number dependence of turbulent mixing, and decays to zero in the free stream in every case. Similar near-wall behaviour has been reported for the conventional Vreman model in turbulent channel flow (Whitmore et al. 2020), although in that case ⟨𝜈 wall  
+
+> 𝑡
+
+⟩ = 0owing to the Neumann condition imposed at the wall, and the peak occurs at the first off-wall cell rather than the second. The instantaneous fields in figure 12 confirm that the SGS dissipation remains confined within the boundary layer, a behaviour naturally induced by the Vreman form. (a) (b)        
+
+> Figure 11. Prediction of the neural SGS and wall models. (a) Mean subgrid viscosity 𝜈 𝑡 over wall-normal distance, combining the interior SGS contribution and the wall contribution ⟨𝜈 wall
+> 𝑡 ⟩(first point). (b) Time history of the wall-parallel-averaged Vreman coefficient 𝑐 .
+
+Figure 11(b) shows the time history of the Vreman coefficient 𝑐 , obtained by averaging the raw network output 𝑐 𝑚 (𝒙 , 𝑡 ) over the entire spatial domain. At every Reynolds number, averaged 𝑐 fluctuates persistently in time about a roughly constant level, without any drift or slow trend over the rollout, and both the fluctuation amplitude and the mean level are broadly similar across 𝑅𝑒 𝜃 = 600–5000. The coefficient shows only a weak dependence on 𝑅𝑒 𝜃 and no clear monotonic trend, indicating that the Reynolds-number dependence of the eddy viscosity in figure 11(a) arises mainly through the predicted velocity gradients entering the Vreman form, rather than through 𝑐 itself. The resulting level of this averaging sits close to 𝑐 ≈ 0.07, the value derived for homogeneous isotropic turbulence (Zhou & 
+
+0 X0-21 X. Fan, Y. Liu, M. Wang and J.-X. Wang (a) (b) 
+
+(c) (d)                    
+
+> Figure 12. Instantaneous subgrid viscosity 𝜈 𝑡 predicted by the neural SGS model. (a) Case 1, 𝑅𝑒 𝜃 =600. (b) Case 2, 𝑅𝑒 𝜃 =800. (c) Case 3, 𝑅𝑒 𝜃 =1200. (d) Case 5, 𝑅𝑒 𝜃 =2400.
+
+Bae 2025) and used as the fixed coefficient in Baseline: Vreman . This is an emergent outcome of training on turbulence statistics, not a value the network was steered toward: nothing in the loss or the architecture references this constant, and the raw output 𝑐 𝑚 is a free spatiotemporal field with no constraint on its sign or magnitude. The trained network contributes less through its mean output than through its spatio-temporal structure: unlike a constant-coefficient model, 𝑐 retains wall-normal variation, and it fluctuates with the resolved flow rather than staying fixed. The framework thus identifies a coefficient that is, on average, close to the classical constant, while retaining the flexibility to adapt to the local, instantaneous flow – a distinction reflected in the improved a posteriori performance of Hybrid-Joint over Baseline: Vreman , especially at 𝑅𝑒 𝜃 beyond the training range ( § 3.2). We further perform an energy-transfer analysis to examine whether the model captures both forward scatter and backscatter. The filtered kinetic-energy equation is obtained by multiplying the filtered momentum equation (2.1) by 𝑢 𝑖 ,
+
+𝜕𝐸 𝑓 
+
+𝜕𝑡 + 𝑢 𝑗 
+
+𝜕𝐸 𝑓 
+
+𝜕𝑥 𝑗 
+
++ 1
+
+𝜌 𝜕𝑢 𝑖 𝑝 𝜕𝑥 𝑖 
+
++ 𝜕𝑢 𝑖 𝜏 𝑖 𝑗 
+
+𝜕𝑥 𝑗 
+
+− 2𝜈 𝜕𝑢 𝑖 𝑆 𝑖 𝑗 
+
+𝜕𝑥 𝑗 
+
+= −𝜖 𝑓 − 𝛱 , (4.1) where 𝐸 𝑓 = 𝑢 𝑖 𝑢 𝑖 /2 is the kinetic energy of the filtered velocity field and 𝜖 𝑓 = 2𝜈𝑆 𝑖 𝑗 𝑆 𝑖 𝑗 is the viscous dissipation. The SGS energy-transfer rate is 
+
+𝛱 = −𝜏 𝑖 𝑗 𝑆 𝑖 𝑗 . (4.2) A positive 𝛱 corresponds to forward scatter, the transfer of kinetic energy from the resolved to the unresolved scales, while a negative 𝛱 indicates backscatter. The mean SGS transfer 
+
+0 X0-22 Journal of Fluid Mechanics 
+
+is expected to be predominantly forward, but instantaneous backscatter events are known to occur locally and are relevant for assessing the learned SGS closure. Figure 13(a,c,e) compares the mean SGS energy-transfer rate ⟨𝛱 ⟩ across the three models. In every case ⟨𝛱 ⟩ is positive, confirming forward scatter on average. Both baselines produce substantially larger peaks than Hybrid-Joint , with Baseline: Smagorinsky the most dissipative of the three; Baseline: Vreman , despite sharing the same functional form and a coefficient close on average to that learned by Hybrid-Joint , still overpredicts the energy transfer by roughly a factor of two near the wall. This reinforces that the fixed coefficient, not the Vreman form itself, is responsible for the excess dissipation, and that the wall-normal structure and flow-dependent fluctuations retained by the learned coefficient are what bring ⟨𝛱 ⟩ down to a level, 𝛱 𝜈 /𝑢 4 
+
+> 𝜏
+
+, consistent with a priori analyses of wall-bounded turbulence (Piomelli et al. 1996). Figure 13(b,d,f) shows the corresponding PDFs of the instantaneous 𝛱 at 𝑥 2/𝛿 99 = 0.2. All three models produce distributions confined to non-negative values: none represents backscatter in the present a posteriori simulations. However, backscatter is known to occur in TBLs, more prominently in the buffer layer and, more weakly but still present, in the logarithmic region (Piomelli et al. 1991, 1996; Chedevergne 2025; Wang et al. 2021). Consistent with this, the a priori analysis at 𝑅𝑒 𝜃 = 600 in figure 22 shows a clear negative tail of 𝛱 at 𝑥 2/𝛿 99 = 0.2 in the filtered reference field, confirming that local backscatter is present in the flow even though none of the three closures represents it. This absence follows from the eddy-viscosity form shared by all three closures: with 
+
+𝜏 𝑖 𝑗 = −2𝜈 𝑡 𝑆 𝑖 𝑗 , the transfer rate 𝛱 = 2𝜈 𝑡 𝑆 𝑖 𝑗 𝑆 𝑖 𝑗 is pointwise proportional to 𝜈 𝑡 , so its sign is fixed entirely by the sign of the eddy viscosity, independent of the resolved strain field. For the two baselines, the coefficient is fixed and positive by construction, so 𝛱 ≥ 0is guaranteed. The neural SGS closure in Hybrid-Joint carries no such guarantee: no positivity constraint or clipping is applied to 𝑐 during training, so a negative, locally backscattering coefficient field was in principle reachable. That the network nonetheless converges to 𝑐 ≥ 0 everywhere is therefore a property of the training outcome, not one enforced by the eddy-viscosity assumption; it is consistent with a training objective that constrains one-point statistics, such as the mean and r.m.s. velocity profiles, rather than the local SGS energy flux – nothing in the loss penalizes or rewards backscatter directly. Representing backscatter would require a more general SGS-stress form than the eddy-viscosity assumption, additional constraints tied to the local energy flux, or removing the wall-parallel averaging; each would relax the structure that presently keeps training stable, and is left to future work. 4.1.2. Neural Wall model 
+
+The neural wall model uses a universal skin-friction scaling law to prescribe the mean wall shear stress, while the fluctuating component is provided by the trained network. Figure 14 compares the instantaneous streamwise wall-shear stress 𝜏 𝑤, 1 predicted for Case 1. Hybrid-Joint gives a wall-stress field whose magnitude and spatial distribution are closer to the filtered DNS reference, though the coherent near-wall streaks are not fully recovered. Both baselines, by contrast, produce clear streaky structures, but with a characteristic length scale substantially larger than that of the reference (figure 14a–d); this is consistent with the coarse mesh limiting what an algebraic wall-stress relation can resolve, while the network is able to represent finer spatial variation on the same grid, as also seen in the neural SGS closure ( § 4.1.1). The PDFs in figure 14(e) further highlight this difference. The reference wall shear stress is predominantly positive but has a small negative tail. Hybrid-Joint reproduces a much broader distribution, including moderate negative fluctuations, while keeping a  
+
+> 0X0-23
+
+X. Fan, Y. Liu, M. Wang and J.-X. Wang (c) (d)        
+
+> Baseline: Smagorinsky Baseline: Smagorinsky
+> Hybrid -Joint Hybrid -Joint
+> Baseline: Vreman Baseline: Vreman
+
+(e) (f)              
+
+> Figure 13. Energy transfer between the resolved and subgrid scales. (a,c,e) Wall-normal profiles of the mean SGS energy-transfer rate ⟨𝛱 ⟩for Hybrid-Joint ,Baseline: Smagorinsky and Baseline: Vreman , respectively. (b,d,f) Probability density functions of the instantaneous energy-transfer rate 𝛱 at 𝑥 2/𝛿 99 =0.2.
+
+mean closer to the reference. Baseline: Smagorinsky and Baseline: Vreman , despite using different SGS closures, produce PDFs that are narrow and nearly indistinguishable from one another and admit no negative wall-shear events. This near-identity of the two baselines exposes a structural limitation of the equilibrium wall model rather than showing that wall-shear statistics are insensitive to the SGS closure: it is a fixed, instantaneous algebraic map from the resolved velocity at the matching location to 𝜏 𝑤 , with no degrees of freedom to respond to how the SGS closure shapes that resolved field. Whatever differences the SGS closure introduces upstream are therefore not carried through to the wall-stress statistics. The neural wall closure in Hybrid-Joint has no such restriction: its correction is learned 
+
+0 X0-24 Journal of Fluid Mechanics 
+
+directly from the instantaneous resolved field via statistics, allowing it to reflect the coupled response of the SGS and wall closures. This pattern holds over the full Reynolds-number range tested (figure 15). Hybrid-Joint 
+
+clearly distinguishes the mean of 𝜏 𝑤, 1 across 𝑅𝑒 𝜃 , decreasing with increasing Reynolds number as expected, and retains a broad distribution at every 𝑅𝑒 𝜃 . Both baselines also predict the mean wall shear stress reasonably well, but their PDFs remain narrow and close to one another at every Reynolds number, for the same reason identified above: the equilibrium relation, evaluated at the matching location, leaves little room for the wall-stress statistics to depend on the SGS closure. (a) (b)  
+
+> (c) (d)
+> (e)
+
+Figure 14. Instantaneous streamwise wall-shear stress 𝜏 𝑤, 1 predicted by different models for Case 1 ( 𝑅𝑒 𝜃 = 600). (a) Hybrid-Joint model. (b) Ground truth obtained by filtering the DNS solution and downsampling it to the same coarse mesh. (c) Baseline: Smagorinsky. (d) Baseline: Vreman. The values are normalized by the mean streamwise wall-shear stress of the ground truth. (e) PDF of streamwise wall-shear stress. (a) (b)  
+
+> Hybrid -Joint Smagorinsky
+> Vreman
+> Baseline
+
+Figure 15. PDF of the instantaneous streamwise wall-shear stress 𝜏 𝑤, 1 across all Reynolds numbers tested. (a) Hybrid-Joint . (b) Two WMLES baselines, Smagorinsky (solid) and Vreman (dashed), which are nearly indistinguishable at every 𝑅𝑒 𝜃 .
+
+To isolate the contribution of the fluctuating wall-stress component, we perform an ablation in which the network correction is removed and only the scaling-law mean wall shear stress is retained. Figure 16 shows the results at 𝑅𝑒 𝜃 = 5000 (Case 8). The mean-only model gives a reasonable, slightly overpredicted mean velocity profile, since the imposed mean wall stress still provides the correct inner scaling. However, the resolved Reynolds shear stress 𝜏 12 deteriorates markedly in the near-wall and logarithmic regions. Matching 
+
+0 X0-25 X. Fan, Y. Liu, M. Wang and J.-X. Wang (a) (b)        
+
+> Figure 16. Effect of the wall-stress fluctuation, evaluated at 𝑅𝑒 𝜃 =5000 (Case 8). Hybrid-Joint (Mean only)
+> retains the scaling-law mean wall stress but removes the network-predicted stress fluctuation. (a) Mean velocity profile. (b) Reynolds shear stress 𝜏 12 .
+
+the mean wall stress alone is therefore not sufficient to recover the near-wall momentum exchange, and the wall-stress fluctuations provide unsteady forcing that the mean-only closure cannot supply. Similar ideas underlie hybrid RANS–LES approaches to WMLES, where artificial or stochastic forcing is introduced near the inner–outer layer interface to promote the development of resolved stresses (Piomelli et al. 2003; Temmerman et al. 
+
+2005; Tessicini et al. 2006; Piomelli 2008). Here, the learned wall-stress fluctuations play an analogous role. Removing them narrows the 𝜏 𝑤, 1 distribution back toward that of the two baselines (figures 14 and 15) and simultaneously degrades the resolved-flow statistics reported throughout § 3, showing that the broader distribution is not incidental but is what drives the improvement. 4.2. Ablation study of individual components in the Hybrid-Joint model 
+
+In § 3, we showed that Hybrid-Joint , trained end-to-end using only turbulence statistics, gives accurate and robust a posteriori predictions. This performance could in principle result from the design of either closure alone, from their joint optimization, or from some combination of the two. To isolate these contributions, we train two ablated variants with the same protocol and loss as the full model, and evaluate them on the most demanding extrapolation case, Case 8 at 𝑅𝑒 𝜃 = 5000. 
+
+Hybrid-WallOnly retains the neural wall model of § 2.2 but replaces the neural SGS closure with the standard SGS model (Smagorinsky). Hybrid-SGSOnly retains the neural SGS closure but replaces the neural wall model with the conventional equilibrium wall-stress model used in baselines. In each case, only one closure is learned and optimized with solver in the loop; the other is fixed to its conventional form. All the other training settings such as loss functions, protocol, optimization hyperparameters, etc., remain the same. Once trained, the models are evaluated in a posteriori test for Case 8 at 𝑅𝑒 𝜃 = 5000. Figure 17 shows the results. Only the full Hybrid-Joint model accurately predicts all the reported statistics, and the two ablated variants fail in distinct and complementary ways. 
+
+Hybrid-WallOnly gives a reasonable mean velocity profile (panel a), consistent with its neural wall model still supplying the correct inner scaling, but it substantially underpredicts the r.m.s. velocity fluctuations, most severely the wall-normal component (panel c): with the SGS closure fixed and not co-optimized with the wall model, the resolved turbulent mixing is misrepresented even though the mean profile appears adequate. Hybrid-SGSOnly shows the opposite pattern: it fails to recover the logarithmic region of the mean velocity profile 
+
+0 X0-26 Journal of Fluid Mechanics (a) (b) 
+
+(c) (d)      
+
+> Figure 17. Turbulence statistics for case 8 ( 𝑅𝑒 𝜃 =5000) under different ablation settings. (a) Mean streamwise velocity profile. (b)–(d) Root-mean-square velocity fluctuations 𝑢 +
+> 𝑖, rms .
+
+(panel a), and the outer-layer turbulent kinetic energy is strongly underestimated (panels b– d), even though its neural SGS closure is identical in form to that of Hybrid-Joint . With the wall model fixed to the conventional equilibrium relation, the boundary-layer development itself is compromised, regardless of how well the interior SGS closure performs. Neither ablation reproduces the accuracy of the full model, and each fails on a different set of quantities: Hybrid-WallOnly gets the mean profile approximately right but the turbulent fluctuations wrong, while Hybrid-SGSOnly gets neither right. This complementary failure pattern is direct evidence that the SGS closure, the wall model and the discretization are coupled through the resolved field, as emphasized in previous studies (Piomelli & Balaras 2002; Rezaeiravesh et al. 2019; Zhang et al. 2026): learning one closure well is not sufficient when the other remains fixed, and only the joint optimization of both within the differentiable solver recovers the full set of statistics. 4.3. Effect of rollout length and gradient-tracking window 
+
+In the differentiable hybrid neural–CFD modelling framework, training stability is strongly affected by the length of the window over which gradients are back-propagated through the flow solver. The optimization involves many coupled numerical operations and unsteady flow dynamics, and this issue is particularly acute for chaotic turbulent flows, where small perturbations grow rapidly in both the forward and adjoint dynamics. The choice of tracking window is, for instance, often set by the Lyapunov time scale in data-assimilation studies (Wang et al. 2022, 2014), and similar sensitivities have been reported in differentiable neural solvers (List et al. 2022, 2025); some studies enable or disable 
+
+0 X0-27 X. Fan, Y. Liu, M. Wang and J.-X. Wang 
+
+gradients through selected operators, such as the advection term or the pressure solve, to balance stability, accuracy and efficiency (Franz et al. 2025). The present framework requires none of these tricks, but the choice of window length still matters, which we examine here. As described in § 2.3, the default setup uses a warm-up of 𝑁 1 = 400 steps ( 𝑇 1 = 1flow-through time), with gradients detached, followed by a gradient-tracking window of 
+
+𝑁 2 = 100 steps ( 𝑇 2 = 0.25 flow-through times). The warm-up reduces the dependence on the initial condition, while the tracking window sets the statistics entering the loss. Here, we examine the sensitivity of training to these two choices. Figure 18 shows the training histories for several choices of 𝑁 1 and 𝑁 2. Increasing the tracking window to 𝑁 2 = 150 or 200 leads to unstable training in both cases: the gradient norm eventually grows by several orders of magnitude and the loss plateaus at an elevated level instead of continuing to decrease. This non-monotonic sensitivity to the window length is itself indicative of the difficulty of controlling gradients through chaotic rollouts. Reducing the window to 𝑁 2 = 50 remains stable throughout training, though the statistics collected over such a short interval may be less converged; this is acceptable for the present statistically stationary flow, but a longer window is likely needed for non-equilibrium or transitional flows, chosen according to the relevant flow time scales. (a) (b)      
+
+> Warm up ,Diff
+> Figure 18. Stability of the Hybrid-Joint model during end-to-end differentiable training. (a) Training loss. (b)
+> 𝐿 2norm of the gradients of the trainable parameters.
+
+The warm-up length has a weaker effect on stability. Both 𝑁 1 = 200 and 𝑁 1 = 600 (with 
+
+𝑁 2 = 100 fixed) train stably and reach a final loss comparable to the default 𝑁 1 = 400, consistent with training being initialized from fully developed fields, which already limits the influence of the initial condition on the statistics entering the loss. Increasing 𝑁 1
+
+therefore brings limited benefit while increasing training cost. For simulations initialized from a mean profile or a developing state, however, a longer warm-up, typically several flow-through times, would be needed to reach a statistically developed state before the loss is evaluated. 4.4. Computational cost and amortization 
+
+Training the Hybrid-Joint closures is a one-time cost: once trained, the same closures are reused, without further training, across new Reynolds numbers, domains, meshes and initial conditions, as demonstrated throughout § 3. This is a fundamental difference from conventional adjoint-based a posteriori optimization, where the adjoint solver must be re-derived and re-optimized for each new case; the present training cost, by contrast, 
+
+0 X0-28 Journal of Fluid Mechanics 
+
+is amortized over every subsequent deployment of the trained model, so the relevant comparison is not training cost against a single simulation, but training cost against the savings that accrue from reuse. Table 3 summarizes the costs involved, for Case 1 at 𝑅𝑒 𝜃 = 600, at three distinct levels. First, a representative wall-resolved LES, with a mesh of 125 × 320 × 512 and 
+
+𝛥𝑡 = 0.05, requires only 0.92 GPU-hours on our GPU-native, fully vectorised solver 
+
+Diff-FlowFSI (Fan et al. 2026). This is more than 30 × faster than a CPU-based (OpenFOAM) solver running on 32 CPU cores, as illustrated in Fan et al. (2026). The reduction reflects the efficiency of the underlying solver implementation alone, independent of mesh resolution or any embedded closure model. Second, moving from this fully resolved WRLES mesh to the coarse WMLES mesh and time step used throughout this work, on the same GPU-native solver, further reduces the cost to 0 .05 GPU-hours per flow-through time for Hybrid-Joint , comparable to the 0 .07 and 0 .08 GPU-hours required by Baseline: Smagorinsky and Baseline: Vreman , respectively – indicating that the neural closures add negligible cost to the underlying coarse-mesh solver at inference. Third, the 40 GPU-hours required to train Hybrid-Joint is incurred only once and is then amortized over every subsequent inference run, at any Reynolds number or configuration within the range demonstrated in § 3. Taken together, these three factors, i.e., vectorized solver implementation, mesh resolution, and training amortization, compound to bring the cost of a single flow-through time from 27 CPU-hours of conventional WRLES down to 0 .05 GPU-hours of Hybrid-Joint inference, a reduction of roughly 540 ×.This amortization also sets the present approach apart from methods that obtain gradients through the adjoint equations, where training cost cannot be recovered in the same way because the adjoint must be recomputed for each new configuration. Reported costs illustrate the resulting gap, though comparisons across hardware and implementations are not direct and should be read as indicative rather than as an exact benchmark: Mons 
+
+et al. (2021) reported 9198 CPU-hours for adjoint-based SGS optimization of a single case, against 219 CPU-hours for a comparably accurate LES using a conventional dynamic SGS model. The cost of adjoint-based gradients also limits the length of the trajectories used to train an embedded neural closure: Kim et al. (2025) trained a graph-neural-network SGS closure using a discrete adjoint for the PDE solver, restricting training to short trajectories of 4 consecutive snapshots in their 3D case. Among differentiable-solver approaches that instead obtain gradients natively through automatic differentiation, the gradient-tracking window has still been split into short segments of ten steps to control memory, cost and stability (Zhang et al. 2026), whereas Hybrid-Joint trains stably over 𝑁 2 = 100 steps, an order of magnitude longer than both. Taken together, these figures indicate that statistics-based, end-to-end training of jointly optimized SGS and wall closures is not only accurate and robust but economically practical, with a one-time training cost amortized over every subsequent deployment. 
+
+> 5. Conclusion
+
+In this work, we have developed a differentiable hybrid neural–CFD framework for wall-bounded turbulence at coarse space–time resolution, in which the neural SGS and wall closures are learned jointly within the discretized flow solver rather than being fitted as independent components. Each closure is constructed as a composed neural operator: a trainable network followed by a fixed, differentiable layer that carries the structure of its conventional counterpart. The neural SGS closure retains the Vreman eddy-viscosity form and learns only the operator: mapping from flow states to spatio-temporally varying coefficient field; the neural wall closure retains a skin-friction scaling law for the mean  
+
+> 0X0-29
+
+X. Fan, Y. Liu, M. Wang and J.-X. Wang                       
+
+> Item Solver / hardware Cost WRLES OpenFOAM (32 CPU) 27 CPU-hours WRLES Diff-FlowFSI (1 GPU) 0.92 GPU-hours
+> Hybrid-Joint Diff-FlowFSI (1 GPU) 0.05 GPU-hours WMLES Smagorinsky Diff-FlowFSI (1 GPU) 0.07 GPU-hours WMLES Vreman Diff-FlowFSI (1 GPU) 0.08 GPU-hours
+> Table 3. Inference cost for Case 1 at 𝑅𝑒 𝜃 =600, per flow-through time. The WRLES in OpenFOAM is reported in CPU-hours. All cases performed with Diff-FlowFSI , are reported in GPU-hours. Inference is performed in double precision on one NVIDIA A100 GPU. Costs across CPU and GPU hardware are not directly comparable and are reported for indicative purposes only.
+
+stress and learns a correction and fluctuation on top of it. Because every operation in this composition is differentiable, the two closures are trained end-to-end against the flow produced by the full discretized solver, using only low-order turbulence statistics as the training target, without instantaneous field matching or pointwise SGS-stress labels. The trained Hybrid-Joint model was evaluated through a posteriori tests spanning nine configurations of a zero-pressure-gradient turbulent boundary layer, across a wide range of Reynolds numbers, computational domains, mesh resolutions and grid distributions. The model consistently outperforms two conventional WMLES baselines and reproduces the mean velocity profile, skin-friction coefficient, turbulence statistics and resolved-scale energy spectra with good accuracy, extrapolating well beyond the training Reynolds numbers and transferring to grids and domains absent from training. Analysis of the learned components clarifies why this performance requires joint training rather than either closure alone. The neural net predicted SGS coefficient is, on average, close to the classical value for homogeneous isotropic turbulence, but its benefit lies in its retained spatial structure and flow-dependent fluctuations rather than in this mean, though this leaves the closure unable to represent backscatter, a limitation shared by constant eddy-viscosity-based models. At the wall, the conventional equilibrium relation is structurally unable to reflect how the SGS closure shapes the resolved flow, whereas the learned wall-stress fluctuations do, and are shown by ablation to be necessary for the near-wall Reynolds shear stress. A further ablation, learning either closure alone while fixing the other, shows that the two fail in distinct and complementary ways: only their joint optimization recovers the full set of statistics. Together, these results confirm that the SGS closure, the wall closure and the numerical discretization are coupled through the resolved field, and that this coupling must be addressed in training rather than in the choice of closure form alone. The framework is also computationally practical. Once trained, at a one-time cost, the same closures are reused without retraining across every Reynolds number, domain, mesh and initial condition examined, so training cost is amortized over repeated deployment rather than incurred once per case, unlike adjoint-based a posteriori optimization. Stable training over a 100-step gradient-tracking window is achieved from scratch, without the short windows, pretraining or curriculum strategies that other differentiable-solver studies have required, which we attribute to the robustness of our in-house differentiable CFD platform ( Diff-FlowFSI ) and to the structure-constrained closures, whose learnable outputs remain confined to a scalar coefficient field and a stress correction. 
+
+0 X0-30 Journal of Fluid Mechanics 
+
+The present framework thus provides a route to data-informed WMLES closures with improved a posteriori accuracy and generalizability, achieved by learning the coupling between the SGS closure, the wall closure and the discretization directly, rather than by improving either closure in isolation. Its present scope is limited to the equilibrium, statis-tically stationary zero-pressure-gradient boundary layer; extending it to non-equilibrium flows, including adverse-pressure-gradient, separated and transitional boundary layers, is left to future work. Representing backscatter would require relaxing the eddy-viscosity form of the SGS closure, and extending the training objective to include energy transfer, spectral content or multi-point statistics is a natural next step, provided the stability of end-to-end differentiable training is preserved. 
+
+> Acknowledgment
+
+The authors would like to acknowledge the funds from Office of Naval Research under award number N00014-23-1-2071, National Institutes of Health under award number 1R01HL177814, and National Science Foundation under award number OAC-2047127. 
+
+> Compliance with Ethical Standards
+
+Conflict of Interest: The authors declare that they have no conflict of interest.  
+
+> 0X0-31
+
+X. Fan, Y. Liu, M. Wang and J.-X. Wang 
+
+Module Parameter Value SGS model Architecture 3-D U-Net Channel progression [32 , 16 , 8, 4, 1]
+
+Convolution kernel 3 × 3 × 3Input Filtered velocity, pressure and strain-rate tensor Output Vreman coefficient field, 𝑐 𝑚 
+
+Wall model Architecture 2-D U-Net Channel progression [64 , 32 , 32 , 8, 2]
+
+Convolution kernel 3 × 3Input Filtered velocity and pressure at the third off-wall cell Output Wall-stress correction and fluctuations, 𝜏 ′
+
+> 𝑤, 1
+
+, 𝜏 ′
+
+> 𝑤, 3
+
+Training Optimiser Adam ( Optax )Learning-rate schedule Cosine decay Initial learning rate 1 × 10 −4
+
+Total epochs 600 Gradient clipping 𝐿 2-norm bound of 10 Spatial patch size 64 × 64 Warm-up window 𝑇 1 = 1 ( 𝑁 1 = 400 steps) Gradient-tracking window 𝑇 2 = 0.25 ( 𝑁 2 = 100 steps) Training 𝑅𝑒 𝜃 600, 1200 Loss weighting Inverse-magnitude, 𝑤 𝑘 = 1/|L 𝑘 |
+
+Table 4. Neural-network architectures and training parameters of the proposed hybrid framework. The SGS closure uses a 3-D U-Net that outputs the Vreman coefficient field 𝑐 𝑚 ; the wall closure uses a 2-D U-Net that outputs the two wall-parallel stress fluctuations. 
+
+Appendix A. Neural network structures 
+
+The neural-network architectures and training parameters are summarized in table 4. 
+
+Appendix B. Baselines 
+
+For Baseline: Smagorinsky , we employ the constant-coefficient Smagorinsky model as the SGS closure. Following the general eddy-viscosity form in equation (2.2), the model is written as 
+
+F ( 𝑢 𝑖 ) = |𝑆 |, 𝑐 = 𝑓 𝑣 (𝐶 𝑠 𝛥 )2, (B 1) where 𝐶 𝑠 = 0.2 is the Smagorinsky coefficient, 𝛥 = (𝛥 1 𝛥 2 𝛥 3)1/3 is the filter width based on the local grid spacing, and 
+
+|𝑆 | = (2𝑆 𝑖 𝑗 𝑆 𝑖 𝑗 )1/2 (B 2) is the magnitude of the resolved strain-rate tensor. The factor 𝑓 𝑣 is a near-wall damping function. The constant Smagorinsky model does not, by itself, recover the correct near-wall asymptotic behaviour of the SGS stress. A damping function is therefore required, particularly in the near-wall region, here taken as 
+
+𝑦 + < 100. The classical choice is the van Driest damping function (Van Driest 1956), 
+
+𝑓 𝑣 =
+
+
+
+1 − exp 
+
+
+
+− 𝑦 +
+
+𝐴 +
+
+ 2
+
+, (B 3) 
+
+0 X0-32 Journal of Fluid Mechanics 
+
+where 𝑦 + is the wall-normal distance in wall units and 𝐴 + = 25. In the present baseline WMLES, however, we instead employ the third-order damping form 
+
+𝑓 𝑣 = 1 − exp 
+
+"
+
+−
+
+ 𝑦 +
+
+𝐴 +
+
+3 #
+
+. (B 4) This choice yields 𝑓 𝑣 ∼ ( 𝑦 +)3 as 𝑦 + → 0, consistent with the expected near-wall scaling of the SGS shear stress, 
+
+𝜏 12 ∼ ( 𝑦 +)3. Consistent with previous studies (Piomelli 1988; Nabae et al. 2025), our preliminary tests further indicate that this third-order damping form provides more accurate prediction of the skin-friction coefficient than the classical van Driest damping function for the baseline cases considered here. At the wall, the equilibrium wall-stress model is employed. Following equation (2.3), the function 𝑓 is taken to be the Spalding wall function, 
+
+𝑢 + = 𝑦 + − 𝑒 −𝜅 𝐵 
+
+
+
+𝑒 𝜅𝑢 +
+
+− 1 − 𝜅𝑢 + − 12 (𝜅𝑢 +)2 − 16 (𝜅𝑢 +)3
+
+
+
+, (B 5) where 𝜅 = 0.4 and 𝐵 = 5.0, with 𝑢 + = 𝑈 /𝑢 𝜏 and 𝑦 + = 𝑦 𝑚 𝑢 𝜏 /𝜈 . Here, 𝑈 denotes the magnitude of the filtered wall-parallel velocity, 
+
+𝑈 =√︃ 𝑢 21 + 𝑢 23, (B 6) 
+
+𝑦 𝑚 is the wall distance at the matching location, taken here as the third off-wall cell centre, and 𝑢 𝜏 is the friction velocity, obtained iteratively using Newton’s method. The resulting 𝑢 𝜏 is then substituted into equation (2.14) to determine the wall eddy viscosity. For Baseline: Vreman , the SGS closure is given by the Vreman model, where F ( 𝑢 𝑖 ) is defined in equations (2.7) and (2.8). In the original constant-coefficient Vreman model, the coefficient is commonly prescribed as 𝑐 = 2.5𝐶 2 
+
+> 𝑠
+
+, where 𝐶 𝑠 is the Smagorinsky constant (Vreman 2004). In the present baseline, we set 𝑐 = 0.07. Although other values have been used in the literature, this standard choice is adopted here for illustration. The same equilibrium wall-stress model, defined by equation (B 5), is again employed for consistency. 
+
+Appendix C. Additional results 
+
+0 X0-33 X. Fan, Y. Liu, M. Wang and J.-X. Wang (a) 
+
+(b) (c) 
+
+(d) (e) 
+
+Figure 19. Turbulence statistics for Case 2 ( 𝑅𝑒 𝜃 = 800), compared with the two baselines and the ground truth (DNS) (a) Mean streamwise velocity profile. (b)–(d) Root-mean-square (RMS) velocity fluctuations 𝑢 +
+
+> 𝑖, rms
+
+. (e) Root-mean-square Reynolds shear stress −⟨ 𝑢 ′
+
+> 1
+
+𝑢 ′
+
+> 2
+
+⟩+. All statistics are normalized by the friction velocity 𝑢 𝜏 .
+
+0 X0-34 Journal of Fluid Mechanics (a) 
+
+(b) (c) 
+
+(d) (e) 
+
+Figure 20. Turbulence statistics for Case 8 ( 𝑅𝑒 𝜃 = 5000), compared with the two baselines and the ground truth (wall-resolved-quality fine-mesh WMLES) (a) Mean streamwise velocity profile. (b)–(d) Root-mean-square (RMS) velocity fluctuations 𝑢 +
+
+> 𝑖, rms
+
+. (e) Root-mean-square Reynolds shear stress −⟨ 𝑢 ′
+
+> 1
+
+𝑢 ′
+
+> 2
+
+⟩+. All statistics are normalized by the friction velocity 𝑢 𝜏 .
+
+0 X0-35 X. Fan, Y. Liu, M. Wang and J.-X. Wang (a) 
+
+(b) 
+
+Figure 21. Instantaneous streamwise velocity contour for Case 9 from two baselines ( 𝑅𝑒 𝜃 , in = 5000): (a) Baseline: Smagorinsky. (b) Baseline: Vreman. (a) (b) 
+
+Figure 22. Energy transfer between the resolved and subgrid scales for a priori test at 𝑅𝑒 𝜃 = 600. (a) Mean SGS energy-transfer rate ⟨𝛱 ⟩ in the wall-normal direction. (b) Probability density function (PDF) of the instantaneous energy-transfer rate 𝛱 at 𝑥 2/𝛿 99 = 0.2. 
+
+0 X0-36 Journal of Fluid Mechanics 
+
+REFERENCES 
+
+Abkar, Mahdi & Port´ e-Agel, Fernando 2015 Influence of atmospheric stability on wind-turbine wakes: A large-eddy simulation study. Physics of Fluids 27 (3). 
+
+Akhare, Deepak, Luo, Tengfei & Wang, Jian-Xun 2025 HybridNDiff-UQ: Uncertainty quantification for hybrid neural differentiable modeling. Theoretical and Applied Mechanics Letters p. 100609. 
+
+Bae, H Jane & Lozano-Dur ´ an, Adri ´ an 2021 Effect of wall boundary conditions on a wall-modeled large-eddy simulation in a finite-difference framework. Fluids 6 (3), 112. 
+
+Bardina, Jorge, Ferziger, J & Reynolds, WC 1980 Improved subgrid-scale models for large-eddy simulation. In 13th Fluid and Plasmadynamics Conference , p. 1357. 
+
+Bezgin, Deniz A, Buhendwa, Aaron B & Adams, Nikolaus A 2023 Jax-fluids: A fully-differentiable high-order computational fluid dynamics solver for compressible two-phase flows. Computer Physics Communications 282 , 108527. 
+
+Bose, Sanjeeb T & Park, George Ilhwan 2018 Wall-modeled large-eddy simulation for complex turbulent flows. Annual Review of Fluid Mechanics 50 , 535–561. 
+
+Cantwell, Brian J. 2021 Integral measures of the zero pressure gradient boundary layer over the Reynolds number range 0 ≤ 𝑅 𝜏 < ∞. Physics of Fluids 33 (8), 085108. 
+
+Chapman, Dean R 1979 Computational aerodynamics development and outlook. AIAA Journal 17 (12), 1293–1313. 
+
+Chedevergne, Franc ¸ois 2025 Characterisation and modelling of interscale energy transfers in high Reynolds number boundary layers. Journal of Fluid Mechanics 1024 , A28. 
+
+Clark, Robert A, Ferziger, Joel H & Reynolds, William Craig 1979 Evaluation of subgrid-scale models using an accurately simulated turbulent flow. Journal of Fluid Mechanics 91 (1), 1–16. 
+
+Du, Pan, Li, Yongqi, Xu, Mingqi & Wang, Jian-Xun 2026 DiFVM: A vectorized graph-based finite volume solver for differentiable cfd on unstructured meshes. arXiv preprint arXiv:2603.15920 .
+
+Duraisamy, Karthik, Iaccarino, Gianluca & Xiao, Heng 2019 Turbulence modeling in the age of data. 
+
+Annual Review of Fluid Mechanics 51 (1), 357–377. 
+
+Fan, Guoqing, Zhao, Weiwen & Wan, Decheng 2025 a Near-wall turbulent fluctuations and coherent structures in wall-modeled large-eddy simulation. Physics of Fluids 37 (9). 
+
+Fan, Xiantao, Akhare, Deepak & Wang, Jian-Xun 2025 b Neural differentiable modeling with diffusion-based super-resolution for two-dimensional spatiotemporal turbulence. Computer Methods in Applied Mechanics and Engineering 433 , 117478. 
+
+Fan, Xiantao, Liu, Xin-Yang, Wang, Meng & Wang, Jian-Xun 2026 Diff-FlowFSI: A GPU-optimized differentiable CFD platform for high-fidelity turbulence and FSI simulations. Computer Methods in Applied Mechanics and Engineering 448 , 118455. 
+
+Fan, Xiantao & Wang, Jian-Xun 2024 Differentiable hybrid neural modeling for fluid-structure interaction. 
+
+Journal of Computational Physics 496 , 112584. 
+
+Fernholz, Hans-Hermann & Finley, PJ 1996 The incompressible zero-pressure-gradient turbulent boundary layer: an assessment of the data. Progress in Aerospace Sciences 32 (4), 245–311. 
+
+Fowler, Mitchell, Zaki, Tamer A & Meneveau, Charles 2022 A lagrangian relaxation towards equilibrium wall model for large eddy simulation. Journal of Fluid Mechanics 934 , A44. 
+
+Franz, Aleksandra, Wei, Hao, Guastoni, Luca & Thuerey, Nils 2025 PICT–a differentiable, GPU-accelerated multi-block PISO solver for simulation-coupled learning tasks in fluid dynamics. Journal of Computational Physics p. 114433. 
+
+Fukami, Kai, Nabae, Yusuke, Kawai, Ken & Fukagata, Koji 2019 Synthetic turbulent inflow generator using machine learning. Physical Review Fluids 4 (6), 064603. 
+
+Germano, Massimo, Piomelli, Ugo, Moin, Parviz & Cabot, William H 1991 A dynamic subgrid-scale eddy viscosity model. Physics of Fluids A: Fluid dynamics 3 (7), 1760–1765. 
+
+Guan, Yifei, Chattopadhyay, Ashesh, Subel, Adam & Hassanzadeh, Pedram 2022 Stable a posteriori LES of 2D turbulence using convolutional neural networks: Backscattering analysis and generalization to higher Re via transfer learning. Journal of Computational Physics 458 , 111090. 
+
+Guastoni, Luca, G ¨ uemes, Alejandro, Ianiro, Andrea, Discetti, Stefano, Schlatter, Philipp, Azizpour, Hossein & Vinuesa, Ricardo 2021 Convolutional-network models to predict wall-bounded turbulence from wall quantities. Journal of Fluid Mechanics 928 , A27. 
+
+Huang, Xinyi, Leung, Sze Chai & Bae, H Jane 2026 Consistency requirement of data-driven subgrid-scale modeling in large-eddy simulation. Physical Review Fluids 11 (1), 014602. 
+
+Kawai, Soshi & Larsson, Johan 2012 Wall-modeling in large eddy simulation: Length scales, grid resolution, and accuracy. Physics of Fluids 24 (1). 
+
+Kim, Hojin, Shankar, Varun, Viswanathan, Venkatasubramanian & Maulik, Romit 2025 Generalizable data-driven turbulence closure modeling on unstructured grids with differentiable physics, arXiv: 2307.13533. 
+
+0 X0-37 X. Fan, Y. Liu, M. Wang and J.-X. Wang 
+
+Kochkov, Dmitrii, Smith, Jamie A, Alieva, Ayya, Wang, Qing, Brenner, Michael P & Hoyer, Stephan 
+
+2021 Machine learning–accelerated computational fluid dynamics. Proceedings of the National Academy of Sciences 118 (21), e2101784118. 
+
+Kohl, Georg, Chen, Li-Wei & Thuerey, Nils 2026 Benchmarking autoregressive conditional diffusion models for turbulent flow simulation. Neural Networks p. 108641. 
+
+Larsson, Johan, Kawai, Soshi, Bodart, Julien & Bermejo-Moreno, Ivan 2016 Large eddy simulation with modeled wall-stress: recent progress and future directions. Mechanical Engineering Reviews 3 (1), 15–00418. 
+
+Li, Zhijie, Peng, Wenhui, Yuan, Zelong & Wang, Jianchun 2023 Long-term predictions of turbulence by implicit U-Net enhanced fourier neural operator. Physics of Fluids 35 (7). 
+
+Lilly, D 1966 On the application of the eddy viscosity concept in the inertial sub-range of turbulence. NCAR Report .
+
+Ling, Yuenong & Lozano-Duran, Adrian 2025 Numerically consistent data-driven subgrid-scale model via data assimilation and machine learning. In AIAA SCITECH 2025 Forum , p. 1280. 
+
+List, Bjoern, Chen, Li-Wei, Bali, Kartik & Thuerey, Nils 2025 Differentiability in unrolled training of neural physics simulators on transient dynamics. Computer Methods in Applied Mechanics and Engineering 
+
+433 , 117441. 
+
+List, Bj ¨ orn, Chen, Li-Wei & Thuerey, Nils 2022 Learned turbulence modelling with differentiable fluid solvers: physics-based loss functions and optimisation horizons. Journal of Fluid Mechanics 949 , A25. 
+
+Lund, Thomas S, Wu, Xiaohua & Squires, Kyle D 1998 Generation of turbulent inflow data for spatially-developing boundary layer simulations. Journal of computational physics 140 (2), 233–258. 
+
+MacArt, Jonathan F, Sirignano, Justin & Freund, Jonathan B 2021 Embedded training of neural-network subgrid-scale turbulence models. Physical Review Fluids 6 (5), 050502. 
+
+Maulik, Romit, San, Omer, Rasheed, Adil & Vedula, Prakash 2019 Subgrid modelling for two-dimensional turbulence using neural networks. Journal of Fluid Mechanics 858 , 122–144. 
+
+McConkey, Ryley, Yee, Eugene & Lien, Fue-Sang 2021 A curated dataset for data-driven turbulence modelling. Scientific Data 8 (1), 255. 
+
+Meneveau, Charles & Katz, Joseph 2000 Scale-invariance and turbulence models for large-eddy simulation. 
+
+Annual Review of Fluid Mechanics 32 (1), 1–32. 
+
+Mons, Vincent, Du, Yifan & Zaki, Tamer A 2021 Ensemble-variational assimilation of statistical data in large-eddy simulation. Physical Review Fluids 6 (10), 104607. 
+
+Nabae, Yusuke, Inagaki, Kazuhiro, Kobayashi, Hiromichi, Gotoda, Hiroshi & Fukagata, Koji 2025 Large-eddy simulation of high-Reynolds-number turbulent channel flow controlled using streamwise travelling wave-like wall deformation for drag reduction. Journal of Fluid Mechanics 1003 , A2. 
+
+Nagib, Hassan, Monkewitz, Peter & Sreenivasan, Katepalli R 2023 Reynolds number required to accurately discriminate between proposed trends of skin friction and normal stress in wall turbulence. 
+
+arXiv preprint arXiv:2312.01184 .
+
+Piomelli, Ugo 1988 Models for large eddy simulations of turbulent channel flows including transpiration. PhD thesis, Stanford University. 
+
+Piomelli, Ugo 2008 Wall-layer models for large-eddy simulations. Progress in Aerospace Sciences 44 (6), 437–446. 
+
+Piomelli, Ugo & Balaras, Elias 2002 Wall-layer models for large-eddy simulations. Annual Review of Fluid Mechanics 34 (1), 349–374. 
+
+Piomelli, Ugo, Balaras, Elias, Pasinato, Hugo, Squires, Kyle D & Spalart, Philippe R 2003 The inner– outer layer interface in large-eddy simulations with wall-layer models. International Journal of Heat and Fluid Flow 24 (4), 538–550. 
+
+Piomelli, Ugo, Cabot, William H, Moin, Parviz & Lee, Sangsan 1991 Subgrid-scale backscatter in turbulent and transitional flows. Physics of Fluids A: Fluid Dynamics 3 (7), 1766–1771. 
+
+Piomelli, Ugo, Yu, Yunfang & Adrian, Ronald J 1996 Subgrid-scale energy transfer and near-wall turbulence structure. Physics of Fluids 8 (1), 215–224. 
+
+Port´ e-Agel, Fernando, Meneveau, Charles & Parlange, Marc B 2000 A scale-dependent dynamic model for large-eddy simulation: application to a neutral atmospheric boundary layer. Journal of Fluid Mechanics 
+
+415 , 261–284. 
+
+Rezaeiravesh, Saleh, Mukha, Timofey & Liefvendahl, Mattias 2019 Systematic study of accuracy of wall-modeled large eddy simulation using uncertainty quantification techniques. Computers & Fluids 185 ,34–58. 
+
+Schlatter, Philipp & ¨ Orl ¨ u, Ramis 2010 Assessment of direct numerical simulation data of turbulent boundary layers. Journal of Fluid Mechanics 659 , 116–126. 
+
+Shankar, Varun, Chakraborty, Dibyajyoti, Viswanathan, Venkatasubramanian & Maulik, Romit 
+
+0 X0-38 Journal of Fluid Mechanics 
+
+2025 Differentiable turbulence: Closure as a partial differential equation constrained optimization. Physical Review Fluids 10 (2), 024605. 
+
+Sirignano, Justin & MacArt, Jonathan F 2023 Deep learning closure models for large-eddy simulation of flows around bluff bodies. Journal of Fluid Mechanics 966 , A26. 
+
+Smagorinsky, Joseph 1963 General circulation experiments with the primitive equations: I. the basic experiment. Monthly Weather Review 91 (3), 99–164. 
+
+Smits, AJ, Matheson, N & Joubert, PN 1983 Low-Reynolds-number turbulent boundary layers in zero and favorable pressure gradients. Journal of Ship Research 27 (03), 147–157. 
+
+Temmerman, L, Hadˇ ziabdi´ c, M, Leschziner, MA & Hanjali´ c, K 2005 A hybrid two-layer URANS–LES approach for large eddy simulation at high Reynolds numbers. International Journal of Heat and Fluid Flow 
+
+26 (2), 173–190. 
+
+Tessicini, F, Temmerman, L & Leschziner, MA 2006 Approximate near-wall treatments based on zonal and hybrid RANS–LES methods for LES at high Reynolds numbers. International Journal of Heat and Fluid Flow 27 (5), 789–799. 
+
+Van Driest, Edward R 1956 On turbulent flow near a wall. Journal of the Aeronautical Sciences 23 (11), 1007–1011. 
+
+Vreman, AW 2004 An eddy-viscosity subgrid-scale model for turbulent shear flow: Algebraic theory and applications. Physics of Fluids 16 (10), 3670–3681. 
+
+Wang, Jian-Xun, Wu, Jin-Long & Xiao, Heng 2017 Physics-informed machine learning approach for reconstructing reynolds stress modeling discrepancies based on DNS data. Physical Review Fluids 2 (3), 034603. 
+
+Wang, Qiqi, Hu, Rui & Blonigan, Patrick 2014 Least squares shadowing sensitivity analysis of chaotic limit cycle oscillations. Journal of Computational Physics 267 , 210–224. 
+
+Wang, Qi, Wang, Mengze & Zaki, Tamer A 2022 What is observable from wall data in turbulent channel flow? Journal of Fluid Mechanics 941 , A48. 
+
+Wang, Wenkang, Pan, Chong & Wang, Jinjun 2021 Energy transfer structures associated with large-scale motions in a turbulent boundary layer. Journal of Fluid Mechanics 906 , A14. 
+
+Weymouth, G.D. & Font, B. 2025 WaterLily.jl: A differentiable and backend-agnostic Julia solver for incompressible viscous flow around dynamic bodies. Computer Physics Communications 315 , 109748. 
+
+Whitmore, Michael, Lozano-Dur ´ an, Adri ´ an & Moin, Parviz 2020 Requirements and sensitivity analysis of RANS-free wall-modeled LES. arXiv preprint arXiv:2012.14900 .
+
+Wu, Jinlong, Xiao, Heng, Sun, Rui & Wang, Qiqi 2019 Reynolds-averaged Navier–Stokes equations with explicit data-driven reynolds stress closure can be ill-conditioned. Journal of Fluid Mechanics 869 , 553–586. 
+
+Yang, XIA, Zafar, S, Wang, J-X & Xiao, H 2019 Predictive large-eddy-simulation wall modeling via physics-informed neural networks. Physical Review Fluids 4 (3), 034602. 
+
+Yang, Xiang IA & Griffin, Kevin P 2021 Grid-point and time-step requirements for direct numerical simulation and large-eddy simulation. Physics of Fluids 33 (1). 
+
+Yang, Xiang IA, Park, George Ilhwan & Moin, Parviz 2017 Log-layer mismatch and modeling of the fluctuating wall stress in wall-modeled large-eddy simulations. Physical Review Fluids 2 (10), 104601. 
+
+Zhang, Fengshun, Yang, Xiaolei & He, Guowei 2026 A differentiable wall-modeled large-eddy simulation method for high-Reynolds-number wall-bounded turbulent flows. Journal of Computational Physics p. 114835. 
+
+Zhang, Xin-Lei, Xiao, Heng, Luo, Xiaodong & He, Guowei 2022 Ensemble Kalman method for learning turbulence models from indirect observation data. Journal of Fluid Mechanics 949 , A26. 
+
+Zhou, Di & Bae, H Jane 2024 Sensitivity analysis of wall-modeled large-eddy simulation for separated turbulent flow. Journal of Computational Physics 506 , 112948. 
+
+Zhou, Di & Bae, H Jane 2025 Effect of subgrid-scale anisotropy on wall-modeled large-eddy simulation of separated flow. arXiv preprint arXiv:2511.18566 .
+
+0 X0-39

@@ -1,0 +1,1314 @@
+Title: Gradient-enhanced spline dimensional decomposition for uncertainty quantification with limited training samples
+
+URL Source: https://arxiv.org/pdf/2607.14615v1
+
+Published Time: Fri, 17 Jul 2026 01:00:40 GMT
+
+Number of Pages: 28
+
+Markdown Content:
+# Gradient-enhanced spline dimensional decomposition for uncertainty quantification with limited training samples 
+
+Eunho Heo a, Dongjin Lee b, ∗
+
+> aDepartment of Automotive Engineering (Automotive-Computer Convergence), Hanyang University, Seoul, South Korea
+> bDepartment of Automotive Engineering, Hanyang University, Seoul, South Korea
+> July 16, 2026
+
+Abstract 
+
+A spline dimensional decomposition (SDD) surrogate effectively represents high-dimensional engi-neering responses with localized features and complex nonlinearities in uncertainty quantification (UQ). However, limited training data can make coefficient estimation from function values severely ill-conditioned. We propose gradient-enhanced SDD (GE-SDD), which trains the surrogate using function values and partial derivatives. A diagonal row-weight matrix balances the function and derivative blocks by their Frobenius norms. We solve the balanced system through ridge regression in probability-weighted Sobolev coordinates and select the regularization parameter using grouped K-fold cross-validation to prevent information leakage. Mapping the solution back to the L2-orthonormal SDD basis preserves closed-form mean and variance estimates. We evaluate the proposed GE-SDD on a two-dimensional continuous exponential function, a linear dynamical system with three uncertain parameters, and a 30-dimensional 25-bar truss. GE-SDD is more accurate than standard SDD and uses gradients more robustly than gradient-enhanced Kriging. GE-SDD achieves a median NRMSE of 1.022% on the nonsmooth benchmark, compared with 8.731% 
+
+for Kriging. For the truss, GE-SDD yields lower NRMSE and more accurate standard-deviation estimates than Kriging at moderate training sizes and above. Overall, the benefits of gradient aug-mentation depend on input dimension, basis resolution, training size, and the target UQ quantity. 
+
+Keywords: Spline dimensional decomposition, Uncertainty quantification, Gradient-enhanced surrogate modeling, Energy-balanced scaling, Ridge regression, Orthonormal B-splines 
+
+1. Introduction 
+
+Uncertainty in material properties, geometry, and loads propagates to engineering predictions, making uncertainty quantification (UQ) essential for reliable analysis and design [1, 2]. Forward UQ estimates output statistics, such as the mean and variance, by propagating input uncertainty through a computational model. Monte Carlo simulation (MCS) is broadly applicable and asymptotically unbiased, but its slow convergence becomes prohibitively expensive when each sample requires a finite-element or computational fluid dynamics simulation. Surrogate models reduce this cost by approximating the simulator from a limited set of train-ing samples. Common surrogates include spectral expansions, such as polynomial chaos expansion (PCE) [1, 3] and polynomial dimensional decomposition (PDD) [4, 5]; collocation and sparse-grid methods [6, 7, 8]; Gaussian process regression (GPR) [9]; reduced-order models [10] and neural networks [11]. Multifidelity strategies further reduce the sampling cost by adaptively combining surrogates and models of varying fidelity [12, 13]. Neural networks offer considerable flexibility in     
+
+> ∗Corresponding author
+> Email addresses: gjrkd426@hanyang.ac.kr (Eunho Heo), dlee46@hanyang.ac.kr (Dongjin Lee)
+
+1arXiv:2607.14615v1 [math.NA] 16 Jul 2026 approximating highly nonlinear responses through richly parameterized function classes defined by their weights and biases. However, they often require many training samples and iterative optimiza-tion. They also lack the closed-form moment estimates available from measure-consistent orthogonal expansions. PCE and PDD compute the mean and variance directly from their coefficients [4, 5], but their global polynomial bases often struggle with localized nonlinearities, steep gradients, and near-discontinuities common in structural dynamics, fracture, and multiphysics. Spline dimensional decomposition (SDD) addresses this limitation by combining an ANOVA de-composition with locally supported B-spline basis functions [14, 15]. Knot vectors partition each input domain, allowing SDD to capture local variations that are difficult to resolve with PCE or PDD [16, 17, 18]. The hierarchical ANOVA structure and orthonormal basis also provide analytical mean and variance estimates without additional sampling. Combined with score functions, SDD yields closed-form second-moment sensitivities for robust design optimization [19] and supports stochastic isogeometric analysis on multipatch domains [17]. However, standard SDD estimates its coefficients from function values alone. In strongly nonlinear problems with high-dimensional inputs, the number of basis functions can exceed the available samples and make coefficient estimation ill-conditioned. Gradient observations can improve coefficient estimation when training data are limited. Intru-sive sensitivity methods differentiate the governing equations with respect to input parameters and solve the resulting sensitivity or adjoint equations. Applications include structural shape sensitivity and adjoint-based aerodynamic design [20]. These methods are effective when user can access and differentiate the governing equations, but they require internal simulator code or dedicated sensitivity solvers. Such requirements limit their use with complex or legacy black-box models. Non-intrusive surrogates can use gradients obtained from analytical sensitivities, adjoint solvers, automatic differentiation, finite differences, or built-in sensitivity modules. Gradient-enhanced Kriging (GE-Kriging), formulated within a co-Kriging framework, jointly models function values and partial derivatives through auto- and cross-covariances [21, 9]. For a sufficiently smooth kernel, differentiating the kernel analytically provides the required covariance terms. GE-Kriging has produced more accu-rate predictions than conventional Kriging for fixed sampling budgets and has reduced the number of samples needed to reach a target accuracy in problems with up to 100 input dimensions and engi-neering problems with up to 15 dimensions [9]. However, its computational cost grows cubically with the total number of function and derivative observations, while maximum likelihood hyperparameter estimation becomes increasingly expensive as the input dimension increases. Gradient-enhanced polynomial methods instead convert function values and derivatives into lin-ear equations for coefficient estimation. At each training sample, one function value and one partial derivative per input dimension provides 1 + d equations for a d-dimensional problem [22]. Gradient-augmented compressed sensing stacks these equations and applies sparsity-promoting regularization, such as the Least Absolute Shrinkage and Selection Operator (LASSO) [23, 24]. Derivative obser-vations can therefore reduce the number of training samples required for reliable sparse polynomial approximation, particularly in UQ problems with high-dimensional inputs. Regularized regression has also improved dimensional-decomposition surrogates without gradient data. A sparsity-promoting D-MORPH regression method first computes a sparse LASSO solution and then embeds that solution within D-MORPH regression to train PDD surrogates for global sensitivity analysis [25]. This approach improves coefficient estimation with limited data but does not use derivative observations. Despite these developments, no gradient-enhanced SDD method has used derivative observations within a Sobolev-type coefficient-estimation framework, to the authors’ knowledge. Such a formulation must address two practical challenges. First, the function and derivative blocks of the design matrix can differ in Frobenius norm by several orders of magnitude across input dimensions. Directly stacking these blocks allows high-norm blocks to dominate the regression loss. Second, each function value and its derivatives come from the same training sample. Cross-validation must therefore keep these observations in the same fold; otherwise, gradient information can leak into the validation set and produce overly optimistic estimates. 2To overcome these difficulties, we propose a gradient-enhanced SDD (GE-SDD) method for UQ with limited training samples. The main contributions are as follows: (1) We formulate GE-SDD as a probability-weighted Sobolev-type regression that combines func-tion values and partial derivatives. Each training sample contributes additional deterministic equations while preserving the standard SDD representation for moment estimation. (2) We develop a block-wise, energy-balanced scaling strategy that prevents function and derivative blocks with large Frobenius norms from dominating the regression. (3) We map the coefficients estimated in Sobolev coordinates back to the original L2-orthonormal SDD coordinates. This mapping preserves closed-form mean and variance estimates without additional Monte Carlo sampling. (4) We use grouped K-fold cross-validation that keeps all observations from each training sample in the same fold, preventing information leakage during regularization-parameter selection. The remainder of this paper is organized as follows. Section 2 introduces the UQ problem, SDD framework, and Sobolev-space formulation. Section 3 presents GE-SDD. Section 4 evaluates the method on three benchmark problems of increasing complexity. Section 5 summarizes the main findings. 
+
+2. Background and problem formulation 
+
+This section provides the mathematical foundation for GE-SDD. Section 2.1 defines the notation, and Sections 2.2 and 2.3 formulate the random variables and UQ objective. Section 2.4 introduces the ANOVA structure, orthonormal B-spline basis, and truncated SDD approximation. Finally, Sec-tion 2.5 develops the Sobolev-space setting for the gradient-enhanced formulation in Section 3. 
+
+2.1. Mathematical notation 
+
+Let N, N0, R, and R+0 denote the sets of positive integers, non-negative integers, real numbers, and non-negative real numbers, respectively. For N ∈ N, define the bounded rectangular input domain 
+
+AN := QNk=1 Ak, Ak := [ ak, b k] ⊂ R, k = 1 , . . . , N. For a nonempty subset u ⊆ { 1, . . . , N } with cardinality |u|, denote by xu and Xu the subvectors of x and X indexed by u, respectively, and define 
+
+Au := Q 
+
+> k∈u
+
+Ak. We denote expectation and variance by E[·] and Var[ ·], respectively, with respect to the input probability distribution defined below. 
+
+2.2. Input and output random variables 
+
+Let (Ω , F, P) be an abstract probability space, where Ω is the sample space, F is a σ-algebra on Ω, and P : F → [0 , 1] is a probability measure. Consider an N -dimensional random vector 
+
+X := ( X1, . . . , X N )⊤ : Ω → AN , representing the uncertain inputs of the computational model. The joint cumulative distribution function (CDF) of X is FX(x) := P
+
+hTNk=1 {Xk ≤ xk}
+
+i
+
+. When FX
+
+is absolutely continuous, the corresponding joint probability density function (PDF) is fX(x) := 
+
+∂N FX(x)/(∂x 1 · · · ∂x N ). The probability measure induced by X on its input domain is represented by (AN , BN , f X(x) d x), where BN := B(AN ) is the Borel σ-algebra on AN .
+
+Assumption 1. The random vector X satisfies the following conditions. (1) The components Xk, k = 1 , . . . , N , are mutually independent but not necessarily identically distributed. (2) Each Xk is defined on a bounded interval A(k) = [ ak, b k] ⊂ R.
+
+3(3) Each Xk has an absolutely continuous marginal distribution function FXk and a marginal prob-ability density function fXk supported on [ak, b k].
+
+Under Assumption 1, the joint density factorizes as fX(x) = QNk=1 fXk (xk). The bounded support also ensures the existence of the finite moments required for constructing the measure-consistent orthonormal spline basis. Let y : AN → R denote a deterministic computational model or quantity-of-interest (QoI) mapping. The corresponding output random variable is defined by the composition Y := y(X) : Ω → R. The computational model is assumed to be square integrable with respect to the input probability measure, such that y ∈ L2(AN , BN , f X(x)d x), E[Y 2] = R 
+
+> AN
+
+y(x)2fX(x) d x < ∞.
+
+2.3. Objectives of uncertainty quantification 
+
+We draw the training samples from the input probability measure or select them using a deter-ministic experimental design. The goal is to construct a surrogate that accurately approximates y(X)
+
+over AN and estimates the mean and variance of Y = y(X), such that 
+
+μY := E[Y ] = 
+
+Z
+
+> AN
+
+y(x)fX(x) d x and σ2 
+
+> Y
+
+:= Var[ Y ] = 
+
+Z
+
+> AN
+
+ y(x) − μY
+
+2fX(x) d x (1) from limited function-value observations. In engineering applications, evaluating y(x) may require an expensive finite-element, computational fluid dynamics, or multiphysics simulation. The number of available training samples is therefore often limited. Let M denote the number of training samples, each providing one function-value observation:   x(i), y (x(i)) Mi=1 , x(i) ∈ AN .
+
+In the gradient-enhanced setting, each of the M training samples also provides partial derivatives with respect to the input variables. The resulting training set is 
+
+
+
+x(i)
+
+y(x(i))
+
+∇y(x(i))
+
+
+
+> Mi=1
+
+⊂ R2N +1 . (2) We treat the derivatives as local constraints associated with the same M training points, rather than as independent samples. Analytical sensitivities, adjoint methods, automatic differentiation, finite differences, or dedicated sensitivity modules can provide the required derivatives. 
+
+2.4. Spline dimensional decomposition 
+
+SDD uses the analysis-of-variance (ANOVA) dimensional decomposition of y(X) [26, 27]. Under Assumption 1, the response has the unique representation y(X) = y∅ + P  
+
+> ∅̸ =u⊆{ 1,...,N }
+
+yu(Xu), where 
+
+y∅ := E[y(X)] and each component function yu depends only on Xu. For each k ∈ u, yu satisfies 
+
+R bk 
+
+> ak
+
+yu(xu)fXk (xk) d xk = 0 for almost every xu\{ k}. This zero-mean condition ensures the uniqueness and mutual orthogonality of the ANOVA components. SDD approximates each nonconstant component using locally supported, measure-consistent or-thonormal B-spline basis functions. For each input coordinate Xk, let pk, ξk, and nk denote the spline degree, open knot vector, and number of univariate basis functions, respectively. The corresponding orthonormal basis functions are denoted by ψkik ,p k ,ξk , ik = 1 , . . . , n k, where ψk  
+
+> 1,p k,ξk
+
+≡ 1 and the re-maining functions have zero mean under the probability measure of Xk. For a non-empty subset u,the associated tensor-product basis function is 
+
+Ψu 
+
+> iu,pu,Ξu
+
+(xu) := Y
+
+> k∈u
+
+ψkik ,p k ,ξk (xk). (3) The detailed construction and orthonormalization procedure is provided in Appendix Appendix A. 4For each non-empty interaction subset u, define the reduced multi-index set ¯Iu, nu := {iu =(ik1 , . . . , i k|u| ) : 2 ≤ ik ≤ nk, k ∈ u}. Consequently, every retained tensor-product basis function has zero mean and contributes only to the non-constant part of the ANOVA decomposition. For 
+
+iu ∈ ¯Iu, nu , the retained tensor-product basis functions satisfy 
+
+EΨu 
+
+> iu,pu,Ξu
+
+(Xu) = 0 . (4) Under Assumption 1, for iu ∈ ¯Iu, nu and jv ∈ ¯Iv, nv , the retained tensor-product basis functions satisfy 
+
+EΨu 
+
+> iu,pu,Ξu
+
+(Xu)Ψ v   
+
+> jv,pv,Ξv
+
+(Xv ) =
+
+
+
+1, u = v and iu = jv ,
+
+0, otherwise .
+
+(5) For a maximum interaction order S ≤ N , the total number of retained SDD basis functions, including the constant term, is 
+
+LS, p,Ξ = 1 + 
+
+> S
+
+X
+
+> s=1
+
+X 
+
+> u⊆{ 1,...,N }|u|=s
+
+Y
+
+> k∈u
+
+(nk − 1) . (6) 
+
+Truncated SDD approximation. Using the retained tensor-product basis functions, the theoretical 
+
+S-variate SDD representation is 
+
+yS, p,Ξ(X) := c∅ + X 
+
+> ∅̸ =u⊆{ 1,...,N }
+> 1≤| u|≤ S
+
+X
+
+> iu∈¯Iu, nu
+
+cu 
+
+> iu,pu,Ξu
+
+Ψu 
+
+> iu,pu,Ξu
+
+(Xu), (7) where c∅ := y∅ = E[Y ] is the exact constant coefficient, and cu 
+
+> iu,pu,Ξu
+
+∈ R are the non-constant SDD expansion coefficients. In data-driven SDD construction, all coefficients are estimated from the available observations. The estimated constant coefficient, denoted by ˆc∅, therefore approximates the exact ANOVA constant y∅.Owing to the orthonormality and zero-mean properties of the retained basis functions, the mean and variance of the theoretical truncated SDD representation are 
+
+E[yS, p,Ξ(X)] = c∅ = y∅, Var[ yS, p,Ξ(X)] = X 
+
+> ∅̸ =u⊆{ 1,...,N }
+> 1≤| u|≤ S
+
+X
+
+> iu∈¯Iu, nu
+
+ cu
+
+> iu,pu,Ξu
+
+2 . (8) The same formulas apply to the estimated coefficients, so the fitted SDD provides the mean and variance without additional Monte Carlo sampling. 
+
+2.5. Sobolev framework for GE-SDD 
+
+GE-SDD augments standard SDD regression with first-order partial derivatives of the retained basis functions. These basis functions must therefore have square-integrable weak first derivatives. The response y must also provide the corresponding partial derivatives at the training samples with gradient observations. Throughout this subsection, let w : AN → R be Lebesgue-measurable. The space of square-integrable functions is L2(AN ) := w : AN → R measurable : R 
+
+> AN
+
+w(x)2 dx < ∞ . For any w1, w 2 ∈ L2(AN ), the corresponding inner product is ⟨w1, w 2⟩L2(AN ) := R 
+
+> AN
+
+w1(x)w2(x) d x. This Lebesgue-measure space differs from the probability-weighted space L2(AN , BN , f X(x)d x) defined in (2.2). We denote by C∞ 
+
+> c
+
+(AN ) the space of infinitely differentiable test functions φ : AN → R whose compact support lies in the interior of AN . For each k ∈ { 1, . . . , N }, the weak partial derivative of w
+
+5with respect to xk is a function ∂w/∂x k ∈ L2(AN ) satisfying, if 
+
+Z
+
+> AN
+
+w(x) ∂φ ∂x k
+
+(x) d x = −
+
+Z
+
+> AN
+
+∂w ∂x k
+
+(x)φ(x) d x for every φ ∈ C∞ 
+
+> c
+
+(AN ), (9) The weak gradient is ∇w := ( ∂w/∂x 1, . . . , ∂w/∂x N )⊤.The first-order Sobolev space on AN is then defined explicitly as 
+
+H1(AN ) := 
+
+
+
+w ∈ L2(AN ) : ∂w ∂x k
+
+∈ L2(AN ), k = 1 , . . . , N 
+
+
+
+. (10) where ∂w/∂x k denotes the weak partial derivative defined in (9). For w1, w 2 ∈ H1(AN ), the standard inner product is 
+
+⟨w1, w 2⟩H1(AN ) := ⟨w1, w 2⟩L2(AN ) +
+
+> N
+
+X
+
+> k=1
+
+ ∂w 1
+
+∂x k
+
+, ∂w 2
+
+∂x k
+
+ 
+
+> L2(AN)
+
+. (11) To consider the input probability measure, we define the probability-weighted Sobolev-type bilinear form 
+
+af (w1, w 2) := E[w1(X)w2(X)] + 
+
+> N
+
+X
+
+> k=1
+
+E
+
+ ∂w 1
+
+∂x k
+
+(X) ∂w 2
+
+∂x k
+
+(X)
+
+
+
+. (12) All expectations in (12) are finite for bounded functions with bounded weak first derivatives; in particular, they are finite for the piecewise-polynomial B-spline basis functions used in this work. B-splines of degree pk ≥ 1 with open knot vectors and simple interior knots are continuous piecewise polynomials with square-integrable weak first derivatives. Thus, each univariate orthonormal basis functions (A.4) and the retained tensor-product basis functions belong to H1(AN ). For pk ≥ 2, the univariate basis functions are Cpk −1 
+
+> c
+
+-continuous across simple interior knots. The Sobolev framework therefore supports the inclusion of basis derivatives in coefficient estima-tion. Section 3.1 uses the probability-weighted derivative terms to construct the coordinate transfor-mation, while Section 3.2 addresses numerical imbalances between the function-value and derivative blocks. 
+
+Problem 1. Given M training samples with function-value and partial-derivative observations, con-struct an accurate GE-SDD surrogate in the limited-sample regime ( M < L S, p,Ξ) while preserving coefficient-based estimates of the output mean and variance. 
+
+3. Gradient-enhanced spline dimensional decomposition 
+
+This section develops the proposed GE-SDD method. Section 3.1 formulates the probability-weighted Sobolev-transformed regression system using both function-value and partial-derivative ob-servations. Section 3.2 introduces block-wise, energy-balanced scaling to balance the Frobenius norms of the function and derivative blocks. Section 3.3 presents the ridge regression and grouped K-fold cross-validation for selecting the regularization parameter. Section 3.4 presents coefficient estimation in the original L2-orthonormal SDD coordinates, retaining closed-form mean and variance estimates. Figure 1 summarizes the overall workflow. 
+
+3.1. Sobolev-transformed stacked regression system 
+
+Denote the number of retained SDD basis functions by nψ := LS, p,Ξ. Collecting the constant and retained tensor-product basis functions constructed in Section 2.4 gives the multivariate L2-6Figure 1: Flowchart for the proposed GE-SDD framework. The method transforms the L2-orthonormal SDD basis into Sobolev coordinates and estimates the expansion coefficients from function and gradient observations using ridge regression. 
+
+orthonormal SDD basis vector as 
+
+ψS, p,Ξ(X) :=  ψ1(X), ψ 2(X), . . . , ψ nψ (X)⊤, ψ1(X) ≡ 1. (13) We omit the subscripts (S, p, Ξ) when no ambiguity arises. Orthonormality gives 
+
+E[ψ(X)] = (1 , 0, . . . , 0) ⊤, E
+
+h
+
+ψ(X)ψ⊤(X)
+
+i
+
+= Inψ . (14) We obtain the first-order derivatives of the basis functions analytically using the B-spline differ-entiation rule. The extended basis matrix collects the function basis and its partial derivatives: 
+
+A(X) := 
+
+
+
+ψ(X) ∂ψ
+
+∂X 1
+
+(X) · · · ∂ψ
+
+∂X N
+
+(X)
+
+
+
+∈ Rnψ ×(1+ N ). (15) The first column of A(X) contains the original SDD basis functions, and remaining columns contain their partial derivatives with respect to the input variables. Using the bilinear form introduced in (12), define the derivative-augmented spline moment matrix by 
+
+GGE := EA(X)A⊤(X)
+
+= E
+
+h
+
+ψ(X)ψ⊤(X)
+
+i
+
++
+
+> N
+
+X
+
+> k=1
+
+E
+
+"
+
+∂ψ
+
+∂X k
+
+(X) ∂ψ⊤
+
+∂X k
+
+(X)
+
+#
+
+= Inψ +
+
+> N
+
+X
+
+> k=1
+
+E
+
+"
+
+∂ψ
+
+∂X k
+
+(X) ∂ψ⊤
+
+∂X k
+
+(X)
+
+#
+
+∈ Rnψ ×nψ . (16) The derivative contribution in (16) is positive semidefinite, and the function-value contribu-tion is Inψ . Therefore, GGE is symmetric positive definite and admits the Cholesky factorization 
+
+GGE = QQ ⊤, where Q is nonsingular and lower-triangular. The mathematical formulation requires no diagonal regularization. Numerical implementations may add a machine-scale diagonal perturba-tion to mitigate finite-precision roundoff; this safeguard is not part of the proposed transformation. 
+
+Remark 1 (Assembly of the Sobolev spline moment matrix) . We assemble GGE over the retained ANOVA interaction subsets. For retained basis functions Ψu 
+
+> iu
+
+and Ψv 
+
+> jv
+
+, the derivative term associated with Xk can be nonzero only when k ∈ u ∩ v and the remaining active factors satisfy the corresponding 
+
+L2-orthogonality conditions. We therefore assemble GGE entrywise or blockwise over the retained SDD index set, avoiding a full N -dimensional tensor-product construction. 
+
+The Sobolev-transformed extended basis matrix is 
+
+B(X) := Q−1A(X) = Φ1(X) Φ2(X) · · · Φ1+ N (X) , (17) 7where 
+
+Φ1(X) = Q−1ψ(X), Φ1+ k(X) = Q−1 ∂ψ
+
+∂X k
+
+(X), k = 1 , . . . , N. (18) By construction, EB(X)B⊤(X) = Q−1GGE Q−⊤ = Q−1(QQ ⊤)Q−⊤ = ( Q−1Q)( Q⊤Q−⊤ ) = Inψ ·
+
+Inψ = Inψ . The first block Φ1(X) is a Sobolev-transformed representation of the original SDD basis vector. In general, Φ1(X)̸ = ψ(X), because the derivative terms of GGE transform the non-constant basis directions. We estimate the coefficient in this transformed coordinate and then map them to the original L2-orthonormal SDD coordinates for statistical moment evaluation. 
+
+Remark 2 (Preservation of the constant component) . Because ψ1 ≡ 1, all partial derivatives of ψ1
+
+vanish. The remaining SDD basis functions have zero mean and are L2-orthogonal to ψ1. Therefore, the first row and column of GGE are (1 , 0, . . . , 0) ⊤ and (1 , 0, . . . , 0) , respectively. The Cholesky trans-formation thus preserves the constant basis direction and transforms only the non-constant directions. 
+
+Evaluating each transformed basis block at the M training samples introduced in (2) gives 
+
+Ak := 
+
+
+
+Φk(x(1) )⊤
+
+Φk(x(2) )⊤
+
+...
+
+Φk(x(M ))⊤
+
+ ∈ RM ×nψ , k = 1 , . . . , 1 + N. (19) Here, A1 contains the function-value evaluations, whereas Ak+1 contains the basis derivatives with respect to Xk for k = 1 , . . . , N . Stacking these blocks gives 
+
+Astack := 
+
+
+
+A1
+
+A2
+
+...
+
+A1+ N
+
+ ∈ RM (1+ N )×nψ . (20) The corresponding target blocks are 
+
+b1 := y(x(1) ), . . . , y (x(M ))⊤ ∈ RM . (21) 
+
+b1+ k := 
+
+ ∂y ∂x k
+
+ x(1) , . . . , ∂y ∂x k
+
+ x(M )⊤
+
+∈ RM , k = 1 , . . . , N. (22) The stacked target vector is then 
+
+bstack := 
+
+
+
+b1
+
+b2
+
+...
+
+b1+ N
+
+ ∈ RM (1+ N ). (23) The resulting regression system is 
+
+Astack cGE ≈ bstack , cGE ∈ Rnψ , (24) where cGE denotes the coefficient vector in the transformed Sobolev coordinates. Each training sample contributes one function-value equation and N derivative equations. Gradient augmentation can therefore improve coefficient identifiability without additional training samples. 83.2. Block-wise energy-balanced scaling 
+
+The function-value and derivative design blocks can have substantially different Frobenius norms because of input units, physical scales, and basis-derivative magnitudes. Without scaling, high-norm blocks can dominate the stacked regression loss and reduce the accuracy of the function-value fit. Define the block norms 
+
+Ff := ∥A1∥F , Fgk := ∥A1+ k∥F , k = 1 , . . . , N. (25) The corresponding block-wise scaling factors are 
+
+sf := 1 , sgk := 
+
+(
+
+Ff /F gk , Fgk > ϵ s,
+
+1, Fgk ≤ ϵs, k = 1 , . . . , N, (26) where ϵs > 0 prevents division by a near-zero derivative norm. We collect these factors in the diagonal row-weight matrix 
+
+Wrow := diag 
+
+
+
+sf , . . . , s f , s g1 , . . . , s g1 , . . . , s gN , . . . , s gN
+
+| {z }   
+
+> M(1+ N)entries
+
+
+
+∈ RM (1+ N )×M (1+ N ). (27) Applying the same row weights to the design matrix and target vector gives 
+
+˜Astack := Wrow Astack , ˜bstack := Wrow bstack . (28) For every derivative block satisfying Fgk > ϵ s, the scaling equalizes its Frobenius norm with that of the function-value block: 
+
+∥sgk A1+ k∥F = ∥A1∥F . (29) In the numerical examples, we compute the block norms and scaling factors once from the full training design matrices and keep them fixed during grouped cross-validation and final model fitting. The scaling uses only the sampled inputs and basis evaluations, not the function-value or derivative targets. 
+
+3.3. Ridge regression and grouped K-fold cross-validation 
+
+In the limited-sample regime M < n ψ , gradient augmentation provides up to M (N + 1) equations, but the stacked system may remain rank deficient or ill-conditioned. Ridge regression stabilizes coefficient estimation by shrinking the nonconstant coefficients. Unlike LASSO, ridge does not promote exact sparsity and therefore allows gradient observations to inform all retained basis directions. We estimate the transformed-coordinate coefficients from the balanced system by 
+
+ˆcGE (α) := arg min 
+
+> cGE ∈Rnψ
+
+
+
+˜Astack cGE − ˜bstack 
+
+> 22
+
++ α c⊤
+
+> GE
+
+D c GE 
+
+
+
+, α ≥ 0. (30) The SDD basis already contains the constant function, so the regression requires no separate intercept. We exclude the constant coefficient from regularization using D := diag(0 , 1, . . . , 1) ∈ Rnψ ×nψ . The same constant-excluded penalty is used for the function-only SDD baseline. For α > 0, the solution is 
+
+ˆcGE (α) = 
+
+ ˜A⊤ 
+
+> stack
+
+˜Astack + αD
+
+−1 ˜A⊤ 
+
+> stack
+
+˜bstack . (31) Although D leaves the constant direction unpenalized, the function-value block contains a nonzero constant column. Therefore, the coefficient matrix in (31) is positive definite for α > 0. We impose the 9ridge penalty in the transformed coordinates. The transformed and original SDD coefficients satisfy 
+
+cGE = Q⊤cSDD . Therefore, 
+
+c⊤
+
+> GE
+
+D c GE = c⊤
+
+> SDD
+
+ QDQ ⊤ cSDD . (32) Because Q preserves the constant direction (Remark 2), the transformed penalty leaves the mean coefficient unregularized and applies a Sobolev-weighted quadratic penalty only to the nonconstant SDD coefficients. We select the regularization parameter α using grouped K-fold cross-validation. All N + 1 obser-vations associated with the same training sample x(i) share group label i. Thus, the function value and its partial derivatives remain together in either the training or validation partition, preventing information leakage across folds. Let Vr ⊆ { 1, . . . , M } denote the validation indices for fold r, and define Tr := {1, . . . , M } \ V r .Under the block ordering in (20), the rows of the balanced stacked system associated with x(i) occupy the rows R(i) :=  i + ( k − 1) M : k = 1 , . . . , 1 + N . i = 1 , . . . , M, Here, k = 1 identifies the function-value row, and k = 2 , . . . , 1 + N identify the derivative rows. For fold r, denote the stacked training-row index set by S 
+
+> i∈T r
+
+R(i). The fold-specific training system is 
+
+eA(r)tr :=  ˜Astack 
+
+S  
+
+> i∈T rR(i)
+
+∈ R|T r |(1+ N )×nψ , eb(r)tr := ˜bstack 
+
+S  
+
+> i∈T rR(i)
+
+∈ R|T r |(1+ N ), (33) where [ · ]S  
+
+> i∈T rR(i)
+
+denotes the row-selection operator that extracts the rows indexed by S 
+
+> i∈T r
+
+R(i).We then estimate 
+
+ˆc(r)GE (α) := arg min 
+
+> c∈Rnψ
+
+eA(r)tr c − eb(r)tr 
+
+> 22
+
++ α c⊤D c 
+
+
+
+. (34) We evaluate validation error using only the held-out function-value observations. Derivatives pro-vide auxiliary constraints during fitting but do not enter the validation loss, which therefore measures function-prediction accuracy directly. The validation blocks are 
+
+A(r)1,val := A1
+
+ 
+
+> Vr
+
+∈ R|V r |× nψ , b(r)1,val := b1
+
+ 
+
+> Vr
+
+∈ R|V r |, (35) where A1 and b1 are the function-value design block in (19) and target block in (22), respectively. The cross-validation loss is 
+
+LCV (α) := 1
+
+K
+
+> K
+
+X
+
+> r=1
+
+1
+
+|V r | A(r)1,val ˆc(r)GE (α) − b(r)1,val 
+
+> 22
+
+. (36) We select α from a logarithmically spaced candidate grid G:
+
+ˆα := arg min 
+
+> α∈G
+
+LCV (α). (37) Finally, we refit (30) to the complete balanced system using ˆα.
+
+3.4. SDD coefficient and statistical moment estimation 
+
+Ridge regression estimates the coefficients in the transformed Sobolev coordinates. Moment es-timation, however, requires coefficients in the original L2-orthonormal SDD coordinates. From (18), 
+
+Φ1(X) = Q−1ψ(X). The fitted GE-SDD surrogate is therefore ˆy(X) = Φ1(X)⊤ˆcGE = ψ(X)⊤Q−⊤ ˆcGE .
+
+Accordingly, we estimate the coefficients in the original SDD coordinates as 
+
+ˆcSDD := Q−⊤ ˆcGE . (38) The SDD surrogate then becomes 
+
+ˆy(X) = ψ(X)⊤ˆcSDD . (39) 10 Because ψ is L2-orthonormal with respect to the input probability measure, the mean and variance follow directly from the estimated coefficients: 
+
+ˆμY = ˆ cSDD ,1, ˆσ2 
+
+> Y
+
+=
+
+> nψ
+
+X
+
+> j=2
+
+ˆc 2SDD ,j . (40) Since ψ1 ≡ 1, the coefficient ˆcSDD ,1 = ˆ c∅ estimates the ANOVA constant y∅ = E[Y ]. Thus, GE-SDD provides moment estimates without additional Monte Carlo sampling. The same SDD coefficients also represent the fitted gradient: 
+
+∂∂X k
+
+ˆy(X) = Φ1+ k(X)⊤ˆcGE =
+
+ ∂∂X k
+
+ψ(X)
+
+⊤
+
+ˆcSDD , k = 1 , . . . , N. (41) The reconstructed SDD coefficient vector ˆcSDD therefore simultaneously and consistently represents both the fitted response and its first-order gradient derivatives. 
+
+3.5. Computational workflow and cost 
+
+This subsection outlines the computational procedure and the associated cost of constructing the 
+
+S-variate GE-SDD surrogate. Figure 1 presents the overall workflow, and Algorithm 1 states the complete procedure at the end of this subsection. The procedure begins with the input-output-gradient dataset {x(i), y (x(i)), ∇y(x(i))}Mi=1 . We first construct the L2-orthonormal SDD basis ψ(X) from the prescribed spline parameters through the whitening transformation described in Section 2.4 and Appendix Appendix A. We then assemble the extended basis matrix A(X) from the basis and its partial derivatives and factorize the derivative-augmented spline moment matrix GGE = QQ ⊤, which maps the function value and its gradients into the common Sobolev coordinates Φ1, . . . , Φ1+ N (Section 3.1). Because the function-value and derivative blocks generally differ in Frobenius norm, we intro-duce the block-wise scaling factors sgk = ∥A1∥F /∥A1+ k∥F to form the energy-balanced system 
+
+( ˜Astack , ˜bstack ), which prevents a high-norm block from dominating the stacked regression loss (Sec-tion 3.2). We then estimate the coefficients by constant-excluded ridge regression, selecting ˆα by grouped K-fold cross-validation that keeps all 1 + N observations of each training point in the same fold (Section 3.3). Finally, we map the solution back to the L2-orthonormal SDD coordinates (ˆcSDD = Q−⊤ ˆcGE ), preserving closed-form mean and variance estimates (Section 3.4). The cost is governed by nψ = LS, p,Ξ in (6) and the M (1 + N ) stacked equations, with detailed analysis deferred to Section 4.4. 11 Algorithm 1 Gradient-enhanced SDD (GE-SDD) 
+
+Input: Training data   x(i), y (x(i)), ∇y(x(i)) Mi=1 ; spline parameters {pk, n k, ξk}Nk=1 ; interaction or-der S; number of CV folds K; regularization grid G
+
+Output: ˆcGE , ˆcSDD , ˆμY , ˆσ2
+
+> Y
+
+Step 1: Orthonormal basis construction  
+
+> 1:
+
+for k = 1 , . . . , N do  
+
+> 2:
+
+Assemble the raw basis vector Pk(Xk) (Appendix Appendix A).  
+
+> 3:
+
+Compute Gk = EPkP⊤
+
+> k
+
+ and factorize Gk = QkQ⊤ 
+
+> k
+
+. 
+
+> 4:
+
+Form ψk(Xk) = Q−1 
+
+> k
+
+Pk(Xk). 
+
+> 5:
+
+end for  
+
+> 6:
+
+Construct the retained tensor-product basis Ψu 
+
+> iu
+
+= Q 
+
+> k∈u
+
+ψkik , iu ∈ ¯Iu, nu , 1 ≤ | u| ≤ S,and collect the nψ functions into ψ(X) (Section 2.4). 
+
+Step 2: Sobolev transformation  
+
+> 7:
+
+Assemble A(X) =  ψ ∂ψ/∂X 1 · · · ∂ψ/∂X N
+
+. 
+
+> 8:
+
+Compute GGE = EAA ⊤ and factorize GGE = QQ ⊤ (Section 3.1).  
+
+> 9:
+
+Form Φ1 = Q−1ψ and Φ1+ k = Q−1 ∂ψ/∂X k, k = 1 , . . . , N .
+
+Step 3: Stacking and energy-balanced scaling  
+
+> 10:
+
+Evaluate Φ1, . . . , Φ1+ N at the M training points; stack into Astack and bstack . 
+
+> 11:
+
+Compute sf = 1 and sgk = ∥A1∥F /∥A1+ k∥F ; collect them into Wrow . 
+
+> 12:
+
+Form the balanced system ˜Astack = Wrow Astack and ˜bstack = Wrow bstack (Section 3.2). 
+
+Step 4: Ridge regression with grouped cross-validation  
+
+> 13:
+
+Assign all 1 + N rows of each training point x(i) to group i (Section 3.3).  
+
+> 14:
+
+for each α ∈ G do  
+
+> 15:
+
+for r = 1 , . . . , K do  
+
+> 16:
+
+Fit the constant-excluded ridge estimator ˆc(r)GE (α) on the training groups of fold r. 
+
+> 17:
+
+end for  
+
+> 18:
+
+Evaluate the function-value validation loss LCV (α) over the held-out function observations.  
+
+> 19:
+
+end for  
+
+> 20:
+
+Select ˆα = arg min α∈G LCV (α). 
+
+> 21:
+
+Refit on the complete balanced system ( ˜Astack , ˜bstack ) to obtain ˆcGE .
+
+Step 5: Coefficient and moment estimation  
+
+> 22:
+
+Transform back: ˆcSDD = Q−⊤ ˆcGE (Section 3.4).  
+
+> 23:
+
+Compute ˆμY = ˆ cSDD ,1 and ˆσ2 
+
+> Y
+
+= Pnψ 
+
+> j=2
+
+ˆc 2SDD ,j .
+
+4. Numerical examples 
+
+We evaluate the proposed GE-SDD on three benchmarks of increasing input dimension and com-plexity: a two-dimensional continuous exponential function in Section 4.1, a two-degree-of-freedom linear dynamical system with three uncertain parameters in Section 4.2, and a 30-dimensional compli-ance problem for a 25-bar transmission-tower-type space truss in Section 4.3. Unless stated otherwise, all experiments follow the common setup below. Tables report arithmetic means over 20 independent replications, while box plots summarize the distributions and medians. We compare GE-SDD with: 
+
+• SDD : conventional SDD trained on function values, using the same orthonormal basis, constant-excluded ridge estimator, regularization grid, and K-fold cross-validation procedure as GE-SDD. 
+
+• Kriging : Gaussian process regression trained on function values [9]. The model uses a constant trend, affinely scaled inputs, standardized outputs, and anisotropic length scales estimated by maximum likelihood. Example 1 uses a Matérn 3/2 kernel with a nugget of 10 −10 and five random restarts. Examples 2 and 3 use an anisotropic squared-exponential kernel with a nugget of 10 −8.12 • GE-Kriging : Gradient-enhanced Kriging based on the exact joint covariance of function values and gradients for the corresponding kernel [21, 9]. GE-Kriging uses the same M training samples and M × N derivative observations as GE-SDD. Each example specifies the hyperparameter-selection strategy. 
+
+• RBF : A Gaussian radial basis function surrogate, ϕ(x, x′) = exp( −∥ x − x′∥22/d 20), trained on function values and included only in Example 1. We select the shape parameter d0 by K-fold cross-validation over a logarithmically spaced grid. The model uses the same input and output scaling as Kriging, no polynomial tail, and a regularization coefficient of 10 −10 .We measure surrogate accuracy using the normalized root-mean-square error NRMSE := RMSE  
+
+> σY, MCS
+
+×
+
+100% , where the RMSE is evaluated on a reference MCS sample of size MMCS = 10 6, or the fixed subsample specified for an individual example. The quantity σY, MCS is the corresponding MCS esti-mate of the output standard deviation. We also report the coefficient of determination R2 and the mean absolute error (MAE) where relevant. 
+
+4.1. Example 1: Two-dimensional continuous exponential function 
+
+The first benchmark is a two-dimensional continuous exponential function with a localized peak at the origin: 
+
+y(x1, x 2) = exp  −2|x1| − 2|x2|, x1, x 2 ∈ [−1, 1] . (42) The inputs X1 and X2 are independent and uniformly distributed on [−1, 1] . The response decays rapidly from the origin and is continuous but nondifferentiable along the coordinate axes. These localized, nonsmooth features challenge surrogates trained only on function values. Away from the coordinate axes, the partial derivatives are 
+
+∂y ∂x k
+
+= −2 sign( xk) exp  −2|x1| − 2|x2|, k = 1 , 2, xk̸ = 0 . (43) The classical derivative is undefined at xk = 0 . We set sign(0) = 0 , corresponding to the symmetric subgradient convention at the cusp. Because the training samples follow continuous uniform distribu-tions, the probability of sampling xk = 0 exactly is zero; the adopted convention therefore does not affect the reported random-sampling results. 
+
+Spline discretization. SDD and GE-SDD use the same cubic B-spline basis with pk = 3 for k = 1 , 2.Each input coordinate uses the open knot vector ξk =  −1, . . . , −1
+
+| {z }
+
+> 4
+
+, − 12 , 0, 0, 0
+
+| {z } 
+
+> 3
+
+, 12 , 1, . . . , 1
+
+| {z }
+
+> 4
+
+, k = 1 , 2.
+
+The interior knots are {− 12 , 0, 12 } with multiplicity three at the origin. This repeated knot reduces the interelement continuity of the cubic spline space from C2 to C3−3 = C0 at xk = 0 , so the univariate spline space can represent a kink exactly at the known location of the nonsmooth ridge of (42). Both SDD and GE-SDD methods use the same knot vector, so their comparison isolates the effect of gradient observations from that of the approximation space. The knot vector in (4.1) generates 
+
+nk = 9 univariate basis functions per coordinate. With interaction order S = 2 , the number of retained basis functions is nψ = 1+2(9 −1)+(9 −1) 2 =81 . Both surrogates use the same M = 81 independently drawn training samples. The function-only SDD design matrix is therefore square, with 81 equations and 81 coefficients. GE-SDD adds two derivative equations per sample, producing 3M = 243 stacked equations for the same 81 coefficients. 13 Figure 2: True and surrogate-predicted response surfaces for the two-dimensional continuous exponential function using the representative training-data realization generated with seed 42: (a) true response; (b) GE-SDD (NRMSE 0.320% ); (c) standard SDD ( 15 .468% ); (d) GE-Kriging ( 7.300% ); (e) Kriging ( 7.735% ); and (f) RBF ( 18 .710% ). 
+
+14 Figure 3: Distributions of pointwise prediction-accuracy metrics over 20 independent training-data realizations for the two-dimensional continuous exponential function ( M = 81 , pk = 3 , nk = 9 , and S = 2 ): (a) NRMSE on a logarithmic scale and (b) R2. The overlaid points represent the results from individual realizations, and the horizontal line within each box denotes the median. Table 1: Mean pointwise prediction-accuracy metrics over 20 independently generated training sets for the two-dimensional continuous exponential function ( M = 81 , pk = 3 , nk = 9 , and S = 2 ). NRMSE is reported as a percentage. 
+
+Method NRMSE (%) R2
+
+GE-SDD 1.022 0.9996 SDD 36.326 0.7298 GE-Kriging 10.238 0.9891 Kriging 8.731 0.9922 RBF 21.138 0.9526 Table 1 reports the mean prediction accuracy over the 20 replications. GE-SDD achieves the lowest mean NRMSE of 1.022% and the highest mean R2 of 0.9996 . Its mean NRMSE is more than eight times lower than that of Kriging ( 8.731% ), the most accurate baseline, and more than 35 
+
+times lower than that of standard SDD ( 36 .326% ). Function-only Kriging achieves slightly higher accuracy GE-Kriging ( 8.731% versus 10 .238% ). One plausible explanation is the mismatch between the Matérn 3/2 joint covariance model and the nonsmooth response. The true gradient in (43) changes sign discontinuously across the coordinate axes, whereas the covariance model imposes a smooth joint function–gradient structure. Gradient observations on opposite sides of a cusp may therefore conflict with the assumed covariance. In contrast, the GE-SDD basis admits C0 continuity at the known cusp locations, allowing the model to use the gradient sign changes directly. Figure 3 summarizes the variability of the metrics across replications. The median NRMSEs are 
+
+0.269% for GE-SDD, 21 .772% for SDD, 9.683% for GE-Kriging, 8.086% for Kriging, and 19 .945% 
+
+for RBF. GE-SDD achieves an NRMSE below 1% in 15 of the 20 replications. The largest GE-SDD NRMSE of 7.208% remains below the median Kriging NRMSE. Standard SDD produces NRMSEs ranging from 4.5% to 166 .6% and negative R2 values in 2 replications. These results show that the square function-only system is sensitive to the placement of training samples near the localized peak. The derivative constraints substantially reduce this sensitivity. The response surfaces in Figure 2 support the quantitative results. GE-SDD captures the peak amplitude and rapid decay in Figure 2(b), whereas standard SDD produces local artifacts near the peak and in sparsely sampled regions in Figure 2(c). GE-Kriging and Kriging reproduce the reference 15 Figure 4: Two-degree-of-freedom linear dynamical system with masses M1 and M2, stiffnesses K1 and K2, damping coefficients C1 and C2, forces F1 and F2, and displacements z1(t; X) and z2(t; X).
+
+response away from the origin but smooth the cusps. RBF shows the largest deviations near the peak and the domain boundary. 
+
+4.2. Example 2: Two-degree-of-freedom linear dynamical system 
+
+The second benchmark is a two-degree-of-freedom (2-DOF) linear dynamical system with three uncertain structural parameters representing mass, damping, and stiffness. Figure 4 illustrates the system configuration. The spring–damper pair (K1, C 1) connects mass M1 to the fixed support, while (K2, C 2) connects mass M2 to M1. The forces F1(t) and F2(t) act in the positive displacement direction, and Z1(t; X) and Z2(t; X) denote the displacements. For excitation frequency f in Hz, define the angular frequency ω := 2 πf. The frequency-domain equilibrium equation is 
+
+D(f ; X) Z(f ; X) = bF, (44) where 
+
+D(f ; X) := −ω2
+
+M1 00 M2
+
+
+
++ i ω
+
+C1 + C2 −C2
+
+−C2 C2
+
+
+
++
+
+K1 + K2 −K2
+
+−K2 K2
+
+
+
+, (45) and 
+
+Z(f ; X) := 
+
+Z1(f ; X)
+
+Z2(f ; X)
+
+
+
+, bF := 
+
+" bF1
+
+bF2
+
+#
+
+. (46) The uncertain input vector is 
+
+X := ( XM , X C , X K )⊤ ∈ R3, (47) where XM , XC , and XK are independent U (−3, 3) random variables. The physical parameters are 
+
+M1 = M2 = (1+0 .05 XM ) kg , C1 = C2 = (1+0 .05 XC ) N ·s/m, K1 = K2 = 15000(1+0 .05 XK ) N /m.
+
+(48) We apply a unit harmonic force to M1, such that bF = (1 , 0) ⊤. At each fixed frequency, the surrogate approximates the response magnitude 
+
+yf (X) := |Z1(f ; X)| . (49) We construct a separate surrogate at each of 100 equally spaced frequencies fj ∈ [10 , 35] Hz , j =
+
+16 Table 2: Accuracy of the frequency-dependent standard deviation of |Z1(f ; X)| over 20 independently generated training sets ( M = 919 , nψ = 919 , and S = 2 ). The metrics are the mean absolute error, mean relative error across frequencies, and coefficient of determination. The Monte Carlo reference uses MMCS = 10 6 samples. 
+
+Method MAE ( ×10 −5) Rel. err. (%) R2
+
+GE-SDD 2.435 2.45 0.977 SDD 4.978 15.95 0.387 Kriging 1.151 1.49 0.994 GE-Kriging 4.651 5.97 0.870 
+
+1, . . . , 100 . The estimated coefficients provide the frequency-dependent standard deviation 
+
+σ|Z1|(fj ) := 
+
+q
+
+Var [ |Z1(fj ; X)|]. (50) 
+
+Analytic response sensitivities. We compute the GE-SDD gradients by differentiating the complex equilibrium equation. For q ∈ { XM , X C , X K }, differentiation of (44) gives 
+
+∂Z
+
+∂q = −D−1 ∂D
+
+∂q Z, (51) because bF does not depend on the uncertain parameters. The required derivatives are 
+
+∂D
+
+∂X M
+
+= −ω2 (0 .05 I2) , ∂D
+
+∂X C
+
+= i ω
+
+ 0.10 −0.05 
+
+−0.05 0.05 
+
+
+
+, ∂D
+
+∂X K
+
+=
+
+ 1500 −750 
+
+−750 750 
+
+
+
+. (52) For |Z1| > 0, the response-magnitude derivative is 
+
+∂y f
+
+∂q =Re 
+
+
+
+Z1
+
+∂Z 1
+
+∂q 
+
+
+
+|Z1| , q ∈ { XM , X C , X K }. (53) We set the derivative to zero when |Z1| ≤ 10 −15 to avoid division by a near-zero magnitude. Equations (51)–(53) define a direct analytical sensitivity calculation rather than an adjoint method. 
+
+Spline discretization. SDD and GE-SDD use pk = 2 , nk = 18 , and maximum interaction order S = 2 
+
+in all 3 input dimensions. The retained basis contains 
+
+nψ = 1 + 3(18 − 1) + 
+
+32
+
+
+
+(18 − 1) 2 = 919 (54) functions. Each frequency-wise surrogate uses M = 919 training samples. 
+
+Baseline configuration and evaluation. We train an independent Kriging model at each frequency using all M = 919 training samples and estimate its amplitude and anisotropic length scales by maximum likelihood. GE-Kriging uses the same M N analytical derivative observations through the joint function–gradient covariance. Repeated maximum-likelihood optimization of the (N + 1) M ×
+
+(N + 1) M covariance matrix is impractical across 100 frequencies. We therefore select the GE-Kriging hyperparameters by training-sample-grouped K-fold cross-validation over a logarithmically spaced grid. We estimate the Kriging and GE-Kriging standard-deviation curves from predictions on a fixed 
+
+5 × 10 4-sample subset of the Monte Carlo reference set. SDD and GE-SDD provide the same statistics directly from their coefficients using (40). 17 Figure 5: Frequency-dependent standard deviation of |Z1(f ; X)| over 10 –35 Hz for the training set generated with seed 42. The Monte Carlo reference is compared with SDD, GE-SDD, Kriging, and GE-Kriging ( M = 919 , nψ = 919 , S = 2 ,and MMCS = 10 6). 
+
+This benchmark tests a frequency-dependent response with strong resonance behavior. Near reso-nance, small parameter changes shift both the magnitude and location of the response peaks, producing a strongly nonlinear input–output map despite the linear equations of motion. Figure 5 shows that all 4 surrogates agree closely with the reference away from resonance. The main differences occur near the first resonance at approximately 12 Hz . Standard SDD underestimates the peak, consistent with shrinkage of the nonconstant coefficients under the regularization selected for the square function-only system. GE-Kriging shows the largest local deviations, while GE-SDD and Kriging track the reference closely. Table 2 reports the mean accuracy over 20 replications. Kriging achieves the lowest mean MAE of 
+
+1.151 × 10 −5. GE-SDD follows with 2.435 × 10 −5, GE-Kriging with 4.651 × 10 −5, and standard SDD with 4.978 × 10 −5.GE-SDD is more accurate and less variable than standard SDD and GE-Kriging in this benchmark. GE-SDD produces a lower MAE than both methods in all 20 replications and reduces the mean relative error of standard SDD from 15 .95% to 2.45% . The coefficient of variation of the GE-SDD MAE is 
+
+9.4% , compared with 20 .1% for Kriging, 34 .2% for GE-Kriging, and 68 .3% for standard SDD. The same gradient observations provide less benefit to GE-Kriging. GE-Kriging is less accurate than function-only Kriging on average, and its least accurate replication produces a curve R2 of 0.118 .This result indicates the difficulty of selecting joint-covariance hyperparameters near resonance. Function-only Kriging remains the most accurate method for this low-dimensional benchmark and achieves approximately half the GE-SDD MAE in every replication. This advantage is consistent with frequency-specific maximum-likelihood adaptation of the anisotropic length scales. Near resonance, the estimated length scales decrease by more than an order of magnitude in the mass and stiffness directions while remaining large in the damping direction. This behavior follows the resonance relation 
+
+ω2res ∝ K/M . The fixed spline basis used by SDD and GE-SDD does not adapt with frequency, so the remaining GE-SDD error concentrates near the first resonance. This result motivates the gradient-guided adaptive knot placement discussed in Section 5. 
+
+4.3. Example 3: 30-dimensional 25-bar space truss compliance problem 
+
+The third benchmark is a 30-dimensional compliance problem for a 25-bar transmission-tower-type space truss. Figure 6 illustrates the structural geometry, supports, and loading. The structure 18 Figure 6: The 25-bar transmission-tower-type space truss. The structure contains 10 nodes and 25 members, with nodes 7–10 fully fixed. The uncertain loads P1–P4 act in the x- and y-directions at nodes 1 and 2. The common vertical load         
+
+> P5acts in the negative z-direction at both nodes. Table 3: Uncertain input variables and their probability distributions for the 30-dimensional 25-bar space truss compli-ance problem. All 30 input variables are mutually independent and uniformly distributed as Xk∼U(ak, b k).
+
+Variable Description Unit ak bk
+
+A1, . . . , A 25 member cross-sectional areas in 2 0.5 1.5 
+
+P1 x-direction load at node 1 lbf −2.0 × 10 3 2.0 × 10 3
+
+P2 y-direction load at node 1 lbf 8.0 × 10 3 1.2 × 10 4
+
+P3 x-direction load at node 2 lbf −2.0 × 10 3 2.0 × 10 3
+
+P4 y-direction load at node 2 lbf 8.0 × 10 3 1.2 × 10 4
+
+P5 vertical load at nodes 1 and 2 lbf −6.0 × 10 3 −4.0 × 10 3
+
+contains 10 nodes and 25 members, with nodes 7–10 fully fixed. This benchmark tests SDD and GE-SDD in a high-dimensional, limited-sample regime where the retained basis contains substantially more coefficients than the number of function-value observations. The input random vector is X = ( A1, . . . , A 25 , P 1, P 2, P 3, P 4, P 5)⊤ ∈ R30 , where Ai, i = 1 , . . . , 25 ,denotes the cross-sectional area of the i-th member. The variables P1 and P2 define the x- and y-direction loads at node 1, while P3 and P4 define the corresponding loads at node 2. The variable P5
+
+defines the common load in the negative z-direction at both nodes. All input variables are mutually independent and uniformly distributed. Table 3 lists their bounds. The quantity of interest is the structural compliance 
+
+Y (X) = C(X) = F(X)⊤u(X) = F(X)⊤K(X)−1F(X), (55) where K(X) ∈ R18 ×18 , F(X) ∈ R18 , and u(X) ∈ R18 denote the assembled global stiffness matrix, nodal load vector, and nodal displacement vector, respectively, defined on the 18 free degrees of freedom that remain after eliminating the constrained degrees of freedom at the fixed nodes 7–10 (each of the 10 nodes carries three translational degrees of freedom, and the 12 degrees of freedom 19 at nodes 7–10 are removed). The stiffness matrix depends on the member areas through the linear assembly K(X) = P25  
+
+> j=1
+
+Aj Kj , where Kj is the unit-area element stiffness contribution of member j.The load vector F(X) collects the uncertain nodal loads P1, . . . , P 5: P1 and P2 act in the x- and 
+
+y-directions at node 1, P3 and P4 act in the x- and y-directions at node 2, and P5 acts in the negative 
+
+z-direction at both nodes 1 and 2. The Young’s modulus is fixed at E = 1 .0 × 10 7 psi .
+
+Analytical compliance sensitivities. The self-adjoint compliance formulation gives 
+
+∂C ∂A j
+
+= −u⊤ ∂K
+
+∂A j
+
+u, j = 1 , . . . , 25 , (56) 
+
+∂C ∂P k
+
+= 2 
+
+ ∂F
+
+∂P k
+
+⊤
+
+u, k = 1 , . . . , 5. (57) These expressions provide all 30 gradients without additional state-equation solutions beyond the displacement analysis used to evaluate the compliance. 
+
+Spline discretization. SDD and GE-SDD use quadratic B-splines with pk = 2 and maximum interac-tion order S = 2 . The area dimensions use a finer univariate basis than the load dimensions: 
+
+nk =
+
+(
+
+5, k = 1 , . . . , 25 ,
+
+3, k = 26 , . . . , 30 . (58) Accordingly, the 25 area dimensions each contribute four nonconstant univariate basis functions, whereas the five load dimensions each contribute two. The resulting number of retained basis functions is 
+
+nψ = 1 + 25(5 − 1) + 5(3 − 1) + 
+
+25 2
+
+
+
+(5 − 1) 2 + 25 · 5(5 − 1)(3 − 1) + 
+
+52
+
+
+
+(3 − 1) 2 = 5951 (59) functions. Standard SDD provides M function-value equations for estimating the 5951 coefficients. GE-SDD provides one function-value equation and 30 derivative equations per training sample, producing 31 M
+
+stacked equations. At M = 100 , standard SDD therefore uses 100 equations, while GE-SDD uses 3100 function-gradient equations at the same 100 input locations. Although both systems remain underdetermined, the gradients provide substantially more information for coefficient estimation. We test M ∈ { 100 , 150 , 200 , 300 , 500 , 1000 } and repeat each case over 20 independently generated training sets. The reference statistics and pointwise prediction errors are evaluated using the same MCS sample of size 10 6. SDD and GE-SDD estimate the mean and standard deviation directly from their coefficients. Kriging estimates the same quantities from predictions on the MCS sample. We compare GE-SDD with standard SDD and Kriging. We omit GE-Kriging because the 30-dimensional problem would require training on 31 M correlated function and gradient observations. Repeated hyperparameter optimization at this scale is computationally prohibitive for the present training-size sweep. Figure 7 summarizes the variability of the prediction and moment-estimation metrics across replications. Table 4 reports their arithmetic means. The left column of Figure 7 shows that standard SDD remains inaccurate in pointwise prediction across all training sizes. With only M function-value equations available for the 5951 retained co-efficients, grouped cross-validation selects strong regularization. Because the ridge penalty excludes the constant coefficient, SDD estimates the mean with average relative errors between 0.63% and 
+
+1.59% . However, regularization shrinks the nonconstant coefficients and drives the surrogate toward a constant-mean model. Consequently, the average NRMSE of standard SDD decreases only from 
+
+99 .90% at M = 100 to 91 .19% at M = 1000 , while its average R2 increases only from 0.002 to 0.168 .SDD also underestimates the standard deviation, with average relative errors decreasing from 91 .1% 
+
+to 60 .2% .20 The accuracy comparison between GE-SDD and Kriging depends on the training size. At M = 100 ,the methods have similar pointwise accuracy. The average NRMSE is 20 .90% for GE-SDD and 20 .58% 
+
+for Kriging, while the average R2 is 0.9563 and 0.9574 , respectively. GE-SDD produces the lower NRMSE in 8 of the 20 replications. For every tested size from M = 150 onward, GE-SDD achieves the lower NRMSE in all 20 replications. The average NRMSE is 11 .83% for GE-SDD and 16 .61% for Kriging at M = 150 . At M = 200 , the corresponding values are 5.95% and 12 .69% . The difference increases for M ≥ 300 . GE-SDD decreases from 2.76% at M = 300 to 2.01% at M = 1000 , while Kriging decreases from 9.76% to 4.54% . At M = 1000 , the average R2 reaches 0.9996 for GE-SDD and 0.9979 for Kriging. 21 Figure 7: Prediction accuracy and moment estimates for the 30-dimensional 25-bar space truss compliance problem over 20 independent training-data realizations at M ∈ { 100 , 150 , 200 , 300 , 500 , 1000 }. The left column compares standard SDD, GE-SDD, and Kriging, whereas the right column provides an enlarged comparison between GE-SDD and Kriging. Panels (a, b) show the R2 score, (c, d) the NRMSE, (e, f) the predicted mean ˆμY , and (g, h) the predicted standard deviation ˆσY . Dashed horizontal lines denote the MCS reference values. 
+
+22 Table 4: Mean prediction accuracy and moment-estimation results for the 30-dimensional 25-bar space truss compliance problem over 20 independent training-data realizations. Mean and standard-deviation errors are the averages over the replications of the absolute relative errors with respect to the MCS reference values μY, MCS = 1 .7421 × 10 4 and                                                                                                                                                                                                      
+
+> σY, MCS = 3 .1509 ×10 3(MMCS = 10 6).
+> MMethod NRMSE (%, avg) R2(avg) ˆμY(avg) ˆμYerr. (%, avg) ˆσY(avg) ˆσYerr. (%, avg) 100 GE-SDD 20.90 0.9563 1.725 ×10 40.982 2.904 ×10 37.833 SDD 99.90 0.002 1.749 ×10 41.589 2.817 ×10 291.061 Kriging 20.58 0.9574 1.736 ×10 40.400 3.118 ×10 31.608 150 GE-SDD 11.83 0.9859 1.732 ×10 40.607 3.050 ×10 33.193 SDD 99.38 0.012 1.743 ×10 41.410 3.887 ×10 287.664 Kriging 16.61 0.9721 1.737 ×10 40.287 3.103 ×10 31.592 200 GE-SDD 5.95 0.9965 1.738 ×10 40.213 3.125 ×10 30.817 SDD 98.69 0.026 1.736 ×10 40.946 4.488 ×10 285.755 Kriging 12.69 0.9838 1.739 ×10 40.186 3.114 ×10 31.277 300 GE-SDD 2.76 0.9992 1.741 ×10 40.064 3.141 ×10 30.306 SDD 97.80 0.043 1.740 ×10 40.784 5.496 ×10 282.557 Kriging 9.76 0.9904 1.741 ×10 40.124 3.118 ×10 31.033 500 GE-SDD 2.20 0.9995 1.741 ×10 40.047 3.144 ×10 30.209 SDD 95.84 0.081 1.737 ×10 40.693 8.309 ×10 273.631 Kriging 6.92 0.9952 1.741 ×10 40.054 3.122 ×10 30.922 1000 GE-SDD 2.01 0.9996 1.742 ×10 40.025 3.146 ×10 30.155 SDD 91.19 0.168 1.733 ×10 40.627 1.255 ×10 360.179 Kriging 4.54 0.9979 1.742 ×10 40.019 3.132 ×10 30.600
+
+The right column of Figure 7 shows that GE-SDD variability decreases rapidly as M increases. The across-replication standard deviation of the GE-SDD NRMSE decreases from 0.80 percentage points at M = 100 to less than 0.01 percentage points at M = 1000 . Kriging has greater variability at every tested training size. The moment estimates show a similar training-size transition. Both methods estimate the mean accurately throughout the sweep. Kriging has lower average relative mean errors for M ≤ 200 . At 
+
+M = 100 , 150 , and 200 , the Kriging errors are 0.400% , 0.287% , and 0.186% , compared with 0.982% ,
+
+0.607% , and 0.213% for GE-SDD. The methods produce similar mean estimates for M ≥ 300 , and both average relative errors fall below 0.03% at M = 1000 .Kriging also estimates the standard deviation more accurately at M = 100 and 150 . GE-SDD becomes more accurate for M ≥ 200 . At M = 1000 , the average relative standard-deviation error is 
+
+0.155% for GE-SDD and 0.600% for Kriging. Thus, gradient observations provide no clear advantage at the smallest training size, where 31 M remains well below the 5951 retained coefficients. From 
+
+M = 150 onward, GE-SDD provides more accurate pointwise predictions, and from approximately 
+
+M = 200 onward, it provides more accurate standard-deviation estimates. 
+
+4.4. Discussion 
+
+GE-SDD uses M function observations and M × N partial-derivative observations. The number of distinct input locations therefore remains M , but the cost of obtaining the gradients depends on the underlying model. Example 1 provides explicit derivatives. In Example 2, direct sensitivity analysis requires additional linear-system solutions for the three uncertain parameters, but all solutions reuse the same dynamic-stiffness factorization. In Example 3, the self-adjoint compliance formulas require no additional state-equation solutions. For more general applications, adjoint sensitivity analysis or automatic differentiation can reduce the marginal cost of gradient observations relative to additional high-fidelity simulations. The algebraic cost of GE-SDD depends primarily on the retained basis size nψ = LS, p,Ξ and the M (1 + N ) stacked equations. A dense Cholesky factorization of the derivative-augmented spline monomial moment matrix has computational complexity O(n3 
+
+> ψ
+
+). Consequently, the cost increases 23 with input dimension, interaction order, and basis resolution. Large-scale applications can reduce them through sparse linear algebra, iterative solvers, dimension-adaptive basis selection, and further use of the tensor-product and ANOVA structures. The accuracy gains reported in Table 1, Table 2, and Table 4 depend on the benchmark, training budget, basis resolution, and gradient availability. Example 3 shows that gradient augmentation does not guarantee greater accuracy at every training size. GE-SDD and Kriging have similar pointwise accuracy at M = 100 . GE-SDD becomes more accurate at M ≥ 150 , and the difference increases at 
+
+M ≥ 300 .The three benchmarks show when gradient augmentation is most beneficial. In Example 2 with 
+
+N = 3 and M = 919 , Kriging remains the most accurate method because it re-estimates the anisotropic length scales at each frequency. GE-SDD is most accurate for the nonsmooth response in Example 1 and for the high-dimensional problem in Example 3 at moderate and large training sizes. In these settings, case-specific maximum-likelihood adaptation is less effective or computationally impracti-cal. The observed crossover training sizes are not universal; they depend on the retained basis size, regularization, response structure, and the accuracy and cost of the gradients. Further studies using large-scale finite-element and computational fluid dynamics models with solver-based sensitivities are needed to assess the broader accuracy and computational efficiency of GE-SDD. 
+
+5. Conclusions 
+
+This paper proposed a gradient-enhanced spline dimensional decomposition (GE-SDD) method for uncertainty quantification (UQ) with limited training samples, including high-dimensional regimes. GE-SDD combines function values and partial derivatives through a probability-weighted Sobolev transformation, balances the function and derivative blocks, and estimates the coefficients using ridge regression with training-sample-grouped K-fold cross-validation. A final coefficient-estimation step transforms the solution to the original L2-orthonormal SDD coordinates, preserving closed-form mean and variance estimates. Numerical results from three benchmark problems showed that GE-SDD is more accurate than standard SDD and GE-Kriging, while its comparison with function-only Kriging depends on the prob-lem. For the two-dimensional continuous exponential function, GE-SDD achieved a median NRMSE of 0.269% , compared with 8.086% for Kriging, the most accurate baseline in that benchmark. For the 2-DOF dynamical system, GE-SDD reduced the MAE of the predicted frequency-dependent stan-dard deviation to 2.435 × 10 −5, compared with 4.978 × 10 −5 for standard SDD and 4.651 × 10 −5 for GE-Kriging. GE-SDD was more accurate than both in every replication with the smallest across-replication variability; the frequency-wise maximum-likelihood-tuned Kriging baseline attained the lowest MAE of 1.151 × 10 −5 in this low-dimensional benchmark. For the 30-dimensional truss, GE-SDD and Kriging had similar pointwise accuracy at M = 100 . GE-SDD produced lower NRMSE and higher R2 for M ≥ 150 , with a larger difference at moderate and large training sizes. The truss results also showed that the relative accuracy depended on the target UQ quantity. Both methods estimated the mean accurately across all training sizes, although Kriging was slightly more accurate at smaller sizes. GE-SDD provided more accurate standard-deviation estimates for 
+
+M ≥ 200 . Conversely, Example 2 showed that anisotropic Kriging could remain more accurate near sharp resonances when the input dimension was small and frequency-specific hyperparameter optimization was computationally feasible. The benefits of gradient augmentation therefore depended on the input dimension, training size, basis resolution, response structure, and target statistic. Future work will evaluate GE-SDD on large-scale finite-element and computational fluid dynamics models using adjoint sensitivities or automatic differentiation. Further developments will integrate GE-SDD with first- and second-order reliability methods, introduce gradient-guided adaptive knot placement, and develop dimension-adaptive basis selection for responses with localized rapid variations such as resonance zones. 24 Funding 
+
+This work was supported by the National Research Foundation of Korea (NRF) grant funded by the Korea government (MSIT) (RS-2025-00560781). 
+
+Declaration of generative AI and AI-assisted technologies in the writing process 
+
+During the preparation of this work, the authors used OpenAI’s ChatGPT and Anthropic’s Claude for English-language editing, grammar checking, wording refinement, and stylistic polishing. After using these tools, the authors reviewed and edited the content as needed and take full responsibility for the content of the published article. 
+
+Appendix A. Construction of measure-consistent orthonormal B-spline basis functions 
+
+This appendix presents the detailed construction of the measure-consistent orthonormal B-spline basis functions used in the SDD representation. (1) Specify the univariate spline spaces. For each input coordinate Xk, let pk, ξk, and nk denote the B-spline degree, open knot vector, and number of basis functions, respectively. Collect these parameters as 
+
+p := ( p1, . . . , p N ), n := ( n1, . . . , n N ), Ξ := ( ξ1, . . . , ξN ). (A.1) For u ⊆ { 1, . . . , N }, let pu, nu, and Ξu denote the corresponding subcollections. (2) Construct the raw univariate bases. For the k-th input coordinate, define 
+
+Pk(Xk) :=  1, B k  
+
+> 2,p k,ξk
+
+(Xk), . . . , B knk ,p k ,ξk (Xk)⊤, (A.2) 
+
+Bki,p k ,ξk is the i-th B-spline of degree pk, generated by the Cox–de Boor recursion [28, 29]. Replacing the first B-spline with 1 preserves the constant direction during orthonormalization and produces nonconstant basis functions with zero mean under fXk (Xk).(3) Orthonormalize the univariate bases. Define the Gram matrix 
+
+Gk := EPk(Xk)P⊤ 
+
+> k
+
+(Xk) =
+
+Z bk
+
+> ak
+
+Pk(x)P⊤ 
+
+> k
+
+(x)fXk (x) d x ∈ Rnk ×nk . (A.3) We evaluate this integral over each nonzero knot span using 24-point Gauss–Legendre quadra-ture. We use the same rule for the basis-derivative products required by GE-SDD. Because Gk is symmetric positive definite, its Cholesky factorization is Gk = QkQ⊤ 
+
+> k
+
+, where Qk is nonsingular and lower triangular. The measure-consistent orthonormal basis is 
+
+ψk(Xk) := Q−1 
+
+> k
+
+Pk(Xk) = 
+
+
+
+ψk  
+
+> 1,p k,ξk
+
+(Xk), . . . , ψ knk ,p k ,ξk (Xk)
+
+⊤
+
+. (A.4) This basis satisfies E[ψk(Xk)] = (1 , 0, . . . , 0) ⊤, and E
+
+h
+
+ψk(Xk)ψ⊤ 
+
+> k
+
+(Xk)
+
+i
+
+= Ink . Thus, ψk  
+
+> 1,p k,ξk
+
+≡
+
+1, whereas E
+
+h
+
+ψki,p k ,ξk (Xk)
+
+i
+
+= 0 , i = 2 , . . . , n k.
+
+(4) Form the tensor-product bases. For a non-empty interaction subset 
+
+u = {k1, . . . , k |u|} ⊆ { 1, . . . , N }, (A.5) 25 define the full multi-index set 
+
+Iu, nu := iu = ( ik1 , . . . , i k|u| ) : 1 ≤ ik ≤ nk, k ∈ u . (A.6) For iu ∈ I u, nu , the corresponding tensor-product basis function is 
+
+Ψu 
+
+> iu,pu,Ξu
+
+(xu) := Y
+
+> k∈u
+
+ψkik ,p k ,ξk (xk). (A.7) The full index set in (A.6) includes the constant index ik = 1 . If one or more active coordinates take this constant index, the corresponding tensor-product basis function effectively reduces to a lower-order interaction. Therefore, to prevent the degree of interaction from falling below |u|, the retained SDD basis excludes the constant index in every active coordinate. 
+
+References 
+
+[1] D. Xiu, G. E. Karniadakis, The Wiener–Askey polynomial chaos for stochastic differential equations, SIAM Journal on Scientific Computing 24 (2) (2002) 619–644. doi:10.1137/ S1064827501387826 .[2] Y. Noh, K. K. Choi, I. Lee, D. Gorsich, D. Lamb, Reliability-based design optimization with confidence level under input model uncertainty due to limited test data, Structural and Multi-disciplinary Optimization 43 (4) (2011) 443–458. doi:10.1007/s00158-011-0620-4 .[3] L. Novák, M. Vořechovský, V. Sadílek, M. D. Shields, Variance-based adaptive sequential sam-pling for polynomial chaos expansion, Computer Methods in Applied Mechanics and Engineering 386 (2021) 114105. doi:10.1016/j.cma.2021.114105 .[4] S. Rahman, A polynomial dimensional decomposition for stochastic computing, International Journal for Numerical Methods in Engineering 76 (13) (2008) 2091–2116. doi:10.1002/nme. 2394 .[5] S. Rahman, Global sensitivity analysis by polynomial dimensional decomposition, Reliability Engineering and System Safety 96 (7) (2011) 825–837. doi:10.1016/j.ress.2011.03.002 .[6] I. Babuška, F. Nobile, R. Tempone, A stochastic collocation method for elliptic partial differential equations with random input data, SIAM Journal on Numerical Analysis 45 (3) (2007) 1005–1034. 
+
+doi:10.1137/050645142 .[7] T. Gerstner, M. Griebel, Numerical integration using sparse grids, Numerical Algorithms 18 (3–4) (1998) 209–232. doi:10.1023/A:1019129717644 .[8] D. Xiu, J. S. Hesthaven, High-order collocation methods for differential equations with random in-puts, SIAM Journal on Scientific Computing 27 (3) (2005) 1118–1139. doi:10.1137/040615201 .[9] M. A. Bouhlel, J. R. R. A. Martins, Gradient-enhanced kriging for high-dimensional problems, Engineering with Computers 35 (1) (2019) 157–173. doi:10.1007/s00366-018-0590-x .[10] S. McBane, Y. Choi, Component-wise reduced order model lattice-type structure design, Com-puter Methods in Applied Mechanics and Engineering 381 (2021) 113813. doi:10.1016/j.cma. 2021.113813 .[11] I. Ryu, G.-B. Park, Y. Lee, D.-H. Choi, Physics-informed neural network for engineers: a review from an implementation aspect, Journal of Mechanical Science and Technology 38 (7) (2024) 3499–3519. 26 [12] A. Chaudhuri, R. Lam, K. Willcox, Multifidelity uncertainty propagation via adaptive surrogates in coupled multidisciplinary systems, AIAA Journal 56 (1) (2018) 235–249. doi:10.2514/1. J055678 .[13] D. Lee, B. Kramer, Multifidelity conditional value-at-risk estimation by dimensionally decom-posed generalized polynomial chaos-kriging, Reliability Engineering & System Safety 235 (2023) 109208. [14] S. Rahman, R. Jahanbin, A spline dimensional decomposition for uncertainty quantification in high dimensions, SIAM/ASA Journal on Uncertainty Quantification 10 (1) (2022) 404–438. doi: 10.1137/20M1364175 .[15] Y. Audoux, M. Montemurro, J. Pailhès, Non-Uniform Rational Basis Spline hyper-surfaces for metamodelling, Computer Methods in Applied Mechanics and Engineering 364 (2020) 112918. 
+
+doi:10.1016/j.cma.2020.112918 .[16] S. Rahman, R. Jahanbin, Orthogonal spline expansions for uncertainty quantification in linear dynamical systems, Journal of Sound and Vibration 512 (2021) 116366. doi:10.1016/j.jsv. 2021.116366 .[17] R. Jahanbin, S. Rahman, Stochastic isogeometric analysis on arbitrary multipatch domains by spline dimensional decomposition, Computer Methods in Applied Mechanics and Engineering 393 (2022) 114813. doi:10.1016/j.cma.2022.114813 .[18] S. Dixler, R. Jahanbin, S. Rahman, Uncertainty quantification by optimal spline dimensional decomposition, International Journal for Numerical Methods in Engineering 122 (20) (2021) 5898–5934. doi:10.1002/nme.6778 .[19] D. Lee, R. Jahanbin, S. Rahman, Robust design optimization by spline dimensional decompo-sition, Probabilistic Engineering Mechanics 68 (2022) 103218. doi:10.1016/j.probengmech. 2022.103218 .[20] M. B. Giles, N. A. Pierce, An introduction to the adjoint approach to design, Flow, Turbulence and Combustion 65 (3–4) (2000) 393–415. doi:10.1023/A:1011430410075 .[21] M. D. Morris, T. J. Mitchell, D. Ylvisaker, Bayesian design and analysis of computer experiments: use of derivatives in surface prediction, Technometrics 35 (3) (1993) 243–255. doi:10.1080/ 00401706.1993.10485320 .[22] J. Peng, J. Hampton, A. Doostan, On polynomial chaos expansion via gradient-enhanced ℓ1-minimization, Journal of Computational Physics 310 (2016) 440–458. doi:10.1016/j.jcp.2015. 12.049 .[23] E. J. Candès, J. Romberg, T. Tao, Robust uncertainty principles: exact signal recovery from highly incomplete frequency information, IEEE Transactions on Information Theory 52 (2) (2006) 489–509. doi:10.1109/TIT.2005.862083 .[24] R. Tibshirani, Regression shrinkage and selection via the lasso, Journal of the Royal Statistical Society: Series B 58 (1) (1996) 267–288. doi:10.1111/j.2517-6161.1996.tb02080.x .[25] D. Lee, E. Lavichant, B. Kramer, Global sensitivity analysis with limited data via sparsity-promoting D-MORPH regression: application to char combustion, Journal of Computational Physics 511 (2024) 113116. doi:10.1016/j.jcp.2024.113116 .[26] W. Hoeffding, A class of statistics with asymptotically normal distribution, Annals of Mathemat-ical Statistics 19 (3) (1948) 293–325. doi:10.1214/aoms/1177730196 .27 [27] H. Rabitz, Ö. F. Aliş, J. Shorter, K. Shim, Efficient input-output model representations, Com-puter Physics Communications 117 (1–2) (1999) 11–20. doi:10.1016/S0010-4655(98)00152-0 .[28] M. G. Cox, The numerical evaluation of B-splines, IMA Journal of Applied Mathematics 10 (2) (1972) 134–149. doi:10.1093/imamat/10.2.134 .[29] C. de Boor, On calculating with B-splines, Journal of Approximation Theory 6 (1) (1972) 50–62. 
+
+doi:10.1016/0021-9045(72)90080-9 .28

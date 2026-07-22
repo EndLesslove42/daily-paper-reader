@@ -6,37 +6,35 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-21
-- 运行时间：2026-07-21 21:43:26 UTC
+- 最新运行日期：2026-07-22
+- 运行时间：2026-07-22 20:30:50 UTC
 - 运行状态：成功
-- 本次总论文数：5
-- 精读区：3
-- 速读区：2
+- 本次总论文数：4
+- 精读区：0
+- 速读区：4
 
 ### 今日简报（AI）
-1) 今日精读聚焦神经PDE求解器加速库FlashPDE与空气动力学代理的可靠性校准方法，速读涵盖空气质量建模与地面观测融合预测。  
-2) 最值得关注方向：FlashPDE作为即插即用的Triton算子库可显著提升偏微分方程求解效率；多粒度共形预测为汽车空气动力学神经网络代理提供置信区间保障。  
-3) 建议扩展：可尝试将FlashPDE集成到现有物理模拟流程中，并对比共形预测与传统不确定性量化方法的实际表现。
-- 详情：[/202607/21/README](/202607/21/README)
+今日速读4篇论文，聚焦大气数据超分辨率、不确定性量化与扩散模型，其中物理信息超分辨率方法得分最高（7.0/10）。  
+最值得关注的是物理信息驱动的超分辨率方法，可提升大气数据分辨率同时保持物理一致性。  
+建议进一步了解物理信息神经网络在气象数据重建中的具体实现，以及扩散模型用于多尺度大气场生成的前沿应用。
+- 详情：[/202607/22/README](/202607/22/README)
 
 ### 精读区论文标签
-1. [FlashPDE: A Drop-in Fused Triton Operator Library for Neural PDE Solvers](/202607/21/2607.18020v1-flashpde-a-drop-in-fused-triton-operator-library-for-neural-pde-solvers)  
-   标签：评分：9.0/10、query:aqac
-   evidence：FlashPDE是用于神经PDE求解器的即插即用融合算子库，直接支持环境PDE的物理信息机器学习
-2. [Multi-Granularity Conformal Prediction for Reliable Neural-Operator Automotive Aerodynamic Surrogates](/202607/21/2607.17297v1-multi-granularity-conformal-prediction-for-reliable-neural-operator-automotive-aerodynamic-surrogates)  
-   标签：评分：8.0/10、query:aqac
-   evidence：神经算子代理模型用于空气动力学建模；共形预测提升可靠性
-3. [Adaptive Mamba Neural Operators](/202607/21/2607.18043v1-adaptive-mamba-neural-operators)  
-   标签：评分：8.0/10、query:aqac
-   evidence：任意几何上的神经算子
+- 本次无精读推荐。
 
 ### 速读区论文标签
-1. [Interpretable Machine Learning for Air Pollution and Respiratory Health Prediction: A Socioeconomic Subgroup Analysis](/202607/21/2607.17024v1-interpretable-machine-learning-for-air-pollution-and-respiratory-health-prediction-a-socioeconomic-subgroup-analysis)  
+1. [Physics-Informed Super-Resolution of Atmospheric Data](/202607/22/2607.18877v1-physics-informed-super-resolution-of-atmospheric-data)  
    标签：评分：7.0/10、query:aqac
-   evidence：用于空气污染预测和健康的机器学习
-2. [OCELOT: Direct Atmospheric Forecasting from Heterogeneous Earth Observations Using a Graph-Transformer Hybrid Model](/202607/21/2607.14196v1-ocelot-direct-atmospheric-forecasting-from-heterogeneous-earth-observations-using-a-graph-transformer-hybrid-model)  
+   evidence：物理信息机器学习用于大气数据超分辨率
+2. [Gradient-enhanced spline dimensional decomposition for uncertainty quantification with limited training samples](/202607/22/2607.14615v1-gradient-enhanced-spline-dimensional-decomposition-for-uncertainty-quantification-with-limited-training-samples)  
    标签：评分：6.0/10、query:aqac
-   evidence：OCELOT是基于图-变换器混合的直接大气预报系统，与空气质量预报和数据同化相关
+   evidence：梯度增强代理模型用于不确定性量化，可应用于空气质量模型
+3. [Apeliotes: A Diffusion-Based Modeling Framework for km-scale Multi-Level Atmospheric Fields](/202607/22/2607.17037v1-apeliotes-a-diffusion-based-modeling-framework-for-km-scale-multi-level-atmospheric-fields)  
+   标签：评分：6.0/10、query:aqac
+   evidence：面向大气建模的物理信息机器学习
+4. [Differentiable Hybrid Neural-CFD Modelling of Wall-Bounded Turbulence: Coupled Learning of Subgrid-Scale and Wall Closures](/202607/22/2607.17357v1-differentiable-hybrid-neural-cfd-modelling-of-wall-bounded-turbulence-coupled-learning-of-subgrid-scale-and-wall-closures)  
+   标签：评分：6.0/10、query:aqac
+   evidence：可微混合CFD中的神经算子闭包，可应用于大气传输
 
 
 <div class="dpr-home-promo-card">
