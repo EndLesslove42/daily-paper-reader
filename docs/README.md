@@ -6,35 +6,34 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-22
-- 运行时间：2026-07-22 20:30:50 UTC
+- 最新运行日期：2026-07-23
+- 运行时间：2026-07-23 20:44:00 UTC
 - 运行状态：成功
 - 本次总论文数：4
-- 精读区：0
-- 速读区：4
+- 精读区：2
+- 速读区：2
 
 ### 今日简报（AI）
-今日速读4篇论文，聚焦大气数据超分辨率、不确定性量化与扩散模型，其中物理信息超分辨率方法得分最高（7.0/10）。  
-最值得关注的是物理信息驱动的超分辨率方法，可提升大气数据分辨率同时保持物理一致性。  
-建议进一步了解物理信息神经网络在气象数据重建中的具体实现，以及扩散模型用于多尺度大气场生成的前沿应用。
-- 详情：[/202607/22/README](/202607/22/README)
+今日精读两篇8分论文，聚焦物理先验增强时序建模与图神经网络加速热流体仿真。  
+推荐关注《PIER》的物理信息检索机制和《Label-Free Finite-Volume-Residual Training》的无标签残差训练思路。  
+可尝试将物理约束嵌入深度学习模型，兼顾仿真精度与计算效率。
+- 详情：[/202607/23/README](/202607/23/README)
 
 ### 精读区论文标签
-- 本次无精读推荐。
+1. [PIER: Physics-Informed Environmental Retrieval for Time-Series Modeling](/202607/23/2607.20230v1-pier-physics-informed-environmental-retrieval-for-time-series-modeling)  
+   标签：评分：8.0/10、query:aqac
+   evidence：物理信息驱动的环境时间序列检索
+2. [Label-Free Finite-Volume-Residual Training of Attention Graph Neural Networks for Coupled Thermo-Fluid Fields](/202607/23/2607.20321v1-label-free-finite-volume-residual-training-of-attention-graph-neural-networks-for-coupled-thermo-fluid-fields)  
+   标签：评分：8.0/10、query:aqac
+   evidence：无标签神经代理训练，使用有限体积残差，可直接迁移到空气质量代理建模
 
 ### 速读区论文标签
-1. [Physics-Informed Super-Resolution of Atmospheric Data](/202607/22/2607.18877v1-physics-informed-super-resolution-of-atmospheric-data)  
-   标签：评分：7.0/10、query:aqac
-   evidence：物理信息机器学习用于大气数据超分辨率
-2. [Gradient-enhanced spline dimensional decomposition for uncertainty quantification with limited training samples](/202607/22/2607.14615v1-gradient-enhanced-spline-dimensional-decomposition-for-uncertainty-quantification-with-limited-training-samples)  
+1. [Solver-in-the-loop training of deep learning closures for large-eddy simulation of turbulent premixed jet flames](/202607/23/2607.17376v1-solver-in-the-loop-training-of-deep-learning-closures-for-large-eddy-simulation-of-turbulent-premixed-jet-flames)  
    标签：评分：6.0/10、query:aqac
-   evidence：梯度增强代理模型用于不确定性量化，可应用于空气质量模型
-3. [Apeliotes: A Diffusion-Based Modeling Framework for km-scale Multi-Level Atmospheric Fields](/202607/22/2607.17037v1-apeliotes-a-diffusion-based-modeling-framework-for-km-scale-multi-level-atmospheric-fields)  
+   evidence：求解器在环训练深度学习闭合模型用于PDE约束的大涡模拟
+2. [Hard conservation correctors can hide a degrading model when training autoregressive emulators](/202607/23/2607.18416v1-hard-conservation-correctors-can-hide-a-degrading-model-when-training-autoregressive-emulators)  
    标签：评分：6.0/10、query:aqac
-   evidence：面向大气建模的物理信息机器学习
-4. [Differentiable Hybrid Neural-CFD Modelling of Wall-Bounded Turbulence: Coupled Learning of Subgrid-Scale and Wall Closures](/202607/22/2607.17357v1-differentiable-hybrid-neural-cfd-modelling-of-wall-bounded-turbulence-coupled-learning-of-subgrid-scale-and-wall-closures)  
-   标签：评分：6.0/10、query:aqac
-   evidence：可微混合CFD中的神经算子闭包，可应用于大气传输
+   evidence：自回归模拟器中的物理信息训练与守恒校正
 
 
 <div class="dpr-home-promo-card">
