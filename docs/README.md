@@ -6,35 +6,29 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-24
-- 运行时间：2026-07-24 21:39:35 UTC
+- 最新运行日期：2026-07-25
+- 运行时间：2026-07-25 21:14:55 UTC
 - 运行状态：成功
-- 本次总论文数：5
+- 本次总论文数：3
 - 精读区：1
-- 速读区：4
+- 速读区：2
 
 ### 今日简报（AI）
-今日聚焦AI基础模型在大气化学中的机械可解释性研究，并速览了四篇物理信息深度学习新方法。最值得关注精读论文中的可解释性分析与FlashPDE融合算子库的工程效率提升。建议读者优先精读大气化学可解释性工作，再按兴趣选择速读文献中的流体或PDE求解方向。
-- 详情：[/202607/24/README](/202607/24/README)
+今日精读1篇9.0分论文，速读2篇，聚焦AI可解释性与科学仿真。最值得关注的是大气化学AI基础模型的可解释性机制研究，以及开源多物理仿真代理平台。建议普通读者优先精读可解释性论文，同时关注AI在科学计算中的开放生态发展。
+- 详情：[/202607/25/README](/202607/25/README)
 
 ### 精读区论文标签
-1. [Toward Mechanistic Interpretability of an AI Foundation Model Fine-Tuned for Atmospheric Chemistry](/202607/24/2607.20778v1-toward-mechanistic-interpretability-of-an-ai-foundation-model-fine-tuned-for-atmospheric-chemistry)  
-   标签：评分：8.0/10、query:aqac
-   evidence：精细调优大气化学基础模型的机械可解释性，对比化学传输模型
+1. [Toward Mechanistic Interpretability of an AI Foundation Model Fine-Tuned for Atmospheric Chemistry](/202607/25/2607.20778v1-toward-mechanistic-interpretability-of-an-ai-foundation-model-fine-tuned-for-atmospheric-chemistry)  
+   标签：评分：9.0/10、query:aqac
+   evidence：针对大气化学微调的AI基础模型空气质量预测
 
 ### 速读区论文标签
-1. [FlashPDE: A Drop-In Fused Triton Operator Library for Neural PDE Solvers](/202607/24/2607.18020v2-flashpde-a-drop-in-fused-triton-operator-library-for-neural-pde-solvers)  
+1. [AGENTS4GEOS: agentic platform for open-source multi-physics simulation](/202607/25/2607.18557v1-agents4geos-agentic-platform-for-open-source-multi-physics-simulation)  
    标签：评分：7.0/10、query:aqac
-   evidence：可微PDE算子用于物理信息机器学习
-2. [Label-Free Finite-Volume-Residual Training of Attention Graph Neural Networks for Coupled Thermo-Fluid Fields](/202607/24/2607.20321v2-label-free-finite-volume-residual-training-of-attention-graph-neural-networks-for-coupled-thermo-fluid-fields)  
-   标签：评分：7.0/10、query:aqac
-   evidence：无标签有限体积残差训练注意力图神经网络，作为耦合热流体场代理模型
-3. [Double screening in the training dynamics of variational physics-informed neural networks for heterogeneous coupled parabolic systems](/202607/24/2607.21352v1-double-screening-in-the-training-dynamics-of-variational-physics-informed-neural-networks-for-heterogeneous-coupled-parabolic-systems)  
+   evidence：基于图神经网络替代模型的多物理模拟智能体平台
+2. [A Bayesian Framework for Extrapolative Emulation of Spatially Gridded Simulation Data](/202607/25/2607.20703v1-a-bayesian-framework-for-extrapolative-emulation-of-spatially-gridded-simulation-data)  
    标签：评分：6.0/10、query:aqac
-   evidence：变分物理信息神经网络用于耦合抛物型对流扩散反应系统
-4. [Diffusion posterior sampling enables zero shot kilometre scale wind forecasting over complex terrain](/202607/24/2607.21460v1-diffusion-posterior-sampling-enables-zero-shot-kilometre-scale-wind-forecasting-over-complex-terrain)  
-   标签：评分：6.0/10、query:aqac
-   evidence：使用扩散后验采样实现公里级风场预测，利用WRF模拟，与空气质量气象相关
+   evidence：贝叶斯仿真器用于空间网格模拟外推
 
 
 <div class="dpr-home-promo-card">
