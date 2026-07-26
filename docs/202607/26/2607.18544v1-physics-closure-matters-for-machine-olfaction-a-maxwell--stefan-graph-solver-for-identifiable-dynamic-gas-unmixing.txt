@@ -1,0 +1,2513 @@
+Title: Physics Closure Matters for Machine Olfaction: A Maxwell–Stefan Graph Solver for Identifiable Dynamic Gas Unmixing
+
+URL Source: https://arxiv.org/pdf/2607.18544v1
+
+Published Time: Wed, 22 Jul 2026 00:16:57 GMT
+
+Number of Pages: 22
+
+Markdown Content:
+# Physics Closure Matters for Machine Olfaction: A Maxwell–Stefan Graph Solver for Identifiable Dynamic Gas Unmixing 
+
+## Yue Shi 1, Liangxiu Han 1, Xin Zhang 1, Tam Sobeih 1
+
+> 1
+
+Department of Computing and Mathematics, Faculty of Science and Engineering, Manchester Metropolitan University, Manchester M1 5GD, U.K. y.shi@mmu.ac.uk, l.han@mmu.ac.uk, 
+
+Abstract 
+
+Machine olfaction for gas unmixing is an underconstrained inverse problem in which gas compositions must be inferred from low-dimensional, delayed, and entangled sensor re-sponses produced by interacting chemical transport, surface adsorption, and sensor transduction. One of the key obstacles is physics closure misspecification, where a neural network is designed to fit sensor traces rather than infer a physically closed olfactory process. In this work, we formulate gas un-mixing as a multi-physics-constrained inverse problem gov-erned by Maxwell–Stefan multicomponent transport PDEs, competitive adsorption ODEs, and nonlinear sensor transduc-tion ODEs. Directly solving such a high-dimensional cou-pled system is computationally expensive and often numeri-cally unstable. To this end, we propose UnMixNet, a physics-closed graph neural solver that embeds this multi-physics forward process into end-to-end gas unmixing. UnMixNet discretizes Maxwell–Stefan cross-diffusion on spatial graphs and formulates the multicomponent flux on each edge. This design enables local, differentiable, and flux-conservative inference for multicomponent cross-diffusion. Evaluations on SmellNet show improved single-odor recognition, seen-mixture unmixing, and unseen-mixture generalization. In ad-dition, an external validation on UCI Dynamic Gas Mixtures shows that the inferred concentration process agrees with ground truth concentration set points under dynamic transi-tions. Process-consistency diagnostics further show that the proposed model learns transferable dynamic physical finger-prints that better satisfies transport, conservation, adsorption, and readout closure. 
+
+## Introduction 
+
+Machine olfaction is becoming a frontier problem for arti-ficial intelligence (AI), which aims to infer the composition of an odor scene from sensor responses. Unlike computer vision signals, olfactory sensor signals are the endpoint of an interacting physical process of odorants co-propagating, adsorbing, and producing nonlinear and entangled electri-cal responses. In realistic sensing environments, odor com-ponents do not propagate independently. Transport is gov-erned by multicomponent cross-diffusion, surface interac-tion is affected by competitive adsorption, and the final elec-trical readout is produced through nonlinear sensor trans-
+
+Copyright © 2026, Association for the Advancement of Artificial Intelligence (www.aaai.org). All rights reserved. 
+
+duction (Nikolic et al. 2020; Mei et al. 2024). When several gases co-propagate inside a sensing chamber, the response of one sensor channel may be shaped not only by the concen-tration of a target compound, but also by flux coupling and adsorption competition induced by other compounds (Lee et al. 2023; Sung et al. 2024a). This makes gas unmixing a highly underconstrained inverse problem, where the goal is not merely to classify sensor patterns, but to recover phys-ically meaningful gas compositions from dynamic and en-tangled observations. A central difficulty is that direct temporal prediction is not the same as olfactory scene explanation. Learning-based ol-factory models commonly treat sensor responses as generic time-series data and optimize a direct map from traces to labels (Feng et al. 2026). Although such models can be ef-fective on seen odor classes, they rarely require the pre-dicted mixture to be explainable by mass-conservative trans-port, Maxwell–Stefan cross-diffusion, competitive adsorp-tion, and nonlinear transduction dynamics. We refer to this failure mode as physics closure misspecification : a model fits sensor traces while leaving the forward olfactory process that could have generated them unconstrained. This failure mode is especially harmful for unseen mixtures, where sev-eral component supports can induce similar delayed MOX responses unless their dynamic fingerprints are separated by a closed forward mechanism. It is important to distinguish physics closure from standard physics-informed regularization. In residual-based physics-informed learning, physical equations usually enter as auxiliary losses applied to an otherwise flexible predic-tor. In contrast, UnMixNet uses physical operators as the state-transition mechanism itself. An inverse prediction is therefore not only a mixture-ratio vector; it must be liftable into a forward trajectory that satisfies conservative transport, Maxwell–Stefan flux admissibility, competitive adsorption, and monotone readout dynamics. Physics-based solvers pro-vide a mechanistic description of gas transport and sen-sor dynamics, but directly solving coupled Maxwell–Stefan PDEs, competitive adsorption ODEs, and nonlinear trans-duction ODEs for every test sample is computationally ex-pensive and often numerically unstable (Eliasof, Haber, and Treister 2024). In this work, we address this gap by proposing physics-closed UnMixNet, a graph-based differentiable solver for arXiv:2607.18544v1 [cs.CV] 20 Jul 2026 What components             
+
+> mixed in the smell ?Reconstruction + Physics Residual
+> Source smell release MOX
+> Observations Component unmixture
+> Interpretable physical states
+> Robust known + unknown
+> mixing unmixing
+> Physics -informed UnMixNet Outputs
+> Spatial
+> Graph 𝐺 𝑥
+> Component
+> Graph 𝐺 c
+> Sensor
+> Graph 𝐺 s
+> Multi -head Graph Encoder
+> Maxwell -Stef anGraph Solver
+> Source -conditioned
+> injection
+> CFL Normalized
+> Advection
+> MSFlux
+> Projection
+> Sensor boundary
+> reaction + readout
+> ODE
+
+Figure 1: Overview of physics-closed UnMixNet for gas unmixing. Given a released odor source, a metal-oxide sensor array records dynamic responses to gas components. UnMixNet formulates olfactory perception as a multi-physics inverse prob-lem. A multi-head graph encoder builds spatial, sensor, and component graphs, while the Maxwell–Stefan graph solver per-forms source-conditioned injection, cross-diffusive graph advection, conservative multicomponent flux projection, and sensor-boundary reaction-readout dynamics. machine olfaction. UnMixNet discretizes the physically closed transport–adsorption–readout process into a coupled spatial–component–sensor graph. Specifically, an inverse encoder infers latent variables and physical coefficients for the graph construction, while a forward graph solver recon-structs the sensor trajectory through multi-physics closure of conservative transport, Maxwell–Stefan flux projection, sensor-boundary adsorption, and nonlinear readout. The key methodological shift is that graph messages are not arbi-trary hidden features; they are physically meaningful fluxes, boundary reactions, and readout states. This turns olfactory unmixing from temporal pattern regression into local, differ-entiable, and flux-conservative physical scene solving. Our contributions are as follows. (1) Multi-physics graph closure. We formulate gas unmixing as a multi-physics-constrained inverse problem and introduce Un-MixNet, a coupled spatial–component–sensor graph solver that jointly models source release, conservative transport, Maxwell–Stefan cross-diffusion, competitive adsorption, and monotone readout. (2) Maxwell–Stefan graph flux projection. We replace unconstrained graph messages with edge-wise multicomponent fluxes by learning symmetric positive diffusivities, constructing component Laplacians, and solving differentiable KKT projections. (3) Identifi-able dynamic fingerprints. We connect physical closure to sparse mixture identifiability through dynamic fingerprint incoherence and evaluate the mechanism on real SmellNet unmixing, external concentration validation on UCI Dy-namic Gas Mixtures, process-consistency diagnostics, abla-tions, and efficiency analysis. 
+
+## Related Work 
+
+Machine olfaction as chemical scene perception. Data-driven olfactory systems aim to standardize sensor response manifolds and learn robust representations (Sung et al. 2024a). Recent work learns latent odor representations to extract discriminative waveform features for gas classifica-tion (Sung et al. 2024b) and uses deep sequence models to predict gas concentrations (Yang et al. 2024). For example, SmellNet provides portable sensor time series for natural foods and controlled mixtures, pairs ingredients with GC– MS priors, and introduces ScentFormer for temporal smell recognition (Feng et al. 2026). These works establish ma-chine olfaction as a data-rich and practically important sens-ing problem. However, most models still treat sensor outputs as generic temporal patterns. They do not explicitly require a predicted mixture to be generated by coupled gas transport, sensor-surface interaction, and transduction dynamics. This limits generalization to unseen mixtures, where the task is not simply to recognize a known odor trace but to explain a new chemical composition from entangled observations. 
+
+Multi-physics mechanisms in olfactory sensing. Mul-ticomponent gas transport is commonly described by Maxwell–Stefan-type diffusion models, often coupled with adsorption equilibrium. Recent works have developed ef-ficient Maxwell–Stefan formulations for gas separation with multicomponent convection–diffusion systems (Az-naran et al. 2025). In sensing scenarios, adsorption and dif-fusion kinetics have also been exploited to improve volatile-compound selectivity in nanoporous sensors (Matavˇ z et al. 2025). Classical Maxwell–Stefan solvers require solving coupled nonlinear PDEs with specified boundary conditions and transport parameters (Huo, J¨ ungel, and Tzavaras 2024). Such solvers are physically expressive but computationally expensive, numerically sensitive, and difficult to insert into end-to-end inverse inference. UnMixNet keeps the mecha-nistic structure of multicomponent transport and sensor re-sponse, but amortizes the inverse problem through a differ-entiable graph solver. 
+
+Neural physical solvers and graph dynamics. Graph-based neural solvers have recently emerged as a power-ful interface between numerical simulation and representa-tion learning. GRAND interprets GNN layers as discretiza-tions of diffusion PDEs (Chamberlain et al. 2021); message-passing neural PDE solvers replace components of numer-ical solvers with learned message functions (Brandstetter, Worrall, and Welling 2022). Neural operators such as FNO (Li et al. 2021), Transolver (Wu et al. 2024), UPT (Alkin et al. 2024), and CoDA-NO (Rahman et al. 2024) learn map-pings between functions for PDE families, complex geome-tries, and multiphysics systems. At a larger scale, graph neu-ral simulators have also shown strong performance in physi-cal forecasting tasks, such as global weather prediction (Lam et al. 2023). These works show that graph structures are well suited for irregular domains and non-Euclidean discretiza-tions. UnMixNet differs in problem direction and message semantics: it addresses olfactory inverse sensing, and its graph messages represent species moles, Maxwell–Stefan fluxes, and sensor-boundary states rather than unconstrained latent features. 
+
+Physics-informed learning versus physics closure. 
+
+Physics-informed neural models often impose physical laws through residual penalties, while neural operators learn sur-rogate maps for families of PDE solutions. For dynamic gas unmixing, however, the main challenge is not only to regularize a predictor or approximate a forward simulator. The inferred mixture itself must be closed by a forward ex-planation that is admissible under the assumed transport– adsorption–readout mechanism. UnMixNet therefore em-beds this chain into the state transition: neural networks propose physical coefficients, while graph operators en-force conservative transport, Maxwell–Stefan flux admissi-bility, adsorption competition, and monotone readout. This operator-level closure is the main distinction from generic physics-informed GNNs and from graph dynamics models whose messages remain unconstrained latent features. 
+
+## Problem Formulation 
+
+Let Y = {ym(tn)}T,M n=1 ,m =1 ∈ RT ×M be a multichannel sensor sequence, and let e denote experimental conditions such as temperature, humidity, flow rate, chamber geome-try, source protocol, and sensor layout. There are K can-didate odorants and an additional carrier-air component in-dexed by 0. For odorant i ∈ { 1, . . . , K }, let zi ∈ { 0, 1}
+
+indicate presence and let ai ≥ 0 denote its mixture propor-tion, with PKi=1 ai = 1 over present components. We seek an amortized inverse map 
+
+(ˆ z, ˆa, ˆΨ) = Eϕ(Y, e ), (1) where ˆΨ contains physical parameters such as release rates, Maxwell–Stefan coefficients Dij , adsorption and desorption rates kads 
+
+> m,i
+
+, k des 
+
+> m,i
+
+, transduction gains βm,i , and sensor time constants τm. The forward reconstruction is produced by a differentiable solver 
+
+ˆY = F UnMixNet  
+
+> θ
+
+(ˆ z, ˆa, ˆΨ, e ). (2) Training closes the inverse-forward loop: inferred mixture variables must not only match labels when they are avail-able, but also reconstruct the observed dynamic response through a physically constrained solver. 
+
+Closure misspecification in machine olfaction. A direct olfactory predictor maps (Y, e ) to (ˆ z, ˆa) and can be opti-mized to fit mixture labels or sensor traces: 
+
+(ˆ z, ˆa) = gφ(Y, e ). (3) Such a predictor is closure-misspecified when its output is not required to be generated by any coupled transport– adsorption–readout process. This distinction is crucial for unseen mixtures. A model may separate familiar temporal response shapes while still assigning mass to spurious com-ponents when several odorants produce similar delayed sen-sor dynamics. In a closure-consistent inverse model, the pre-dicted composition is admissible only if there exists a latent rollout 
+
+S0: T = {N t, x t, J t, θ t, y t}Tt=0 (4) that reconstructs the measured response through the forward solver: 
+
+St+1 = Tθ (St; ˆ z, ˆa, ˆΨ, e ), ˆY ≈ Y. (5) UnMixNet implements this requirement by coupling the en-coder with a graph-discretized physical solver. The predic-tion is therefore judged not only by label agreement, but also by whether the inferred mixture can explain the ob-served olfactory trajectory through conservative multicom-ponent transport, competitive sensor-boundary reaction, and nonlinear readout. 
+
+## Theoretical Insights 
+
+This section explains why physics closure is useful for gas unmixing. We first write the olfactory forward process as a coupled multi-physics inverse problem. We then summarize closure guarantees that connect the graph solver to mixture identifiability, finite-volume conservation, Maxwell–Stefan admissibility, and stable sensor readout. 
+
+Olfactory Unmixing as a Multi-Physics Inverse Problem 
+
+Continuous forward model. The physical chain contains four coupled components. A source releases odorant i ac-cording to 
+
+qi(x, t ) = ziaiρi(t; ψi, T, H )psrc (x), (6) where psrc is a source distribution and ρi is a positive re-lease profile. Let xi(x, t ) be the mole fraction, c(x, t ) the total molar concentration, u(x, t ) the advective velocity, and 
+
+Ji(x, t ) the diffusive flux. Transport follows 
+
+∂t(cx i) + ∇ · (cx iu + Ji) = qi − rwall  
+
+> i
+
+− rads  
+
+> i
+
+, (7) with constraints PKi=0 xi = 1 and PKi=0 Ji = 0 . Maxwell– Stefan diffusion is given by 
+
+−∇ xi = X 
+
+> j̸=i
+
+xj Ji − xiJj
+
+cD ij 
+
+, Dij = Dji > 0. (8) At sensor m, the surface coverage θm,i follows competitive adsorption: 
+
+˙θm,i = kads 
+
+> m,i
+
+ci(xm, t )θm, 0−kdes 
+
+> m,i
+
+θm,i , θm, 0 = 1 −
+
+> K
+
+X
+
+> i=1
+
+θm,i .
+
+(9) The electrical signal is a nonlinear transduction of coverage with readout lag: 
+
+τm(T, H ) ˙ˆym = −ˆym+bm(T, H )+ gm
+
+ X 
+
+> i
+
+βm,i θm,i , T, H 
+
+
+
+.
+
+(10) The equations above define the physical process that a closure-consistent inverse prediction should explain. The source term makes the static mixture vector dynamic; the transport equation couples odorants through Maxwell– Stefan cross-diffusion; the adsorption ODE models sensor surfaces as competitive reactive boundaries; and the readout ODE turns coverage into a delayed electrical response. Di-rectly solving this continuous system for every test sample is impractical, but ignoring it creates closure misspecification. UnMixNet approximates this chain with local graph opera-tors whose algebraic properties are summarized next. 
+
+Closure Guarantees 
+
+The proofs follow arguments from sparse recovery, finite-volume conservation, constrained graph Laplacians, and Markov generators. 
+
+Dynamic fingerprint identifiability. Define the pure-component dynamic fingerprint 
+
+Hi = vec  F UnMixNet  
+
+> θ
+
+(zi = 1 , a i = 1 , e ) ∈ RT M , (11) and H = [H1, . . . , H K ]. In a local low-concentration regime, vec( Y ) ≈ Ha + ϵ. Let 
+
+μ(H) = max 
+
+> i̸=j
+
+|H⊤ 
+
+> i
+
+Hj |∥Hi∥2∥Hj ∥2
+
+(12) be the mutual coherence. 
+
+Theorem 1 (Identifiability) If the true mixture is s-sparse and μ(H) < 1/(2 s − 1) , then the s-sparse mixture ratio is uniquely identifiable in the noiseless linearized model. 
+
+Proof sketch. For any support S with |S| ≤ 2s, normalize the columns and consider GS = H⊤ 
+
+> S
+
+HS . The Gershgorin circle theorem gives λmin (GS ) ≥ 1 − (|S| − 1) μ(H) > 0;hence every 2s-column submatrix is full rank. If two s-sparse vectors map to the same observation, their difference is 2s-sparse and lies in the nullspace, which yields a contra-diction. 
+
+Scope of the identifiability result. Theorem 1 should be interpreted as a local identifiability argument under a low-concentration linearized regime, where the sensor trajec-tory can be approximated by a sparse combination of pure-component dynamic fingerprints. It does not establish global identifiability for the full nonlinear transport–adsorption– readout system. Its role is to explain why a physics-closed decoder should produce incoherent dynamic fingerprints: lower coherence reduces support ambiguity in sparse mix-ture recovery. We therefore include an incoherence penalty during training. 
+
+Conservative graph advection. Let N nv,i be the moles of species i at spatial cell v. A graph advection layer uses transfer probabilities P nu→v,i ≥ 0 with P 
+
+> v
+
+P nu→v,i ≤ 1:
+
+N Av,i =
+
+
+
+1 − X
+
+> w
+
+P nv→w,i 
+
+
+
+N 0 
+
+> v,i
+
++ X
+
+> u
+
+P nu→v,i N 0
+
+> u,i
+
+. (13) 
+
+Proposition 1 For a closed graph without sources or sinks, graph advection preserves positivity and species-wise mass: 
+
+N Av,i ≥ 0 and P 
+
+> v
+
+N Av,i = P 
+
+> v
+
+N 0
+
+> v,i
+
+.
+
+The proof follows from nonnegative coefficients and can-cellation between outgoing and incoming edge sums. This property prevents the inverse model from explaining a sen-sor trace through hidden feature updates that would violate species-wise mass conservation. 
+
+Maxwell–Stefan graph flux. For edge e = ( u, v ), define 
+
+ge,i = ( xv,i − xu,i )/ℓ e and the edge-averaged mole frac-tion ¯xe. Let we,i be the relative molar velocity and define a component-graph Laplacian: 
+
+(Lcewe)i = X 
+
+> j̸=i
+
+γe,ij (we,i − we,j ), γe,ij = ¯xe,i ¯xe,j 
+
+¯ceDe,ij 
+
+.
+
+(14) The ideal flux solve is the KKT system 
+
+Lce ¯xe
+
+¯x⊤ 
+
+> e
+
+0
+
+  we
+
+λe
+
+
+
+=
+
+−ge
+
+0
+
+
+
+, JM S e,i = ¯ xe,i we,i . (15) 
+
+Theorem 2 (Well-posed flux projection) If ¯xe,i > 0,
+
+De,ij = De,ji > 0, and the component graph is connected, then the KKT system has a unique solution on {w : ¯ x⊤ 
+
+> e
+
+w =0}. The resulting flux satisfies P 
+
+> i
+
+JM S e,i = 0 and the discrete Maxwell–Stefan relation. 
+
+Proof sketch. Lce is symmetric positive semidefinite with nullspace span {1}. The constraint ¯x⊤ 
+
+> e
+
+w = 0 removes this nullspace because ¯x⊤ 
+
+> e
+
+1 = 1 , making the restricted system positive definite. Multiplying w by ¯xe gives P 
+
+> i
+
+JM S e,i = 0 
+
+and recovers the Maxwell–Stefan equations by construction. 
+
+□
+
+This theorem separates UnMixNet from generic graph dy-namics. Each edge message is a projection onto a Maxwell– Stefan-admissible multicomponent flux space rather than an unconstrained learned feature update. 
+
+Adsorption and transduction. Writing θm =(θm, 0, . . . , θ m,K )⊤, the adsorption ODE can be expressed as ˙θm = Qm(cm)θm, where Qm has nonnegative off-diagonal entries and zero column sums. Thus exp(∆ tQ m)
+
+is column-stochastic and preserves the simplex. If τm > 0
+
+and gm is monotone in its coverage argument, the readout update is a stable convex combination of the previous signal and the instantaneous transduction target. This guarantees that the sensor-boundary state remains a valid coverage distribution and that the readout evolves as a stable delayed response instead of a free regression head. 
+
+## Physics-Closed UnMixNet 
+
+UnMixNet implements the graph-closure principle intro-duced above. It is designed as an inverse-forward neural solver: the inverse encoder proposes mixture variables and physical coefficients, while the forward graph solver tests whether those variables can generate the observed olfactory trajectory. This design turns graph learning from hidden-feature propagation into a differentiable physical rollout over species moles, fluxes, surface coverages, and readout states. Multi -graph                    
+
+> Construction
+> CFL Advection Edge Block
+> Maxwell –Stefan Flux Projection Block
+> Sensor boundary reaction + readout ODE
+> For n = 0, ... ,T -1
+> Updated state: 𝑆 𝑛 +1={𝑁 𝑛 +1,𝑥 𝑛 +1,𝐽 𝑛 +1,𝜃 𝑛 +1,𝑦 𝑛 +1}
+> Global Conditioning: ℎ𝑌
+> Inverse
+> Encoder
+> Solver state 𝑆 𝑛 ={𝑁 𝑛 ,𝑥 𝑛 ,𝐽 𝑛 ,𝜃 𝑛 ,𝑦 𝑛 }
+> Output: Reconstruction
+> Input :MOX Observations
+> Network operator
+> Variables
+> Source -Conditioned
+> Graph Lifting
+> Source -Conditioned Injection
+> Forward state transition
+> Global conditioning
+
+Figure 2: Overview of physics-closed UnMixNet. The key innovation is the Maxwell–Stefan flux projection block, which converts learned edge coefficients and flux priors into physically admissible cross-diffusion fluxes. Given a multichannel sensor sequence Y ∈ RT ×M and experimental condition e, the model is factorized into two modules: 
+
+(ˆ z, ˆa, ˆΨ, h Y ) = Eϕ(Y, e ), ˆY = F MS  
+
+> θ
+
+(ˆ z, ˆa, ˆΨ, h Y , e ; G).
+
+(16) Here Eϕ is an inverse encoder that amortizes mixture in-ference, while F MS  
+
+> θ
+
+is a Maxwell–Stefan graph solver that reconstructs sensor dynamics through a constrained graph finite-volume rollout. The central design principle is that neural networks only parameterize physical quantities, such as release profiles, pairwise Maxwell–Stefan diffusivities, adsorption rates, and transduction gains. The transition from one solver state to the next is performed by structured op-erators whose messages are conservative fluxes, reactive boundary updates, and monotone sensor transduction. 
+
+Inverse Encoder 
+
+The inverse encoder maps the observed sensor response to a sparse latent mixture representation: 
+
+Eϕ(Y, e ) : Y 7 → (ˆ z, ˆa, ˆΨ, h Y ), (17) where ˆzi ∈ [0 , 1] denotes the presence probability of odorant 
+
+i, ˆai denotes its mixture ratio, and ˆΨ contains the physical parameters required by the graph solver. To capture both slow recovery trends and sharp transient fingerprints, we use a multiscale temporal-sensor encoder: 
+
+Y LP = WLP Y, Y HP  
+
+> r
+
+= W (r)HP Y, (18) 
+
+hY = Enc ϕ
+
+ Y, Y LP , {Y HP  
+
+> r
+
+}r , e . (19) The encoder then predicts sparse presence and normalized mixture ratios: 
+
+ˆzi = σ(w⊤ 
+
+> i
+
+hY ), (20) 
+
+ˆai = ˆzi exp( oi)
+
+PKj=1 ˆzj exp( oj ) + ϵ . (21) The physical latent package is 
+
+ˆΨi = {ˆρi(t), ˆDij , ˆkads 
+
+> m,i
+
+, ˆkdes 
+
+> m,i
+
+, ˆβm,i , ˆτm, ˆnm}. (22) All positive quantities are parameterized by softplus or ex-ponential transforms, for example, 
+
+ˆDij = Dmin +softplus( dij ), ˆkads  
+
+> m,i
+
+= kads min +softplus( uads 
+
+> m,i
+
+).
+
+(23) This design prevents the inverse network from directly mem-orizing the sensor sequence. Instead, it must infer a latent physical configuration that can be verified by the graph solver. 
+
+Maxwell–Stefan Graph Solver 
+
+The forward module F MS  
+
+> θ
+
+is implemented as a differentiable graph solver. As illustrated in Fig. 2, the solver is organized into four major network blocks: source-conditioned injec-tion, a CFL advection edge block, a Maxwell–Stefan flux projection block, and sensor boundary reaction with a read-out ODE. The key design choice is that standard neural lay-ers are used only to parameterize physical quantities, while the state transition itself is performed by structured conser-vative and constrained operators. 
+
+Multi-graph construction. Given the graph templates, we construct a heterogeneous graph 
+
+G = Gx□Gc ∪ Gs. (24) The spatial graph Gx = (Vx, E x) contains source cells, gas cells, wall cells, sensor boundary cells, and outlets. The component graph Gc = ( Vc, E c) contains carrier air and odorant species. A product node (v, i ) represents species i
+
+in spatial cell v. The sensor graph Gs connects gas bound-ary nodes to surface coverage states and readout states. 
+
+Source-conditioned graph lifting. The inverse encoder first maps the observed MOX sensor sequence and environ-ment condition to latent mixture variables and a global con-ditioning vector: 
+
+(ˆ z, ˆa, ˆΨ, h Y ) = Eϕ(Y, e ), (25) where ˆzi is the predicted presence probability of odorant i,
+
+ˆai is its normalized mixture ratio, ˆΨ contains physical pa-rameters, and hY is a sample-level global conditioning vec-tor. The source-conditioned graph lifting module initializes the product-graph state 
+
+S0 = {N 0
+
+> v,i
+
+, x 0
+
+> v,i
+
+, J 0
+
+> e,i
+
+, θ 0
+
+> m,i
+
+, y 0
+
+> m
+
+}. (26) Here Nv,i is the species mole amount, xv,i is the mole frac-tion, Je,i is the edge flux, θm,i is the sensor surface coverage, and ym is the reconstructed sensor readout. The global con-ditioning vector hY is broadcast to subsequent solver blocks, as indicated by the dashed arrows in Fig. 2. At solver step n, the state is 
+
+Sn = {N nv,i , x nv,i , J ne,i , θ nm,i , y nm}. (27) One solver step is written as 
+
+Sn+1 = Rread ∆t ◦ B sens ∆t ◦ ΦMSBlock ∆t ◦ A CFL ∆t ◦ I src ∆t (Sn), (28) where Isrc ∆t is the source-conditioned injection, ACFL ∆t is the CFL advection edge block, ΦMSBlock ∆t is the composite Maxwell–Stefan flux projection block, Bsens ∆t is the sensor boundary reaction, and Rread ∆t is the readout ODE update. EdgeGather     
+
+> Concat .
+> MLP
+> CFL Softmax
+> Normalization
+> （Eq.27 ）
+> Conservative
+> Transport Update
+> (Eq.29)
+> EdgeGather
+> EdgeGradient
+> MLP
+> Maxwell –Stefan
+> Laplacian
+> (Eq.34 )
+> KKT Matrix
+> Assemble
+> (Eq.40 )
+> Differentiable KKT
+> Projection Solver
+> (Eq.41 )
+> Finite -volume
+> diffusion update
+> (Eq.42 )
+> a)b)
+> Standard NN layers Proposed physics -
+> structured layers
+> Differential physical
+> solver layers
+> Maxwell –Stefan
+> coefficient (Eq.30 )
+> SoftPlus
+
+Figure 3: Detailed network architectures of (a) the CFL ad-vection edge block and (b) the Maxwell–Stefan flux projec-tion block. 
+
+Source-Conditioned Injection The source-conditioned injection block injects the encoder-predicted mixture into source cells at each solver step. For species i and spatial cell 
+
+v, the source term is 
+
+Qnv,i = ˆ ziˆai ˆρi(tn; ˆψi, T, H )psrc (v), (29) where psrc (v) is the source distribution over spatial cells. If the source location is known, psrc is fixed; otherwise, it can be predicted from hY with sparsity or entropy regulariza-tion. The post-injection mole state is 
+
+N src  
+
+> v,i
+
+= N nv,i + ∆ tQ nv,i . (30) This state is used as the input to the CFL advection edge block. 
+
+CFL Advection Edge Block The CFL advection edge block moves species moles along directed spatial edges. As shown in Fig. 3(a), the block consists of standard edge gathering, feature concatenation, an edge MLP, CFL soft-max normalization, and a conservative transport update. For each directed spatial edge u → v and species i, stan-dard edge operations first gather node, edge, species, and conditioning features: 
+
+ξnu→v,i = [ hnu , h nv , h uv , r i, h Y , e ]. (31) A standard MLP predicts the advection score: 
+
+αnu→v,i = MLP A(ξnu→v,i ). (32) The score is converted into a CFL-normalized transport probability: 
+
+P nu→v,i = νu,i 
+
+exp( αnu→v,i )1 + P  
+
+> w∈N (u)
+
+exp( αnu→w,i ) , 0 ≤ νu,i ≤ 1.
+
+(33) The self-retention term in the denominator guarantees 
+
+P nu→v,i ≥ 0, X 
+
+> v∈N (u)
+
+P nu→v,i ≤ 1. (34) The conservative mole transport update is 
+
+N Av,i =
+
+1 − X 
+
+> w∈N (v)
+
+P nv→w,i 
+
+ N src  
+
+> v,i
+
++ X 
+
+> u∈N (v)
+
+P nu→v,i N src  
+
+> u,i
+
+.
+
+(35) The updated mole fractions are 
+
+xAv,i = N Av,i 
+
+P 
+
+> j
+
+N Av,j + ϵ . (36) This block transports physical species moles rather than hidden features, making the advection step positivity-preserving and mass-conservative. 
+
+Maxwell–Stefan Projection: From Graph Messages to Physical Fluxes The Maxwell–Stefan flux projection block is the core physical solver block of physics-closed UnMixNet. A generic GNN can learn edge messages, but those messages need not satisfy zero-net multicomponent flux, cross-component coupling, or any Maxwell–Stefan re-lation. UnMixNet therefore learns physical coefficients in-stead of directly learning diffusion messages. As shown in Fig. 2(c), the block converts edge-wise coefficient predic-tions into constrained multicomponent fluxes and then ap-plies a conservative finite-volume update. In our implemen-tation, the term “Maxwell–Stefan flux projection block” de-notes the composite diffusion block 
+
+ΦMSBlock ∆t = FFV ∆t ◦ P KKT ◦ L MS ◦ D MS  
+
+> θ
+
+, (37) where DMS  
+
+> θ
+
+predicts Maxwell–Stefan coefficients, LMS 
+
+builds the Maxwell–Stefan component Laplacian, PKKT 
+
+solves the constrained projection, and FFV ∆t applies the finite-volume diffusion update. 
+
+Edge gathering and edge gradients. For each spatial edge e = (u, v ), standard graph operations gather the endpoint mole fractions xAu,i and xAv,i . The discrete mole-fraction gradient is 
+
+ge,i = xAv,i − xAu,i 
+
+ℓe
+
+, (38) where ℓe is the edge length. We also define the edge-averaged mole fraction and total concentration: 
+
+¯xe,i = xAu,i + xAv,i 
+
+2 , ¯ce = Avg e (cu, c v ) . (39) 
+
+Maxwell–Stefan coefficients. The coefficient branch uses a standard MLP and softplus parameterization to predict symmetric positive pairwise Maxwell–Stefan diffusivities. For each edge e and species pair (i, j ),
+
+De,ij = Dmin +softplus 
+
+ MLP D (ri, r j , h e, h Y , e ) + MLP D (rj , r i, h e, h 
+
+2
+
+(40) This guarantees 
+
+De,ij = De,ji > 0. (41) The network therefore does not directly output diffu-sion messages; instead, it outputs physically constrained Maxwell–Stefan coefficients. 
+
+Maxwell–Stefan Laplacian construction. The Maxwell– Stefan coefficients are converted into component interaction weights: 
+
+γe,ij = ¯xe,i ¯xe,j 
+
+¯ceDe,ij + ϵ . (42) These weights define the component Laplacian on edge e:
+
+(Lcewe)i = X 
+
+> j̸=i
+
+γe,ij (we,i − we,j ). (43) This step corresponds to the “Maxwell–Stefan coefficient” and “Maxwell–Stefan Laplacian” modules in Fig. 2(c). 
+
+Optional flux prior. To model unresolved turbulence, wall perturbations, or sensor-induced local flow distortion, the block may predict an optional flux prior: 
+
+˜we = MLP J (hu, h v , h e, ¯xe, h Y , e ). (44) If the prior is disabled, we set ˜we = 0 .
+
+KKT matrix assembly and differentiable projection. 
+
+The constrained projection computes the relative molar ve-locity wMS  
+
+> e
+
+by solving 
+
+wMS  
+
+> e
+
+= arg min 
+
+> we
+
+∥Lcewe + ge∥2Ωe +μ ∥we − ˜we∥2 s.t. ¯x⊤ 
+
+> e
+
+we = 0 .
+
+(45) The equality constraint enforces the zero-net-diffusion-flux condition. Equivalently, the projection is solved by the dif-ferentiable KKT system 
+
+(Lce)⊤ΩeLce + μI ¯xe
+
+¯x⊤ 
+
+> e
+
+0
+
+  wMS 
+
+> e
+
+λe
+
+
+
+=
+
+−(Lce)⊤Ωege + μ ˜we
+
+0
+
+
+
+.
+
+(46) The final Maxwell–Stefan flux is 
+
+JMS  
+
+> e,i
+
+= ¯ xe,i wMS  
+
+> e,i
+
+. (47) Because ¯x⊤ 
+
+> e
+
+wMS  
+
+> e
+
+= 0 , the flux satisfies 
+
+> K
+
+X
+
+> i=0
+
+JMS  
+
+> e,i
+
+= 0 . (48) 
+
+Finite-volume diffusion update. The final part of the Maxwell–Stefan flux projection block converts the projected edge fluxes into cell-wise mole updates through a conserva-tive finite-volume operator: 
+
+N Dv,i = N Av,i − ∆t X
+
+> e∈Ex
+
+Bv,e AeJMS  
+
+> e,i
+
+, (49) where B is the oriented incidence matrix and Ae contains edge area and cell-volume factors. The updated mole frac-tions are 
+
+xDv,i = N Dv,i 
+
+P 
+
+> j
+
+N Dv,j + ϵ . (50) The Maxwell–Stefan flux projection block outputs 
+
+{N D , x D , J MS }. (51) This composite block differs from ordinary GNN message passing: a standard GNN directly learns an edge message, whereas our block learns physical coefficients, constructs the Maxwell–Stefan operator, solves a constrained projec-tion problem, and then applies a conservative finite-volume update. 
+
+Sensor Boundary Reaction and Readout ODE The sen-sor is modeled as a reactive boundary rather than a passive readout head. For sensor m, the coverage vector is 
+
+θm = ( θm, 0, θ m, 1, . . . , θ m,K )⊤, (52) where θm, 0 denotes the empty surface-site fraction. The adsorption and desorption rates are positive: 
+
+kads  
+
+> m,i
+
+= kads min + softplus (MLP ads (ri, mat m, T, H, h Y )) ,
+
+(53) 
+
+kdes  
+
+> m,i
+
+= kdes min + softplus (MLP des (ri, mat m, T, H, h Y )) .
+
+(54) Here mat m denotes the material embedding of sensor m.The global conditioning vector hY is included because the sensor reaction block is conditioned on the observed se-quence context, as shown in Fig. 2(a). Let 
+
+λm,i = kads 
+
+> m,i
+
+ci(xm, t ), δm,i = kdes 
+
+> m,i
+
+. (55) We construct a Markov generator Qm(cm):
+
+(Qm)i0 = λm,i , (Qm)0i = δm,i , (56) 
+
+(Qm)00 = −
+
+> K
+
+X
+
+> i=1
+
+λm,i , (Qm)ii = −δm,i . (57) The exact coverage update is 
+
+θn+1  
+
+> m
+
+= exp (∆ tQ m(cnm)) θnm. (58) This update preserves 
+
+θn+1  
+
+> m,i
+
+≥ 0,
+
+> K
+
+X
+
+> i=0
+
+θn+1  
+
+> m,i
+
+= 1 . (59) The adsorption sink is coupled back to adjacent gas cells: 
+
+Rads  
+
+> m,i
+
+= AmΓm
+
+θn+1  
+
+> m,i
+
+− θnm,i 
+
+∆t . (60) The electronic response target is computed by a monotone transduction head: 
+
+rn+1  
+
+> m
+
+= X
+
+> i
+
+βm,i θn+1  
+
+> m,i
+
+, (61) 
+
+s⋆,n +1  
+
+> m
+
+= bm(T, H ) + gm(rn+1  
+
+> m
+
+, T, H ), ∂g m
+
+∂r ≥ 0.
+
+(62) The readout ODE has the exact discrete update 
+
+yn+1  
+
+> m
+
+= exp( −∆t/τ m)ynm + (1 − exp( −∆t/τ m)) s⋆,n +1  
+
+> m
+
+.
+
+(63) The reconstructed sequence is 
+
+ˆY = {y1, y 2, . . . , y T }. (64) Algorithm 1 Physics-Closed UnMixNet Network Forward Pass  
+
+> 1:
+
+Input: MOX observation sequence Y , environment e,graph templates, step size ∆t. 
+
+> 2:
+
+Encode (ˆ z, ˆa, ˆΨ, h Y ) = Eϕ(Y, e ). 
+
+> 3:
+
+Construct multi-graph G = Gx□Gc ∪ Gs. 
+
+> 4:
+
+Apply source-conditioned graph lifting to initialize 
+
+S0 = {N 0, x 0, J 0, θ 0, y 0}. 
+
+> 5:
+
+for n = 0 to T − 1 do  
+
+> 6:
+
+Apply source-conditioned injection using 
+
+(ˆ z, ˆa, ˆρ, p src ). 
+
+> 7:
+
+Apply the CFL advection edge block to obtain 
+
+N A, x A. 
+
+> 8:
+
+Apply the Maxwell–Stefan flux projection block:  
+
+> 9:
+
+gather edge endpoints and compute ge, ¯xe, ¯ce; 
+
+> 10:
+
+predict De,ij = De,ji > 0 using an MLP and soft-plus;  
+
+> 11:
+
+construct γe,ij and Lce; 
+
+> 12:
+
+optionally predict the flux prior ˜we; 
+
+> 13:
+
+assemble and solve the differentiable KKT projec-tion;  
+
+> 14:
+
+construct JMS and apply the finite-volume diffu-sion update.  
+
+> 15:
+
+Apply sensor boundary reaction and the adsorption sink.  
+
+> 16:
+
+Apply the monotone readout ODE update.  
+
+> 17:
+
+end for  
+
+> 18:
+
+return reconstructed sequence ˆY .
+
+Training objective. We optimize 
+
+L = Lmix + λrec Lrec + λM S LM S 
+
++ λcons Lcons + λads Lads 
+
++ λf req Lf req + λid Lident .
+
+(65) Here Lmix supervises presence and mixture ratios when they are available. The reconstruction loss is 
+
+Lrec = ∥Y − ˆY ∥22. (66) The Maxwell–Stefan residual loss LM S is computed inside the Maxwell–Stefan flux projection block and penalizes vi-olations of 
+
+Lcewe + ge = 0 , ¯x⊤ 
+
+> e
+
+we = 0 . (67) The conservation loss Lcons penalizes mass imbalance after the CFL advection edge block and the finite-volume diffu-sion update. The adsorption loss Lads enforces consistency with the sensor boundary reaction and readout ODE. To em-phasize informative transients, Lf req applies low- and high-pass filters to the reconstruction residual Y − ˆY . The finger-print incoherence term is 
+
+Lident = X
+
+> i<j
+
+ H⊤ 
+
+> i
+
+Hj
+
+∥Hi∥2∥Hj ∥2
+
+2
+
+, (68) which directly operationalizes Theorem 1. 
+
+## Experiments 
+
+We organize the evaluation around four questions that follow directly from the proposed closure principle. RQ1: Does physics closure improve SmellNet natural-odor unmixing and transfer to independent UCI Dynamic Gas Mixtures? 
+
+RQ2: Are the inferred physics states validated by both physics-state simulation and measured-state ground truth? 
+
+RQ3: Which closure breaks when a physical rule is re-moved? RQ4: Is the Maxwell–Stefan graph solver practical as an amortized olfactory inference model? 
+
+Experimental Setting 
+
+Datasets. We use three evidence sources. The first is SmellNet, where the base task is 50-way single-odor classification and the mixture task is 12-dimensional ingredient-ratio prediction. For mixture predic-tion, we report results on both seen and unseen mixtures. Seen mixtures share the same ingredient support as the train-ing examples but use held-out recordings; unseen mixtures contain support combinations not observed during training. The second benchmark is a SmellNet-calibrated simulator-consistent physical-state benchmark. SmellNet provides recipe-level proportions and sensor traces, but not measured concentration fields, Maxwell–Stefan fluxes, sensor-surface coverages, or chamber-resolved mass states. We therefore calibrate a simulator from training-set fin-gerprints and mixture responses, freeze it, and use its simulator-consistent states as diagnostic reference labels. Third, UCI Dynamic Gas Mixtures is used as an indepen-dently measured-state validation benchmark for transferred physics-state inference. UCI Dynamic contains continuous recordings of dynamic binary gas mixtures, including ethy-lene–methane and ethylene–CO in air. We use it as an in-dependent validation dataset to test whether the pre-trained closure model transfers to a controlled gas-mixture domain and whether the inferred physics-state rollout aligns with ground-truth physical dynamics. 
+
+Baselines. We compare UnMixNet with five models. MLP is a non-temporal baseline. 1DCNN-LSTM combines local temporal filtering with recurrent dynamics. iTransformer-Lite is a lightweight multivariate Transformer baseline. ScentFormerStyle is a reimplementation of a ScentFormer-style temporal model under our pipeline. ADR-GNN is a graph-based advection–diffusion–reaction model with-out Maxwell–Stefan flux projection or competitive sensor-boundary closure. All methods use the same windows, splits, normalization statistics, and evaluation scripts. Model selec-tion and post-processing are performed only on an internal validation split from the official training data. 
+
+Training protocol. For the main SmellNet and UCI re-sults, we run each model with 10 independent random seeds. For mechanism-specific ablations, where the computational cost is higher, we use 5 seeds. We use AdamW, batch size 32, hidden dimension 192, dropout 0.05, and early stopping on validation performance. UnMixNet uses a learning rate of 
+
+2.5 × 10 −4. For mixture prediction, all outputs are projected to the probability simplex before evaluation. For calibrated Table 1: Evaluation matrix. Experiment Data / source Evidence Exp. 1 SmellNet; UCI dataset Odor recognition, seen/unseen unmixing Exp. 2 SmellNet; UCI dataset Physics-state trajectories, state alignment Exp. 3 Mechanism-specific ablations Removed rule and corresponding failure mode Exp. 4 SmellNet Latency, throughput, and memory inference, support projection, recipe-grid adjustment, win-dow length, smoothing, and response-delay parameters are selected only on validation or calibration episodes; no test labels are used for tuning. 
+
+Statistical reporting. All main quantitative results are re-ported as mean ± standard deviation over three random seeds. Because only three seeds are available, the reported standard deviations should be read as descriptive estimates of training variability rather than as full sampling uncer-tainty. We therefore base the main empirical claims on im-provements whose margins are substantially larger than the across-seed standard deviations, and we avoid interpreting small differences as conclusive evidence. 
+
+Evaluation matrix. Table 1 summarizes what each ex-periment tests. Exp. 1 evaluates observable olfactory pre-diction, including SmellNet single-odor recognition, seen and unseen natural-mixture unmixing, and cross-dataset gas-support recovery on UCI Dynamic. Exp. 2 evaluates whether the predicted mixture variables can be lifted into inferred physics states. This state-level evaluation com-bines SmellNet-based state simulation over concentration, Maxwell–Stefan flux, sensor coverage, and gas-phase mass with concentration-grounded validation on UCI Dynamic. Exp. 3 isolates the effects of individual closure modules. Exp. 4 evaluates the computational cost of the physics-closed solver. For classification, we report Acc@1. For mixture unmix-ing, we report MAE, TopK@0.1, support F1, and cosine similarity. OOD Drop is computed as 
+
+OOD Drop = MAE unseen − MAE seen 
+
+MAE seen + ϵ . (69) Lower MAE and OOD Drop are better; higher Acc@1, TopK@0.1, support F1, and cosine similarity are better. For UCI Dynamic, the same inferred composition is evaluated through gas support recovery and concentration-grounded regression. Gas support is derived from delayed concentration trajectories, 
+
+zgt  
+
+> i
+
+(t) = 1Cgt  
+
+> i
+
+(t − δ⋆) > δ c
+
+ ,
+
+where the response delay δ⋆ and support threshold δc are selected on UCI calibration episodes only. We report Gas ID Acc, support F1, ppm MAE, RMSE, R2, and short-horizon sensor forecast RMSE. 
+
+RQ1: Does Physics Closure Improve Real Machine Olfaction? 
+
+Table 2 reports results on SmellNet. UnMixNet achieves the best Acc@1 on single-odor recognition, improving over the strongest temporal baseline from 0.578 to 0.633 . More im-portantly, the gain is larger on mixture prediction. On seen mixtures, UnMixNet reduces MAE from the best baseline value of 0.113 to 0.088 and improves TopK@0.1 from 0.430 
+
+to 0.635 . On unseen mixtures, it reduces MAE from 0.133 
+
+to 0.101 and improves TopK@0.1 from 0.190 to 0.390 .The relative OOD Drop of UnMixNet is not the small-est, but its absolute errors on seen and unseen mixtures are substantially lower than those of all baselines. Because Un-MixNet starts from a much lower seen-mixture error, it still achieves the lowest unseen-mixture MAE despite a larger relative degradation ratio than some baselines. Thus, the re-sult should be interpreted as an improvement in absolute mixture recovery rather than merely a reduction in relative domain shift. Fig. 4 explains why the numerical gains in Table 2 are larger for mixture unmixing than for single-odor classifica-tion. Single-odor recognition mainly requires discriminative separation among observed classes, whereas mixture un-mixing requires the model to explain one sensor sequence as a physically plausible composition of multiple compo-nents. Fig. 4(a) shows that this explanatory requirement is visible at the sensor-trajectory level. For the representative unseen mixture, UnMixNet reconstructs the rising temporal response across all four MOX channels, while ADR-GNN underestimates the response and fails to reproduce the ob-served dynamic amplitude. This indicates that UnMixNet is not merely producing a lower-dimensional ratio output; it also learns a forward explanation that is more consistent with the measured sensor trace. The residual maps in Fig. 4(b) further localize this im-provement. ADR-GNN exhibits larger residuals over a broad time range, especially in the later part of the response, sug-gesting temporal drift between the predicted and measured sensor dynamics. By contrast, UnMixNet maintains lower residuals across channels and time. This behavior is consis-tent with the design of the physics-closed solver: the inferred mixture is constrained to pass through a structured recon-struction process rather than being produced only by an un-constrained regression head. The lower residual field there-fore supports the claim that the model learns a more faithful dynamic explanation of the real MOX response. The fingerprint visualization in Fig. 4(c) provides a com-plementary population-level view. Each point represents a dynamic fingerprint projected onto two principal compo-nents. ADR-GNN produces more dispersed sample clouds and a denser coherence graph, meaning that different odor components have more overlapping dynamic fingerprints. Such overlap makes unseen mixture recovery difficult be-cause the same observed response can be explained by sev-eral similar component combinations. UnMixNet produces more compact sample clusters and fewer high-coherence edges between class centers. This pattern directly sup-ports the identifiability motivation of the proposed model: physics closure encourages component-specific dynamic fingerprints to become more separable, reducing ambiguity when the test mixture contains a new support combination. Finally, Fig. 4(d) shows how fingerprint separability af-fects mixture support recovery. In the unseen example, the Table 2: SmellNet single-odor classification and seen/unseen mixture unmixing. All values are mean ± standard deviation over three seeds. 
+
+Model Base Acc@1 ↑ Seen MAE ↓ Seen TopK@0.1 ↑ Unseen MAE ↓ Unseen TopK@0.1 ↑ OOD Drop ↓
+
+MLP 0.2733 ± 0.0194 0.1210 ± 0.0039 0.202 ± 0.0033 0.1529 ± 0.0042 0.100 ± 0.0292 0.2750 ± 0.0083 
+
+iTransformerLite 0.5533 ± 0.0660 0.1133 ± 0.0056 0.330 ± 0.0019 0.1330 ± 0.0028 0.180 ± 0.0124 0.1770 ± 0.0063 
+
+1DCNN-LSTM 0.3433 ± 0.0973 0.1369 ± 0.0063 0.240 ± 0.0076 0.1528 ± 0.0035 0.110 ± 0.0183 0.1176 ± 0.0424 
+
+ScentFormerStyle 0.5780 ± 0.0283 0.1228 ± 0.0019 0.430 ± 0.0022 0.1477 ± 0.0037 0.160 ± 0.0079 0.2049 ± 0.0914 
+
+ADR-GNN 0.5100 ± 0.0463 0.1240 ± 0.0048 0.380 ± 0.0039 0.1429 ± 0.0041 0.190 ± 0.0119 0.1544 ± 0.0272 
+
+UnMixNet 0.6333 ± 0.0249 0.0880 ± 0.0011 0.635 ± 0.0101 0.1010 ± 0.0016 0.390 ± 0.0072 0.1470 ± 0.0082 
+
+Table 3: UCI Dynamic gas-support. Model Gas ID Acc ↑ Support F1 ↑ Norm. MAE ↓ R2 ↑ Forecast RMSE ↓                                                                           
+
+> Scratch-transfer UnMixNet 0.902 ±0.018 0.884 ±0.021 0.054 ±0.006 0.872 ±0.024 0.112 ±0.010
+> SmellNet-pretrained temporal baseline 0.923 ±0.014 0.908 ±0.017 0.045 ±0.005 0.903 ±0.018 0.096 ±0.009
+> SmellNet-pretrained ADR-GNN 0.946 ±0.011 0.936 ±0.014 0.035 ±0.004 0.936 ±0.014 0.084 ±0.008
+> SmellNet-pretrained UnMixNet 0.962 ±0.008 0.956 ±0.010 0.028 ±0.003 0.958 ±0.010 0.071 ±0.006
+> Full UCI-supervised UnMixNet 0.982 ±0.004 0.981 ±0.006 0.019 ±0.002 0.982 ±0.004 0.058 ±0.005
+
+ground-truth recipe contains almond and peach, while the re-maining components should receive zero mass. ADR-GNN assigns noticeable probability mass to several absent com-ponents, which is a typical support-ambiguity failure. Un-MixNet suppresses these spurious components and places more mass on the true support. This observation is consistent with the higher TopK@0.1 and lower unseen MAE in Ta-ble 2. Together, the quantitative results and visual diagnos-tics show that the benefit of UnMixNet comes from learn-ing identifiable dynamic fingerprints and using them to con-strain mixture recovery, rather than from simply increasing temporal model capacity. 
+
+Cross-dataset validation on UCI Dynamic. The same closure principle is further evaluated on UCI Dynamic Gas Mixtures, where the sensor traces are generated by con-trolled binary gas transitions rather than natural odor recipes. We first train the model on SmellNet and then transfer the learned closure to the UCI gas vocabulary. On UCI, only sensor normalization, response-delay selection, component-token initialization, and affine state-to-ppm scaling are es-timated from calibration episodes. Concentration trajecto-ries are used as labels for evaluation and calibration, but are never provided as input features. Table 3 extends the real-data evaluation from natu-ral odor recipes to controlled dynamic gas mixtures. The key comparison is between scratch-transfer UnMixNet and SmellNet-pretrained UnMixNet under the same UCI cali-bration budget. Improvements in gas identification, support F1, ppm error, and sensor forecast indicate that the learned closure transfers beyond the source recipe distribution. 
+
+RQ2: Does Closure Produce Consistent Inferred Physics States? 
+
+State-level validation. Exp. 2 tests whether an inverse prediction can be lifted into inferred physics states rather than only a ratio vector. We use two state-level sources. The SmellNet-based state simulation evaluates full rollouts for concentration, Maxwell–Stefan flux, sensor coverage, and gas-phase mass under a frozen transport–adsorption–readout Table 4: SmellNet-based state simulation in Exp. 2. The frozen simulation reference evaluates whether model-implied rollouts are compatible with the transport– adsorption–readout closure. Model MAE ↓ Support F1 ↑ TopK@0.1 ↑ Cosine ↑                                                                        
+
+> MLP 0.129 ±0.005 0.330 ±0.021 0.220 ±0.019 0.590 ±0.019
+> iTransformer-lite 0.116 ±0.004 0.445 ±0.020 0.300 ±0.015 0.640 ±0.015
+> 1DCNN-LSTM 0.127 ±0.006 0.370 ±0.019 0.250 ±0.016 0.570 ±0.016
+> ScentFormer-style 0.121 ±0.004 0.420 ±0.018 0.270 ±0.012 0.610 ±0.018
+> ADR-GNN 0.103 ±0.003 0.510 ±0.018 0.360 ±0.016 0.710 ±0.016
+> UnMixNet 0.076 ±0.002 0.650 ±0.015 0.510 ±0.018 0.820 ±0.012
+
+closure. UCI Dynamic provides a concentration-grounded state check, where the inferred concentration state is com-pared with measured ppm trajectories on held-out transition episodes. These two sources evaluate different aspects of the same claim: the state simulation tests full-process coher-ence, while the UCI evaluates a representative inferred state to measured gas dynamics. Table 4 evaluates the SmellNet-based state simulation route. ADR-GNN improves over purely temporal baselines, showing that graph dynamics are useful. UnMixNet further reduces MAE from 0.103 to 0.076 and improves support F1 from 0.510 to 0.650 . This suggests that Maxwell–Stefan clo-sure improves not only closure consistency but also recipe-level unmixing. Figure 5 gives a trajectory-level view of the same result. The concentration panel shows that ADR-GNN projected states can exhibit strong temporal drift, with the predicted concentration growing away from the simulation reference trajectory. By contrast, UnMixNet remains close to the ref-erence response profile. The difference is also visible in sen-sor coverage. For total mass, UnMixNet follows the ref-erence accumulation pattern more closely, whereas ADR-GNN shows a larger deviation during the middle part of the rollout. The Maxwell–Stefan flux trajectory is more os-cillatory because it reflects local cross-component transport interactions, but UnMixNet remains closer to the reference amplitude pattern than the projected graph baseline. These observations indicate that the improvement in Table 4 is not only a ratio-level effect. The in-ferred mixture variables produced by UnMixNet can be lifted into state trajectories that are more compatible with the transport–adsorption–readout process. The UCI concentration-grounded results in Table 5 add an external measured-state check: the concentration readout of the in-ferred rollout aligns with controlled dynamic gas trajecto-a)  b)  c) 
+
+d) Figure 4: Dynamic fingerprint separability and unseen-mixture recovery on real SmellNet recordings. (a) Representative re-construction of an unseen mixture using the measured MOX sensor response as reference. NO 2-, C 2H5CH-, VOC-, and CO-sensitive channels denote MOX readout channels rather than odor components. UnMixNet follows the measured temporal response more closely than ADR-GNN, indicating that its inferred mixture can better explain the observed sensor dynamics through the learned forward solver. (b) Time–sensor reconstruction residual maps for the same unseen sample. Both heatmaps use a shared color scale. UnMixNet produces consistently lower residuals across sensor channels and time steps, whereas ADR-GNN accumulates larger residuals during the later response period. This suggests that physics-closed decoding improves dynamic response reconstruction rather than only optimizing the final ratio vector. (c) Population-level dynamic fingerprint visualization and coherence graph. In the embedding plots, light points denote sample-level fingerprints and dark points denote class centers. The axes are the first two principal components of high-dimensional dynamic fingerprints and are used only as visualization coordinates. UnMixNet forms more compact clusters and better separated centers than ADR-GNN. The graph visualizes pairwise fingerprint coherence between odor components; thicker and more opaque edges indicate stronger compo-nent ambiguity. The denser ADR-GNN graph suggests more overlapping component fingerprints, while the sparser UnMixNet graph indicates improved fingerprint separability. (d) Unseen-mixture support and ratio recovery example. The gray markers show the recipe-level ground-truth mixture ratio, while colored markers show model predictions. UnMixNet assigns less prob-ability mass to absent components and better recovers the true support than ADR-GNN, illustrating reduced support ambiguity in unseen mixture unmixing. Table 5: UCI-based grounded validation on the inferred physics states. Concentration is used as a representative measured physics state. Model Pearson rC ↑ Spearman ρC ↑ R2                                                                               
+
+> C↑Slope ↑CCC ↑Transition residual ↓
+> Scratch-transfer UnMixNet 0.872 ±0.022 0.851 ±0.026 0.760 ±0.038 0.73 ±0.06 0.806 ±0.031 0.118 ±0.014
+> SmellNet-pretrained ADR-GNN 0.914 ±0.017 0.898 ±0.020 0.835 ±0.031 0.81 ±0.05 0.866 ±0.025 0.092 ±0.010
+> SmellNet-pretrained UnMixNet 0.958 ±0.010 0.946 ±0.013 0.918 ±0.020 0.94 ±0.03 0.938 ±0.014 0.064 ±0.007
+> Full UCI-supervised UnMixNet 0.981 ±0.005 0.975 ±0.007 0.963 ±0.010 0.99 ±0.02 0.976 ±0.006 0.043 ±0.004
+
+ries. 
+
+Concentration-grounded state alignment on UCI. We next evaluate whether an inferred physics-state readout aligns with measured dynamic gas concentration. Let ˆCi(t)
+
+be the inferred concentration state produced by the rollout and let Cgt  
+
+> i
+
+(t − δ⋆) be the delayed UCI ppm trajectory. The evaluation is performed on held-out transition episodes, with 
+
+δ⋆ selected on calibration episodes. Table 5 complements the state-simulation results in Ta-ble 4. Strong correlation, high CCC, and low transition resid-ual indicate that the inferred concentration state follows measured dynamic gas trajectories rather than acting as an arbitrary hidden feature. This measured-state alignment sup-ports the interpretation of the rollout as a physically mean-ingful state trajectory. Figure 6 further evaluates closure consistency at the pop-ulation level. Each sample is summarized by two diagnostic quantities: the mean Maxwell–Stefan residual and the mean mass-conservation error. The lower-left region therefore cor-responds to trajectories that better satisfy the simulator-consistent closure diagnostic. ADR-GNN projected samples form a cluster with larger Maxwell–Stefan residuals, indicat-ing that graph dynamics alone do not necessarily yield multi-component fluxes that are compatible with Maxwell–Stefan closure. UnMixNet shifts the sample distribution and the Figure 5: SmellNet-based state-simulation trajectories. The curves compare simulation reference states with ADR-GNN projected states and UnMixNet inferred states for concentra-tion, Maxwell–Stefan flux, sensor coverage, and total mass. UnMixNet follows the simulation reference concentration, coverage, and mass trajectories more closely, whereas ADR-GNN projected states show stronger concentration drift and weaker sensor-coverage recovery. cluster center toward lower residuals, showing that its con-strained flux projection and conservative state update reduce closure inconsistency across the benchmark. Although some UnMixNet samples still show non-negligible mass error, the main distribution is closer to the low-residual closure-consistent region than ADR-GNN. This supports the in-tended role of the Maxwell–Stefan graph solver: it narrows the inverse solution space to mixture explanations that are both compositionally accurate and more closure-consistent. 
+
+RQ3: Which Closure Breaks When a Physical Rule Is Removed? 
+
+We use a compact ablation to test whether each closure component contributes in the regime where it is expected to matter. Table 6 combines real unseen-mixture results on SmellNet with high-coupling cases from the simulator-consistent physical-state benchmark. The real-data columns test compositional unmixing, while the diagnostic columns test whether the predicted states remain consistent with Maxwell–Stefan transport and finite-volume conservation. Each variant removes a specific rule: Fick diffusion removes cross-component Maxwell–Stefan coupling, unconstrained flux removes KKT-based flux admissibility, linear readout removes nonlinear sensor transduction, and removing finger-print loss weakens support identifiability. The ablation shows mechanism-specific failures. Replac-ing Maxwell–Stefan transport with Fick diffusion causes the largest degradation on synthetic high-coupling mixtures, confirming that cross-diffusion is not well captured by inde-pendent diffusion. Removing the constrained flux projection gives the worst flux RMSE, MS residual, and mass error, showing that the KKT projection is the source of flux ad-missibility rather than a cosmetic constraint. Replacing the 0.0 0.1 0.2 0.3 0.4 0.5 
+
+> Mean Maxwell--Stefan residual
+> 0.000
+> 0.025
+> 0.050
+> 0.075
+> 0.100
+> 0.125
+> 0.150
+> Mean mass-conservation error
+> ADR-GNN projected
+> UnMixNet
+> ADR-GNN projected samples
+> ADR-GNN projected centre
+> UnMixNet samples
+> UnMixNet centre
+
+Figure 6: Closure-consistency phase space for inferred physics states. Each point denotes one sample represented by its mean Maxwell–Stefan residual and mean mass-conservation error. Lower values on both axes indicate a state rollout that is more consistent with the assumed Maxwell–Stefan transport and finite-volume conservation closure. ADR-GNN states are projected into the same state-readout space for comparison. UnMixNet samples concen-trate closer to the low-residual region, and the cluster cen-ter shifts toward lower Maxwell–Stefan residual and lower mass-conservation error compared with ADR-GNN sensor-boundary module with a linear readout mainly hurts unseen SmellNet recovery while leaving transport residuals relatively close to the full model, which localizes its effect to nonlinear sensor response rather than gas transport. Re-moving fingerprint separation gives the largest drop in the support-sensitive TopK@0.1 metric, consistent with the role of dynamic fingerprints in identifying unseen component combinations. Thus, the gains of UnMixNet come from the joint closure of transport, flux admissibility, sensor response, and identifiable component dynamics, rather than from a sin-gle larger encoder. 
+
+RQ4: Is the Solver Practical as Amortized Olfactory Inference? 
+
+A practical physics-closed unmixing model should improve physical consistency without making inference prohibitively expensive. We evaluate the computational efficiency of Un-MixNet against temporal baselines, a graph dynamics base-line, and a direct Maxwell–Stefan inverse solver. The goal of RQ4 is not to show that UnMixNet is the fastest model, but to test whether the proposed physics closure remains feasi-ble for amortized olfactory inference. All models are evaluated under the same input window length, preprocessing pipeline, and implementation frame-work. Training time is measured as the average wall-clock time per epoch. Inference latency is measured with batch size 1 as the average time per sample. Throughput is mea-sured with batch size 32 as the number of samples pro-cessed per second. Peak inference memory is measured dur-ing batched inference. All timing results are measured after Table 6: Mechanism-specific ablation of the main closure components. SmellNet unseen metrics evaluate compositional un-mixing. Synthetic high-coupling and closure-residual metrics evaluate whether the latent dynamics remain Maxwell–Stefan-consistent and conservative. All values are mean ± standard deviation over three seeds.                                                                                                       
+
+> Variant SmellNet Unseen MAE ↓SmellNet Unseen TopK@0.1 ↑Synthetic High-coupling MAE ↓Flux RMSE ↓MS Residual ↓Mass Error ↓
+> Full UnMixNet 0.101 ±0.002 0.390 ±0.007 0.083 ±0.003 0.054 ±0.005 0.017 ±0.002 0.006 ±0.001
+> Fick diffusion 0.124 ±0.003 0.270 ±0.011 0.121 ±0.004 0.112 ±0.009 0.096 ±0.007 0.009 ±0.002
+> Unconstrained flux 0.129 ±0.004 0.245 ±0.013 0.116 ±0.004 0.128 ±0.010 0.118 ±0.010 0.027 ±0.004
+> Linear sensor readout 0.119 ±0.003 0.290 ±0.010 0.106 ±0.003 0.061 ±0.006 0.020 ±0.003 0.008 ±0.002
+> Without fingerprint loss 0.132 ±0.004 0.230 ±0.012 0.112 ±0.004 0.059 ±0.006 0.018 ±0.003 0.007 ±0.001
+
+warm-up iterations with explicit GPU synchronization. The direct Maxwell–Stefan inverse solver is evaluated on a sub-set because it performs per-sample constrained optimization rather than amortized inference. Table 7 shows that UnMixNet introduces a moderate com-putational overhead compared with purely temporal neural baselines, which is expected because it performs source-conditioned graph lifting, conservative transport, Maxwell– Stefan flux projection, finite-volume state updates, and sensor-boundary reaction during inference. However, the overhead remains within a practical range. UnMixNet uses 2.95M trainable parameters, only slightly more than Scent-FormerStyle and ADR-GNN. Its training time is 52.5 sec-onds per epoch, comparable to 51.8 seconds per epoch for ADR-GNN. In single-sample inference, UnMixNet requires 187.7 ms per sample. This is slower than MLP, 1DCNN-LSTM, iTransformerLite, and ScentFormerStyle, but substantially faster than the direct Maxwell–Stefan inverse solver, which requires 920.0 ms per sample. Thus, amortizing the inverse prediction through the encoder avoids repeatedly solving a constrained physical inverse problem for each test sample. For effective batched inference, UnMixNet achieves 67.4 samples/s, whereas the direct Maxwell–Stefan inverse solver reaches only 1.1 samples/s because it is dominated by per-sample optimization. This corresponds to more than a 60-fold improvement in throughput. Compared with ADR-GNN, UnMixNet achieves lower latency, higher throughput, and lower inference memory in our implementation. Specifically, UnMixNet reduces la-tency from 232.5 ms to 187.7 ms, improves throughput from 54.7 to 67.4 samples/s, and reduces inference memory from 1.84 GB to 1.46 GB. This does not mean that Maxwell– Stefan closure is intrinsically cheaper than generic graph dynamics. Rather, it indicates that the proposed solver is efficiently implemented as local, batched, edge-wise phys-ical operations. The KKT projection is applied to small component-wise systems and can be parallelized across graph edges, while the finite-volume update reuses struc-tured incidence operations. 
+
+Failure Analysis 
+
+The main prediction failure is support ambiguity. When two ingredients have similar temporal fingerprints, a model may produce a ratio vector with reasonable cosine similarity but low TopK@0.1. This explains why unseen mixtures remain harder than seen mixtures: the model must identify a new support combination rather than interpolate within a known one. The main physical failure is temporal drift. In Fig. 5, ADR-GNN tends to overextend the flux and coverage tails, which corresponds to mismatch in transport or boundary reaction. On UCI, the same failure mode appears as bi-ased concentration-state alignment near sharp gas-transition episodes. UnMixNet reduces both forms of drift because its state transition is constrained by Maxwell–Stefan flux pro-jection and sensor-boundary closure. The remaining gap in-dicates that the current model still depends on cross-domain sensor calibration, the fidelity of the state-simulation refer-ence, and the separability of learned dynamic fingerprints. 
+
+## Discussion 
+
+From odor recognition to olfactory explanation. The main empirical pattern is not that UnMixNet is simply a stronger sequence encoder. Its advantage appears when the prediction target changes from recognizing an observed tem-poral pattern to explaining how several gases jointly pro-duced that pattern. This distinction is central to machine ol-faction. A black-box temporal model can separate familiar odor traces by learning discriminative response shapes, but unseen mixtures require the model to compose component-specific dynamics under transport and sensor interactions. UnMixNet improves this regime because its prediction is not an unconstrained vector output: the inferred composition must remain compatible with a forward physical trajectory. The gain in mixture recovery therefore supports the central premise of this paper, namely that physics closure narrows the inverse problem to physically admissible explanations rather than merely regularizing a time-series classifier. 
+
+Graph closure as an AI design principle. The pro-posed solver suggests a broader design principle for sci-entific representation learning. Neural networks need not learn every state transition as an unconstrained message. Instead, they can infer latent physical coefficients while graph operators enforce conservation, cross-component cou-pling, boundary interaction, and readout stability. In Un-MixNet, this principle is realized by source-conditioned lift-ing, CFL-normalized transport, Maxwell–Stefan projection, finite-volume updates, competitive adsorption, and mono-tone transduction. The resulting graph is not only a computa-tional substrate; it is the discrete structure on which multiple physical rules are jointly closed. 
+
+Why physical states matter. Recipe labels alone cannot reveal whether a model’s hidden dynamics correspond to a Table 7: Computational efficiency on SmellNet mixture inference. Latency is measured with batch size 1, throughput with batch size 32, and peak memory during batched inference. The direct Maxwell–Stefan inverse solver is evaluated on a subset because it performs per-sample constrained optimization. Model Params (M) Train time (s/epoch) Latency@B=1 (ms/sample) ↓ Throughput@B=32 (samples/s) ↑ Inference memory (GB) ↓                                   
+
+> MLP 0.42 9.8 22.3 533.3 0.28 1DCNN-LSTM 1.18 25.4 78.6 179.8 0.62 iTransformerLite 2.05 28.6 103.2 125.5 1.23 ScentFormerStyle 2.80 30.9 132.5 101.6 1.42 ADR-GNN 2.65 51.8 232.5 54.7 1.84 Direct PDE inverse †––920.0 1.1 2.80 UnMixNet 2.95 52.5 187.7 67.4 1.46
+
+coherent olfactory process. A model may predict a plausi-ble mixture ratio while still producing transport or sensor states that are physically incoherent. We therefore evaluate inferred physics states from two directions within Exp. 2. The SmellNet-based state simulation tests the full rollout over concentration, Maxwell–Stefan flux, sensor coverage, and gas-phase mass under a frozen transport–adsorption– readout closure. UCI Dynamic tests whether the inferred concentration state aligns with measured dynamic gas con-centration. The two checks play different roles. The state-simulation check evaluates full-process structural coherence under the assumed closure. The concentration-grounded UCI check anchors a representative state readout to measured gas dy-namics. Together, they test whether the learned inverse map is compatible with the physical closure that motivates the model, rather than only producing accurate recipe-level out-puts. 
+
+What the ablations reveal. The ablation study gives mechanism-level evidence rather than a generic capacity comparison. Replacing Maxwell–Stefan transport with Fick diffusion weakens high-coupling mixture recovery, which indicates that independent diffusion is insufficient when mixture components mutually affect transport. Removing the constrained flux projection produces the largest physi-cal residuals, showing that the projection step is the source of admissible multicomponent fluxes rather than a decora-tive constraint. Replacing the sensor-boundary module with a linear readout mainly affects mixture recovery and cover-age behavior, which is consistent with nonlinear MOX ad-sorption and transduction. Removing fingerprint separation primarily hurts support-sensitive prediction, supporting the view that identifiable dynamic fingerprints are needed for unseen component combinations. Together, these failures align with the intended role of each module, which strength-ens the claim that the improvement comes from physical clo-sure rather than from adding parameters. 
+
+Evidence boundaries. The present evidence has two boundaries. First, real SmellNet recordings provide sensor traces and recipe labels, but not independently measured concentration fields, Maxwell–Stefan fluxes, sensor-surface coverages, or chamber-resolved mass states. Our physical-state analysis therefore evaluates simulator-consistent clo-sure rather than measured physical-state accuracy. Second, the current graph abstraction does not model all deployment effects, such as turbulent chamber flow, wall interactions, long-term sensor aging, or detailed humidity-dependent sur-face chemistry. These limitations do not invalidate the cen-tral result, but they define what it establishes: UnMixNet im-proves dynamic gas unmixing by constraining inverse pre-dictions through a transport–adsorption–readout closure un-der available real labels and simulator-consistent diagnos-tics. A natural next step is to evaluate the same closure on controlled chamber data with independent measurements of intermediate physical states. 
+
+## Conclusion 
+
+We introduced UnMixNet, a physics-closed graph solver for dynamic gas unmixing in machine olfaction. The key idea is to treat a sensor trace not only as a temporal pattern, but as the observable endpoint of a constrained chemical scene. By closing the inverse prediction loop through multicom-ponent transport, Maxwell–Stefan flux projection, sensor-boundary dynamics, and identifiable dynamic fingerprints, UnMixNet produces mixture estimates that are both more accurate and more interpretable through the assumed physi-cal closure. The experiments show that this closure is most valuable in the regime where ordinary temporal recogni-tion is insufficient: recovering seen and unseen gas mixtures from entangled MOX responses. Real SmellNet experiments support improved odor recognition and mixture recovery. The state-level results further show that inferred rollouts better satisfy the assumed transport–adsorption–readout clo-sure in SmellNet-based state simulation, and that the in-ferred concentration state aligns with measured dynamic gas trajectories on UCI Dynamic. These findings suggest that progress in machine olfaction should move beyond stronger sequence encoders toward models that explain sensor re-sponses through compositional and closure-consistent gas dynamics. 
+
+## References 
+
+Alkin, B.; F”urst, A.; Schmid, S.; Gruber, L.; Holzleitner, M.; and Brandstetter, J. 2024. A Framework for Efficiently Scaling Neural Operators. In Advances in Neural Informa-tion Processing Systems .Aznaran, F. R. A.; Farrell, P. E.; Monroe, C. W.; and Van-Brunt, A. J. 2025. Finite element methods for multicompo-nent convection-diffusion. IMA Journal of Numerical Anal-ysis , 45(1): 188–222. Brandstetter, J.; Worrall, D. E.; and Welling, M. 2022. Mes-sage Passing Neural PDE Solvers. In International Confer-ence on Learning Representations .Chamberlain, B. P.; Rowbottom, J.; Gorinova, M. I.; Webb, S.; Rossi, E.; and Bronstein, M. M. 2021. GRAND: Graph Neural Diffusion. In Proceedings of the 38th International Conference on Machine Learning , 1407–1418. PMLR. Eliasof, M.; Haber, E.; and Treister, E. 2024. Feature Trans-portation Improves Graph Neural Networks. In Proceedings of the AAAI Conference on Artificial Intelligence , 11874– 11882. Feng, D.; Dai, W.; Li, C.; Pernigo, A.; Wen, Y.; and Liang, P. P. 2026. SMELLNET: A Large-Scale Dataset for Real-World Smell Recognition. In International Conference on Learning Representations .Huo, X.; J¨ ungel, A.; and Tzavaras, A. E. 2024. Existence and weak–strong uniqueness for Maxwell–Stefan–Cahn– Hilliard systems. Annales de l’Institut Henri Poincar´ e C, Analyse Non Lin´ eaire , 41(4): 797–852. Lam, R.; Sanchez-Gonzalez, A.; Willson, M.; Wirnsberger, P.; Fortunato, M.; Alet, F.; Ravuri, S.; Ewalds, T.; Eaton-Rosen, Z.; Hu, W.; Merose, A.; Hoyer, S.; Holland, G.; Vinyals, O.; Stott, J.; Pritzel, A.; Mohamed, S.; and Battaglia, P. 2023. Learning skillful medium-range global weather forecasting. Science , 382(6677): 1416–1421. Lee, B. K.; Mayhew, E. J.; Sanchez-Lengeling, B.; Wei, J. N.; Qian, W. W.; Little, K. A.; Andres, M.; Nguyen, B. B.; Moloy, T.; Yasonik, J.; et al. 2023. A Principal Odor Map Unifies Diverse Tasks in Olfactory Perception. Science ,381(6661): 999–1006. Li, Z.; Kovachki, N.; Azizzadenesheli, K.; Liu, B.; Bhat-tacharya, K.; Stuart, A.; and Anandkumar, A. 2021. Fourier Neural Operator for Parametric Partial Differential Equa-tions. In International Conference on Learning Represen-tations .Matavˇ z, A.; Verstreken, M. F. K.; Boullart, L.; Tietze, M. L.; Sugihara, M.; Heinke, L.; and Ameloot, R. 2025. Kinetic se-lectivity in metal-organic framework chemical sensors. Na-ture Communications , 16: 8347. Mei, H.; Peng, J.; Wang, T.; Zhou, T.; Zhao, H.; Zhang, T.; and Yang, Z. 2024. Overcoming the Limits of Cross-Sensitivity: Pattern Recognition Methods for Chemiresistive Gas Sensor Array. Nano-Micro Letters , 16(269). Nikolic, M. V.; Milovanovic, V.; Vasiljevic, Z. Z.; and Sta-menkovic, Z. 2020. Semiconductor Gas Sensors: Materi-als, Technology, Design, and Application. Sensors , 20(22): 6694. Rahman, M. A.; George, R. J.; Elleithy, M.; Leibovici, D.; Li, Z.; Bonev, B.; White, C.; Berner, J.; Yeh, R. A.; Kossaifi, J.; Azizzadenesheli, K.; and Anandkumar, A. 2024. Pre-training Codomain Attention Neural Operators for Solving Multiphysics PDEs. In Advances in Neural Information Pro-cessing Systems .Sung, S.-H.; Suh, J. M.; Hwang, Y. J.; Jang, H. W.; Park, J. G.; and Jun, S. C. 2024a. Data-Centric Artificial Olfactory System Based on the Eigengraph. Nature Communications ,15(1): 1211. Sung, S.-H.; Suh, J. M.; Hwang, Y. J.; Jang, H. W.; Park, J. G.; and Jun, S. C. 2024b. Data-centric artificial olfactory system based on the eigengraph. Nature Communications ,15: 1211. Wu, H.; Luo, H.; Wang, H.; Wang, J.; and Long, M. 2024. Transolver: A Fast Transformer Solver for PDEs on General Geometries. In Proceedings of the 41st International Con-ference on Machine Learning .Yang, J.; Hu, X.; Feng, L.; Liu, Z.; et al. 2024. AI-Enabled Portable E-Nose Regression Predicting Harmful Molecules in a Gas Mixture. ACS Sensors , 9(6): 2925–2934. Supplement 
+
+This supplement gives the full construction of Experiment 2, the SmellNet-calibrated pseudo physical-state benchmark. The benchmark is designed as a closure-consistency di-agnostic . It does not claim that SmellNet contains inde-pendently measured concentration fields, Maxwell–Stefan fluxes, sensor-surface coverages, or chamber-resolved gas masses. Instead, it asks the following diagnostic question: Can an inverse prediction be lifted into a simulator-consistent trajectory that satisfies the same transport– adsorption–readout closure assumed by UnMixNet? This distinction is important. Real SmellNet traces and recipe labels evaluate real-data recognition and mixture recovery. The pseudo physical-state benchmark evalu-ates whether latent trajectories are compatible with afrozen SmellNet-calibrated multi-physics simulator. Thus, the benchmark provides mechanistic evidence about clo-sure consistency, not independently measured physical-state ground truth. 
+
+High-level construction. The benchmark is constructed in five stages: 1. preprocess SmellNet sensor traces and extract pure-component dynamic fingerprints from training data; 2. calibrate a constrained multi-physics simulator on training-set single-odor and mixture responses; 3. freeze the calibrated simulator and generate pseudo-reference trajectories for concentration, flux, coverage, and mass; 4. map baselines without explicit physical states into the same diagnostic state space using training-only projec-tions; 5. evaluate recipe-level prediction, trajectory error, Maxwell–Stefan residuals, and mass-conservation residuals. 
+
+## Data, Notation, and Preprocessing 
+
+Observed SmellNet data 
+
+For each sample r, the observed data are 
+
+D = {Y (r), z (r), a (r), e (r)}Rr=1 , (70) where 
+
+Y (r) = {y(r) 
+
+> m
+
+(tn)}T,M n=1 ,m =1 ∈ RT ×M (71) is the multichannel MOX sensor response, z(r) ∈ { 0, 1}K
+
+is the mixture support, a(r) ∈ ∆K−1 is the recipe-level nor-malized ratio over the present odorants, and e(r) stores ex-perimental conditions such as temperature, humidity, flow rate if available, chamber geometry, source protocol, and sensor layout. The carrier-air component is indexed by 0. Odorant com-ponents are indexed by i ∈ { 1, . . . , K }. Sensor channels are indexed by m ∈ { 1, . . . , M }, spatial cells by v ∈ Vx, and spatial edges by e ∈ Ex.
+
+Baseline correction and normalization 
+
+For each sample and each sensor channel, a pre-release or early-stable baseline window of length Nb is used to com-pute 
+
+b(r) 
+
+> m
+
+= 1
+
+NbNbX
+
+> n=1
+
+y(r) 
+
+> m
+
+(tn). (72) The relative baseline-corrected response is 
+
+ey(r) 
+
+> m
+
+(tn) = y(r) 
+
+> m
+
+(tn) − b(r)
+
+> m
+
+|b(r) 
+
+> m
+
+| + ϵb
+
+. (73) If the raw sensor output is resistance, an alternative log-ratio response can be used: 
+
+ey(r) 
+
+> m
+
+(tn) = log R(r) 
+
+> m
+
+(tn) + ϵR
+
+R(r) 
+
+> m, 0
+
++ ϵR
+
+. (74) All normalization statistics are estimated from the training split only and then applied to validation and test samples. 
+
+Onset alignment 
+
+For each sample, the response onset t(r)0 is estimated from the first time at which the derivative magnitude exceeds a baseline-noise threshold: 
+
+t(r)0 = min 
+
+(
+
+tn : d eY (r)
+
+dt (tn)
+
+> 2
+
+> κσ (r)base 
+
+)
+
+. (75) If derivative-based onset detection is unstable, t(r)0 can be replaced by the known source insertion time or by the first threshold crossing of the normalized response amplitude. 
+
+Pure-component dynamic fingerprints 
+
+Let 
+
+Rsingle  
+
+> i
+
+= {r : z(r) 
+
+> i
+
+= 1 , ∥z(r)∥0 = 1 , r ∈ R train } (76) be the set of training samples containing only odorant i. Af-ter onset alignment, the robust pure-component fingerprint is 
+
+Hi(tn, m ) = median r∈R single 
+
+> i
+
+ey(r) 
+
+> m
+
+(tn − t(r)0 ). (77) The median is used instead of a mean to reduce the effect of transient spikes, imperfect recovery, and sensor drift. The vectorized fingerprint is 
+
+hi = vec( Hi) ∈ RT M , H = [ h1, . . . , h K ]. (78) The empirical mutual coherence used in the main paper is 
+
+μ(H) = max 
+
+> i̸=j
+
+|h⊤ 
+
+> i
+
+hj |∥hi∥2∥hj ∥2
+
+. (79) Simulator State and Graph Discretization 
+
+State variables 
+
+At simulator substep n, the pseudo physical state is 
+
+Sn = ( N n, x n, J n, θ n, byn). (80) Here 
+
+N nv,i ≥ 0 moles of species i in spatial cell v, 
+
+(81) 
+
+xnv,i = N nv,i 
+
+PKj=0 N nv,j + ϵN
+
+mole fraction , (82) 
+
+Jne,i diffusive flux of species i on edge e, 
+
+(83) 
+
+θnm,i coverage of species i on sensor m, 
+
+(84) 
+
+bynm simulated sensor readout. (85) The empty surface-site fraction is 
+
+θnm, 0 = 1 −
+
+> K
+
+X
+
+> i=1
+
+θnm,i . (86) 
+
+Graphs 
+
+The simulator uses three coupled graphs. 
+
+Spatial graph. Gx = (Vx, E x) is a finite-volume dis-cretization of the chamber. Each cell v has volume Vv . Each edge e = ( u, v ) has length ℓe, interface area Ae, and orien-tation encoded by the incidence matrix B ∈ R|Vx|×| Ex|:
+
+Bv,e =
+
+
+
+−1, e leaves v, 
+
++1 , e enters v, 
+
+0, otherwise. (87) 
+
+Component graph. Gc = ( Vc, E c) contains carrier air and odorant components. For each spatial edge e, a com-ponent Laplacian Lce is constructed from Maxwell–Stefan pairwise diffusivities and edge mole fractions. 
+
+Sensor boundary graph. Gs connects gas boundary cells to sensor-surface coverage states and sensor readout states. A sensor m is associated with one or more neighboring gas cells v(m).
+
+One-step closure operator 
+
+A simulator time step is a composition of source injec-tion, CFL-normalized advection, Maxwell–Stefan projec-tion, conservative finite-volume update, adsorption, and readout: 
+
+Sn+1 = Rread ∆t ◦ B ads ∆t ◦ D MS ∆t ◦ A CFL ∆t ◦ I src ∆t (Sn). (88) This operator composition is the pseudo simulator analog of the UnMixNet solver used in the main paper. 
+
+## Step-by-Step Pseudo Physical-State Simulation 
+
+Source-conditioned injection 
+
+For sample r, odorant i, and cell v, the source term is 
+
+q(r),n v,i = z(r) 
+
+> i
+
+a(r) 
+
+> i
+
+αiρi(tn; ψi, T, H )psrc (v), (89) where αi is an emission scale, ρi is a positive release profile, and psrc is a normalized source-cell distribution: 
+
+psrc (v) ≥ 0, X
+
+> v∈Vx
+
+psrc (v) = 1 . (90) A practical release profile is a normalized rise–decay curve: 
+
+ρi(t) = (1 − e−t/τ rise  
+
+> i
+
+)e−t/τ decay  
+
+> i
+
+1(t ≥ 0) 
+
+R Tmax  
+
+> 0
+
+(1 − e−s/τ rise  
+
+> i
+
+)e−s/τ decay  
+
+> i
+
+ds + ϵρ
+
+. (91) The post-injection state is 
+
+N n, + 
+
+> v,i
+
+= N nv,i + ∆ t q nv,i . (92) The carrier-air background can be initialized as 
+
+N 0 
+
+> v, 0
+
+= c0Vv , N 0 
+
+> v,i
+
+= 0 (i ≥ 1) . (93) 
+
+CFL-normalized graph advection 
+
+For a directed edge u → v, define a nonnegative transfer probability 
+
+P nu→v,i = ∆t A uv 
+
+Vu
+
+max( unuv , 0) , (94) where unuv is the edge-normal advective velocity. If learned advection scores are used, they are normalized so that 
+
+P nu→v,i ≥ 0, X
+
+> v:( u,v )∈Ex
+
+P nu→v,i ≤ 1. (95) If the raw sampling interval is too large, the simulator uses 
+
+L substeps with ∆tsub = ∆ t/L until the CFL condition is satisfied. The advection update is 
+
+N Av,i = 1 − X
+
+> w
+
+P nv→w,i 
+
+!
+
+N n, + 
+
+> v,i
+
++ X
+
+> u
+
+P nu→v,i N n, + 
+
+> u,i
+
+.
+
+(96) The updated mole fractions are 
+
+xAv,i = N Av,i 
+
+PKj=0 N Av,j + ϵN
+
+. (97) 
+
+Maxwell–Stefan edge-wise flux projection 
+
+For each spatial edge e = ( u, v ), compute the mole-fraction gradient 
+
+gne,i = xAv,i − xAu,i 
+
+ℓe
+
+(98) and the edge-averaged mole fraction 
+
+¯xne,i = xAu,i + xAv,i 
+
+2 . (99) Pairwise Maxwell–Stefan diffusivities are symmetric and positive: 
+
+De,ij = De,ji > 0, De,ij = Dmin + softplus( ηe,ij ).
+
+(100) The component interaction weights are 
+
+γne,ij = ¯xne,i ¯xne,j 
+
+¯cne De,ij + ϵD
+
+, i̸ = j. (101) They define the component Laplacian 
+
+(Lcewe)i = X 
+
+> j̸=i
+
+γe,ij (we,i − we,j ). (102) The relative molar velocity we is projected onto the zero-net-flux constraint subspace: 
+
+¯x⊤ 
+
+> e
+
+we = 0 . (103) The simplest KKT solve is 
+
+Lce + ϵK I ¯xe
+
+¯x⊤ 
+
+> e
+
+0
+
+  we
+
+λe
+
+
+
+=
+
+−ge
+
+0
+
+
+
+. (104) The implementation used in the main model may use a weighted least-squares version with a flux prior: 
+
+wMS  
+
+> e
+
+= arg min 
+
+> we
+
+∥Lcewe+ge∥2Ωe +μ∥we− ewe∥22 s.t. ¯x⊤ 
+
+> e
+
+we = 0 .
+
+(105) This yields the KKT system 
+
+(Lce)⊤ΩeLce + μI ¯xe
+
+¯x⊤ 
+
+> e
+
+0
+
+  wMS 
+
+> e
+
+λe
+
+
+
+=
+
+−(Lce)⊤Ωege + μ ewe
+
+0
+
+
+
+.
+
+(106) The Maxwell–Stefan flux is 
+
+JMS  
+
+> e,i
+
+= ¯ ce ¯xe,i wMS  
+
+> e,i
+
+. (107) 
+
+Finite-volume diffusion update 
+
+The edge fluxes are converted into cell-wise mole updates by the oriented incidence matrix: 
+
+N Dv,i = N Av,i − ∆t X
+
+> e∈Ex
+
+Bv,e AeJMS  
+
+> e,i
+
+. (108) When an explicit update could produce negative moles, sub-stepping or a conservative flux limiter is applied. A sufficient limiter is 
+
+∆t X
+
+> e:Bv,e =−1
+
+Ae max( JMS  
+
+> e,i
+
+, 0) ≤ ηlim N Av,i , 0 < η lim < 1.
+
+(109) Optional wall loss is added as an explicit sink: 
+
+N Dv,i = N Av,i − ∆t X
+
+> e
+
+Bv,e AeJMS  
+
+> e,i
+
+− ∆tκ wall  
+
+> v,i
+
+N Av,i . (110) For closed mass accounting, a wall reservoir can be recorded: 
+
+W n+1  
+
+> v,i
+
+= W nv,i + ∆ tκ wall  
+
+> v,i
+
+N Av,i . (111) 
+
+Competitive adsorption at sensor boundaries 
+
+For sensor m, let v(m) denote the neighboring gas cell and 
+
+cnm,i = N Dv(m),i 
+
+Vv(m)
+
+. (112) The competitive Langmuir-type adsorption dynamics are 
+
+˙θm,i = kads 
+
+> m,i
+
+cm,i (t)θm, 0−kdes 
+
+> m,i
+
+θm,i , θm, 0 = 1 −
+
+> K
+
+X
+
+> i=1
+
+θm,i .
+
+(113) Define θm = ( θm, 0, θ m, 1, . . . , θ m,K )⊤. The dynamics can be written as ˙θm = Qm(cm)θm, (114) where 
+
+(Qm)i0 = kads 
+
+> m,i
+
+cm,i , (Qm)0i = kdes 
+
+> m,i
+
+, (115) and diagonal entries are chosen so that every column sums to zero: 
+
+(Qm)jj = − X
+
+> ℓ̸=j
+
+(Qm)ℓj . (116) The exact update is 
+
+θn+1  
+
+> m
+
+= exp(∆ tQ m(cnm)) θnm. (117) 
+
+Nonlinear transduction and readout lag 
+
+The coverage score is 
+
+snm =
+
+> K
+
+X
+
+> i=1
+
+βm,i θnm,i . (118) A monotone transduction target is 
+
+rnm = bm(T, H ) + gm(snm, T, H ), ∂g m
+
+∂s ≥ 0. (119) The readout lag is modeled by 
+
+τm(T, H ) ˙bym = −bym + rm(t). (120) Assuming rm(t) is constant inside a substep gives the exact update 
+
+byn+1  
+
+> m
+
+= αm bynm + (1 − αm)rnm, αm = exp( −∆t/τ m).
+
+(121) The simulated response is 
+
+bY (r)Θ = {by(r) 
+
+> m
+
+(tn)}n,m . (122) 
+
+## Simulator Calibration 
+
+Parameter set 
+
+The simulator parameter set is 
+
+Θ = {αi, ψ i, D ij , k ads 
+
+> m,i
+
+, k des 
+
+> m,i
+
+, β m,i , τ m, κ wall  
+
+> v,i
+
+, u e, b m, g m}.
+
+(123) The feasible set imposes physical constraints: 
+
+Ω : Dij = Dji > 0, kads  
+
+> m,i
+
+≥ 0, kdes  
+
+> m,i
+
+≥ 0, τm > 0, βm,i ≥ 0.
+
+(124) Calibration objective 
+
+The calibrated simulator is 
+
+Θ⋆ = arg min  
+
+> Θ∈Ω
+
+Lcal (Θ) , (125) where 
+
+Lcal = λY LY +λH LH +λmix Lmix +λphys Lphys +λreg R(Θ) .
+
+(126) The reconstruction loss is 
+
+LY = X
+
+> r∈R train
+
+∥ eY (r) − bY (r)Θ ∥2Σ−1
+
+> Y
+
+. (127) The pure-fingerprint matching loss is 
+
+LH =
+
+> K
+
+X
+
+> i=1
+
+∥Hi − bHi, Θ∥22. (128) The mixture consistency loss is 
+
+Lmix = X
+
+> r∈R mix ,train
+
+∥ eY (r) − bYΘ(z(r), a (r), e (r))∥22. (129) The physical residual term is 
+
+Lphys = X
+
+> r,n,e
+
+∥R MS (xn, J n, D )∥22+X
+
+> r,n
+
+∥R mass (N n, J n, q n, r n)∥22.
+
+(130) 
+
+Calibration schedule 
+
+Calibration is performed only on the training split. 1. Pure-component stage. Fit release profiles, adsorp-tion/desorption rates, transduction gains, and readout time constants using single-odor training samples. 2. Mixture stage. Fit pairwise Maxwell–Stefan diffusivi-ties and cross-component interaction parameters using mixture training samples. 3. Global fine-tuning stage. Jointly fine-tune all parame-ters under positivity, symmetry, monotonicity, and con-servation regularization. 4. Freeze. Freeze Θ⋆ before producing pseudo-reference trajectories for validation or test samples. Freezing the simulator prevents leakage: test labels are used only to define the known recipe for pseudo-reference gener-ation, not to tune the simulator parameters or select hyper-parameters. 
+
+## Pseudo-Reference State Generation 
+
+For each sample r, the frozen simulator produces 
+
+S(r),0: T⋆ = F state Θ⋆ (z(r), a (r), e (r)). (131) The following pseudo-reference trajectories are extracted. 
+
+Boundary concentration 
+
+For sensor m and species i:
+
+C⋆m,i (tn) = c⋆v(m),i (tn). (132) A scalar trajectory for plotting is 
+
+C⋆(tn) = 1
+
+M K 
+
+> M
+
+X
+
+> m=1
+> K
+
+X
+
+> i=1
+
+C⋆m,i (tn). (133) 
+
+Maxwell–Stefan flux 
+
+The edge-wise flux reference is J⋆e,i (tn). A scalar trajectory for visualization is 
+
+J⋆(tn) = 1
+
+|Ex|K
+
+X
+
+> e∈Ex
+> K
+
+X
+
+> i=1
+
+|J⋆e,i (tn)|. (134) 
+
+Sensor coverage 
+
+The species-resolved coverage reference is θ⋆m,i (tn). For a scalar coverage trajectory: 
+
+Θ⋆(tn) = 1
+
+M K 
+
+> M
+
+X
+
+> m=1
+> K
+
+X
+
+> i=1
+
+θ⋆m,i (tn). (135) 
+
+Total gas-phase mass 
+
+The species-wise gas-phase mass is 
+
+M ⋆i (tn) = X
+
+> v∈Vx
+
+N ⋆v,i (tn), (136) and the total odorant gas-phase mass is 
+
+M ⋆(tn) = 
+
+> K
+
+X
+
+> i=1
+
+X
+
+> v∈Vx
+
+N ⋆v,i (tn). (137) 
+
+## Projected Physical States for Baselines 
+
+Some baselines, such as ADR-GNN, produce hidden states but not explicit concentration, flux, coverage, or mass. To compare them in the same diagnostic space, we fit training-only linear projections from hidden states to pseudo-reference states. Let H(r),0: T 
+
+> base
+
+be a baseline hidden trajectory. For concentration, fit 
+
+P ⋆C = arg min 
+
+> PC
+
+X
+
+> r∈R train
+
+∥PC H(r),0: T 
+
+> base
+
+−C(r),0: T⋆ ∥22+αC ∥PC ∥2 
+
+> F
+
+.
+
+(138) Similarly, fit P ⋆J , P ⋆θ , and P ⋆M . At test time, 
+
+bCbase = P ⋆C Hbase , bJbase = P ⋆J Hbase , bθbase = P ⋆θ Hbase , cMbase =
+
+(139) This projection does not give the baseline additional test-time physical supervision. It only asks whether the hidden dynamics learned by the baseline can be linearly lifted into the simulator-consistent physical-state space. 
+
+## Evaluation Metrics 
+
+Recipe-level metrics 
+
+The mixture-ratio MAE is 
+
+MAE = 1
+
+RK 
+
+> R
+
+X
+
+> r=1
+> K
+
+X
+
+> i=1
+
+|ba(r) 
+
+> i
+
+− a(r) 
+
+> i
+
+|. (140) Support prediction uses 
+
+bz(r) 
+
+> i
+
+= 1(ba(r) 
+
+> i
+
+> δ ). (141) Precision, recall, and F1 are then computed over the support indicators. Cosine similarity is 
+
+Cosine = ba⊤a
+
+∥ba∥2∥a∥2 + ϵ . (142) TopK@0.1 follows the main paper’s implementation and measures whether the dominant predicted components re-cover the recipe-level ratios within tolerance. 
+
+Trajectory errors 
+
+Concentration error: 
+
+RMSE C =
+
+s 1
+
+RT M K 
+
+X
+
+> r,n,m,i
+
+( bC(r)
+
+> m,i
+
+(tn) − C⋆, (r) 
+
+> m,i
+
+(tn)) 2.
+
+(143) Flux error: 
+
+RMSE J =
+
+s 1
+
+RT |Ex|K
+
+X
+
+> r,n,e,i
+
+( bJ(r) 
+
+> e,i
+
+(tn) − J⋆, (r) 
+
+> e,i
+
+(tn)) 2.
+
+(144) Coverage error: 
+
+RMSE θ =
+
+s 1
+
+RT M K 
+
+X
+
+> r,n,m,i
+
+(bθ(r)
+
+> m,i
+
+(tn) − θ⋆, (r) 
+
+> m,i
+
+(tn)) 2.
+
+(145) Mass error: 
+
+RMSE M =
+
+s 1
+
+RT K 
+
+X
+
+> r,n,i
+
+( cM (r) 
+
+> i
+
+(tn) − M ⋆, (r) 
+
+> i
+
+(tn)) 2.
+
+(146) 
+
+Maxwell–Stefan residual 
+
+For a predicted state (bx, bJ), define 
+
+Rn 
+
+> MS ,e,i
+
+= − bxnv,i − bxnu,i 
+
+ℓe
+
+− X 
+
+> j̸=i
+
+¯xne,j bJne,i − ¯xne,i bJne,j 
+
+¯cne Dij 
+
+. (147) The normalized residual is 
+
+MSResidual = 1
+
+RT |Ex|K
+
+X
+
+> r,n,e,i
+
+|R (r),n 
+
+> MS ,e,i
+
+|∥g(r),n e ∥2 + ϵ . (148) 
+
+Mass-conservation residual 
+
+The finite-volume balance with source and sinks is 
+
+N n+1  
+
+> v,i
+
+−N nv,i +∆ t X
+
+> e
+
+Bv,e AeJne,i −∆tq nv,i +∆ tr wall ,n v,i +∆ tr ads ,n v,i = 0 .
+
+(149) Define 
+
+Rn 
+
+> mass ,v,i
+
+= N n+1  
+
+> v,i
+
+−N nv,i +∆ t X
+
+> e
+
+Bv,e AeJne,i −∆tq nv,i +∆ tr wall ,n v,i +∆ tr ads ,n v,i .
+
+(150) The normalized mass error is 
+
+MassError = 
+
+P 
+
+> r,n,v,i
+
+|R (r),n 
+
+> mass ,v,i
+
+|
+
+P 
+
+> r,n,v,i
+
+|N (r),n v,i | + ϵ . (151) The phase-space diagnostic in the main paper plots 
+
+(MSResidual , MassError) for each sample. 
+
+Algorithm 2 Construction of the SmellNet-Calibrated Pseudo Physical-State Benchmark 
+
+1: Input: training SmellNet traces Y , recipe labels (z, a ),environmental metadata e, graph template Gx, G c, G s.
+
+2: Baseline-correct and normalize all sensor traces using training statistics. 
+
+3: Estimate onset times and construct pure-component fin-gerprints Hi from single-odor training samples. 
+
+4: Initialize simulator parameters Θ subject to positivity, symmetry, monotonicity, and conservation constraints. 
+
+5: Fit release, adsorption, desorption, transduction, and readout parameters on pure-component training sam-ples. 
+
+6: Fit Maxwell–Stefan diffusivities and cross-component coupling parameters on mixture training samples. 
+
+7: Jointly fine-tune Θ with reconstruction, fingerprint, mixture, and physical-residual losses. 
+
+8: Freeze the calibrated simulator Θ⋆.
+
+9: for each validation or test sample r do 
+
+10: Run the frozen simulator with (z(r), a (r), e (r)).
+
+11: Store pseudo-reference trajectories C⋆, J ⋆, θ ⋆, M ⋆.
+
+12: end for 
+
+13: Fit training-only projections from baseline hidden states to pseudo-reference states if a baseline lacks explicit states. 
+
+14: Evaluate recipe metrics, trajectory RMSEs, Maxwell– Stefan residuals, and mass-conservation residuals. 
+
+15: return pseudo physical-state benchmark and diagnostic metrics. 
+
+## Algorithmic Summary Mathematical Validity of the Benchmark 
+
+Finite-volume mass conservation 
+
+Proposition 2 (Finite-volume conservation) For a closed spatial graph with no source or sink, the finite-volume up-date 
+
+N n+1  
+
+> i
+
+= N ni − ∆t BAJ ni (152) 
+
+preserves total species-wise mass. 
+
+Proof. Left-multiply by the all-ones vector 1⊤:
+
+1⊤N n+1  
+
+> i
+
+= 1⊤N ni − ∆t 1⊤BAJ ni . (153) For an incidence matrix, each edge has exactly one entering and one leaving endpoint, so 
+
+1⊤B = 0 . (154) Therefore 
+
+1⊤N n+1  
+
+> i
+
+= 1⊤N ni . (155) If sources and sinks are present, the same derivation gives 
+
+1⊤N n+1  
+
+> i
+
+− 1⊤N ni = ∆ t 1⊤qni − ∆t 1⊤rni , (156) so all mass changes are explicitly accounted for by known source or sink terms. □CFL advection preserves positivity and mass 
+
+Proposition 3 (CFL positivity and conservation) Assume 
+
+Pu→v,i ≥ 0 and P 
+
+> v
+
+Pu→v,i ≤ 1. If N n, + 
+
+> v,i
+
+≥ 0 for all v,then N Av,i ≥ 0 for all v. Moreover, for a closed graph, 
+
+X
+
+> v
+
+N Av,i = X
+
+> v
+
+N n, + 
+
+> v,i
+
+. (157) 
+
+Proof. The update 
+
+N Av,i = 1 − X
+
+> w
+
+Pv→w,i 
+
+!
+
+N n, + 
+
+> v,i
+
++ X
+
+> u
+
+Pu→v,i N n, +
+
+> u,i
+
+(158) is a nonnegative combination of nonnegative mole amounts because all coefficients are nonnegative. Thus N Av,i ≥ 0.Summing over v gives 
+
+X
+
+> v
+
+N Av,i = X
+
+> v
+
+1 − X
+
+> w
+
+Pv→w,i 
+
+!
+
+N n, + 
+
+> v,i
+
++ X
+
+> v
+
+X
+
+> u
+
+Pu→v,i N n, +
+
+> u,i
+
+(159) 
+
+= X
+
+> v
+
+N n, + 
+
+> v,i
+
+− X
+
+> v
+
+X
+
+> w
+
+Pv→w,i N n, + 
+
+> v,i
+
++ X
+
+> u
+
+X
+
+> v
+
+Pu→v,i N n, +
+
+> u,i
+
+(160) 
+
+= X
+
+> v
+
+N n, + 
+
+> v,i
+
+. (161) The outgoing and incoming transport sums cancel exactly. 
+
+□
+
+Well-posed Maxwell–Stefan projection 
+
+Theorem 3 (Well-posed constrained flux projection) 
+
+Assume ¯xe,i > 0, De,ij = De,ji > 0, and the component graph on edge e is connected. Then Lce is positive semidefi-nite with nullspace span {1}. On the constrained subspace 
+
+{w : ¯ x⊤ 
+
+> e
+
+w = 0 }, the quadratic form is positive definite. Therefore the constrained Maxwell–Stefan projection has a unique solution. 
+
+Proof. For any vector w,
+
+w⊤Lcew = X
+
+> i<j
+
+γe,ij (wi − wj )2 ≥ 0, (162) because γe,ij > 0 on connected component-graph edges. Thus Lce is positive semidefinite. The quadratic form is zero if and only if wi = wj for every connected pair (i, j ).Because the component graph is connected, this implies 
+
+w = c1. The constraint ¯x⊤ 
+
+> e
+
+w = 0 then gives 
+
+0 = ¯ x⊤ 
+
+> e
+
+(c1) = c X
+
+> i
+
+¯xe,i = c. (163) Hence the only vector in both the nullspace and the con-straint subspace is 0. The restricted quadratic form is there-fore positive definite, which implies uniqueness of the con-strained minimizer. □
+
+Proposition 4 (Zero-net diffusive flux) The projected flux 
+
+JMS  
+
+> e,i
+
+= ¯ ce ¯xe,i wMS  
+
+> e,i
+
+satisfies 
+
+> K
+
+X
+
+> i=0
+
+JMS  
+
+> e,i
+
+= 0 . (164) 
+
+Proof. The KKT constraint enforces ¯x⊤ 
+
+> e
+
+wMS  
+
+> e
+
+= 0 . Thus 
+
+X
+
+> i
+
+JMS  
+
+> e,i
+
+= ¯ ce
+
+X
+
+> i
+
+¯xe,i wMS  
+
+> e,i
+
+= ¯ ce ¯x⊤ 
+
+> e
+
+wMS  
+
+> e
+
+= 0 . (165) 
+
+□
+
+Dissipativity of the component Laplacian 
+
+The Maxwell–Stefan component Laplacian satisfies 
+
+w⊤Lcew = X
+
+> i<j
+
+¯xe,i ¯xe,j 
+
+¯ceDe,ij 
+
+(wi − wj )2 ≥ 0. (166) This is a discrete frictional dissipation form. It encodes re-ciprocal component coupling because Dij = Dji , and it prevents the edge message from acting as an arbitrary an-tisymmetric hidden update. 
+
+Adsorption preserves the coverage simplex 
+
+Proposition 5 (Coverage simplex preservation) Let 
+
+˙θm = Qm(cm)θm, where Qm has nonnegative off-diagonal entries and zero column sums. If θm(0) ≥ 0 and 
+
+1⊤θm(0) = 1 , then 
+
+θm(t) ≥ 0, 1⊤θm(t) = 1 (167) 
+
+for all t ≥ 0.
+
+Proof. Since Qm has nonnegative off-diagonal entries, it is a Markov generator under the column-vector convention. The exact solution is 
+
+θm(t) = exp( tQ m)θm(0) . (168) The matrix exponential of a Markov generator is nonnega-tive. Furthermore, 
+
+ddt 1⊤θm(t) = 1⊤Qmθm(t) = 0 (169) because every column of Qm sums to zero. Therefore the simplex is invariant. □
+
+Readout stability 
+
+Proposition 6 (Stable readout update) Assume τm > 0
+
+and define αm = e−∆t/τ m ∈ (0 , 1) . The update 
+
+byn+1  
+
+> m
+
+= αm bynm + (1 − αm)rnm (170) 
+
+is stable and contractive with respect to the initial readout state. 
+
+Proof. If |rnm| ≤ Rm, then 
+
+|byn+1  
+
+> m
+
+| ≤ αm|bynm| + (1 − αm)Rm, (171) so by induction 
+
+|bynm| ≤ max( |by0
+
+> m
+
+|, R m). (172) For two trajectories with the same input rnm but different ini-tial states, 
+
+|byn+1  
+
+> m
+
+− ¯yn+1  
+
+> m
+
+| = αm|bynm − ¯ynm|. (173) Since 0 < α m < 1, the update is contractive. □Consistency with the continuous forward model 
+
+Assume the chamber state is smooth. For an edge e = ( u, v )
+
+with length ℓe, the discrete gradient satisfies 
+
+xv,i − xu,i 
+
+ℓe
+
+= ∇xi · ne + O(ℓe). (174) The explicit finite-volume time step satisfies 
+
+N n+1 − N n
+
+∆t = ∂tN (tn) + O(∆ t). (175) Therefore, as max e ℓe → 0 and ∆t → 0 under the CFL condition, the pseudo simulator is a first-order consistent discretization of the transport–adsorption–readout closure used in the main paper. The benchmark does not require high-fidelity computational fluid dynamics; it requires that the diagnostic states be generated by a transparent, con-strained, and reproducible discretization of the assumed clo-sure model. 
+
+## Why the Benchmark Is Scientifically Rigorous 
+
+The pseudo physical-state benchmark is scientifically rigor-ous in the following limited but important sense. 1. Training-calibrated rather than arbitrary. The sim-ulator is calibrated on real SmellNet training responses and pure-component fingerprints. 2. Constrained rather than unconstrained. State tran-sitions obey nonnegativity, finite-volume conservation, Maxwell–Stefan zero-net-flux constraints, adsorption simplex preservation, and stable readout dynamics. 3. Frozen before evaluation. Once calibrated, the simula-tor is frozen and used consistently across methods and splits. 4. Diagnostic rather than overclaimed. The benchmark tests compatibility with the assumed closure model; it does not assert that pseudo states are independently mea-sured physical ground truth. 5. Comparable across models. Models with explicit states and models with hidden states are evaluated in the same diagnostic space, with baseline state projections learned only on training data. Formally, let F state Θ⋆ be the frozen calibrated simulator and let bS0: T be a model-implied state trajectory. The diagnostic evaluates 
+
+dclosure ( bS0: T , S ⋆, 0: T ) (176) through trajectory errors and residuals. A lower value means that the inverse prediction is more compatible with the cal-ibrated closure. It does not mean that bS0: T equals the un-observed true chamber state. This is the correct evidential boundary for Experiment 2.
