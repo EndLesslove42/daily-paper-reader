@@ -6,38 +6,35 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-26
-- 运行时间：2026-07-26 21:02:26 UTC
+- 最新运行日期：2026-07-27
+- 运行时间：2026-07-27 21:32:28 UTC
 - 运行状态：成功
-- 本次总论文数：5
+- 本次总论文数：4
 - 精读区：0
-- 速读区：5
+- 速读区：4
 
 ### 今日简报（AI）
-今天速读了5篇论文，重点聚焦物理感知机器学习在电动卡车能耗预测（7.0分）和动态气体识别（6.0分）中的应用。  
-最值得关注的方向是概率物理感知模型融合现场数据提升能耗预测精度，以及基于Maxwell-Stefan图求解器实现可辨识的气体分离。  
-普通读者可优先阅读《Probabilistic Physics-Aware Machine Learning Predictions of Electric Truck Energy Consumption》和《Physics Closure Matters for Machine Olfaction》这两篇，了解如何将物理定律与数据驱动结合解决实际工程问题。
-- 详情：[/202607/26/README](/202607/26/README)
+今日速读4篇论文，聚焦神经算子与PDE求解器应用，包括FlashPDE融合算子库、MAPCast对流模拟器及通用神经算子框架。  
+最值得关注的方向是神经算子对参数化与边值问题的统一求解，以及FlashPDE作为即插即用算子库的工程便利性。  
+建议读者优先阅读《Generalized Neural Operator》了解理论框架，再结合FlashPDE实践加速PDE模拟。
+- 详情：[/202607/27/README](/202607/27/README)
 
 ### 精读区论文标签
 - 本次无精读推荐。
 
 ### 速读区论文标签
-1. [Probabilistic Physics-Aware Machine Learning Predictions of Electric Truck Energy Consumption with Field Data](/202607/26/2607.19054v1-probabilistic-physics-aware-machine-learning-predictions-of-electric-truck-energy-consumption-with-field-data)  
+1. [FlashPDE: A Drop-In Fused Triton Operator Library for Neural PDE Solvers](/202607/27/2607.18020v3-flashpde-a-drop-in-fused-triton-operator-library-for-neural-pde-solvers)  
    标签：评分：7.0/10、query:aqac
-   evidence：概率物理感知机器学习用于物理建模
-2. [Physics Closure Matters for Machine Olfaction: A Maxwell--Stefan Graph Solver for Identifiable Dynamic Gas Unmixing](/202607/26/2607.18544v1-physics-closure-matters-for-machine-olfaction-a-maxwell--stefan-graph-solver-for-identifiable-dynamic-gas-unmixing)  
-   标签：评分：6.0/10、query:aqac
-   evidence：基于Maxwell-Stefan传输PDE的气体分离，与空气污染化学传输模型相关
-3. [Incomplete Observations Boost Evolutionary Performance in Ocean Modeling](/202607/26/2607.19147v1-incomplete-observations-boost-evolutionary-performance-in-ocean-modeling)  
-   标签：评分：6.0/10、query:aqac
-   evidence：生成状态空间模型用于从稀疏观测学习，可用于空气质量数据同化
-4. [AI-Driven Surrogate Models for Predicting Electrode-Scale Discharge Behavior in Lithium-Ion Batteries](/202607/26/2607.20577v1-ai-driven-surrogate-models-for-predicting-electrode-scale-discharge-behavior-in-lithium-ion-batteries)  
-   标签：评分：6.0/10、query:aqac
-   evidence：深度学习代理模型用于时空预测
-5. [Diffusion posterior sampling enables zero shot kilometre scale wind forecasting over complex terrain](/202607/26/2607.21460v1-diffusion-posterior-sampling-enables-zero-shot-kilometre-scale-wind-forecasting-over-complex-terrain)  
-   标签：评分：6.0/10、query:aqac
-   evidence：使用扩散后验采样和WRF模拟的公里级风预测
+   evidence：FlashPDE为基于网格的神经PDE求解器提供融合算子，支持高效物理信息机器学习在环境建模中的应用
+2. [MAPCast: A Convection Allowing MPAS Emulator for Ensemble-based Background Error Covariance Estimation Toward Multi-Scale Data Assimilation](/202607/27/2607.21917v1-mapcast-a-convection-allowing-mpas-emulator-for-ensemble-based-background-error-covariance-estimation-toward-multi-scale-data-assimilation)  
+   标签：评分：7.0/10、query:aqac
+   evidence：机器学习大气模型仿真器，与空气质量代理模型相关
+3. [Generalized Neural Operator for Parametric and Boundary-Value Problems](/202607/27/2607.21932v1-generalized-neural-operator-for-parametric-and-boundary-value-problems)  
+   标签：评分：7.0/10、query:aqac
+   evidence：通用神经算子用于参数PDE代理建模
+4. [Latent PDE mapping for efficient physics-informed learning across geometries with limited data](/202607/27/2607.22215v1-latent-pde-mapping-for-efficient-physics-informed-learning-across-geometries-with-limited-data)  
+   标签：评分：7.0/10、query:aqac
+   evidence：物理信息学习跨几何形状；可迁移至环境PDE求解
 
 
 <div class="dpr-home-promo-card">
