@@ -1,0 +1,812 @@
+Title: Physics-Informed Neural Networks for Predicting Nitrous Oxide Flux
+
+URL Source: https://arxiv.org/pdf/2607.23880v1
+
+Published Time: Tue, 28 Jul 2026 01:22:16 GMT
+
+Number of Pages: 28
+
+Markdown Content:
+# Physics-Informed Neural Networks for Predicting Nitrous Oxide Flux 
+
+Freddy Yu ∗
+
+Harvard University 
+
+freddyyu@college.harvard.edu 
+
+Jashanjeet Kaur Dhaliwal 
+
+Department of Biosystems Engineering and Soil Science University of Tennessee 
+
+jdhaliwa@utk.edu 
+
+Subhadeep Chakraborty 
+
+Department of Mechanical and Aerospace Engineering University of Tennessee 
+
+schakrab@utk.edu 
+
+# Abstract 
+
+Nitrous oxide (N 2O) is the dominant ozone-depleting substance emitted in the 21st century, and the third largest contributor to anthropogenic greenhouse gases due to its high potency and long atmospheric lifetime, with more than 70% of N 2Oemissions occurring as a result of agricultural processes. Current approaches to predicting N 2O flux emissions include process-based models such as DayCent and Cycles, as well as classical AI models, but the application of Physics-Informed Neu-ral Networks (PINNs) to predicting N 2O flux emissions is largely underexplored. Our paper draws upon the mechanistic equations that underlie the DayCent family of process-based models to construct a rigorously derived, literature-traceable physics residual. We then build and train an MLP-based PINN on a multi-site agri-cultural dataset spanning four geographically distinct US agricultural sites. Across all tested values of the physics loss weighting hyperparameter λ, our PINN consis-tently and substantially outperformed uncalibrated Cycles simulation (R 2 = 0 .01 ), with our MLP baseline achieving mean R 2 = 0 .411 across ten random seeds. Physics constraints consistently degrade model performance in holdout valida-tion, with marginal degradation at low λ and significant degradation at high λ,but consistently improve model performance and reduce performance variability in leave-one-site-out validation. This suggests that physics constraints sacrifice in-distribution accuracy for out-of-distribution robustness, anchoring the model to-ward biogeochemically plausible behavior on unfamiliar soil conditions — though cross-site generalization remains challenging, with negative R 2 across all seeds and λ values on our geographically distinct held-out site. 
+
+# 1 Introduction 
+
+Among all greenhouse gases, nitrous oxide (N 2O) is the third-most important after carbon dioxide (CO 2) and methane (CH 4) (Tian et al., 2024), and the dominant ozone-depleting substance emitted in the 21st century (Ravishankara et al., 2009). Nitrous oxide emissions have grown by an unprecedented  
+
+> ∗Alternate email: freddyyu99@gmail.com
+> Preprint. arXiv:2607.23880v1 [cs.LG] 26 Jul 2026
+
+40% since 1980 (Tian et al., 2024), with a global warming potential (GWP) at about 273 times that of carbon dioxide (Forster et al., 2021), and a long atmospheric lifetime of approximately 117 years (Prather and Wilson, 2026). Recent growth in N 2O emissions has exceeded some of the highest projected climate scenarios (Tian et al., 2020), highlighting the need for improved predictive capability. More than 70% of nitrous oxide emissions occur as a result of agricultural processes (Tian et al., 2024), making accurate quantification of agricultural N 2O flux particularly essential for greenhouse gas accounting and climate mitigation efforts. Strengthening our ability to quantify nitrous oxide emissions could yield significant downstream benefits, such as more informed policy-making, better-targeted agricultural interventions to reduce emissions, and more accurate climate projections. However, direct measurement of N 2O flux emissions is very challenging (Pattey et al., 2007), in part because N 2O atmospheric concentrations are low enough to lie outside the detection range of many analytical techniques (Rapson and Dacres, 2014). Static chambers remain the most common method for measuring nitrous oxide fluxes from agricultural soils (de Klein et al., 2020; Rapson and Dacres, 2014), but chamber measurements are limited in their spatial representativeness (Bastos et al., 2021; Gu et al., 2013; Rochette et al., 2010), since individual chambers typically measure emissions over small plot-scale areas (Wang et al., 2001) and may require extensive deployment to characterize heterogeneous agricultural landscapes (Charteris et al., 2020). Moreover, soil nitrous oxide emissions are inherently episodic (Yamulki et al., 2000), highly variable across both time (Phillips et al., 2013) and space (Parkin, 1987), and subject to sudden, unpredictable impacts from environmental factors like rain (Jones et al., 2011) and nitrogen fertilization (Phillips et al., 2013), making chamber estimations particularly challenging (Charteris et al., 2020) and more prone to biases due to hotspots (Brown et al., 2024). Using chambers to measure N 2O flux also tends to be either fairly costly, as in the case of automatic chambers (Mastepanov, 2026), or very labor-intensive, as in the case of manual chambers (Hensen et al., 2013). Two viable and important alternatives to directly measuring N 2O flux emissions are to use either AI models or process-based models (like DayCent and Cycles) to simulate or predict these emissions, based on input variables that can be more easily measured. However, both options have their own shortcomings as well. As discussed further in Section 3, process-based models generally struggle to accurately capture the complex soil biogeochemical processes that govern N 2O production across chemically and climatically diverse soil systems without extensive site-specific calibration (Butterbach-Bahl et al., 2013; Sharma et al., 2026; Joshi et al., 2024). Process-based models also often require extensive calibration on site-specific information and experimental observations (Gabbrielli et al., 2024), limiting their portability across locations. DayCent has been shown to struggle with estimating nitrous oxide emissions in particular (Del Grosso et al., 2008), with poor agreement between DayCent-predicted and observed soil N 2O emissions (McClelland et al., 2021). This is almost certainly in part due to nitrous oxide’s tendency to emit in spontaneous, sporadic "hot spots" and "hot moments" (Kravchenko et al., 2017; Turner et al., 2016; Wagner-Riddle et al., 2020), given that process-based models (including DayCent) are reported to systematically under-predict emissions when actual emissions are high, i.e., during hotspots (Gaillard et al., 2018), and to struggle with the temporal dynamics of N 2O emissions (Jarecki et al., 2008). The application of machine learning to N 2O prediction remains relatively nascent (Sharma et al., 2026), with comparatively fewer studies systematically characterizing its limitations relative to the process-based modeling literature. Classical machine learning models like Random Forest have demonstrated early promise for N 2O prediction (Philibert et al., 2013). However, initial findings suggest that N 2O predictions made by ML models may suffer from many of the same issues as those made by process-based models. Like process-based models, traditional machine learning models similarly struggle to capture the complex biogeochemical processes that drive nitrous oxide emissions (Gnisia et al., 2025), and struggle to generalize beyond their training domain (Sharma et al., 2026). In this paper, we propose and implement a Physics-Informed Neural Network (PINN) that combines data-driven prediction with biogeochemical constraints derived from the DayCent family of process-based models. First suggested by Raissi et al. (2019), PINNs are neural networks whose loss functions contain two components: the data loss function (typically the MSE of model predictions relative to measured data) and the physics loss function (the MSE of model predictions relative to values 2predicted by biogeochemical equations). In the case of N 2O predictions, these equations represent the real-world biogeochemical conditions that constrain nitrous oxide emissions. Vemuri (2024) previously applied this framework to N 2O prediction — the only such attempt known to the authors — finding that physics-informed loss terms may improve predictive accuracy. However, their physics residual relied on generic Michaelis-Menten enzyme kinetics rather than equations derived specifically for soil nitrogen biogeochemistry, their dataset comprised 2,246 observations from two geographically similar Midwestern US sites (Saha et al., 2021), and their evaluation included no leave-one-site-out validation or comparison against process-based model baselines. In this paper, we address these limitations directly: we derive our physics residual from the mechanistic equations underlying the DayCent family of process-based models, train and evaluate on 8,271 daily observations across four geographically distinct US sites, and benchmark against uncalibrated Cycles simulation as a process-based baseline. We demonstrate that our PINN substantially outperforms uncalibrated Cycles simulation in holdout validation, and find that while the physics residual hurts in-distribution performance, it consistently improves performance and reduces variability in leave-one-site-out validation — suggesting a tradeoff between in-distribution accuracy and out-of-distribution robustness. 
+
+# 2 Methodology 
+
+2.1 PINN Background 
+
+The loss function of PINNs is given by: 
+
+L = Ldata + λLphysics (1) Variable Description Units Source 
+
+L total loss g2 N ha −2 d−2
+
+Ldata data loss g2 N ha −2 d−2 Equation 2 
+
+λ weight of the physics loss residual unitless hyperparameter (relative to data loss) 
+
+Lphysics physics loss residual g2 N ha −2 d−2 Equation 3 Our model’s data loss is calculated as the mean-squared error (MSE) of the model-predicted N 2Ovalues, relative to the measured ("actual") N 2O values, over n training samples, following Raissi et al. (2019). 
+
+Ldata = 1
+
+n
+
+> n
+
+X
+
+> i=1
+
+
+
+ϕN2Oi − ˆϕN2Oi
+
+2
+
+(2) Variable Description Units Source 
+
+Ldata data loss g2 N ha −2 d−2
+
+ϕN2O measured N 2O flux g N ha −1 d−1 DSFAS data 
+
+ˆϕN2O model-predicted N 2O flux g N ha −1 d−1 model Similarly, our model’s physics loss is calculated as the mean-squared error (MSE) of the model-predicted N 2O values, relative to the values predicted by our DayCent-derived equations, following Raissi et al. (2019). 
+
+Lphysics = 1
+
+n
+
+> n
+
+X
+
+> i=1
+
+ ˜ϕN2Oi − ˆϕN2Oi
+
+2
+
+(3) 3Variable Description Units Source 
+
+Lphysics physics loss residual g2 N ha −2 d−2
+
+˜ϕN2O physics-predicted N 2O flux g N ha −1 d−1 Equation 9 
+
+ˆϕN2O model-predicted N 2O flux g N ha −1 d−1 model prediction 
+
+2.2 Physics Loss Residual 
+
+We now lay out the foundational equations that we use to calculate the physics-predicted N 2O values, drawing upon three primary papers, which form the fundamental basis of the Nitrogen Trace Gas Submodel of DayCent as described in Part 2, Section 3.5 of Hartman et al. (2018): Parton et al. (1996), Del Grosso et al. (2000), and Parton et al. (2001). We additionally draw upon Hartman and Parton (2019) for the equations of specific graphs when they are not provided in the three aforementioned papers. Note that DayCent is a constantly evolving process model, and that the equations our paper uses may no longer be in use in newer generations of DayCent. As the Preface of Hartman et al. (2018) states directly: "The model attempts to document multiple versions of the DayCent model that differ in the set processes they include, the way these processes are calculated, and the format of input and output files. Different versions emerge as separate research groups modify the model to meet the requirements of their research and applications." Following Parton et al. (2001), the equations for nitrous oxide flux as a result of nitrification are given by: 
+
+ϕN O 3 = N et min · K1 + Kmax · N H 4 · Fn(Ts) · Fn(W F P S ) · Fn(pH ) (4) Variable Description Units Source 
+
+ϕN O 3 soil nitrification flux g N m −2 d−1
+
+N et min daily net N mineralization g N m −2 d−1 Cycles 
+
+K1 fraction of N et min assumed to be nitrified each day unitless constant at 0.20 
+
+N H 4 model-derived soil ammonium concentration g N m −2 Cycles 
+
+Kmax maximum fraction of N H +4 nitrified d−1 constant at 0.10 
+
+Fn(Ts) effect of soil temperature on nitrification unitless Equation 10 
+
+Fn(W F P S ) effect of water-filled pore space on nitrification unitless Equation 12 
+
+Fn(pH ) effect of soil pH on nitrification unitless Equation 17 
+
+ϕN2O,nit = K2 · ϕN O 3 (5) Variable Description Units Source 
+
+ϕN2O,nit N2O flux from nitrification g N m −2 d−1
+
+K2 fraction of nitrified N lost as ϕN2O,nit unitless constant at 0.02 
+
+ϕN O 3 soil nitrification flux g N m −2 d−1 Equation 4 Following Parton et al. (1996), the equation for total nitrogen gas fluxes (including both nitrogen and nitrous oxide) as a result of denitrification is given below. (Note that this equation also appears in Del Grosso et al. (2000), but with no modifications, so we cite Parton et al. (1996) as the original source.) 
+
+ϕN,den = min (ϕmax (N O 3), ϕ max (CO 2)) · Fd(W F P S ) (6) Variable Description Units Source 
+
+ϕN,den total N gas fluxes from denitrification g N ha −1 d−1
+
+ϕmax (N O 3) max ϕN,den for a given NO 3 level, assuming high CO 2 g N ha −1 d−1 Equation 18 
+
+ϕmax (CO 2) max ϕN,den for a given respiration rate, assuming high NO 3 g N ha −1 d−1 Equation 19 
+
+Fd(W F P S ) effect of WFPS on denitrification unitless Equation 21 4Following Del Grosso et al. (2000), the following two equations for the ratio of nitrogen gas to nitrous oxide gas are given by: 
+
+RN2/N 2O = Fr (N O 3/CO 2) · Fr (W F P S ) (7) Variable Description Units Source 
+
+RN2/N 2O the ratio of N 2 to N 2O gases produced from denitrification unitless 
+
+Fr (N O 3/CO 2) NO 3-to-respiration ratio factor unitless Equation 22 
+
+Fr (W F P S ) effect of water-filled pore space on RN2/N 2O unitless Equation 39 Using this equation, we can then calculate the amount of nitrous oxide gas produced from denitrifica-tion. 
+
+ϕN2O,den = ϕN,den 
+
+1 + RN2/N 2O
+
+(8) Variable Description Units Source 
+
+ϕN2O,den N2O flux from denitrification g N ha −1 d−1
+
+ϕN,den total N gas fluxes from denitrification g N ha −1 d−1 Equation 6 
+
+RN2/N 2O the ratio of N 2 to N 2O gases produced from denitrification unitless Equation 7 Then, finally, by drawing upon all of the prior equations: 
+
+˜ϕN2Oi = αm2→ha · ϕN2O,nit i + ϕN2O,den i (9) Variable Description Units Source 
+
+˜ϕN2O physics-predicted N 2O flux g N ha −1 d−1
+
+αm2→ha units conversion factor from m −2 to ha −1 m2 ha −1 constant at 10 4
+
+ϕN2O,nit N2O flux from nitrification g N m −2 d−1 Equation 5 
+
+ϕN2O,den N2O flux from denitrification g N ha −1 d−1 Equation 8 The other equations we used, as well as their origins in the research literature, can be found in Section A.1. 
+
+2.3 Dataset 
+
+All of the variables that we use in our work can be categorized into one of three categories: 1. "Input Variables": The "starting" variables whose data is either directly measured or directly simulated by Cycles. These are also the same predictor variables that are fed directly into the model as input features. 2. "Intermediate Variables": The variables that are derived from the input variables using the equations described in Section 2.2 and Section A.1 3. "Final Variables": The variables that are directly used to calculate the model loss and evaluate its performance; namely: ϕN2O (measured N 2O flux), ˆϕN2O (model-predicted N 2Oflux), and ˜ϕN2O (physics-predicted N 2O flux). The following table is an exhaustive list of the 10 input variables we used. 5Table 1: Input Variables Variable Description Units Source 
+
+N O 3 soil nitrate concentration mg N kg −1 Cycles 
+
+N H 4 model-derived soil ammonium concentration g N m −2 Cycles 
+
+pH soil pH in the 2nd soil layer unitless static site measurement 
+
+Ts average soil temperature of soil layers 2 and 3 ◦C Cycles 
+
+Ta,max maximum monthly air temperature ◦C Cycles-approximated 
+
+%S percentage of soil that is sand unitless site survey 
+
+%C percentage of soil that is clay unitless site survey 
+
+N et min daily net N mineralization g N m −2 d−1 Cycles 
+
+V W C l volumetric water content of soil layer l m3 m−3 Cycles 
+
+BD l soil bulk density of soil layer l g cm −3 Cycles 
+
+ϕN2O , our measured N 2O flux, is taken from Robertson and Saha (2026), an online living dataset hosted by the KBS LTER (Kellogg Biological Station Long-Term Ecological Research) program at Michigan State University, and part of the USDA-sponsored Data Science for Food and Agricultural Systems (DSFAS) project. We accessed the data on June 19, 2026; the dataset has likely been updated and modified since then. Our dataset consists of data drawn from four sites (some of which were treated with various treatment types), enumerated as follows: 1. An agricultural field near Ames, IA 2. KBS GLBRC, Hickory Corners, MI, USA (Treatments G1, G2, G3, G4) 3. Kelly North, Iowa State Research Farm, Ames, Iowa 4. Cook Agronomy Farm, No-till (AmeriFlux US-RC1) (Treatments NT and CT) With the assistance of Robertson and Saha project collaborators, we traced through tillage history to characterize Sites 1 and 3 as conventionally tilled, and Site 2 as untilled. Site 4 with treatment "CT" was conventionally tilled, and Site 4 with treatment "NT" was not tilled. For Equation 39 as in Del Grosso et al. (2000), we equate "conventionally tilled" with "repacked", and "not tilled" as "intact". In cases where our equations expect site-specific values, but our data only provides layer-specific values, we take the weighted average across layers 2 and 3 (under Hartman and Parton (2019)’s layer convention), where the weight for each layer is the layer thickness. This is the same approach we use in, for instance, Equation 13a. Our measured N 2O flux data was preprocessed as follows: Sub-daily measurements were aggregated to daily values to match the daily time step of the Cycles model. Flux measurements were then averaged across field replications, as Cycles does not simulate replication. For sites with mea-surements at multiple landscape elevations, only data from the highest elevation were retained to maintain consistency with the one-dimensional structure of the Cycles model. This preprocessing was performed prior to delivery of the dataset used in this work. Our data on the sand and clay percentages (%S and %C, respectively) was sourced from gSSURGO/SoilGrids or original site publications. In our variable tables, we hereafter simply list the source as “site survey". With the sole exception of soil pH (which was a static site-level measurement), all of our input variables are directly simulated by Cycles. Although measured data on most of the input variables we need was available via the DSFAS project dataset, the measured data had serious gaps. Some sites lacked measurements of certain key variables like net mineralization and soil bulk density, and even when present, the measurements were often taken at varying depths. Rather than taking a "mix-and-match" approach of combining measured data taken from the DSFAS dataset with simulated data taken from Cycles, we instead opted to go with the more cohesive, consistent approach of using entirely Cycles-simulated data. 6Our reasoning is as follows: Our DayCent-derived equation chain maps a joint soil state (NO 3,NH 4, T S , VWC, BD, %S, %C. . . ) to a single predicted N 2O value. This residual is only physically meaningful if the input vector at each timestep is a jointly realizable state, i.e., something that could actually co-occur in one soil at one time. Our approach of using entirely Cycles-simulated data guarantees this condition, because it generated every driver under one internally-coupled dynamics. For instance, Cycles-simulated NO 3 and VWC data at day t are produced by the exact same simulated moisture/temperature trajectory. Gap-filling (the alternative mix-and-match approach) would break this condition: By filling a single variable at time t with both Cycles-simulated data and measured data, we’d be feeding the equations a state vector that no coherent soil ever occupied. Moreover, filling gaps in measured data with Cycles-simulated data would render feature provenance (i.e., data sourcing) as a function of site. More specifically: Measured data from the DSFAS dataset is available for some sites but not for other sites, so if our model were to struggle in leave-one-site-out validation, it’d be impossible to distinguish between the model’s struggle to generalize geographically and the model’s struggle to generalize between simulated and measured data. For instance, suppose our model is trained on Site A, which has mostly measured data, and then tested on Site B, which has mostly Cycles-simulated data. The model’s struggle to generalize across geographic sites would appear externally identical to its struggle to generalize between the measured data of Site A and the simulated data of Site B. In summary: augmenting the DSFAS measured data with simulated data would confound provenance with geographic site identity. 
+
+2.4 Model Architecture & Training 
+
+We use PyTorch to implement a three-layer MLP ( 10 → 64 → 32 → 1), with ReLU activation and dropout (p=0.3) applied after each of the first two linear layers. Our model utilizes the Adaptive Moment Estimation (Adam) optimizer with learning rate 0.001. As mentioned in Section 2.1, we use MSE for all of our loss functions. Our model also uses early stopping with patience=20 to mitigate overfitting on training data. Our findings as discussed in Section 3 were calculated as the mean across ten random seeds (41 through 50) unless explicitly stated otherwise. We make use of two distinct model evaluation techniques: holdout validation, and leave-one-site-out validation. In the case of holdout validation, we use a random 80/20 training/testing data split, and then further divide the training data using an 80/20 training/validation data split. The training data is the data that the model is actually trained on, while the validation dataset is used to evaluate model performance for the early stopping mechanism. This is necessary because using the testing dataset directly for early stopping would be a form of data leakage. In the case of leave-one-site-out validation, we use data from Site 4 as our testing data, since Site 4 is most distinct from the rest of our dataset, both geographically and in terms of soil characteristics (i.e., pH, soil texture, etc., as discussed further in Section 3), and thus, the most demanding test of geographic generalizability. Sites 1–3 are split 80/20 into training and validation sets, with the validation set used exclusively for early stopping. 
+
+# 3 Results & Discussion 
+
+3.1 Model Performance Relative to Cycles 
+
+Unless otherwise noted, per-site results in this subsection are reported for seed 41 and λ = 0 ;aggregate results across all seeds are provided in Section 3.2 and Appendix A.3. Our baseline model ( λ = 0 ) outperformed Cycles dramatically for every site, achieving overall R2 = 0 .423 on seed 41 against Cycles’ mean of R 2 = 0 .01 , with even the worst-performing configuration ( λ = 1 , mean R 2 = 0 .090 ) outperforming Cycles by nearly an order of magnitude. We also find, perhaps unsurprisingly, that our model performed best on Site 2, for which it had the most training data by a wide margin. By comparison, its test R 2 value for Sites 1 and 4 were worse by more than 0.15. Our model scores a remarkably low R 2 = −0.299 on Site 3, but this can be explained by the occurrence of a single outlier. Near late July of 2006 in our data, our model predicted a spike of nearly 100 g N ha −1 d−1, more than three times the measured flux of approximately 30 g N ha −1
+
+d−1. Because R 2 penalizes errors in proportion to their squared magnitude, a single sufficiently large 7Table 2: Per-site R 2 summary (holdout validation, seed=41, λ=0) Site Dataset Size Split Model R 2 Cycles R 2
+
+1 435 Train 0.228 -0.244 Test 0.264 -0.407 2 6,468 Train 0.490 0.122 Test 0.490 0.181 3 224 Train 0.645 -0.376 Test -0.299 -0.829 4 1,144 Train 0.329 -0.210 Test 0.333 -0.259 Overall 8,271 Train 0.420 0.011 Test 0.442 0.003 All 0.423 0.010 
+
+Figure 1: Site 2 time series, April–October 2014 (most active 6-month emission period) prediction error can dominate the metric. When this outlier is removed, Site 3 test R 2 jumps from 
+
+−0.299 to 0.518 , consistent with performance at our other sites. For further analysis, we now turn our attention to the two sites that both our model and Cycles performed best and worst at, respectively: Site 2 and Site 1. Figure 1 illustrates N 2O dynamics at Site 2 during the most active emission period (April–October 2014). Both our model and Cycles struggled with N 2O’s characteristic pattern of near-zero back-ground emissions punctuated by sudden, volatile hotspots. Cycles consistently underestimated peak emissions by almost a full order of magnitude. Our model generally matched the timing of emission events more closely, though it still somewhat underestimated peak magnitudes. At Site 1, both our model and Cycles failed to capture most N 2O hotspots (see Figure 4 in the Appendix). Our model overestimated background emissions relative to Cycles, but neither approach responded adequately to peak emission events. We speculate this reflects underrepresentation in training data, as Site 1 comprised only 435 8271 = 5 .26% of the total dataset. (See Figures 5–7 in the Appendix for the complete time series.) 
+
+3.2 Physics Residual: In-Distribution vs. Out-of-Distribution Performance 
+
+From Figure 2, we see that in the case of holdout validation, the physics constraints imposed by our physics loss residual Lphysics consistently hurt model performance across all tested values of λ, with 8Figure 2: R 2 across λ sweep (holdout valida-tion). Individual seed trajectories (seeds 41– 50). Physics constraints consistently degrade in-distribution performance, with degradation in-creasing at higher λ. Seed 43 exhibits notably high sensitivity at large λ values. 
+
+Figure 3: R 2 across λ sweep (leave-one-site-out validation). Mean ±1 std across seeds 41–50. Physics constraints consistently improve out-of-distribution performance, peaking at λ = 0 .7.Values below −80 are clipped; see Table 6 in the Appendix for complete values. model performance degradation increasing as physics weight λ increases. We additionally see that, as λ increases, the mean standard deviation across the ten seeds increases, suggesting that a higher physics weight results in greater performance variability. (See Table 5 in the Appendix for complete results.) This general pattern is flipped in the case of leave-one-site-out validation. From Figure 3, we see that although our model’s performance is severely negative, with negative R 2 values across all seeds and λ values, the general trend is the opposite of what we saw in holdout validation. As λ increases, mean R 2 increases and mean standard deviation decreases, suggesting that a higher physics weight results in improved model performance and less performance variability. Our model’s performance peaks at λ = 0 .7, where mean R 2 = −12 .597 , a substantial improvement from the MLP baseline 
+
+λ = 0 .00 , where mean R 2 = −71 .672 . Moreover, the mean standard deviation at λ = 0 .7 reaches its lowest value of 11 .281 , insufficient to explain the significant gap in performance between λ = 0 .7
+
+and λ = 0 .0 means. (See Table 6 in the Appendix for complete results.) To explain this apparent contradiction, we turn to recent findings from Del Grosso and Ogle (2026) discussing Sharma et al. (2026): that process-based models accurately represent the drivers of N 2Oemissions (soil water content, mineral N, temperature) but systematically struggle to predict the fraction of cycled N (produced from denitrification) that actually gets emitted as N 2O. This is because the nitrification and denitrification processes that govern N 2O production are sufficiently complex that current equations necessarily rely on simplifying assumptions. For instance, the use of water-filled pore space (WFPS) as a factor in N 2O production is generally considered non-ideal at best (Farquharson and Baldock, 2008), but functions based on water filled pore space are still widely used (such as in DayCent), in the absence of widely validated alternatives. Beyond conceptual limitations like WFPS, our physics residual follows well-established research literature in using fixed biogeochemical constants like K1 = 0 .20 , K 2 = 0 .02 , K max = 0 .10 , etc. Ultimately, these constants are widely accepted but nonetheless flawed simplifications that hinder our physics residual’s ability to accurately model real-world physical constraints. In summary, even a perfectly implemented physics residual with perfectly derived equations would be expected to provide weak or inconsistent regularization signal on heterogeneous multi-site data, because the biogeochemical constants themselves are the source of uncertainty. This simultaneously explains the poor performance of both the uncalibrated Cycles model and our PINN’s physics residual. Consequently, we suspect that the physics residual hurts in-distribution (i.e., in holdout validation) because, as suggested by Del Grosso and Ogle (2026), fixed constants are too coarse to improve local accuracy, and the data alone is a much better predictor of N 2O emissions. However, the physics residual helps out-of-distribution (i.e., in leave-one-site-out validation) because even imperfect physics constraints are better than nothing when the model encounters unfamiliar soil conditions. More precisely: the same biogeochemical constants that are too imprecise to improve 9model performance in holdout validation, are simultaneously precise enough to prevent the model from making biogeochemically implausible predictions on unseen soil types. In the case of our leave-one-site-out validation testing, the soil characteristics of our left-out test site, Site 4, are substantially different from those of our other 3 training sites. Site 4 had an average soil pH of 5.2 and average soil texture of 21.0% clay and 11.3% sand, where the other 3 sites had an average soil pH of 7.5 and average soil texture of 12.3% clay and 61.4% sand. In the face of such unfamiliar soil conditions, our physics residual may serve to help anchor the model to biogeochemically plausible behavior. If this reasoning is correct, then we conclude that, while the physics residuals of PINNs are not magic performance boosters, they may serve as an important fallback: when the model needs to generalize across geographically distinct sites, the physics residual offers the tradeoff of sacrificing in-distribution accuracy for out-of-distribution robustness. 
+
+# 4 Conclusion 
+
+In summary, our model achieves mean R 2 = 0.411 in holdout validation, dramatically outperforming Cycles (mean R 2 = 0.010), but struggles significantly in leave-one-site-out validation, achieving negative R 2 at every value of λ across all ten seeds, suggesting that geographic generalizability remains challenging. Our model’s best performance in holdout validation occurred at λ ≈ 0, while its best performance in leave-one-site-out validation occurred at λ ≈ 0.7 — an approximately 6× improvement in mean R 2 over the MLP baseline — suggesting that physics constraints sacrifice in-distribution accuracy for out-of-distribution robustness, anchoring the model toward biogeochemically plausible behavior on unfamiliar soil conditions. Our paper does have notable methodological weaknesses. Firstly, with the sole exception of pH and measured N 2O, all of our data was Cycles-simulated. Cycles-derived inputs carry whatever systematic biases or errors Cycles has, meaning that from the very start, our PINN’s predictive accuracy was bounded by how well Cycles represents the true soil state. Secondly, our paper does not make use of collocation points as Raissi et al. (2019) did in their original PINN. Our setting does not naturally lend itself to collocation points given its discrete daily timestep structure, meaning our physics loss is enforced only at observed data points, which may limit the regularization effect of the physics constraint. Thirdly, our physics residual relies on fixed biogeochemical constants (e.g., 
+
+K1 = 0 .20 , K2 = 0 .02 , Kmax = 0 .10 ) that are widely accepted simplifications but do not vary across sites or soil conditions, limiting the residual’s ability to provide meaningful regularization signal on heterogeneous multi-site data. Fourthly, although our data is sourced from Cycles, our equations are derived from the DayCent family; this mismatch may result in the physics residual’s performance being hampered by conflating the internal biases of two different process-based models. Finally, our dataset was not evenly geographically distributed — our assessment of the model’s overall performance was heavily dominated by its performance at Site 2, due to Site 2’s overrepresentation in the data (constituting 6,468 of 8,271 points, or 78.2% of our entire dataset). Future work should experiment with different model architectures beyond MLPs (such as PINNs-formers as in Zhao et al. (2024) or S-Pformers as in Arni and Blanco (2025)), as well as different process-based models and physics residuals (such as implementing Cycles equations for a more direct comparison with uncalibrated Cycles performance). We furthermore believe that more extensive leave-one-site-out experimentation, particularly with larger and more geographically diverse datasets, could help validate our hypothesis that physics residuals improve out-of-distribution robustness. 
+
+# Acknowledgments and Disclosure of Funding 
+
+F.Y. was supported by the 2026 Student Mentoring and Research Training (SMaRT) program provided by The Science Alliance, which is a Tennessee Higher Education Commission (THEC) center of excellence administered by The University of Tennessee-Oak Ridge Innovation Institute (UT-ORII). This work was supported in part by USDA NIFA, Award #2023-67021-40008. We thank the DSFAS project team at KBS LTER for providing the N 2O flux dataset used in this work. 10 References 
+
+Rohan Arni and Carlos Blanco. Physics-Informed Neural Networks with Fourier Features and Attention-Driven Decoding, October 2025. URL http://arxiv.org/abs/2510.05385 .arXiv:2510.05385 [cs.LG]. Leonardo M. Bastos, Charles W. Rice, Peter J. Tomlinson, and David Mengel. Untangling soil-weather drivers of daily N2O emissions and fertilizer management mitigation strategies in no-till corn. Soil Science Society of America Journal , 85(5):1437–1447, 2021. ISSN 1435-0661. doi: 10.1002/saj2.20292. URL https://onlinelibrary.wiley.com/doi/abs/10.1002/saj2. 20292 . _eprint: https://acsess.onlinelibrary.wiley.com/doi/pdf/10.1002/saj2.20292. Shannon E. Brown, Claudia Wagner-Riddle, and Ben Conrad. Low-power flux gradient mea-surements for quantifying the impact of agricultural management on nitrous oxide emissions. 
+
+Agricultural and Forest Meteorology , 353:110027, June 2024. ISSN 0168-1923. doi: 10.1016/j. agrformet.2024.110027. URL https://www.sciencedirect.com/science/article/pii/ S0168192324001424 .Klaus Butterbach-Bahl, Elizabeth M. Baggs, Michael Dannenmann, Ralf Kiese, and Sophie Zechmeister-Boltenstern. Nitrous oxide emissions from soils: how well do we understand the pro-cesses and their controls? Philosophical Transactions of the Royal Society of London. Series B, Bio-logical Sciences , 368(1621):20130122, July 2013. ISSN 1471-2970. doi: 10.1098/rstb.2013.0122. Alice F. Charteris, David R. Chadwick, Rachel E. Thorman, Antonio Vallejo, Cecile A.M. de Klein, Philippe Rochette, and Laura M. Cárdenas. Global Research Alliance N2O chamber method-ology guidelines: Recommendations for deployment and accounting for sources of variability. 
+
+Journal of Environmental Quality , 49(5):1092–1109, 2020. ISSN 1537-2537. doi: 10.1002/ jeq2.20126. URL https://onlinelibrary.wiley.com/doi/abs/10.1002/jeq2.20126 ._eprint: https://acsess.onlinelibrary.wiley.com/doi/pdf/10.1002/jeq2.20126. Eric A. Davidson and Susan E. Trumbore. Gas diffusivity and production of CO2 in deep soils of the eastern Amazon. Tellus B , 47(5):550–565, November 1995. ISSN 0280-6509, 1600-0889. doi: 10.1034/j.1600-0889.47.issue5.3.x. URL http://www.tellusb.net/index.php/tellusb/ article/view/16071 .Cecile A. M. de Klein, Marta A. Alfaro, Donna Giltrap, Cairistiona F. E. Topp, Priscila L. Simon, Alasdair D. L. Noble, and Tony J. van der Weerden. Global Research Alliance N2O cham-ber methodology guidelines: Statistical considerations, emission factor calculation, and data reporting. Journal of Environmental Quality , 49(5):1156–1167, 2020. ISSN 1537-2537. doi: 10.1002/jeq2.20127. URL https://onlinelibrary.wiley.com/doi/abs/10.1002/jeq2. 20127 . _eprint: https://acsess.onlinelibrary.wiley.com/doi/pdf/10.1002/jeq2.20127. S. J. Del Grosso, W. J. Parton, A. R. Mosier, D. S. Ojima, A. E. Kulmala, and S. Phongpan. General model for N2O and N2 gas emissions from soils due to dentrification. Global Biogeo-chemical Cycles , 14(4):1045–1060, 2000. ISSN 1944-9224. doi: 10.1029/1999GB001225. URL https://onlinelibrary.wiley.com/doi/abs/10.1029/1999GB001225 . _eprint: https://agupubs.onlinelibrary.wiley.com/doi/pdf/10.1029/1999GB001225. S. J. Del Grosso, A. D. Halvorson, and W. J. Parton. Testing DAYCENT Model Simulations of Corn Yields and Nitrous Oxide Emissions in Irrigated Tillage Systems in Colorado. Journal of En-vironmental Quality , 37(4):1383–1389, 2008. ISSN 1537-2537. doi: 10.2134/jeq2007.0292. URL https://onlinelibrary.wiley.com/doi/abs/10.2134/jeq2007.0292 . _eprint: https://acsess.onlinelibrary.wiley.com/doi/pdf/10.2134/jeq2007.0292. Stephen Del Grosso and Stephen Ogle. Combining process-based models with machine learning ensemble improves soil nitrous oxide estimates. Proceedings of the National Academy of Sciences ,123(16):e2605414123, April 2026. doi: 10.1073/pnas.2605414123. URL https://www.pnas. org/doi/10.1073/pnas.2605414123 .Ryan Farquharson and Jeff Baldock. Concepts in modelling N2O emissions from land use. 
+
+Plant and Soil , 309(1-2):147–167, August 2008. ISSN 0032-079X, 1573-5036. doi: 10.1007/ s11104-007-9485-0. URL http://link.springer.com/10.1007/s11104-007-9485-0 .11 P. Forster, T. Storelvmo, K. Armour, W. Collins, J.-L. Dufresne, D. Frame, D.J. Lunt, T. Mauritsen, M.D. Palmer, M. Watanabe, M. Wild, and H. Zhang. Chapter 7: The Earth’s Energy Budget, Climate Feedbacks, and Climate Sensitivity. In V. Masson-Delmotte, P. Zhai, A. Pirani, S.L. Connors, C. Péan, S. Berger, N. Caud, Y. Chen, L. Goldfarb, M.I. Gomis, M. Huang, K. Leitzell, E. Lonnoy, J.B.R. Matthews, T.K. Maycock, T. Waterfield, O. Yelekçi, R. Yu, and B. Zhou, editors, In Climate Change 2021: The Physical Science Basis. Contribution of Working Group I to the Sixth Assessment Report of the Intergovernmental Panel on Climate Change , pages 923– 1054. Cambridge University Press, Cambridge, United Kingdom and New York, NY, USA, 2021. doi: 10.1017/9781009157896.009. URL https://www.ipcc.ch/report/ar6/wg1/chapter/ chapter-7/ .Mara Gabbrielli, Marina Allegrezza, Giorgio Ragaglini, Antonio Manco, Luca Vitale, and Alessia Perego. A Review of the Main Process-Based Approaches for Modeling N2O Emissions from Agricultural Soils. Horticulturae , 10(1):98, January 2024. ISSN 2311-7524. doi: 10.3390/ horticulturae10010098. URL https://www.mdpi.com/2311-7524/10/1/98 .Richard K. Gaillard, Curtis D. Jones, Pete Ingraham, Sarah Collier, Roberto Cesar Izaurralde, William Jokela, William Osterholz, William Salas, Peter Vadas, and Matthew D. Ruark. Un-derestimation of N2O emissions in a comparison of the DayCent, DNDC, and EPIC mod-els. Ecological Applications , 28(3):694–708, 2018. ISSN 1939-5582. doi: 10.1002/eap. 1674. URL https://onlinelibrary.wiley.com/doi/abs/10.1002/eap.1674 . _eprint: https://esajournals.onlinelibrary.wiley.com/doi/pdf/10.1002/eap.1674. Gregor Gnisia, Jan Weik, Reiner Ruser, Lisa Essich, Iris Lewandowski, and Anthony Stein. Machine learning-based prediction of nitrous oxide emissions from arable farming: Exploring manage-ment practices as predictor variables. Ecological Indicators , 172:113233, March 2025. ISSN 1470-160X. doi: 10.1016/j.ecolind.2025.113233. URL https://www.sciencedirect.com/ science/article/pii/S1470160X25001621 .Jiangxin Gu, Bernard Nicoullaud, Philippe Rochette, Agnes Grossel, Catherine Hénault, Pierre Cellier, and Guy Richard. A regional experiment suggests that soil texture is a major control of N2O emissions from tile-drained winter wheat fields during the fertilization period. Soil Biology and Biochemistry , 60:134–141, May 2013. ISSN 0038-0717. doi: 10.1016/j.soilbio.2013.01.029. URL https://www.sciencedirect.com/science/article/pii/S0038071713000400 .M. D. Hartman and W. J. Parton. Soil Organic Matter Decomposition and Nitrogen Trace Gas Calculations of the DayCent Model. Technical report, Natural Resource Ecology Laboratory, Colorado State University, Fort Collins, CO, February 2019. Melannie D Hartman, William J Parton, Stephen J Del Grosso, Mark Easter, Judy Hendryx, Thomas Hilinski, Robin Kelly, Cindy A Keough, Kendrick Killian, Susan Lutz, Ernest Marx, Rebecca McKeown, Stephen Ogle, Dennis S Ojima, Keith Paustian, Amy Swan, and Stephen Williams. The Daily Century Ecosystem, Soil Organic Matter, Nutrient Cycling, Nitrogen Trace Gas, and Methane Model User Manual, Scientific Basis, and Technical Documenta-tion. Technical report, Natural Resource Ecology Laboratory, Colorado State University, Fort Collins, CO, 2018. URL https://www.nrel.colostate.edu/wp-content/uploads/2019/ 04/DayCent_Manual_full_05.02.108-1.pdf .Arjan Hensen, Ute Skiba, and Daniela Famulari. Low cost and state of the art methods to measure nitrous oxide emissions. Environmental Research Letters , 8(2):025022, June 2013. ISSN 1748-9326. doi: 10.1088/1748-9326/8/2/025022. URL https://doi.org/10.1088/1748-9326/8/ 2/025022 .Marek K. Jarecki, Timothy B. Parkin, Alvarus S. K. Chan, Jerry L. Hatfield, and Raymond Jones. Comparison of DAYCENT-Simulated and Measured Nitrous Oxide Emissions from a Corn Field. Journal of Environmental Quality , 37(5):1685–1690, 2008. ISSN 1537-2537. doi: 10.2134/jeq2007.0614. URL https://onlinelibrary.wiley.com/doi/abs/10.2134/ jeq2007.0614 . _eprint: https://acsess.onlinelibrary.wiley.com/doi/pdf/10.2134/jeq2007.0614. S. K. Jones, D. Famulari, C. F. Di Marco, E. Nemitz, U. M. Skiba, R. M. Rees, and M. A. Sutton. Nitrous oxide emissions from managed grassland: a comparison of eddy covariance and static chamber measurements. Atmospheric Measurement Techniques , 4(10):2179–2194, October 2011. 12 ISSN 1867-1381. doi: 10.5194/amt-4-2179-2011. URL https://amt.copernicus.org/ articles/4/2179/2011/amt-4-2179-2011.html .Deepak R. Joshi, David E. Clay, Sharon A. Clay, Janet Moriles-Miller, Aaron L. M. Daigh, Graig Reicks, and Shaina Westhoff. Quantification and machine learning based N2O–N and CO2–C emissions predictions from a decomposing rye cover crop. Agron-omy Journal , 116(3):795–809, 2024. ISSN 1435-0645. doi: 10.1002/agj2.21185. URL https://onlinelibrary.wiley.com/doi/abs/10.1002/agj2.21185 . _eprint: https://acsess.onlinelibrary.wiley.com/doi/pdf/10.1002/agj2.21185. A. N. Kravchenko, E. R. Toosi, A. K. Guber, N. E. Ostrom, J. Yu, K. Azeem, M. L. Rivers, and G. P. Robertson. Hotspots of soil N2O emission enhanced through water absorption by plant residue. 
+
+Nature Geoscience , 10(7):496–500, July 2017. ISSN 1752-0908. doi: 10.1038/ngeo2963. URL 
+
+https://www.nature.com/articles/ngeo2963 .S. S. Malhi and W. B. McGill. Nitrification in three Alberta soils: Effect of temper-ature, moisture and substrate concentration. Soil Biology and Biochemistry , 14, De-cember 1981. URL https://oamonitor.ireland.openaire.eu/national//search/ publication?pid=10.1016%2F0038-0717(82)90011-6 .Mikhail Mastepanov. Wirelessly controlled modular automatic chambers for greenhouse gas flux monitoring in natural and agricultural ecosystems. HardwareX , 26:e00782, June 2026. ISSN 2468-0672. doi: 10.1016/j.ohx.2026.e00782. URL https://www.sciencedirect.com/science/ article/pii/S2468067226000428 .Shelby C. McClelland, Keith Paustian, Stephen Williams, and Meagan E. Schipanski. Modeling cover crop biomass production and related emissions to improve farm-scale decision-support tools. 
+
+Agricultural Systems , 191:103151, June 2021. ISSN 0308-521X. doi: 10.1016/j.agsy.2021.103151. URL https://www.sciencedirect.com/science/article/pii/S0308521X21001049 .R. J. Millington and R. C. Shearer. Diffusion in aggregated porous media. Soil Science , 111(6):372, June 1971. ISSN 0038-075X. URL https://journals.lww.com/soilsci/citation/1971/ 06000/diffusion_in_aggregated_porous_media.7.aspx .R. I. Papendick and G. S. Campbell. Theory and Measurement of Water Potential. In Water Potential Relations in Soil Microbiology , volume 9 (SSSA Special Publications), pages 1–22. Soil Science Society of America, 1981. doi: 10.2136/sssaspecpub9.c1. URL https://acsess. onlinelibrary.wiley.com/doi/10.2136/sssaspecpub9.c1 .Timothy B. Parkin. Soil Microsites as a Source of Denitrification Variability. Soil Science Society of America Journal , 51(5):1194–1199, 1987. ISSN 1435-0661. doi: 10.2136/sssaj1987.03615995005100050019x. URL https://onlinelibrary. wiley.com/doi/abs/10.2136/sssaj1987.03615995005100050019x . _eprint: https://acsess.onlinelibrary.wiley.com/doi/pdf/10.2136/sssaj1987.03615995005100050019x. W. J. Parton, A. R. Mosier, D. S. Ojima, D. W. Valentine, D. S. Schimel, K. Weier, and A. E. Kulmala. Generalized model for N2 and N2O production from nitrification and denitrification. 
+
+Global Biogeochemical Cycles , 10(3):401–412, September 1996. doi: 10.1029/96GB01455. URL 
+
+https://agupubs.onlinelibrary.wiley.com/doi/10.1029/96GB01455 .W. J. Parton, E. A. Holland, S. J. Del Grosso, M. D. Hartman, R. E. Martin, A. R. Mosier, D. S. Ojima, and D. S. Schimel. Generalized model for NO x and N2O emissions from soils. Journal of Geophysical Research: Atmospheres , 106(D15):17403–17419, 2001. ISSN 2156-2202. doi: 10.1029/2001JD900101. URL https://onlinelibrary.wiley.com/doi/abs/10.1029/ 2001JD900101 . _eprint: https://agupubs.onlinelibrary.wiley.com/doi/pdf/10.1029/2001JD900101. E. Pattey, G. C. Edwards, R. L. Desjardins, D. J. Pennock, W. Smith, B. Grant, and J. I. MacPherson. Tools for quantifying N2O emissions from agroecosystems. Agricultural and Forest Meteorology ,142(2):103–119, February 2007. ISSN 0168-1923. doi: 10.1016/j.agrformet.2006.05.013. URL 
+
+https://www.sciencedirect.com/science/article/pii/S0168192306002899 .Aurore Philibert, Chantal Loyce, and David Makowski. Prediction of N2O emission from local information with Random Forest. Environmental Pollution , 177:156–163, June 2013. ISSN 1873-6424. doi: 10.1016/j.envpol.2013.02.019. 13 Rebecca Phillips, David W.T. Griffith, Feike Dijkstra, Glenys Lugg, Roy Lawrie, and Ben Macdonald. Tracking Short-Term Effects of Nitrogen-15 Addition on Nitrous Ox-ide Fluxes Using Fourier-Transform Infrared Spectroscopy. Journal of Environmental Quality , 42(5):1327–1340, 2013. ISSN 1537-2537. doi: 10.2134/jeq2013.02.0067. URL https://onlinelibrary.wiley.com/doi/abs/10.2134/jeq2013.02.0067 . _eprint: https://acsess.onlinelibrary.wiley.com/doi/pdf/10.2134/jeq2013.02.0067. C. S. Potter, E. A. Davidson, and L. V. Verchot. Estimation of global biogeochemical controls and seasonality in soil methane consumption. Chemosphere , 32(11):2219–2246, June 1996. ISSN 0045-6535. doi: 10.1016/0045-6535(96)00119-1. URL https://www.sciencedirect.com/ science/article/pii/0045653596001191 .Michael J. Prather and Calum P. Wilson. Projecting nitrous oxide over the 21st century, uncertainty re-lated to stratospheric loss. Proceedings of the National Academy of Sciences , 123(6):e2524123123, February 2026. doi: 10.1073/pnas.2524123123. URL https://www.pnas.org/doi/10.1073/ pnas.2524123123 .M. Raissi, P. Perdikaris, and G. E. Karniadakis. Physics-informed neural networks: A deep learn-ing framework for solving forward and inverse problems involving nonlinear partial differen-tial equations. Journal of Computational Physics , 378:686–707, February 2019. ISSN 0021-9991. doi: 10.1016/j.jcp.2018.10.045. URL https://www.sciencedirect.com/science/ article/pii/S0021999118307125 .Trevor D. Rapson and Helen Dacres. Analytical techniques for measuring nitrous oxide. 
+
+TrAC Trends in Analytical Chemistry , 54:65–74, February 2014. ISSN 0165-9936. doi: 10.1016/j.trac.2013.11.004. URL https://www.sciencedirect.com/science/article/ pii/S0165993613002574 .A. R. Ravishankara, John S. Daniel, and Robert W. Portmann. Nitrous Oxide (N2O): The Dominant Ozone-Depleting Substance Emitted in the 21st Century. Science , 326(5949):123–125, Octo-ber 2009. doi: 10.1126/science.1176985. URL https://www.science.org/doi/10.1126/ science.1176985 .Edwin Ritchey, Joshua McGrath, and David Gehring. Determining Soil Texture by Feel. Agriculture and Natural Resources Publications , January 2015. URL https://uknowledge.uky.edu/anr_ reports/139 .Phil Robertson and Debasish Saha. DSFAS project: an nitrous oxide (N2O) dataset to support data-driven modeling, 2026. URL https://lter.kbs.msu.edu/datasets/243 .P. Rochette, N. Tremblay, E. Fallon, D. A. Angers, M. H. Chantigny, J. D. MacDonald, N. Bertrand, and L.-É. Parent. N2O emissions from an irrigated and non-irrigated organic soil in eastern Canada as influenced by N fertilizer addition. European Journal of Soil Science , 61(2):186–196, April 2010. ISSN 1351-0754, 1365-2389. doi: 10.1111/j.1365-2389.2009.01222.x. URL https:// bsssjournals.onlinelibrary.wiley.com/doi/10.1111/j.1365-2389.2009.01222.x .Debasish Saha, Bruno Basso, and G Philip Robertson. Machine learning improves predictions of agri-cultural nitrous oxide (N2O) emissions from intensively managed cropping systems. Environmental Research Letters , 16(2):024004, January 2021. ISSN 1748-9326. doi: 10.1088/1748-9326/abd2f3. URL https://doi.org/10.1088/1748-9326/abd2f3 .K. E. Saxton, W. J. Rawls, J. S. Romberger, and R. I. Papendick. Estimat-ing Generalized Soil-water Characteristics from Texture. Soil Science Soci-ety of America Journal , 50(4):1031–1036, 1986a. ISSN 1435-0661. doi: 10.2136/sssaj1986.03615995005000040039x. URL https://onlinelibrary. wiley.com/doi/abs/10.2136/sssaj1986.03615995005000040039x . _eprint: https://acsess.onlinelibrary.wiley.com/doi/pdf/10.2136/sssaj1986.03615995005000040039x. K. E. Saxton, W. J. Rawls, J. S. Romberger, and R. I. Papendick. Erratum: Es-timating Generalized Soil-water Characteristics from Texture. Soil Science Society of America Journal , 50(4):NP–NP, 1986b. ISSN 1435-0661. doi: 10.2136/sssaj1986.03615995005000040054x. URL https://onlinelibrary. 
+
+14 wiley.com/doi/abs/10.2136/sssaj1986.03615995005000040054x . _eprint: https://acsess.onlinelibrary.wiley.com/doi/pdf/10.2136/sssaj1986.03615995005000040054x. D. S. Schimel and W. J. Parton. Microclimatic controls of nitrogen mineralization and nitrification in shortgrass steppe soils. Plant and Soil , 93(3):347–357, October 1986. ISSN 1573-5036. doi: 10.1007/BF02374285. URL https://doi.org/10.1007/BF02374285 .Prateek Sharma, Bruno Basso, Aditya Manuraj, Michael S. Murillo, Neville Millar, Tommaso Tadiello, Mukta Sharma, Mathieu Delandmeter, and G. Philip Robertson. Coupled machine learning-ecosystem ensemble models substantially improve predictions of nitrous oxide (N2O) fluxes from US croplands. Proceedings of the National Academy of Sciences of the United States of America , 123(10):e2524808123, March 2026. ISSN 1091-6490. doi: 10.1073/pnas.2524808123. URL https://www.pnas.org/doi/10.1073/pnas.2524808123 .Hanqin Tian, Rongting Xu, Josep G. Canadell, Rona L. Thompson, Wilfried Winiwarter, Parvadha Suntharalingam, Eric A. Davidson, Philippe Ciais, Robert B. Jackson, Greet Janssens-Maenhout, Michael J. Prather, Pierre Regnier, Naiqing Pan, Shufen Pan, Glen P. Peters, Hao Shi, Francesco N. Tubiello, Sönke Zaehle, Feng Zhou, Almut Arneth, Gianna Battaglia, Sarah Berthet, Laurent Bopp, Alexander F. Bouwman, Erik T. Buitenhuis, Jinfeng Chang, Martyn P. Chipperfield, Shree RS Dangal, Edward Dlugokencky, James W. Elkins, Bradley D. Eyre, Bojie Fu, Bradley Hall, Akihiko Ito, Fortunat Joos, Paul B. Krummel, Angela Landolfi, Goulven G. Laruelle, Ronny Lauerwald, Wei Li, Sebastian Lienert, Taylor Maavara, Michael MacLeod, Dylan B. Millet, Stefan Olin, Prabir K. Patra, Ronald G. Prinn, Peter A. Raymond, Daniel J. Ruiz, Guido R. van der Werf, Nicolas Vuichard, Junjie Wang, Ray F. Weiss, Kelley C. Wells, Chris Wilson, Jia Yang, and Yuanzhi Yao. A comprehensive quantification of global nitrous oxide sources and sinks. Nature ,586(7828):248–256, October 2020. ISSN 0028-0836. doi: 10.1038/s41586-020-2780-0. URL 
+
+https://escholarship.org/uc/item/9sp7r9qc .Hanqin Tian, Naiqing Pan, Rona L. Thompson, Josep G. Canadell, Parvadha Suntharalingam, Pierre Regnier, Eric A. Davidson, Michael Prather, Philippe Ciais, Marilena Muntean, Shufen Pan, Wilfried Winiwarter, Sönke Zaehle, Feng Zhou, Robert B. Jackson, Hermann W. Bange, Sarah Berthet, Zihao Bian, Daniele Bianchi, Alexander F. Bouwman, Erik T. Buitenhuis, Geoffrey Dutton, Minpeng Hu, Akihiko Ito, Atul K. Jain, Aurich Jeltsch-Thömmes, Fortunat Joos, Sian Kou-Giesbrecht, Paul B. Krummel, Xin Lan, Angela Landolfi, Ronny Lauerwald, Ya Li, Chaoqun Lu, Taylor Maavara, Manfredi Manizza, Dylan B. Millet, Jens Mühle, Prabir K. Patra, Glen P. Peters, Xiaoyu Qin, Peter Raymond, Laure Resplandy, Judith A. Rosentreter, Hao Shi, Qing Sun, Daniele Tonina, Francesco N. Tubiello, Guido R. van der Werf, Nicolas Vuichard, Junjie Wang, Kelley C. Wells, Luke M. Western, Chris Wilson, Jia Yang, Yuanzhi Yao, Yongfa You, and Qing Zhu. Global nitrous oxide budget (1980–2020). Earth System Science Data , 16(6): 2543–2604, June 2024. ISSN 1866-3508. doi: 10.5194/essd-16-2543-2024. URL https: //essd.copernicus.org/articles/16/2543/2024/ .P. A. Turner, T. J. Griffis, D. J. Mulla, J. M. Baker, and R. T. Venterea. A geostatistical approach to identify and mitigate agricultural nitrous oxide emission hotspots. Science of The Total Environment ,572:442–449, December 2016. ISSN 0048-9697. doi: 10.1016/j.scitotenv.2016.08.094. URL 
+
+https://www.sciencedirect.com/science/article/pii/S0048969716317879 .Nikhil Vemuri. Developing a hybrid data-driven and informed model for prediction and mitigation of agricultural nitrous oxide flux hotspots. Frontiers in Environmental Science , 12, March 2024. ISSN 2296-665X. doi: 10.3389/fenvs.2024.1353049. URL https://www.frontiersin.org/ journals/environmental-science/articles/10.3389/fenvs.2024.1353049/full .Claudia Wagner-Riddle, Elizabeth M Baggs, Tim J Clough, Kathrin Fuchs, and Søren O Petersen. Mitigation of nitrous oxide emissions in the context of nitrogen loss reduction from agroecosystems: managing hot spots and hot moments. Current Opinion in Environmental Sustainability , 47: 46–53, December 2020. ISSN 1877-3435. doi: 10.1016/j.cosust.2020.08.002. URL https: //www.sciencedirect.com/science/article/pii/S1877343520300567 .Yingping Wang, Ian A. Weeks, C. P. Meyer, and Ian E. Galbally. Two automatic chamber techniques for measuring soil-atmosphere exchanges of trace gases and results of their use in the OASIS field experiment . CSIRO Publishing, Aspendale Vic Australia, 2001. ISBN 0-643-06645-4. URL 
+
+https://ddl.ae/book/34833 .15 S. Yamulki, I. Wolf, R. Bol, B. Grant, R. Brumme, E. Veldkamp, and S. C. Jarvis. Effects of dung and urine amendments on the isotopic content of N(2)O released from grasslands. Rapid communications in mass spectrometry: RCM , 14(15):1356–1360, 2000. ISSN 0951-4198. doi: 10.1002/1097-0231(20000815)14:15<1356::AID-RCM30>3.0.CO;2-C. Zhiyuan Zhao, Xueying Ding, and B. Aditya Prakash. PINNsFormer: A Transformer-Based Frame-work For Physics-Informed Neural Networks, May 2024. URL http://arxiv.org/abs/2307. 11833 . arXiv:2307.11833 [cs.CE]. 
+
+# A Technical appendices and supplementary material 
+
+A.1 Auxiliary Equations 
+
+Following Hartman and Parton (2019), the equations for the respective effects of soil temperature, water-filled pore space, and soil pH on nitrification are given below. Fn(Ts) is computed via a generalized Poisson density function following Hartman and Parton (2019) (Equations 3.13–3.14), parameterized by the long-term maximum monthly air temperature ( Ta,max ). 
+
+Fn(Ts) = 
+
+ A1−Ts
+
+> A1−Ta,max
+
+A2
+
+· exp 
+
+
+
+> A2
+> A3
+
+
+
+1.0 −
+
+ A1−Ts
+
+> A1−Ta,max
+
+A3
+
+ 
+
+if Ta,max ≥ 35 .0
+
+f _gen _poisson _density (Ts + ( A0 − Ta,max ), A 0, A 1, A 2, A 3) if Ta,max < 35 .0
+
+(10) Variable Description Units Source 
+
+Fn(Ts) effect of soil temperature on nitrification unitless 
+
+Ts average soil temperature of soil layers 2 and 3 ◦C Cycles 
+
+A0 peak location parameter (bell curve center) ◦C constant at 35.0 
+
+A1 lower bound parameter ◦C constant at -5.0 
+
+A2 spread shape parameter unitless constant at 4.5 
+
+A3 asymmetry shape parameter unitless constant at 7.0 Hartman and Parton (2019) refers to Ta,max somewhat ambiguously as the "long-term maximum monthly air temperature", which could be interpreted to mean that Ta,max is a site-specific value, calculated by taking the average temperature across each month for a site, then finding the maximum across all of them. However, Parton et al. (2001) states on Page 17,406: "The effect of soil temperature on nitrification is based on data presented by Malhi and McGill (1981) which show that there is an optimal temperature for nitrification that is a function of the average maximum monthly air temperature for the warmest month of the year." This statement could also be reasonably interpreted to mean that the "average maximum monthly air temperature for the warmest month of the year" refers to Ta,max , such that Ta,max is calculated by finding the warmest month of the year, extracting that month’s average temperature. In summary, there are essentially three possible different interpretations of how to define Ta,max ,each of which are defensible in their own way: (1) maximum of monthly mean of average daily temperature Tavg , (2) maximum of monthly mean of maximum daily temperature Tmax , and (3) mean of daily maximum temperature Tmax in the warmest month. In the face of these two ambiguous and somewhat conflicting variable descriptions from Hartman and Parton (2019) and Parton et al. (2001), we choose to define "maximum monthly air temperature" as the monthly mean maximum temperature, and move forward with Interpretation 2. This is supported by Section 3.6.1 of the DayCent manual, which defines the variable TMX2M (1-12) ◦C as the "mean monthly maximum air temperature" (Hartman et al., 2018). We therefore define Ta,max as the maximum of TMX2M across all months. Although neither Hartman and Parton (2019) nor Parton et al. (2001) explicitly offer a formula for 
+
+Ta,max , our interpretation as described above allows us to establish the following equation as our definition of Ta,max .16 Ta, max = max   
+
+> M∈{ 1,..., 12 }
+
+(Ta,M ) (11) Variable Description Units Source 
+
+Ta,max long-term maximum monthly air temperature ◦C
+
+Ta,M monthly mean maximum temperature ◦C Cycles 
+
+Fn(W F P S ) is computed via 
+
+Fn(W F P S ) = 
+
+
+
+1.01.0 + 30 .0 · exp( −9.0 · wc rel ) if wc rel ≤ 1.0
+
+−1.01.0 − θf c 
+
+· (W F P S − 1.0) if wc rel > 1.0
+
+(12) Variable Description Units Source 
+
+Fn(W F P S ) effect of water-filled pore space on nitrification unitless 
+
+wc rel weighted average relative water content in the 2nd and 3rd soil layers unitless Equation 13a 
+
+θf c volumetric water content at field capacity unitless Equation 37a 
+
+W F P S weighted average water-filled pore space in 2nd and 3rd soil layers unitless Equation 16a The upcoming subequations follow from Hartman and Parton (2019), under the definition of wc rel 
+
+used herein, where θf c,l denotes θf c evaluated for layer l using that layer’s sand and clay fractions. Note that width l can be found in the "soilLayersCN.txt" Cycles output file, but is technically a "Cycles configuration" (as opposed to a typical Cycles-simulated value) since there is no universal Cycles convention for layer widths and labeling. Correspondingly, note that Hartman and Parton (2019) did not provide an explicit convention for "2nd and 3rd soil layers", so we choose to let the 2nd and 3rd layers refer to the depths of 5 cm to 10 cm, and 10 to 20 cm, below the surface, respectively. 
+
+wc rel =
+
+P3 
+
+> l=2
+
+width l · wc rel,l 
+
+P3 
+
+> l=2
+
+width l
+
+(13a) 
+
+wc rel,l =
+
+swc l
+
+width l
+
+− swclimit l
+
+θf c,l − swclimit l
+
+(13b) Variable Description Units Source 
+
+wc rel weighted average relative water content in the 2nd and 3rd soil layers unitless 
+
+wc rel,l relative water content of soil layer l unitless 
+
+l specific soil layer index unitless constant at 2 or 3 
+
+width l thickness of soil layer l cm Cycles 
+
+swc l soil water content of soil layer l cm H 2O Equation 14 
+
+swclimit l minimum volumetric soil water content (wilting point) of layer l unitless Equation 15 
+
+θf c,l volumetric soil water content of layer l at field capacity unitless Equation 37a Since Cycles only provides volumetric water content, we derive swc l via the standard conversion formula from volumetric water content to equivalent water depth: 
+
+swc l = V W C l · width l (14) Variable Description Units Source 
+
+swc l soil water content of soil layer l cm H 2O
+
+V W C l volumetric water content of soil layer l m3 m−3 Cycles 
+
+width l thickness of soil layer l cm Cycles 17 We derive swclimit l from Equation 2 of Saxton et al. (1986a)’s pedotransfer functions, for when the applied water tension reaches 1500 kPa; resulting in the equation Ψ = 1500 = Asx swclimit Bsx  
+
+> l
+
+,which can be rearranged into the form 
+
+swclimit l =
+
+ 1500 
+
+Asx 
+
+ 1
+
+> Bsx
+
+(15) Variable Description Units Source 
+
+swclimit l minimum volumetric soil water content (wilting point) of layer l unitless 
+
+Asx air entry potential scaling parameter kPa Equation 37b 
+
+Bsx pore size distribution shape parameter unitless Equation 37c Similarly, the following two subequations come from Hartman and Parton (2019) and from the definition of W F P S used herein. Note that P D ’s value is an assumption from Equation 27. 
+
+W F P S =
+
+P3 
+
+> l=2
+
+width l · W F P S l
+
+P3 
+
+> l=2
+
+width l
+
+(16a) 
+
+W F P S l =
+
+swc l
+
+width l
+
+1.0 − BD l
+
+P D 
+
+(16b) Variable Description Units Source 
+
+W F P S weighted average water-filled pore space in 2nd and 3rd soil layers unitless 
+
+W F P S l water-filled pore space of specific soil layer l unitless 
+
+l specific soil layer index unitless constant at 2 or 3 
+
+width l thickness of the layer cm Cycles 
+
+swc l soil water content of soil layer l cm H 2O Equation 14 
+
+BD l soil bulk density of soil layer l g cm −3 Cycles 
+
+P D particle density g cm −3 constant at 2.65 
+
+Fn(pH ) is computed via 
+
+Fn(pH ) = B1 + B2
+
+π · arctan ( π · B3 · (pH − B0)) (17) Variable Description Units Source 
+
+Fn(pH ) effect of soil pH on nitrification unitless 
+
+pH soil pH in the 2nd soil layer unitless static site measurement 
+
+B0 inflection point parameter unitless constant at 5.0 
+
+B1 vertical offset parameter unitless constant at 0.56 
+
+B2 amplitude parameter unitless constant at 1.0 
+
+B3 sigmoid transition steepness parameter unitless constant at 0.45 The following equation comes from Parton et al. (1996). Note that we calculate N O 3 as the weighted average across layers 2 and 3, as per Hartman and Parton (2019)’s convention (where the weights are the soil layer widths). 
+
+ϕmax (N O 3) = 11 , 000 + 40 , 000 · arctan( π · 0.002 · (N O 3 − 180)) 
+
+π (18) 18 Variable Description Units Source 
+
+ϕmax (N O 3) max ϕN,den for a given NO 3 level, assuming high CO 2 g N ha −1 d−1
+
+N O 3 soil NO 3 concentration mg N kg −1 Cycles 
+
+ϕmax (CO 2) = 24 , 000 1 + 200 
+
+> e0.35 ·CO 2
+
+− 100 (19) Variable Description Units Source 
+
+ϕmax (CO 2) max ϕN,den for a given respiration rate, assuming high NO 3 g N ha −1 d−1
+
+CO 2 soil heterotrophic respiration rate (excluding root respiration) kg C ha −1 d−1 Equation 20 Note that in Equation 20, we follow Parton et al. (1996) in assuming that FCO 2 (W F P S ) = 
+
+Fn(W F P S ) and that FCO 2 (Ts) = Fn(Ts). This follows from Parton et al. (1996)’s statement in the last paragraph of page 407: " Sw and St are the same functions shown in Figures 2a and 2b, respectively", where Figures 2a and 2b represent Fn(W F P S ) and Fn(Ts), respectively. 
+
+CO 2 = CO 2,max · FCO 2 (W F P S ) · FCO 2 (Ts) (20) Variable Description Units Source 
+
+CO 2 soil heterotrophic respiration rate (excluding root respiration) kg C ha −1 d−1
+
+CO 2,max maximum soil respiration rate kg C ha −1 d−1 constant at 80 
+
+FCO 2 (W F P S ) effect of water-filled pore space on soil respiration rate unitless Equation 12 
+
+FCO 2 (Ts) effect of soil temperature on soil respiration rate unitless Equation 10 Continuing from Parton et al. (1996): 
+
+Fd(W F P S ) = ab 
+
+> 
+
+cb(d·W F P S ) 
+
+> 
+
+(21) Variable Description Units Source 
+
+Fd(W F P S ) effect of WFPS on denitrification unitless 
+
+a amplitude parameter unitless Table 3 
+
+b threshold parameter unitless Table 3 
+
+c steepness parameter unitless Table 3 
+
+d curvature parameter unitless Table 3 The following table comes from Parton et al. (1996): Table 3: Parameters for Fd(W F P S ) in Equation 21 based on soil texture Parameter Soil Texture a b c d
+
+sandy 1.56 12.0 16.0 2.01 medium 4.82 14.0 16.0 1.39 fine 60.0 18.0 22.0 1.06 Unfortunately, Parton et al. (1996) does not explicitly provide a soil texture classification method, i.e., how soil and clay percentages translate into "sandy", "medium", or "fine". As such, we classify soil texture following the USDA broad texture family groupings (coarse/medium/fine) based on sand and 19 clay fractions from the Cycles model configuration, where "coarse" is equivalent to "sandy", "loamy" is equivalent to "medium", and "clayey" is equivalent to "fine". The USDA texture classification system uses 12 different categories, so we follow Ritchey et al. (2015)’s convention, in which: 1. Sandy soil is soil with 70% to 100% sand (this category consists of USDA categories "sand" and "loamy sand") 2. Fine soil is soil with 35% to 40% clay (this category consists of USDA categories "sandy clay", "clay", and "silty clay") 3. Medium soil is all other soil that does not fall into the "sandy" or "fine" category (this category consists of USDA categories "sandy clay loam", "sandy loam", "clay loam", "loam", "silty clay loam", "silt loam", and "silt") Following Del Grosso et al. (2000): 
+
+Fr (N O 3/CO 2) = max(0 .16 · k1, k 1 · e−0.8 
+
+> N O 3
+> CO 2,μ
+> 
+
+) (22) Variable Description Units Source 
+
+Fr (N O 3/CO 2) NO 3-to-respiration ratio factor unitless 
+
+N O 3 soil NO 3 concentration μg N gsoil −1 Cycles 
+
+CO 2,μ heterotrophic CO 2 respiration μg C gsoil −1 d−1 Equation 23 
+
+k1 maximum N 2/N 2O ratio (asymptotic ceiling) unitless Equation 24 Note that N O 3’s units of "mg N kg −1" in Equation 18 and " μg N gsoil −1" in Equation 22 are equivalent. However, CO 2,μ from Del Grosso et al. (2000) is not the same as CO 2 from Parton et al. (1996); CO 2,μ (which is measured in μg C gsoil −1 d−1) must be derived from CO 2 (which is measured in kg C ha −1 d−1) via the following conversion formula, which relies on bulk density. We follow Del Grosso et al. (2000) in assuming an active soil depth z of 20 cm, due to Schimel and Parton (1986)’s observation that most N cycling occurs in the top 5 cm of mineral soil. As Del Grosso et al. (2000) states verbatim on page 1056: " · · · an active soil depth of 20 cm is assumed because the majority of N cycling occurs in the top 5 cm of mineral soil and N cycling decreases dramatically with depth (Schimel and Parton (1986))." 
+
+CO 2,μ = CO 2
+
+10 · BD · z (23) Variable Description Units Source 
+
+CO 2,μ heterotrophic CO 2 respiration μg C gsoil −1 d−1
+
+CO 2 soil heterotrophic respiration rate (excluding root respiration) kg C ha −1 d−1 Equation 20 
+
+BD bulk density g cm −3 Cycles 
+
+z soil layer depth m constant at 0.20 Continuing from Del Grosso et al. (2000): 
+
+k1 = max(1 .7, 38 .4 − 350 · DF C ) (24) Variable Description Units Source 
+
+k1 maximum N 2/N 2O ratio (asymptotic ceiling) unitless 
+
+DF C gas diffusivity at field capacity unitless Equation 38 In order to obtain DF C , we must begin by finding Ds 
+
+> D0
+
+. Following Potter et al. (1996) as in Del Grosso et al. (2000), we use the formulation of Millington and Shearer (1971) with polynomial approxima-tions of the exponent terms: 20 Ds
+
+D0
+
+= (1 − SW A )2 · [A − ΘA 
+
+> A
+
++ S]2z · [1 − P 2x] · [( P − ΘP ) − (P − ΘP )2y ](1 − SW A )2 · [A − ΘA 
+
+> A
+
++ S]2 · [1 − P 2x] + ( P − ΘP ) − (P − ΘP )2y +(1 −SW P )2(P −ΘP )2y
+
+(25) Variable Description Units Source  
+
+> Ds
+> D0
+
+normalized soil gas diffusivity at field capacity unitless 
+
+S solid phase volume fraction m3 m−3 Equation 26 
+
+A intra-aggregate pore space m3 m−3 Equation 28 
+
+P inter-aggregate pore space m3 m−3 Equation 29 
+
+ΘA volumetric water content in intra-aggregate pores at FC m3 m−3 Equation 34 
+
+ΘP volumetric water content in inter-aggregate pores at FC m3 m−3 Equation 31 
+
+SW A fractional liquid saturation of intra-aggregate pore space unitless Equation 30, 32 
+
+SW P fractional liquid saturation of inter-aggregate pore space unitless Equation 33, 35 
+
+x tortuosity exponent for inter-aggregate pore space unitless Equation 36a 
+
+y tortuosity exponent for inter-aggregate water content unitless Equation 36b 
+
+z tortuosity exponent for intra-aggregate pore space unitless Equation 36c Note that in Equation 25, we follow the literal typesetting of Potter et al. (1996)’s equation, treating  
+
+> ΘA
+> A
+
+as a standalone fraction, rather than treating A−ΘA 
+
+> A+S
+
+as a fraction. That said, the ambiguity doesn’t affect the results of our paper, since the term (1 − SW A )2 where SW A = 1 simplifies the entire multiplicative expression to 0 anyway. Following Potter et al. (1996)’s estimate: 
+
+S = 1 − P C (26) Variable Description Units Source 
+
+S solid phase volume fraction m3 m−3
+
+P C total pore space capacity (porosity) m3 m−3 Equation 27 To find P C , we use Davidson and Trumbore (1995)’s assumed particle density value: 
+
+P C = 1 − BD P D (27) Variable Description Units Source 
+
+P C total pore space capacity (porosity) m3 m−3
+
+BD bulk density g cm −3 Cycles 
+
+P D particle density g cm −3 constant at 2.65 To find A, we follow Davidson and Trumbore (1995)’s lead in equating A with θf c :
+
+A = θf c (28) Variable Description Units Source 
+
+A intra-aggregate pore space m3 m−3
+
+θf c volumetric water content at field capacity m3 m−3 Equation 37a We similarly follow Potter et al. (1996) in estimating P :
+
+P = |P C − A| (29) 21 Variable Description Units Source 
+
+P inter-aggregate pore space m3 m−3
+
+P C total pore space capacity (porosity) m3 m−3 Equation 27 
+
+A intra-aggregate pore space m3 m−3 Equation 28 To find ΘA and ΘP , we begin with Davidson and Trumbore (1995)’s assumption: "Intra-aggregate porosity was estimated from volumetric soil water content at field capacity . . . water has drained from the inter-aggregate pore spaces, leaving the intra-aggregate pore spaces 100% water-filled . . . it is assumed that the intra-aggregate spaces store water first and lose water last", which forms the basis of the following two equations: 
+
+SW A = 1 (30) 
+
+ΘP = 0 (31) We also know from Potter et al. (1996) that " SW A and SW P denote the fractional liquid saturation of their respective A and P components of the total void volume", which forms the basis for the following two equations: 
+
+SW A = ΘA
+
+A (32) Variable Description Units Source 
+
+SW A fractional liquid saturation of intra-aggregate pore space unitless 
+
+ΘA volumetric water content in intra-aggregate pores at field capacity m3 m−3 Equation 34 
+
+A intra-aggregate pore space m3 m−3 Equation 28 
+
+SW P = ΘP
+
+P (33) Variable Description Units Source 
+
+SW P fractional liquid saturation of inter-aggregate pore space unitless 
+
+ΘP volumetric water content in inter-aggregate pores at FC m3 m−3 Equation 31 
+
+P inter-aggregate pore space m3 m−3 Equation 29 By combining Equation 30 and Equation 32, we find that SW A = ΘA 
+
+> A
+
+= 1 ; or equivalently, when combined with Equation 28: 
+
+ΘA = A = θf c (34) Variable Description Units Source 
+
+ΘA volumetric water content in intra-aggregate pores at field capacity m3 m−3
+
+A intra-aggregate pore space m3 m−3 Equation 28 By combining Equation 33 with Equation 31, we furthermore find: 
+
+SW P = 0 (35) Variable Description Units Source 
+
+SW P fractional liquid saturation of inter-aggregate pore space unitless 22 Finally, rather than solving numerically for x, y, and z as described by Millington and Shearer (1971), we will use Potter et al. (1996)’s polynomial approximations: 
+
+x = 0 .477 P 3 − 0.596 P 2 + 0 .437 P + 0 .564 (36a) 
+
+y = 0 .477( P − ΘP )3 − 0.596( P − ΘP )2 + 0 .437( P − ΘP ) + 0 .564 (36b) 
+
+z = 0 .477 
+
+ A − ΘA
+
+A + S
+
+3
+
+− 0.596 
+
+ A − ΘA
+
+A + S
+
+2
+
++ 0 .437 
+
+ A − ΘA
+
+A + S
+
+
+
++ 0 .564 (36c) Variable Description Units Source 
+
+x tortuosity exponent for inter-aggregate pore space unitless 
+
+y tortuosity exponent for inter-aggregate water content unitless 
+
+z tortuosity exponent for intra-aggregate pore space unitless 
+
+ΘA volumetric water content in intra-aggregate pores at FC m3 m−3 Equation 34 
+
+ΘP volumetric water content in inter-aggregate pores at FC m3 m−3 Equation 31 
+
+S solid phase volume fraction m3 m−3 Equation 26 
+
+A intra-aggregate pore space m3 m−3 Equation 28 
+
+P inter-aggregate pore space m3 m−3 Equation 29 Following Potter et al. (1996), we use Equation 2 from Saxton et al. (1986a) and assume the water potential (i.e., tension) to be 33 kPa for medium to fine textures, and 10 kPa for coarse textures, as in Papendick and Campbell (1981). (Note that Table 2 in Saxton et al. (1986a) has a known error; as noted in the published erratum Saxton et al. (1986b), Equation 37c should not have a standalone term of gsx (% S)2.) This results in the equation Ψ = Asx (θf c )Bsx , which will then rearrange into the following form, which nicely parallels Equation 15. Note that soil texture inputs (%S, %C) used throughout this section were derived from gSSURGO, SoilGrids, or original site-level publications depending on data availability at each site, as provided by the Cycles model developers. 
+
+θf c =
+
+ Ψ
+
+Asx 
+
+ 1
+
+> Bsx
+
+(37a) 
+
+Asx = 100 · exp  asx + bsx (% C) + csx (% S)2 + dsx (% S)2(% C) (37b) 
+
+Bsx = esx + fsx (% C)2 + gsx (% S)2(% C) (37c) Variable Description Units Source 
+
+θf c volumetric water content at field capacity m3 m−3
+
+Asx air entry potential scaling parameter kPa 
+
+Bsx pore size distribution shape parameter unitless 
+
+Ψ water potential (tension) kPa Table 4 
+
+%S percentage of soil that is sand unitless site survey 
+
+%C percentage of soil that is clay unitless site survey 
+
+asx regression coefficient unitless constant at -4.396 
+
+bsx regression coefficient unitless constant at -0.0715 
+
+csx regression coefficient unitless constant at -4.880 × 10 −4
+
+dsx regression coefficient unitless constant at -4.285 × 10 −5
+
+esx regression coefficient unitless constant at -3.140 
+
+fsx regression coefficient unitless constant at -2.22 × 10 −3
+
+gsx regression coefficient unitless constant at -3.484 × 10 −5
+
+The following table comes from Potter et al. (1996)’s assumptions based on Papendick and Campbell (1981): 23 Table 4: Parameters for Ψ in Equation 37a based on soil texture Soil Texture Water Potential Ψ (kPa) sandy 10.0 medium 33.0 fine 33.0 Finally, DF C is obtained by evaluating Equation 25 at θ = θf c , following the assumption of Davidson and Trumbore (1995) that intra-aggregate pore spaces are fully water-filled at field capacity (ΘA = θf c , SW A = 1 ) and inter-aggregate pore spaces are air-filled ( ΘP = 0 , SW P = 0 ): 
+
+DF C = Ds
+
+D0 ΘA=θf c ,S W A =1 ,ΘP =0 ,S W P =0 
+
+(38) Then, continued from Del Grosso et al. (2000), we use Hartman and Parton (2019)’s convention of treating W F P S as the average across the 2nd and 3rd soil layers specifically. Note that we multiply 
+
+W F P S by 100; this doesn’t appear in the original equation from Del Grosso et al. (2000), but is necessary for us since we define W F P S as a fraction, whereas W F P S is treated as a percent in the original equation. 
+
+Fr (W F P S ) = 
+
+
+
+max(0 .1, 0.015(100 · W F P S ) − 0.32) if soil is intact 
+
+max(0 .1, 0.05(100 · W F P S ) − 3.1) if soil is repacked (39) Variable Description Units Source 
+
+Fr (W F P S ) effect of water-filled pore space on RN2/N 2O unitless 
+
+W F P S weighted average water-filled pore space in 2nd and 3rd soil layers unitless Equation 16a As explained in Section 2.3, we determined site-specific soil intactness designations (intact vs. repacked) from the historical tillage records available for each of our sites. 
+
+A.2 Additional Figures 
+
+Figure 4: Site 1 complete time series 24 Figure 5: Site 2 complete time series 
+
+Figure 6: Site 3 complete time series 
+
+A.3 Additional Tables 
+
+25 Table 5: R 2 across  λ sweep (holdout validation) lambda  0 0.01  0.05  0.1  0.2  0.3  0.4  0.5  0.6  0.7  0.8  0.9  1seed 41  0.442  0.479  0.439  0.449  0.358  0.322  0.274  0.227  0.166  0.16  0.19  0.173  0.135 42  0.44  0.438  0.435  0.432  0.402  0.376  0.358  0.306  0.3  0.275  0.242  0.235  0.188 43  0.379  0.338  0.391  0.346  0.28  0.233  0.168  0.133  0.019  -0.043  -0.06  -0.182  -0.224 44  0.412  0.421  0.386  0.369  0.335  0.291  0.187  0.159  0.14  0.106  0.112  0.091  0.113 45  0.45  0.457  0.434  0.459  0.419  0.402  0.375  0.364  0.299  0.244  0.234  0.25  0.189 46  0.395  0.399  0.399  0.402  0.382  0.368  0.343  0.312  0.263  0.254  0.161  0.191  0.168 47  0.386  0.354  0.318  0.344  0.284  0.24  0.191  0.161  0.115  0.115  0.081  0.052  0.055 48  0.399  0.396  0.387  0.374  0.359  0.312  0.267  0.22  0.169  0.11  0.093  0.074  0.037 49  0.43  0.439  0.434  0.431  0.409  0.369  0.343  0.288  0.258  0.219  0.192  0.153  0.099 50  0.374  0.343  0.338  0.351  0.299  0.25  0.23  0.156  0.155  0.148  0.144  0.139  0.145 mean  0.411  0.406  0.396  0.396  0.353  0.316  0.274  0.233  0.188  0.159  0.139  0.118  0.09 std  0.027  0.047  0.04  0.042  0.049  0.058  0.074  0.077  0.086  0.09  0.084  0.118  0.116 
+
+26 Table 6: R 2 across  λ sweep (leave-one-site-out validation) lambda  0 0.01  0.05  0.1  0.2  0.3  0.4  0.5  0.6  0.7  0.8  0.9  1seed 41  -12.466  -7.126  -60.352  -16.591  -19.251  -11.576  -16.524  -3.431  -6.179  -4  -4.233  -3.729  -5.936 42  -18.642  -25.336  -30.724  -7.637  -23.205  -32.59  -7.347  -9.48  -2.452  -3.247  -4.539  -3.769  -6.531 43  -180.562  -78.535  -29.245  -1.539  -27.242  -203.175  -129.547  -80.989  -101.11  -21.849  -56.527  -37.617  -47.983 44  -11.944  -39.53  -17.288  -28.272  -45.996  -11.974  -3.589  -3.814  -3.265  -16.556  -4.855  -4.87  -5.273 45  -85.602  -62.964  -33.413  -26.55  -87.985  -45.606  -5.258  -31.819  -24.96  -32.353  -34.366  -4.598  -41.846 46  -48.069  -0.883  -1.529  -115.415  -77.687  -12.285  -2.369  -13.605  -23.389  -3.294  -3.705  -5.343  -7.065 47  -74.384  -118.931  -32.469  -65.23  -47.697  -102.69  -60.357  -22.196  -39.976  -30.938  -42.735  -53.996  -40.265 48  -63.324  -95.2  -77.864  -42.524  -5.018  -19.809  -19.711  -25.817  -8.816  -4.218  -5.629  -5.091  -6.625 49  -147.117  -311.641  -136.065  -101.067  -109.851  -30.654  -19.079  -6.473  -4.287  -6.084  -3.447  -4.956  -4.214 50  -74.608  -6.746  -92.948  -33.315  -46.036  -31.805  -10.782  -6.218  -4.532  -3.43  -1.873  -5.343  -6.353 mean  -71.672  -74.689  -51.190  -43.814  -48.997  -50.216  -27.456  -20.384  -21.897  -12.597  -16.191  -12.931  -17.209 std  53.170  87.736  38.633  36.540  31.660  57.028  37.588  22.266  28.928  11.281  19.246  16.849  17.236 
+
+27 Figure 7: Site 4 complete time series 28

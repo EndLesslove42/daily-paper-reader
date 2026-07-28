@@ -1,0 +1,1105 @@
+Title: Variational Boosting for Physics-Informed Neural Networks
+
+URL Source: https://arxiv.org/pdf/2607.23940v1
+
+Published Time: Tue, 28 Jul 2026 01:49:43 GMT
+
+Number of Pages: 37
+
+Markdown Content:
+# Variational Boosting for Physics-Informed Neural Networks 
+
+Pavlos Protopapas 
+
+Harvard University 
+
+pavlos@seas.harvard.edu 
+
+Kaylee Vo 
+
+Harvard University 
+
+kvo@seas.harvard.edu 
+
+# Abstract 
+
+Physics-Informed Neural Networks (PINNs) solve differential equations by min-imizing the residual of a nonlinear operator over a neural parameterization of the solution. However, monolithic PINNs often suffer from ill-conditioning, spectral bias, and optimization instability. We introduce a variational boosting framework in which solutions are constructed additively in function space. Each stage trains a weak learner whose converged correction satisfies a local orthogonality condition, equivalent to a projected func-tional gradient descent step onto the tangent space of the network’s function man-ifold. Because each correction network is deliberately small, the restricted min-imization admits full Newton or conjugate gradient updates, which are typically infeasible in large PINNs. The resulting method separates global nonlinear refine-ment into a sequence of well-conditioned subproblems while preserving the full variational structure of the operator. This framework provides a geometric interpretation of multi-stage PINNs as pro-jected functional gradient descent and enables stable second-order optimization for nonlinear differential equations. 
+
+# 1 Introduction 
+
+Physics-Informed Neural Networks (PINNs) approximate solutions of differential equations by min-imizing a residual functional 
+
+L(u) = ∥F (u)∥2, (1) alongside boundary and initial conditions (Raissi et al. [2019]; Karniadakis et al. [2021]). F is a nonlinear differential operator, and ∥ · ∥ 2 is a discrete L2 norm evaluated at a set of collocation points scattered across the domain. The classical formulation minimizes L(uθ ) over a neural param-eterization uθ : the solution u is the function we seek, living in the infinite-dimensional space Hm,while θ ∈ Rp is a finite-dimensional vector of neural network parameters (e.g., weights and biases 
+
+{W1, W 2, b 1, b 2} of a network uθ (x, t ) = W2 · σ(W1 · [x, t ] + b1) + b2), and uθ denotes the func-tion represented by the network with parameters θ. The term “parameterization” emphasizes that this finite-dimensional vector θ is used to search the infinite-dimensional function space in which u
+
+resides. Classical PINNs solve 
+
+min  
+
+> θ
+
+L(uθ ), (2) performing descent in the parameter space of a large neural network. This optimization problem is highly nonlinear, as the mapping θ 7 → uθ is nonlinear and typically overparameterized. Moreover, all scales and nonlinear interactions of the solution are entangled within a single global model, often leading to ill-conditioning (Wang et al. [2021]), spectral bias ( Rahaman et al. [2019]), and unstable training dynamics. arXiv:2607.23940v1 [cs.LG] 27 Jul 2026 Motivation To better understand these challenges, it is useful to examine how the residual changes under perturbations of the function u itself. The functional gradient of the residual satisfies 
+
+∇uL(u) = 2 F ′(u)∗F (u), (3) where F ′(u) denotes the Fr´ echet derivative of F at u. It is the linear operator that best approximates how F changes under small perturbations of u. For a small perturbation h,
+
+F (u + h) ≈ F (u) + F ′(u)[ h], (4) where F ′(u)[ h] denotes applying the linear operator F ′(u) to the function h; crucially, F ′(u) is linear in h even though F itself may be highly nonlinear in u. The notation F ′(u) denotes the derivative evaluated at the point u.
+
+F ′(u)∗ is the adjoint of the Fr´ echet derivative, which maps the residuals back into the same space as u. Concretely, 
+
+F ′(u) : H → L2, F ′(u)∗ : L2 → H , (5) so F ′(u) maps functions to residuals, while its adjoint F ′(u)∗ maps residuals back into function space. The two are related by the defining inner-product identity 
+
+⟨F ′(u)[ v], w ⟩L2 = ⟨v, F ′(u)∗w⟩H, (6) analogous to a transpose for function spaces. The adjoint is needed because F (u) ∈ L2, but the functional gradient must live in H, the space in which u itself resides. Equation (3) reveals that the functional gradient is obtained by applying the adjoint of the linearized operator to the residual, F (u). As a result, errors in one region or frequency of the solution propagate globally through F ′(u)∗.For nonlinear operators, the linearization itself depends on u, so the curvature of the objective evolves during training. For linear PDEs, F ′(u) is constant, independent of u; for nonlinear PDEs, 
+
+F ′(u) changes as u changes during training. For example, 
+
+F (u) = u3 =⇒ F ′(u)[ h] = 3 u2h, (7) so at u = 2 , the gradient scaling is roughly 12 , while at u = 10 , it is roughly 300 – a 25 × difference in steepness. This evolving curvature means the optimization landscape itself shifts as training progresses, much like navigating terrain where the hills keep moving. This evolving curvature is compounded by poor conditioning in multi-scale problems. The condition number 
+
+χ = λmax /λ min , (8) the ratio of the largest to smallest Hessian eigenvalues captures how uneven this curvature is. A large network learning 
+
+u(x) = sin( x) + sin(100 x) (9) simultaneously must contend with gradients of O(1) for the low-frequency component sin( x) along-side gradients of O(10 4) for the high-frequency component sin(100 x), yielding χ > 10 4 and forc-ing tiny learning rates for stable training. Boosting addresses this by separating stages for different scales: each small network is individually well-conditioned, and sequential refinement avoids the need to learn all scales simultaneously within a single model. As Equation (3) shows, the residual couples all components of the solution, so representing all scales within a single network can induce poor conditioning and unstable gradient dynamics (Wang et al. [2020]). 
+
+Contribution We propose a variational boosting formulation that decomposes the solution into a sequence of additive correction networks. Each stage trains a weak learner whose converged correc-tion satisfies a local orthogonality condition — equivalent to a projected functional gradient descent step onto the tangent space of the network’s function manifold (Section 2.3). Crucially, because each weak learner is small, each stage admits full second-order optimization, enabling Newton or conjugate gradient (CG) updates (Nocedal and Wright [2006]). We use second-order optimization methods for nonstiff ordinary differential equations (ODEs), Sections 5.1.1–5.1.2, because the pa-rameter counts for the weak learners are small for these cases. In all other cases, second-order optimization is omitted. This framework yields 1) a variational interpretation of multi-stage PINNs, 2) a functional gradient perspective, and 3) second-order solvability at each stage. 2Related Work To our knowledge, our approach is the first to provide a theoretical justification for variational boosting in PINNs, supported by experimental results; the first to exploit the small network sizes of the weak learners to enable second-order optimization; and the first to utilize trans-fer learning between correction stages. Prior work has explored applying boosting to PINNs [Fang et al., 2023], but did not employ these techniques. Although the examples in the two papers are not directly comparable, for similar examples both our approach and [Fang et al., 2023]’s approach achieve relative L2 errors of the same order of magnitude. It is worth noting that our correction models are much smaller, uniform in size, do not use Fourier features, and are trained for fewer epochs. Compared to other ensemble methods, such as Mixture-of-Experts [Bischof and Kraus, 2022], the MSE achieved in this paper is one order of magnitude lower, despite our correction models being smaller and trained for fewer epochs. The example used in that paper is a linear PDE with an L-shaped domain, which is different than the nonlinear PDEs considered throughout this paper. 
+
+# 2 Variational Boosting Framework 
+
+2.1 Problem Setup 
+
+Let Ω ⊂ Rd be a bounded domain with Lipschitz boundary ∂Ω. We seek a solution u ∈ Hm(Ω) , the Sobolev space of functions with m derivatives in L2(Ω) . Sobolev spaces form a nested hierarchy, 
+
+L2(Ω) = H0(Ω) ⊃ H1(Ω) ⊃ H2(Ω) ⊃ · · · , (10) with each successive space imposing an additional derivative-regularity requirement. This regularity is necessary since the PDEs we consider involve derivatives of u up to order m. Both L2(Ω) and 
+
+Hm(Ω) are Hilbert spaces under their respective inner products, a property used throughout this section (e.g., reflexivity in the existence argument of Appendix F.1). We consider a nonlinear differential operator F : Hm(Ω) → L2(Ω) of the form 
+
+F (u) = Du + g(u) + f (x). (11) Here D is a linear differential operator of order m that maps Hm(Ω) continuously into L2(Ω) ,
+
+g : R → R is a smooth nonlinearity, and f ∈ L2(Ω) is a prescribed source term. We assume 
+
+m > d/ 2, so that the Sobolev embedding Hm(Ω) ,→ L∞(Ω) holds. Since Ω has finite measure, this implies g(u) ∈ L∞(Ω) ⊂ L2(Ω) for all u ∈ Hm(Ω) , and therefore F is well-defined as a map 
+
+Hm(Ω) → L2(Ω) .The space L2(Ω) is a Hilbert space with inner product 
+
+⟨ϕ, ψ ⟩L2(Ω) =
+
+Z
+
+> Ω
+
+ϕ(x) ψ(x) dx, (12) and associated norm 
+
+∥ϕ∥L2(Ω) =
+
+Z 
+
+> Ω
+
+|ϕ(x)|2 dx 
+
+1/2
+
+. (13) We seek a real-valued solution u ∈ Hm(Ω) of the strong-form PDE 
+
+F (u)( x) = 0 for almost everywhere x ∈ Ω, (14) subject to appropriate boundary conditions on ∂Ω. For a given approximation uθ , the quantity 
+
+F (uθ ) ∈ L2(Ω) is the PDE residual, and PINN training enforces F (uθ ) ≈ 0 by minimizing an empirical approximation of ∥F (uθ )∥2
+
+> L2(Ω)
+
+.We work in H = Hm(Ω) , equipped with inner product ⟨· , ·⟩ H and corresponding norm ∥ · ∥ H. We take ⟨· , ·⟩ H to be the standard Hm(Ω) inner product, 
+
+⟨u, v ⟩H = X
+
+> |α|≤ m
+
+⟨Dαu, D αv⟩L2(Ω) , (15) with associated norm ∥u∥H = ⟨u, u ⟩1/2 
+
+> H
+
+, rather than a residual- or operator-induced seminorm. This choice fixes the Riesz map used to compute the functional gradient ∇HL(u) below, and is distinct from the L2(Ω) pairing used in the monotonicity condition (18). 3The governing equation is F (u) = 0 in Ω, subject to boundary conditions B(u) = 0 on ∂Ω, where 
+
+B is a boundary operator. We assume m is large enough that B(u) is well-defined and satisfies 
+
+B(u) ∈ L2(∂Ω) for all u ∈ H (Adams and Fournier [2003]). Following standard PINN practice, boundary conditions are enforced softly by augmenting the loss functional with a weighted penalty term: 
+
+L(u) = ∥F (u)∥2 
+
+> L2(Ω)
+
++ ζ ∥B(u)∥2
+
+> L2(∂Ω)
+
+, (16) where ζ > 0 is a penalty weight. Equation (16) defines the scalar loss minimized by the PINN. The associated (idealized) variational problem is 
+
+u∗ = arg min 
+
+> u∈H
+
+L(u). (17) Because boundary conditions are enforced softly, the minimizer u∗ satisfies B(u∗) = 0 only approx-imately, with accuracy depending on the penalty weight ζ. The interior residual term ∥F (u)∥2
+
+> L2(Ω)
+
+is the primary object of our theoretical analysis. For simplicity, we drop the boundary penalty term in the analysis and, from now on, let 
+
+L(u) := ∥F (u)∥2
+
+> L2(Ω)
+
+.
+
+Note that in practice we train the full weighted loss (16); omitting the boundary term here is for notational simplicity. Since H = Hm(Ω) ,→ L2(Ω) , we use the L2(Ω) inner product to pair 
+
+F (u) − F (v) ∈ L2(Ω) with u − v ∈ H ⊂ L2(Ω) . Assume that F is strongly monotone on H, i.e., 
+
+⟨F (u) − F (v), u − v⟩L2(Ω) ≥ γ ∥u − v∥2
+
+> H
+
+, γ > 0, (18) for all u, v ∈ H . Under this condition, the strong-form equation F (u) = 0 has at most one solution in H (see Appendix F.2 for the proof). In the boosted PINN, each stage k solves a minimization subproblem over a hypothesis class 
+
+Uk ⊂ H . We assume that each stagewise subproblem admits a unique minimizer. This unique-ness assumption ensures that every stage of the boosted PINN is well-defined. 
+
+2.2 Gradient Descent in Function Space 
+
+To motivate the boosted PINN, we present the idealized gradient descent iteration in H. We consider 
+
+L(u) := ∥F (u)∥2
+
+> L2(Ω)
+
+.
+
+(The extension to the full weighted loss (16) is analogous.) The Fr´ echet derivative of L at u in the direction v ∈ H is 
+
+Dv L(u) = 2 F (u), F ′(u)[ v] L2(Ω) , (19) where the linearized operator F ′(u) : H → L2(Ω) acts as 
+
+F ′(u)[ v] = Dv + g′(u) v. (20) By the Riesz representation theorem, there exists a unique element ∇HL(u) ∈ H (the functional gradient) satisfying 
+
+Dv L(u) = ∇HL(u), v H. (21) The idealized gradient descent iteration in H then reads 
+
+uk+1 = uk − α ∇HL(uk) = uk − 2α F ′(uk)∗F (uk), (22) where α > 0 is a step size and k is an iteration index. Each update subtracts a correction aligned with the adjoint-weighted residual, driving F (uk) toward zero. This iteration is intractable directly for three reasons. First, uk lives in the infinite-dimensional space H, so the update cannot be represented or stored exactly. Second, the adjoint F ′(uk)∗ is itself a differential operator with no general closed form. Third, when the Hessian-like operator 
+
+F ′(uk)∗F ′(uk) is ill-conditioned (e.g., in stiff problems where eigenvalues span many orders of magnitude), the step size α must be taken prohibitively small to ensure stability, severely slowing convergence. 4The boosted PINN replaces each intractable functional update (22) with a finite-dimensional correc-tion fit by a neural network. At stage k, a network hk is trained to approximate the functional gradi-ent direction −2F ′(u)∗F (u) at the current iterate, and the solution is updated as u(k) = u(k−1) +hk,with hk chosen to maximally reduce L.This transforms the intractable infinite-dimensional iteration into a sequence of tractable finite-dimensional regression problems, each justified by the existence and uniqueness guarantees estab-lished in Section 2.1. 
+
+2.3 Projected Descent and Optimality 
+
+This section illustrates the boosting update rule by showing that each stage solves a restricted mini-mization in the neural network function class Uk, that the first-order optimality condition forces the residual gradient to be orthogonal to the tangent space of Uk at hk after the update, and that the cor-rection hk can therefore be interpreted as a projected gradient descent step in function space. This connects the practical boosting procedure back to the idealized functional gradient descent iteration from Section 2.2. The boosted PINN restricts the search at each stage k to a function class Uk ⊂ H , taken to be the set of functions representable by the k-th neural network (Section 2.1). Concretely, let ϕk(·; θk) denote the k-th network (as a function of its input), and define 
+
+Uk := {ϕk(·; θ) : θ ∈ Θk} ⊂ H .
+
+At stage k, we solve the restricted problem 
+
+hk = arg min 
+
+> h∈U k
+
+L(u(k−1) + h). (23) In practice, h = ϕk(·; θ) for some network weights θ ∈ Θk. The optimization searches over all such h to find the one that, when added to the current solution, minimizes the loss. The accumulated solution is then 
+
+u(k) = u(k−1) + hk. (24) Since Uk is a nonlinear, non-convex set, the first-order optimality condition requires that the direc-tional derivative vanish along all tangent directions δh ∈ Thk Uk at hk:
+
+∇HL(u(k)), δh H = 0 for all δh ∈ Thk Uk, (25) where δh is the infinitesimal function perturbation in Thk Uk. Equivalently, (25) can be expressed as 
+
+∇HL(u(k)) ⊥ Thk Uk. (26) This means that after adding the correction hk, the remaining functional gradient is orthogonal to the tangent space of Uk at hk. No further descent within Uk is possible from this point. We emphasize that Uk is the full nonlinear range of the k-th network architecture over its entire parameter space Θk: warm-starting each weak learner from the previous stage’s converged weights (Section 2.4) serves only to initialize the optimization and does not restrict Θk. All parameters of ϕk(·; θ) remain free during training. Consequently, Uk is not an affine subspace of H; it is a nonlinear, non-convex manifold, and the affine structure appearing in the optimality condition (25) is strictly local, arising from the tangent space Thk Uk at the trained weights θk. Concretely, this tangent space is spanned by the network’s parameter Jacobian at θk,
+
+Thk Uk = span 
+
+
+
+∂θi ϕk(·; θ) θ=θk
+
+: i = 1 , . . . , |θk|
+
+
+
+⊂ H . (27) It is the linear space of directions reachable by an infinitesimal change in the network’s weights. The projection interpretation given below should therefore be read as a first-order, local statement about this tangent space, rather than a global affine restriction of the search space Uk itself. The update hk therefore extracts all available descent from the current network class, and can be interpreted as a projected gradient descent step in function space: rather than moving in the full steepest descent direction −∇ HL(u(k−1) ), one moves in its projection onto the tangent space of 
+
+Uk:
+
+hk ≈ − proj Thk Uk ∇HL(u(k−1) ). (28) It is an approximation because it is a first-order, intuitive description of what hk does, not an exact characterization. The exact characterization is (23). Each subsequent boosting stage introduces a new function class Uk+1 to continue reducing the residual that remains orthogonal to Thk Uk.52.4 Boosted PINN Framework 
+
+Now, we describe the boosting algorithm. We construct the solution sequentially as an additive ensemble of neural networks. The number of trainable parameters for a given neural network is denoted as |θ|. The first stage, hereafter called stage 0 , is a standard PINN trained directly on the full problem, with h0 ∈ U 0 given by 
+
+h0 = arg min 
+
+> h∈U 0
+
+L(h), (29) giving the initial approximation u(0) = h0. This is consistent with the general update rule (24) by setting u(−1) = 0 . The base learner h0 carries no shrinkage parameter since it is trained directly on the full problem with no prior approximation to correct. For each subsequent boosting stage k ≥ 1,given the current approximation u(k−1) , we train a new weak learner hk ∈ U k to reduce the residual of the accumulated model, as given by (23). We update the ensemble: 
+
+u(k) = u(k−1) + αkhk. (30) Here, αk > 0 is a shrinkage parameter controlling the contribution of each new learner. The cumu-lative approximation after K boosting stages is therefore: 
+
+u(K) = h0 +
+
+> K
+
+X
+
+> k=1
+
+αkhk, (31) making explicit that h0 is the stage 0 weak learner and each subsequent hk corrects the residual left by the previous ensemble. To see why this is a gradient boosting procedure in function space, we linearize F around u(k−1) for small h:
+
+F (u(k−1) + h) ≈ r(k−1) + F ′(u(k−1) )[ h], (32) where r(k−1) = F (u(k−1) ) ∈ L2(Ω) is the current residual and F ′(u(k−1) ) : H → L2(Ω) is the linearized operator. The Fr´ echet derivative of L at u(k−1) in direction h is: 
+
+DhL(u(k−1) ) = 2 r(k−1) , F ′(u(k−1) )[ h] L2(Ω) = 2 F ′(u(k−1) )∗ r(k−1) , h H, (33) so the steepest descent direction at u(k−1) is: 
+
+−∇ HL(u(k−1) ) = −2 F ′(u(k−1) )∗ r(k−1) , (34) where F ′(u(k−1) )∗ : L2(Ω) → H is the adjoint of the linearized operator. Each new weak learner 
+
+hk is trained to minimize the residual of the updated ensemble; by the above linearization, this is approximately equivalent to finding the element of Uk that best approximates the projection of 
+
+−∇ HL(u(k−1) ) onto Thk Uk.
+
+2.4.1 Linearization of Residual Operator F
+
+We consider two variants of the boosted PINN correction step, distinguished by whether the residual operator F is linearized before training hk.In the linearized variant, we freeze F at u(k−1) via its first-order expansion, 
+
+F (u(k−1) + αh ) ≈ r(k−1) + α F ′(u(k−1) ) h, (35) and train θk to minimize this fixed linear model of the residual. This is a Gauss–Newton subproblem. Even though we solve it with Adam rather than a closed-form linear solve (since hk = ϕk(·; θk) is nonlinear in its parameters), the objective itself only ever sees the residual’s local linear approxima-tion at the start of the stage. As a result, training approaches the Gauss–Newton solution rather than a solution of the true nonlinear problem. In the full nonlinear variant, we instead train θk directly against the true, unlinearized resid-ual ∥F (u(k−1) + αh k)∥2, re-evaluating F (and its derivative, via autodiff) at the moving iterate 
+
+u(k−1) + αh k throughout training rather than only at the starting point. The two variants therefore differ not in the optimizer, but in the objective being optimized. The linearized variant solves a sin-gle frozen linear model, with error determined by how far hk departs from the point of linearization. 6The full nonlinear variant follows the true nonlinear landscape at every step. The drawback is that there is no longer a clean closed-form characterization of what the converged hk represents. The decision to linearize F or not was determined via experimentation. The method that resulted in the lowest MSE was chosen. The type of loss used is shown in Table 1 for the ODE examples and Table 10 for the PDE examples. 
+
+# 3 Model Properties 
+
+3.1 Monotone Decrease 
+
+Assuming 0 ∈ U k is always a feasible choice (e.g., by including a zero-initialization), the exact minimizer hk satisfies 
+
+L(u(k−1) + hk) ≤ L (u(k−1) + 0) = L(u(k−1) ). (36) Thus, provided each stage solves its restricted problem exactly and αk = 1 , the loss sequence 
+
+{L (u(k))}k≥0 is non-increasing: 
+
+L(u(0) ) ≥ L (u(1) ) ≥ L (u(2) ) ≥ · · · ≥ 0. (37) In practice, two factors break this guarantee. First, αk ∈ (0 , 1) is a fixed shrinkage parameter rather than an exact line search, so the update is not guaranteed to be the exact minimizer assumed above. Second, our Newton-based optimizer rolls back to the best result obtained during the preceding Adam phase, rather than to the idealized fallback hk = 0 ; as a result, monotone decrease relative to 
+
+u(k−1) is not strictly guaranteed. Nevertheless, we observe an overall decreasing loss trend across stages in practice; Figure 1 illustrates this for the stiff Allen–Cahn (periodic) example, where the loss decreases approximately monotonically despite the absence of a rollback to hk = 0 .
+
+Figure 1: Boosted PINN metrics per stage. 
+
+3.2 Model Assumptions 
+
+Our model assumptions are as follows. Mathematically, the solution is sufficiently smooth for au-tomatic differentiation to evaluate the residual. The residual operator F is coercive and strongly monotone (Section 2.1), ensuring the PDE has exactly one solution in H. Each function class Uk
+
+contains the zero function, i.e., 0 ∈ U k. In the idealized setting described in Sections 2–3, each cor-rection stage reduces the residual. In practice, this is not strictly guaranteed due to fixed shrinkage and the optimizer’s rollback behavior, though we observe an overall decreasing trend empirically. For the algorithm to hold, we assume the residual at collocation points is a sufficient proxy for the continuous residual. The weak learners have sufficient capacity to approximate the correction at 7each stage. The shrinkage coefficients αk ∈ (0 , 1) are chosen small enough that the loss does not oscillate or diverge. A large αk can cause the ensemble to overfit the residual at a single stage, destabilizing subsequent stages. 
+
+3.3 Model Complexity Inference Time Complexity For a fully connected network with width w, depth L, and N collo-cation points, the forward pass cost is computed as follows. Each layer is a matrix-vector product of size w × w, so the cost is O(w2). Over L layers, we get O(w2L). Over N collocation points, we get 
+
+O(N w 2L). Finally, over K stages, we arrive at O(KN w 2L). Note that this computation assumes uniform width across layers, which holds for all networks in this paper (Tables 18 and 20). Let W
+
+denote the width of the standard PINN. Using the same logic, we arrive at O(N W 2L). Therefore, assuming equal depth L (as with all examples in this paper), collocation points N , and number of training iterations, the boosted PINN is more efficient if Kw 2 ≪ W 2.
+
+Space Complexity Each weak learner requires O(w2L) parameters. Storing all K stages simul-taneously requires O(Kw 2L) parameters. Therefore, the space complexity scales linearly with the number of stages. 
+
+Sample Size In our experiments, we have two approaches. The first approach uses the same N
+
+points across all stages, giving a total sample size of N . The second, used in the Allen–Cahn experiments, resamples N fresh points at each stage, giving total sample size KN (see Appendix C for further details). 
+
+# 4 Second-Order Optimization 
+
+Because Uk is represented by a small neural network, the restricted problem is low-dimensional. A second-order solver is computationally feasible at each stage, unlike for monolithic PINNs. 
+
+4.1 Conjugate Gradient 
+
+Let H denote the Hessian matrix of the loss L(θ) := L(ϕk(·; θ)) with respect to the parameters 
+
+θ. H is not guaranteed to be positive-definite in practice, so we apply Tikhonov regularization and solve the linear system 
+
+(H + γI )d = −g, (38) where g = ∇θ L(θ) is the gradient, γ > 0 is a small scalar, and d is the Newton direction. The parameter update is then 
+
+θnew = θold + τls d, (39) where τls is the step size along direction d.Conjugate gradient (CG) is used to solve this system without explicitly forming H. Instead, CG requires only Hessian-vector products Hv . For a fixed vector v, this product can be computed via a second-order directional derivative: 
+
+Hv = ∇θ
+
+ ∇θ L(θ) · v, (40) since differentiating ∇θ L(θ) in the direction of v yields exactly Hv . This avoids forming and storing the full Hessian. The CG algorithm solves Ax = b, where A = H + γI and b = −g; upon convergence, the solution 
+
+x gives the Newton direction d. The initial residual of the linear system is ˜r0 = b − Ax 0. Note the tilde to distinguish this from the PDE residual in Section 2.4. Initialize x0 = 0 , so that 
+
+p0 = ˜ r0 = b = −g, (41) meaning the first search direction is the steepest descent direction. At each subsequent iteration k, compute the step size 
+
+τk = ˜rTk ˜rk
+
+pTk Ap k
+
+, (42) 8and update the iterate, residual, and search direction: 
+
+xk+1 = xk + τkpk, (43) 
+
+˜rk+1 = ˜ rk − τkAp k, (44) 
+
+pk+1 = ˜ rk+1 + βkpk, βk = ˜rTk+1 ˜rk+1 
+
+˜rTk ˜rk
+
+. (45) The update for βk is chosen so that all search directions satisfy the conjugacy condition: 
+
+pTi Ap j = 0 , i̸ = j. (46) The quantity pTi Ap j is a scalar measuring how two directions interact under the curvature defined by A. When it is zero, the directions are A-orthogonal, meaning progress along one direction does not interfere with progress along another. One can think of it as a curvature-weighted inner product between two directions. At each step, the algorithm incorporates new curvature information and eliminates error along a new axis, converging in at most n steps for an n × n system in exact arithmetic. In practice, finite precision may require additional iterations. 
+
+4.2 Newton’s Method 
+
+Compared to the conjugate gradient method, Newton’s method computes the entire Hessian explic-itly, making it feasible only for small models. The Newton system is: 
+
+Hd = −g, (47) where g = ∇θ L(θ) is the gradient, H = ∇2 
+
+> θ
+
+L(θ) is the Hessian, and d is the Newton direction. The parameter update is then: 
+
+θk+1 = θk + d. (48) 
+
+Hessian Computation In the code, H is computed column by column using the identity: 
+
+H⃗ e i = ∇θ (⃗e Ti ∇θ L(θ)) , (49) where ⃗e i is the i-th standard basis vector. This is slow because it requires one backward pass per column of the Hessian and keeps a full computation graph in memory for second derivatives. 
+
+Tikhonov Regularization H is not guaranteed to be positive-definite in practice. After the Hes-sian has been computed, if the Hessian has small or negative eigenvalues, Tikhonov regularization is applied: 
+
+Hreg = H + γI, (50) where γ > 0 is by default set to 10 −3. We then check the minimum eigenvalue of Hreg . If 
+
+λmin (H) < 0, the regularization is strengthened: 
+
+Hreg = H + ( γ + |λmin | + ϵ) I, (51) where ϵ = 10 −6 ensures strict positive-definiteness. 
+
+Trust Region To ensure the step size is not too large, we enforce a trust region constraint: 
+
+∥d∥2 ≤ δ, (52) where δ is the trust region radius, initialized to 1. If ∥d∥2 > δ , the update is rescaled to d ←
+
+δ · d/ ∥d∥2. After applying the update, the trust region radius is adjusted using the trust ratio: 
+
+ρ = actual reduction predicted reduction , (53) where the actual reduction is how much the loss decreased: actual reduction = L(θold ) − L (θnew ), (54) and the predicted reduction is given by the quadratic Taylor model 
+
+m(d) = L(θ) + gT d + 12 dT Hd. (55) So then, predicted reduction = L(θ) − m(d) = −(gT d + 12 dT Hd ). (56) Every computed step is applied; ρ is used only to adjust the trust region radius for the subsequent iteration: 9• ρ < 0.25 : poor agreement with the quadratic model; shrink δ ← 0.5δ.• 0.25 ≤ ρ ≤ 0.75 : acceptable agreement; keep δ unchanged. • ρ > 0.75 and ∥d∥2 ≥ 0.9 δ: good agreement and the step was near the trust boundary; expand δ ← 2δ.
+
+Stopping Conditions Inspired by common implementations of quasi-Newton methods such as L-BFGS, we employ several stopping criteria. The optimization is terminated when any of the following conditions is satisfied: 1. Maximum number of iterations. The number of optimization steps reaches a prescribed upper bound (typically 10 –20 iterations). 2. Gradient norm threshold. The Euclidean norm of the gradient falls below a specified tolerance, indicating proximity to a local optimum: 
+
+∥∇L (θ)∥2 < ε grad .
+
+3. Parameter update threshold. The norm of the parameter update becomes sufficiently small, suggesting further updates will have a negligible effect: 
+
+∥∆θ∥2 < ε param .
+
+4. Loss change threshold. The absolute change in the loss between successive iterations falls below a given tolerance: 
+
+|L (θk) − L (θk−1)| < ε loss .
+
+5. Relative loss change threshold. The loss change relative to the magnitude of the previous loss falls below a given tolerance: 
+
+|L (θk) − L (θk−1)|
+
+1 + |L (θk−1)| < ε tol .
+
+# 5 Experiments 
+
+For the remainder of this paper, we refer to the baseline model as the standard PINN , also referred to as monolithic PINN in Sections 2–4. All reported performance metrics are averaged over a minimum of 10 independent seeds. We consider a PINN converged when the MSE between the PINN solution and the numerical solution satisfies MSE < 10 −2. Throughout this paper, we follow the PINN convention and refer to the RMSE as MSE. The definitions for each performance metric can be found in Appendix D. We use two convergence metrics reported as ”Training Time” and ”Iterations” in the tables. The former measures the time it takes for the PINN to achieve MSE < 10 −2, and the latter measures the epochs or function calls (in the case of L-BFGS) required to achieve MSE < 10 −2.For nonstiff equations, we report results with second-order optimization methods. Otherwise, only the first-order optimization results are shown. For the convergence metrics, we say a model does not converge if any single seed (out of 10) fails to converge. The performance metrics are averaged over nonconvergent and convergent training runs. However, we did not observe any nonconvergence for the boosted PINN in any of the following examples. To make results comparable, in all the ODE examples, we set the batch size equal to the training set. In other words, the standard PINN and each stage use full-batch gradient descent. The number of epochs for both models is fixed and equal. If the standard PINN trains for E epochs, the boosted PINN has a budget of E epochs, such that Pki=1 E(k) 
+
+> weak
+
+= E, where E(k) 
+
+> weak
+
+is the number of epochs used to train the weak learner at stage k.For parameter parity, the architecture of the weak learner is identical to the standard PINN. Since the boosted model is conceptually a single model whose output is the sum of its weak learners, matching each weak learner’s architecture to the standard PINN places both models on equal architectural footing, differing only in how their shared capacity is optimized: jointly, in a single training run, versus sequentially, one stage at a time. This isolates the effect of the staged training procedure 10 itself as the sole variable, rather than attributing any performance difference to a difference in model size or capacity. Lastly, each weak learner is a separate neural network. We use stage to refer to the process of training one weak learner. Model architectures for standard and boosted PINNs can be found in Appendix Tables 18 and 20, along with experimental setup information. 
+
+5.1 ODE Examples 
+
+We evaluate the boosted PINN on the following nonlinear ODEs: Duffing equation, Van der Pol equation, and a nonlinear reaction–diffusion (NRD) equation. We also include an example on Lotka– Volterra, a coupled ODE system. The NRD equation is a boundary value problem (BVP); the rest are initial value problems (IVPs). All examples are nonlinear. For the Van der Pol equation and the nonlinear reaction–diffusion equation, we show both a stiff and a nonstiff regime by adjusting parameters in each respective equation. Duffing is evaluated on 10 sets of parameters, each with qualitative differences (see Table 17 for details). Lotka–Volterra is evaluated in a single (nonstiff) regime. For the Van der Pol equation, we show results for μ ∈ { 2.0, 3.0, 4.0}. For the NRD equation, we show results for κ ∈ { 10 , 100 }. The set of ODE examples is summarized in Table 1. Type Equation Parameter Regime Loss Linearized Nonlinear IVP Duffing 10 parameter sets No Nonlinear BVP NRD κ = 10 Yes Stiff Nonlinear BVP NRD κ = 100 Yes Stiff Nonlinear Reaction Equations Van der Pol μ ∈ { 2.0, 3.0, 4.0} Yes Nonlinear Coupled IVP Lotka–Volterra No Table 1: Overview of ODE examples. 
+
+Transfer Learning for ODE Examples At each boosting stage k ≥ 1, the network hk is initial-ized by transferring weights from the previous stage’s network hk−1. The pretrained weights are loaded directly, after which the final two layers are re-initialized with Xavier initialization [Glorot and Bengio, 2010] and rescaled by a stage-specific scaling factor ξk, detailed in Table 2. A small 
+
+ξk causes the final layers to start nearly zeroed out; the pretrained layers initially dominate the net-work’s output, and the correction hk begins as a small perturbation to u(k−1) . A larger ξk preserves more of the Xavier magnitude in the final layers, introducing greater weight diversity and allowing faster adaptation to the remaining residual. For all experiments, ξk is fixed across stages. As shown in Table 16, transfer learning improves the convergence of the boosted PINN, with the magnitude of the effect varying across problems, from negligible for the Duffing oscillator to essential for conver-gence in the Lotka–Volterra system. In all cases, removing transfer learning increases MSE, though the size of this effect varies substantially by problem. Type Name Scale Factor ( ξ)Nonlinear IVP Duffing 0.5 Stiff and Nonstiff Nonlinear BVP NRD 0.01 Stiff Nonlinear IVP Van der Pol 0.05 Coupled Nonlinear IVP Lotka–Volterra 0.001 Table 2: Scale factors for ODE examples. 
+
+5.1.1 Duffing Equation 
+
+In this subsection, we show results for the Duffing equation, posed as an IVP. The equation is: 
+
+d2udt 2 + δ du dt + αu + βu 3 = γ cos( ωt ). (57) Five parameters control the behavior of the ODE. δ controls damping; the larger the value, the stronger the damping. α is the linear stiffness parameter; the larger the value, the stiffer the equation. 11 β is the nonlinear stiffness parameter. γ is the amplitude of the forcing function, where ω is the angular frequency. For our equation specification, t ∈ (0 .0, 5.0) , with initial conditions: 
+
+u(0) = 0 .5, du dt t=0 
+
+= 0 .
+
+We compare the performance of the models on 10 different sets of parameters. The results are averaged to yield the values in Table 3 and Table 4. All models are compared against a numerical solution given by a Runge–Kutta 4(5) solver, with a relative tolerance of 10 −8 and an absolute tolerance of 10 −10 , using solve ivp () . Each PINN (weak learner and standard PINN) is a fully connected neural network (FCNN). For the Duffing equation, the architecture is (t) − 32 − 32 − (u), two hidden layers, 32 neurons each, with 
+
+sin activations. Table 20 contains all architectures. For the standard PINN, we use two different optimizers, Adam and L-BFGS. Table 3 summarizes the standard PINN performance. Monolithic PINN Metric Adam L-BFGS Residual Norm 9.92 × 10 −3 3.88 × 10 −3
+
+MSE 1.65 × 10 −3 3.77 × 10 −4
+
+Relative L2 Error 3.40 × 10 −3 6.19 × 10 −4
+
+Training Time (s) 3.25 0.31 
+
+Number of Iterations 1,530 132 
+
+Learning Rate 10 −3 1.0
+
+Collocation Points 1,000 1,000 
+
+Network Size 2,209 2,209 
+
+Table 3: Monolithic PINN performance on the Duffing equation. Each weak learner in the boosted PINN is an FCNN. Architectures are fixed across stages. We train the boosted PINN under three optimization schemes: Adam, Adam + CG, and Adam + Newton. When Adam is the sole optimizer, each weak learner is trained only with Adam. When a second-order optimizer is introduced, each boosting stage uses Adam for approximately 90 ± 5% of epochs before switching to the second-order optimizer for the remaining epochs. The exact number of epochs varies across stages, but this ratio is held constant across stages. The rationale for this hybrid strategy is as follows. Since the loss surface for nonlinear problems is nonconvex and noisy, Adam is used first to descend toward a region of the loss surface that is well-conditioned. Second-order methods are sensitive to initialization: if the Hessian H is not positive definite, the optimization step can diverge. By allowing Adam to reach a well-posed region first, the second-order optimizer can then exploit local curvature information more reliably. Training time refers to the time it takes for the PINN’s MSE to fall below 10 −2. Similarly, iterations refer to the number of epochs required. Note that to make the comparison between Adam and L-BFGS accurate, we report the total number of closure calls by the optimizer for the L-BFGS iterations. Table 19 contains information on epochs per stage for all examples. The boosted PINN with Newton performs best across all metrics: residual norm, MSE, and relative 
+
+L2 error. However, it has the slowest convergence time at 187.72 seconds. The Adam + Newton approach is slowest because, to ensure stable training, the Newton method regularizes H and loops over many candidate steps until convergence conditions are satisfied or until max iterations are reached, before taking a Newton step. It is worth noting that the boosted PINN’s total training time is, in general, higher than the standard PINN’s, since it trains K sequential stages, each requiring a full optimization run. In terms of convergence, the standard PINN with L-BFGS converges fastest at 0.31 seconds because the parameter sets chosen for the Duffing equation example are smooth, non-chaotic regimes where standard PINNs excel. In this example, there is no clear winner in terms of both speed and accuracy simultaneously. If speed is prioritized, standard PINN (L-BFGS) is best; if accuracy is prioritized, boosted PINN (Adam + Newton) is best. 12 Boosted PINN Metric Adam Adam + CG Adam + Newton Residual Norm 5.32 × 10 −3 5.43 × 10 −3 3.24 × 10 −3
+
+MSE 2.25 × 10 −4 7.08 × 10 −4 1.44 × 10 −4
+
+Relative L2 Error 3.26 × 10 −4 9.64 × 10 −4 2.17 × 10 −4
+
+Training Time (s) 8.22 7.03 187 .72 
+
+Number of Iterations 702 738 407 
+
+Learning Rate 10 −2 10 −2 10 −2
+
+Collocation Points 1,000 1,000 1,000 
+
+Network Size 2,209 2,209 2,209 
+
+Table 4: Boosted PINN performance on the Duffing equation. The left-hand plot in Figure 2 shows the PINN’s solution for the ODE, which converges to the nu-merical solution. The right-hand plot is the absolute error, defined simply as the absolute difference between the PINN solution and the numerical solution, |ˆuP IN N − ˆunumerical |. Most of the error occurs later in the time domain. Since this is an IVP, it makes sense that the PINN has the most trouble learning dynamics further away from the initial conditions. 
+
+> (a) Boosted PINN (Adam + Newton) vs. numerical solution.
+> (b) Error between Boosted PINN and numerical solu-tion.
+
+Figure 2: Boosted PINN (Adam + Newton) results for the Duffing ODE. Figure 3 illustrates individual weak learners hk for k = 1 , 2, 3 obtained by solving (23). The weak learners are combined additively with the corresponding stage weight αk. The final boosted PINN solution is the linear combination of all the weak learners. Only the first three weak learners are shown for illustrative purposes (out of 20 total stages), since hk → 0 as the stages progress and the ODE residual approaches zero. 
+
+Figure 3: Boosted PINN (Adam) weak learners. 13 5.1.2 Nonlinear Reaction–Diffusion Equation 
+
+Next, we consider stiff and nonstiff NRD equations, both posed as BVPs. The NRD equation is 
+
+−u′′ (x) + κ u3(x) − u(x) = f (x), x ∈ (0 , 1) , (58) with f (x) ≡ 0, subject to Dirichlet boundary conditions 
+
+u(0) = a = 0 .0, u(1) = b = 2 .0.
+
+Here, the second derivative term −u′′ (x) represents diffusion with unit diffusivity, while the cubic nonlinearity κ(u3 − u) models a stiff reaction term. The parameter κ ≫ 1 controls the strength of the nonlinearity and induces stiffness, leading to sharp spatial transitions and multiple scales in the solution. This boundary value problem serves as a challenging benchmark for PINN-based approaches due to its nonlinearity and stiffness. The purpose of this experiment is to show boosted PINN performance on nonlinear BVPs for both stiff and nonstiff regimes. We generate the numerical reference solution by reducing the second-order BVP to a first-order ODE system and solving it with solve bvp () at a tolerance of 1.0 × 10 −8. To aid convergence in the stiff regime, we initialize the solver with a tanh-based guess that smoothly interpolates between the boundary values and whose length scale reflects the expected sharp interior transition. 
+
+Results, κ = 10 For the nonstiff case, we set κ = 10 in (58). Comparing the performance of the standard PINNs to the boosted PINN, we see the standard PINNs never achieve values below 
+
+1.0 × 10 −2 on any of the metrics. The best-performing model with respect to MSE and relative L2
+
+error is the boosted PINN with conjugate gradients, at 1.32 × 10 −3 and 1.30 × 10 −3, respectively. The boosted PINN with Newton has the lowest residual norm, with a value of 7.36 × 10 −2. The results are somewhat surprising given that the equation is not stiff. What we are observing is the ability of the boosted PINN to achieve high performance with a very small architecture. As for convergence, the boosted PINN using Adam alone has the fastest convergence time at 0.23 seconds. The boosted PINN with Adam + CG converges in fewer epochs (434), but its wall-clock time is slower than Adam alone, due to the extra computational cost of computing conjugate gradi-ents. It nonetheless offers a performance benefit by requiring fewer epochs to converge. Monolithic PINN Metric Adam L-BFGS Residual Norm 5.05 × 10 −1 4.69 × 10 −2
+
+MSE 7.66 × 10 −2 1.03 × 10 −1
+
+Relative L2 Error 7.53 × 10 −2 1.03 × 10 −1
+
+Training Time (s) - -Number of Iterations - -Learning Rate 5.00 × 10 −4 1.0
+
+Collocation Points 2,000 2,000 
+
+Network Size 593 593 
+
+Table 5: Standard PINN performance on the NRD equa-tion. 
+
+> – indicates that the standard PINN did not converge; iteration count and training time are therefore not reported.
+
+Since the example is a BVP, the PINN’s error mainly occurs in the interior of the domain, as shown in Figure 4. The loss function includes a boundary condition loss, which guides the PINN to the correct boundary values u(0) = 0 .0 and u(1) = 2 .0. The error is therefore expected to be lower at the boundaries. Figure 5 shows a subset of the weak learners across the 20 stages. The same pattern emerges as in the Duffing example: as the ODE residual is reduced, hk → 0.14 Boosted PINN Metric Adam Adam + CG Adam + Newton Residual Norm 1.90 × 10 −1 2.35 × 10 −1 7.36 × 10 −2
+
+MSE 1.45 × 10 −3 1.32 × 10 −3 2.14 × 10 −3
+
+Relative L2 Error 1.42 × 10 −3 1.30 × 10 −3 2.10 × 10 −3
+
+Training Time (s) 0.23 1.61 40 .28 
+
+Number of Iterations 658 434 462 
+
+Learning Rate 10 −2 10 −2 10 −2
+
+Collocation Points 2,000 2,000 2,000 
+
+Network Size 593 593 593 
+
+Table 6: Boosted PINN performance on the NRD equation. 
+
+Figure 4: Boosted PINN (Adam + CG) solution vs. numerical solution. 
+
+Figure 5: Boosted PINN weak learners for the nonstiff NRD equation. 
+
+Results, κ = 100 For the stiff case, we set κ = 100 in (58). In this regime, both standard PINNs fail to converge to the reference numerical solution; we therefore omit the iteration and training time metrics for both in Table 7. The stiffness of the equation leads to sharp spatial transitions and a highly ill-conditioned optimization landscape, making gradient-based training particularly challenging for the baseline model. However, the boosted PINN successfully converges in 0.27 seconds with 858 epochs. It achieved a residual norm of 2.26 × 10 0, an MSE of 8.01 × 10 −3, and a relative L2 error of 8.01 × 10 −3. Note that these values are identical because they are rounded. At four decimal places, the values are different. The relatively high residual norm, despite the model’s low MSE and relative L2 error, reflects the sensitivity of the residual to small remaining errors in the sharp transition region. Minor deviations near this region are amplified in the residual while contributing only marginally to the domain-averaged MSE. Figure 6 shows the boosted PINN solution with the Adam optimizer, along with the corresponding error plot. The solution closely follows the numerical solution. Most of the error occurs in the interior of the domain, as shown by the right-hand plot. The rationale is the same as with the 15 Monolithic PINN Boosted PINN Metric Adam L-BFGS Adam Residual Norm 3.53 × 10 0 4.08 × 10 −1 2.62 × 10 0
+
+MSE 1.00 × 10 0 9.27 × 10 −1 8.01 × 10 −3
+
+Relative L2 Error 1.00 × 10 0 9.27 × 10 −1 8.01 × 10 −3
+
+Training Time (s) – – 0.27 
+
+Number of Iterations – – 858 
+
+Learning Rate 5.00 × 10 −4 1.0 1.00 × 10 −2
+
+Collocation Points 2,000 2,000 2,000 
+
+Network Size 593 593 593 
+
+Table 7: Performance of standard and boosted PINN on the NRD equation (κ = 100 ). 
+
+> – indicates that the standard PINN did not converge; iteration count and training time are therefore not reported.
+
+nonstiff case. For a BVP, the PINN has a corresponding loss for the boundary conditions, which allows it to more easily determine u(0) = 0 .0 and u(1) = 2 .0.
+
+Figure 6: Boosted PINN (Adam) solution vs. numerical solution The weak learners are shown in Figure 7. Unlike the nonstiff case, there is no rapid decay towards zero because the problem is stiff, making it more difficult to solve. It takes more weak learners for the boosted PINN to converge to the solution: 858 epochs for the stiff problem versus 658 for the nonstiff problem. 
+
+Figure 7: Boosted PINN weak learners 
+
+5.1.3 Van der Pol Equation 
+
+The final ODE example is the Van der Pol equation, posed as an IVP. The differential equation is given by 
+
+d2udt 2 − μ(1 − u2) du dt + u = 0 , u(0) = 2 , du dt t=0 
+
+= 0 . (59) 16 The equation is solved over the domain t ∈ [0 , 8] . The parameter μ controls the stiffness of the equa-tion; the larger μ, the stiffer the problem. The equation is presented here in dimensional form; we initially attempted to fit the boosted PINN on the nondimensionalized form, using transfer learning from one boosted ensemble to another trained at a slightly higher value of μ, but this approach did not work, since the stiff region of the domain shifts as μ increases, making transfer learning on the correction stages ineffective. Note that the standard PINN trained with both the Adam and L-BFGS optimizers fails to converge for this problem and is therefore omitted from the results. For highly stiff problems such as Van der Pol with large μ, where even the boosted PINN falls short, the recommended approach remains the curriculum strategy of [Seiler et al., 2025], which uses transfer learning across incrementally increasing μ values. The architecture of the PINN for this example uses sin activations with a hyperparameter ω for the frequency of the sin function. A learning rate scheduler is used, decaying from 10 −2 to the final value shown in Table 8. When training the boosted PINN on the stiff Van der Pol equation, stage 0 is extremely weak and fails to converge to any meaningful fit. This causes training to become unstable, leaving the correction stages unable to recover the correct solution. To address this, we use retry logic with frequency annealing. The retry logic reruns the stage 0 fit five times and selects the fit with the lowest residual norm. Frequency annealing starts ω at a value near 1 for the first epoch and gradually increases it to 30 at the final epoch. Metric μ = 2 μ = 3 μ = 4 
+
+Optimizer Adam Adam Adam Residual Norm 9.26 × 10 −3 1.77 × 10 −2 1.453 
+
+MSE 1.36 × 10 −3 5.71 × 10 −3 2.94 × 10 −1
+
+Relative L2 Error 9.05 × 10 −4 3.76 × 10 −3 1.81 × 10 −1
+
+Training Time (s) 2,736 .71 9,474 .38 –Number of Iterations 66 ,296 134 ,234 98 ,031 
+
+Learning Rate 10 −2 → 1.00 × 10 −4 10 −2 → 2.5 × 10 −5 10 −2 → 1.25 × 10 −5
+
+Collocation Points 3,000 3,000 3,000 
+
+Network Size (parameters) 49 ,921 49 ,921 49 ,921 
+
+Table 8: Boosted PINN performance on the Van der Pol Equation. 
+
+> – indicates that the PINN did not converge; iteration count and training time are therefore not reported.
+
+The results show convergence for μ = 2 and μ = 3 , with MSE < 10 −2 in both cases. Convergence takes much longer for this example than for any example in this paper. For μ = 2 .0, convergence takes 2,736.71 seconds. For μ = 3 .0, convergence takes 9,474.38 seconds. This example is chal-lenging for two reasons. First, it is an initial value problem, so the PINN must find the solution without knowing the end state; any deviation early in the solution trajectory can lead to an inaccu-rate solution. At μ = 4 , training becomes unstable, reflected in the degradation of the residual norm and MSE. Over independent runs, the MSE for μ = 4 ranged from 2.37 × 10 −4 to 1.09 , indicating that the boosted PINN converges for some runs but not others. The MSE and relative L2 error were computed against a reference solution from the Radau solver, implemented using solve ivp () , with an absolute tolerance of 1.0 × 10 −6 and a relative tolerance of 1.0 × 10 −3.Figure 8 shows the boosted PINN solution and the weak learners across 40 stages. The solution closely tracks the numerical reference solution, demonstrating convergence. The weak learners in the right-hand plot show that most of the corrections are concentrated on the stiff region of the domain. This is the most challenging example in this paper for the boosted PINN. Despite this, the boosted PINN converges on the dimensional Van der Pol equation for μ = 3 , without transfer learning from models trained on smaller μ values and without relying on nondimensionalization. To our knowledge, no prior PINN-based method has demonstrated convergence on the dimensional Van der Pol equation at μ = 3 under these conditions. Prior work has shown failure to converge on this problem [Zhai and Sands, 2021], while other approaches have succeeded only by decomposing the equation into a system of ODEs with nondimensionalization [Taranc´ on- ´ Alvarez et al., 2025]. 17 (a) Boosted PINN solution vs. numerical solution. (b) Boosted PINN weak learners. 
+
+Figure 8: Van der Pol oscillator ( μ = 3.0): boosted PINN solution and weak learners. 
+
+5.2 System of ODEs 
+
+In this section, we move away from scalar ODEs and demonstrate the performance of the boosted PINN on a nonlinear coupled IVP, the Lotka–Volterra predator–prey model. It is a 2D autonomous system exhibiting closed periodic orbits in the phase plane. The system is characterized by the following equations: 
+
+
+
+dx dt = αx − βxy, x(0) = x0 = 10 .0,dy dt = −γy + δxy, y(0) = y0 = 5 .0,
+
+(60) where x(t) denotes the prey population and y(t) denotes the predator population. The parameter 
+
+α > 0 is the natural growth rate of the prey in the absence of predators, and β > 0 is the rate at which predators destroy prey, governed by the nonlinear interaction term xy . For the predator equation, γ > 0 is the natural death rate of predators in the absence of prey, and δ > 0 is the rate at which predators increase by consuming prey. The nonlinearity of the system arises entirely from the bilinear coupling terms βxy and δxy , which couple the two equations and prevent them from being solved independently. The parameter values are set as follows: α = 1 .0, β = 0 .1, γ = 1 .5, and δ = 0 .075 . The non-trivial equilibrium of the system is located at (x∗, y ∗) = ( γ/δ, α/β ) = (20 , 10) , and all trajectories initialized away from this point form closed orbits, making it a challenging benchmark for PINNs due to the oscillatory nature of the solution over long time horizons. It is known that PINNs struggle with long time horizons Wang et al. [2022]; as such, we restrict the time horizon to approximately one cycle, with t ∈ [0 .0, 5.5] .Since it is a 2D system, the output dimension of the PINN will now be two. For the numerical reference solution, we used a Runge–Kutta 4(5) solver, with a relative tolerance of 1.0 × 10 −10 and an absolute tolerance of 1.0 × 10 −12 , using solve ivp () . Neither of the standard PINNs converges under our fixed MSE threshold. Notably, the standard PINN with Adam achieves a low relative L2 error despite its MSE remaining above the convergence criterion. This discrepancy arises because relative L2 error is normalized by the magnitude of the reference solution, while MSE is not. Since the Lotka–Volterra populations range over tens of units, even a modest absolute error is small in relative terms but can still exceed the unnormalized MSE threshold, which was calibrated for problems with solutions ranging roughly between -1 and 1. This suggests that relative L2 error is the more reliable metric for judging model performance on this example. However, MSE remains useful as an absolute measure of error, which may matter more in settings where the physical magnitude of the error is of primary interest. Overall, the boosted PINN is best across all metrics, achieving a residual norm of 5.62 × 10 −3, an MSE of 2.92 × 10 −3, and a relative L2 error of 1.60 × 10 −4. The boosted PINN converges, on average, in 38.06 seconds and 26,400 epochs. 18 Monolithic PINN Metric Adam L-BFGS Boosted PINN Residual Norm 1.21 × 10 −2 2.50 × 10 −1 5.62 × 10 −3
+
+MSE 1.74 × 10 −2 1.21 × 10 0 2.92 × 10 −3
+
+Relative L2 Error 9.52 × 10 −4 6.62 × 10 −2 1.60 × 10 −4
+
+Training Time (s) – – 38 .06 
+
+Iterations – – 26 ,400 
+
+Learning Rate 10 −3 1.0 10 −3
+
+Collocation Points 1,000 1,000 1,000 
+
+Network Parameters 3,298 3,298 3,298 
+
+Table 9: Performance comparison on the Lotka–Volterra predator–prey system. 
+
+> – indicates that the standard PINN did not converge; iteration count and training time are therefore not reported.
+
+Figure 9: Boosted PINN solution vs. numerical solution Figure 9 shows the boosted PINN solution against the numerical reference solution, as both a time trajectory and a phase portrait. The boosted PINN solution closely aligns with the numerical solu-tion. Figure 10 shows the weak learners for stage 0, stage 6, and stage 10. The pattern we observe is that stage 0 captures the overall solution, but with noticeable error. With each new correction, the solution shifts toward the true solution. As the physics residual decreases, the correction magnitude 
+
+hk → 0, consistent with the decreasing order of magnitude observed between stages. Stage 6 makes adjustments on the order of 1.0 × 10 −3, while stage 10’s adjustments are on the order of 1.0 × 10 −4.This is exactly the behavior described in Section 2.4 and observed in prior examples. 
+
+Figure 10: Boosted PINN weak learners 19 5.3 PDE Examples 
+
+Having validated the boosted PINN on ODE examples, we now extend to PDE examples to demon-strate broader applicability. The two PDE examples are Burgers’ equation and the Allen-Cahn equa-tion. Each equation has a parameter that controls the level of stiffness, and we show results for both stiff and nonstiff regimes. For this section, every result shown in the tables is averaged over a minimum of 10 independent seeds. Similar to the ODE examples, the number of epochs for both the standard PINNs and the boosted PINN is fixed and equal, meaning the total epochs across all stages equals the number of epochs the standard PINN is trained on. If a PINN does not achieve an MSE less than 1.0 × 10 −2, within the given epoch budget, we say it does not converge. The interpretation of the convergence metrics (training time and iterations) remains the same as with the ODE examples. The residual norm, MSE, and relative L2 error reported are the best values achieved by each respective model. In all PDE examples, we set the batch size equal to the training set. In other words, there is no mini-batch gradient descent. For parameter parity, each weak learner has the same architecture as the standard PINN. Type Name Parameter Regime Loss Linearized Nonlinear Burgers 1D ν = 1 .0 No Stiff Nonlinear Inviscid Burgers 1D ν = 0 .002 No Nonlinear Reaction Diffusion Allen-Cahn D = 1 .0 Yes Stiff Nonlinear Reaction Diffusion Allen-Cahn D = 10 −4 Yes Table 10: Overview of PDE examples. 
+
+Transfer Learning for PDE Examples As with the ODE examples, the weak learner networks at each boosting stage transfer weights from the previous stage’s network, with the final two layers re-initialized using Xavier initialization [Glorot and Bengio, 2010] and rescaled by a stage-specific scaling factor ξk, as described in Section 2.4. Table 11 provides the scaling factor used for each problem and regime. The ablation results in Section 6 demonstrate that transfer learning improves boosted PINN performance. Type PDE Name Regime Scale Factor ( ξ)Nonlinear Burgers’ 1D high ν 0.01 Stiff Nonlinear Burgers’ 1D low ν 0.01 Nonlinear Reaction-Diffusion Allen-Cahn (Dirichlet) large D 0.5 Stiff Nonlinear Reaction-Diffusion Allen-Cahn (Periodic) small D 0.5 Table 11: Scale factors used for transfer learning across PDE examples. 
+
+5.3.1 Burgers’ Equation 
+
+The Burgers’ equation is given by 
+
+∂u ∂t + u ∂u ∂x = ν ∂2u∂x 2 , x ∈ [−1, 1] , (61) where u(x, t ) is the velocity field, ν is the viscosity, x is the spatial coordinate, and t is time. The initial condition is 
+
+u(x, 0) = − sin( πx ). (62) The boundary conditions are homogeneous Dirichlet boundary conditions 
+
+u(−1, t ) = u(1 , t ) = 0 , t ∈ [0 , 0.5] . (63) The smaller the value of ν, the more difficult the equation is to solve, due to the formation of sharp gradients (shock waves). To obtain the MSE and relative L2 error, we require a numerical reference. We generate the reference numerical solution by discretizing space on a fine uniform grid, converting the PDE into a system of ODEs using 4th-order central finite differences in the interior (2nd-order near the boundaries). This system is then integrated in time with a high-accuracy Radau method (relative tolerance = 10 −12 ,absolute tolerance = 10 −14 ), producing dense-output solution values across many time points. 20 Results, ν = 0 .1 We start with the nonstiff regime. The best model is the standard PINN with L-BFGS, outperforming the boosted PINN on MSE, relative L2 error, and residual norm. However, the boosted PINN converges faster, reaching convergence in 22.03 seconds and 600 epochs, com-pared to 48.05 seconds and 8,009 function calls for the standard PINN with L-BFGS. For L-BFGS, we report the total number of closure calls until convergence to make the comparison with Adam ac-curate. These results are consistent with our earlier findings: for simple problems, L-BFGS achieves better accuracy, as we saw with the nonstiff NRD equation (Section 5.1.2), while the boosted PINN converges the quickest. The standard PINN with Adam does not converge. Standard PINN Standard PINN Boosted PINN Optimizer Adam L-BFGS Adam Residual Norm 3.74 × 10 −2 5.50 × 10 −3 8.69 × 10 −3
+
+MSE 5.01 × 10 −1 1.82 × 10 −4 6.83 × 10 −4
+
+Relative L2 Error 9.07 × 10 −1 3.29 × 10 −4 1.24 × 10 −3
+
+Training Time (s) – 48 .05 22 .03 
+
+Iterations – 8,009 * 600 
+
+Learning Rate 10 −2 1.0 10 −2
+
+Collocation Points 5,000 5,000 5,000 
+
+Network Parameters 2,241 2,241 2,241 
+
+Table 12: Performance comparison on Burgers’ equation ( ν = 0 .1).      
+
+> – indicates that the standard PINN did not converge; iteration count and training time are therefore not reported.
+> *L-BFGS ran for 8,009 function evaluations across 500 iterations.
+
+Figure 11 compares the boosted PINN solution to the numerical solution. Most of the error occurs at t = 0 , suggesting a need for a larger weight on the initial condition loss. Figure 12 shows a subset of the weak learners. The corrections are of very small magnitude because stage 0 already performs well; the subsequent stages provide only marginal improvements to the residual norm and MSE, highlighting the simplicity of the example. Overall, there is no clear winner in this case; the preferred model depends on whether one prioritizes convergence speed or accuracy. 
+
+Figure 11: Boosted PINN solution vs. numerical solution for Burgers’ equation ( ν = 0 .1). 
+
+Figure 12: Boosted PINN weak learners for Burgers’ equation ( ν = 0 .1). 21 Results, ν = 0 .002 Next, we decrease ν to test the models under a stiff regime. In prior research, standard PINNs have been shown to converge with an MSE of order 10 −4 for ν = 0.01  
+
+> π
+
+≈ 0.00318 
+
+Raissi et al. [2019]. Note that our case is stiffer. Neither the standard PINN nor the boosted PINN converges to the criterion MSE < 10 −2; as a result, no training times or iteration counts are reported for any model. The results summarized in Table 13 show that the boosted PINN achieves the lowest MSE at 5.36 ×10 −2 and the lowest relative L2 error, though the former is still above the convergence threshold. The standard PINN with Adam achieves the lowest residual norm. This mismatch between residual norm and MSE reflects the behavior observed in the Van der Pol example. The residual norm reflects how well the PDE is satisfied on average across all collocation points, while the MSE reflects deviation from the true solution, which for this stiff regime is con-centrated in a narrow, difficult region of the domain. The standard PINN, lacking any mechanism to focus capacity on this region, distributes its residual more uniformly, yielding a low average resid-ual norm while still missing the sharp local structure that drives the MSE. The boosted PINN, by contrast, concentrates its corrections on the most difficult region of the domain, which lowers MSE but can inflate the residual norm, since aggressive correction in a stiff zone can cause residual spikes that dominate the overall norm. Monolithic PINN Monolithic PINN Boosted PINN Optimizer Adam L-BFGS Adam + L-BFGS Residual Norm 4.08 × 10 −2 4.58 × 10 −1 1.26 × 10 0
+
+MSE 6.44 × 10 −1 1.89 × 10 −1 3.72 × 10 −2
+
+Relative L2 Error 9.27 × 10 −1 2.72 × 10 −1 5.36 × 10 −2
+
+Training Time (s) – – –Number of Iterations – – –Learning Rate 10 −2 1.0 10 −2 → 10 −3
+
+Training Collocation Points 5,000 5,000 5,000 
+
+Network Size 2,241 2,241 2,241 
+
+Table 13: Model comparison for Burgers’ equation ( ν = 0 .002 ). 
+
+> – indicates that the standard PINN did not converge; iteration count and training time are therefore not reported.
+
+Stage 0 was fit using L-BFGS. For the correction stages, the first 95% of epochs used Adam, while the last 5% used L-BFGS. The boosted PINN solution fits well but struggles at the discontinuity, as shown in Figure 13 in the right-most plot. Figure 14 shows the weak learners across stages. Unlike in the nonstiff regime, the corrections are of much larger magnitude, indicating that the physics residual remains large throughout training. Additionally, the magnitude of the corrections does not decrease across stages, reflecting the difficulty of resolving the discontinuity, a known weakness of PINNs Raissi et al. [2019]. Nevertheless, the boosted PINN achieves the lowest MSE and relative 
+
+L2 error among all three models. 
+
+Figure 13: Boosted PINN solution vs. numerical solution for Burgers’ equation ( ν = 0 .002 ). 22 Figure 14: Boosted PINN weak learners for Burgers’ equation ( ν = 0 .002 ). 
+
+5.3.2 Allen–Cahn with Dirichlet Boundary Conditions 
+
+For the next example, we consider the one-dimensional Allen–Cahn equation 
+
+∂u ∂t = D ∂2u∂x 2 + u − u3, (x, t ) ∈ [−1, 1] × [0 , 2] . (64) The initial condition is a Gaussian profile, 
+
+u(x, 0) = e−5x2
+
+, x ∈ [−1, 1] ,
+
+with homogeneous Dirichlet boundary conditions, 
+
+u(−1, t ) = 0 , u(1 , t ) = 0 , t ∈ [0 , 2] .
+
+The diffusion parameter D controls the stiffness of the equation. The smaller the value, the stiffer the equation. For this example, D = 1 .0. Unlike the prior examples, we resample collocation points at each boosting stage for both Allen–Cahn examples. To keep parity, the standard PINN resamples the same number of times, uniformly spaced across the epoch budget. The MSE for this specific Allen-Cahn regime was computed by comparing the PINN solution to a reference numerical solution. This reference was obtained by discretizing the spatial domain with a finite-difference Laplacian, converting the PDE into a system of ODEs, and integrating in time with a Crank–Nicolson scheme solved via Newton’s method, with Dirichlet boundary conditions imposed explicitly at each step. 
+
+Reparameterization We reparameterize the PINN to automatically enforce time-dependent Dirichlet boundary conditions at x = xmin , x max . This construction is general. For any prescribed boundary data uL(t) and uR(t), define 
+
+u(xmin , t ) = uL(t), u(xmax , t ) = uR(t). (65) The reparameterization is given by 
+
+u(x, t ) = ulin (x, t ) + g(x) nθ (x, t ) (66) where 
+
+ulin (x, t ) = x − xmin 
+
+xmax − xmin 
+
+uR(t) + xmax − xxmax − xmin 
+
+uL(t),g(x) = ( x − xmin )( xmax − x),
+
+23 and nθ (x, t ) denotes the neural network output with parameters θ. Note that, for our specific case, the reparameterization simplifies to 
+
+u(x, t ) = g(x) nθ (x, t ), (67) since uL(t) = uR(t) = 0 .This guarantees the Dirichlet conditions. At x = xmin , we have ulin (xmin , t ) = uL(t) and 
+
+g(xmin ) = 0, so u(xmin , t ) = uL(t). Similarly, at x = xmax , ulin (xmax , t ) = uR(t) and 
+
+g(xmax ) = 0 , so u(xmax , t ) = uR(t), matching (65). We also reparameterize the weak learners’ networks so that their corrections vanish at the boundary, preserving the boundary conditions already satisfied by stage 0. We reparameterize as follows: Define 
+
+c(x, t ) = g(x) nθ (x, t ), (68) where g(x) is as defined above. At the boundaries: 
+
+g(xmin ) = ( xmin − xmin )( xmax − xmin ) = 0 ,g(xmax ) = ( xmax − xmin )( xmax − xmax ) = 0 ,
+
+hence 
+
+c(xmin , t ) = 0 , c(xmax , t ) = 0 ∀t. 
+
+In the interior x ∈ (xmin , x max ), g(x)̸ = 0 , so the network can express arbitrary corrections (scaled by g) while always satisfying 
+
+c(xmin , t ) = c(xmax , t ) = 0 .
+
+Results, D = 1 .0 As shown in Table 14 and Figure 15, the residual norm, MSE, and relative 
+
+L2 error of the standard PINN using L-BFGS are the lowest, at 5.46 × 10 −3, 8.10 × 10 −5, and 
+
+4.21 × 10 −4, respectively. For these same performance metrics, the boosted PINN’s are one order of magnitude worse, at 1.88 × 10 −2, 3.68 × 10 −4, and 1.91 × 10 −3. The boosted PINN, however, converges the quickest, taking 2.78 seconds and 500 epochs, on average. The standard PINN also takes 500 epochs to converge but converges more slowly, requiring 3.51 seconds. Monolithic PINN Monolithic PINN Boosted PINN Optimizer Adam L-BFGS Adam Residual Norm 1.75 × 10 −2 5.46 × 10 −3 1.88 × 10 −2
+
+MSE 2.50 × 10 −3 8.10 × 10 −5 3.68 × 10 −4
+
+Relative L2 Error 1.30 × 10 −2 4.21 × 10 −4 1.91 × 10 −3
+
+Training Time (s) 3.51 24 .73 2.78 
+
+Number of Iterations 500 4,062 * 500 
+
+Learning Rate 10 −2 1.0 10 −2
+
+Collocation Points 5,000 5,000 5,000 
+
+Network Size 4,417 4,417 4,417 
+
+Table 14: Model comparison for the Allen–Cahn equation ( D = 1 .0).      
+
+> *L-BFGS ran for 4,062 function evaluations across 500 epochs.
+
+Figure 15: Boosted PINN solution vs. numerical solution for the Allen–Cahn equation ( D = 1 .0). 24 Figure 16: Boosted PINN weak learners for the Allen–Cahn equation ( D = 1 .0). The Allen–Cahn equation with Dirichlet boundary conditions and a large D value is smooth and poses little difficulty for PINNs. As such, we only use three stages for the boosted PINN; additional stages would only add noise, corrupting the solution. The right-hand plot of Figure 15 shows the absolute error. At the boundaries xmin and xmax , the error is exactly zero, as a result of the reparam-eterization of stage 0. The error remains zero even after subsequent corrections because the weak learner corrections are also reparameterized to vanish at the boundaries, preserving the boundary conditions already satisfied by stage 0. Figure 16 shows the corrections concentrated at the initial condition, since most of the error occurs at this time point. 
+
+5.3.3 Allen–Cahn Equation with Periodic Boundary Conditions 
+
+For this example, we switch from Dirichlet to periodic boundary conditions. Periodic boundary conditions combined with a small diffusion coefficient D = 10 −4 cause the solution to develop sharp interfaces between phases, inducing stiffness. We consider the Allen–Cahn equation 
+
+∂u ∂t = D ∂2u∂x 2 + u − u3, x ∈ [−1, 1] , t ∈ [0 , 3] , (69) where D is the diffusion coefficient governing interface width. The stable equilibria of the reaction term u − u3 are u = ±1, and for small D, the solution develops sharp interfaces between these two phases. The initial condition is 
+
+u(x, 0) = x2 cos( πx ). (70) Periodic boundary conditions are imposed on the domain boundaries x = −1 and x = 1 :
+
+u(−1, t ) = u(1 , t ), ∂u ∂x x=−1
+
+= ∂u ∂x x=1 
+
+, t ∈ [0 , 3] . (71) The MSE of the boosted PINN was computed by comparing the PINN solution to a Fourier spectral reference solution. The reference is solved on a 512-point Fourier grid in space (method of lines) with adaptive implicit (Radau) time-stepping, then interpolated to a 256-point uniform spatial grid × 201-point time grid for the actual PINN comparison. Also note that this example differs in the sampling strategy used in prior examples (Section C). Here, we sample a new set of collocation points for each stage. To make comparisons equivalent between the boosted PINN and standard PINN, we have the standard PINN resample an equal number of times, spaced uniformly across the epoch budget. For example, if we have a budget of 10,000 epochs and ten stages, then every 1,000 epochs, the standard PINN gets a new set of collocation points. 
+
+Reparameterization We reparameterize both stage 0 and the correction stages to remove the boundary condition loss from the PINN’s total loss. Let L = xmax − xmin = 2 be the period of the domain [xmin , x max ] = [ −1, 1] . For a spatial coordinate x, define the phase angle 
+
+φ(x) = 2π (x − xmin )
+
+L = π(x + 1) , φ ∈ [0 , 2π]. (72) 25 The two-dimensional Fourier embedding is then 
+
+ϕ(x) = 
+
+cos φ(x)sin φ(x)
+
+
+
+, (73) and the augmented network input is 
+
+z(x, t ) = 
+
+
+
+cos  π(x + 1) 
+
+sin  π(x + 1) 
+
+t
+
+ ∈ R3. (74) The stage 0 approximation is defined as 
+
+u(0) (x, t ) = ϕ0
+
+ z(x, t ); θ0
+
+, (75) where ϕ0 : R3 → R is a fully connected neural network and θ0 are its trainable parameters. At x = xmin = −1 and x = xmax = 1 , the phase angle (72) takes the values φ(−1) = 0 and 
+
+φ(1) = 2 π. Since cos and sin are 2π-periodic, 
+
+z(−1, t ) = 
+
+10
+
+t
+
+!
+
+= z(1 , t ), (76) so that u(0) (−1, t ) = u(0) (1 , t ) for all t.By the chain rule, 
+
+∂u (0) 
+
+∂x = ∂ϕ 0
+
+∂z · dz
+
+dx = π ∂ϕ 0
+
+∂z ·
+
+
+
+− sin φ
+
+cos φ
+
+0
+
+ . (77) Because (− sin 0 , cos 0) = (0 , 1) = ( − sin 2 π, cos 2 π), the input Jacobian dz/dx is identical at 
+
+x = −1 and x = 1 . With (76), this guarantees 
+
+∂u (0) 
+
+∂x x=−1
+
+= ∂u (0) 
+
+∂x x=1 
+
+, (78) satisfying the full periodic boundary condition (71) exactly. Each correction hk at boosting stage k uses the identical embedding: 
+
+hk(x, t ) = ϕk
+
+ z(x, t ); θk
+
+, (79) so that the periodic conditions hk(−1, t ) = hk(1 , t ) and ∂xhk|x=−1 = ∂xhk|x=1 hold for any choice of θk. Since every correction satisfies the periodic boundary conditions by construction, so does their sum, and the composite loss no longer requires a boundary term. Only the PDE residual and initial-condition terms remain. 
+
+Results, D = 10 −4 Choosing D = 10 −4 imbues stiffness into the equation. The standard PINNs with both Adam and L-BFGS do not converge, as their MSEs do not fall below < 10 −2 within the given epoch budget. Their residual norm and MSE reported in Table 15 are the best values achieved before termination. The boosted PINN consistently converges across independent runs, using 16 ,933 
+
+epochs and 499 .44 seconds, on average. The boosted PINN achieved an MSE of 7.10 × 10 −3, a residual norm of 2.37 × 10 −3 and a relative L2 error of 1.22 × 10 −2, all of which are lower than the standard PINNs. These are the best values achieved before termination. This result is consistent with prior observations: for stiff or complex equations, the standard PINN fails to converge while the boosted PINN is successful. 26 Monolithic PINN Monolithic PINN Boosted PINN 
+
+Optimizer Adam L-BFGS Adam Residual Norm 2.40 × 10 −2 3.66 × 10 −3 2.37 × 10 −3
+
+MSE 1.89 × 10 −1 1.41 × 10 −2 7.10 × 10 −3
+
+Relative L2 Error 3.24 × 10 −1 2.60 × 10 −2 1.22 × 10 −2
+
+Training Time (s) – – 499 .44 
+
+Number of Iterations – – 16 ,933 
+
+Learning Rate 10 −2 → 1.91 × 10 −8 1.0 10 −2 → 5.0 × 10 −3
+
+Collocation Points 5,000 5,000 5,000 
+
+Network Size 8,641 8,641 8,641 
+
+Table 15: Model comparison for the Allen–Cahn equation with periodic boundary conditions (D = 10 −4).      
+
+> –Monolithic PINN (Adam and L-BFGS) did not converge to MSE <10 −2; training time and iteration count are therefore not reported. The residual norm, MSE, and relative L2error reported are the best values achieved before termination.
+
+Figures 17 and 18 show the boosted PINN solution as a 3D plot and solution slices at selected time points. The solution slices show that the boosted PINN performs well at early time points but struggles somewhat at later time points, consistent with the increasing stiffness of the problem over time. Note that the absolute error at the boundaries xmin and xmax is exactly zero due to the reparameterization. In total, ten correction stages were used. Figure 19 shows the weak learners across stages. As the number of stages increases, the PDE resid-ual decreases and the magnitude of each correction decreases accordingly, as indicated by the de-creasing scale shown on the vertical axis across stages. This is the ideal boosting behavior described in Section 2.3. 
+
+Figure 17: Boosted PINN solution vs. numerical solution for the Allen–Cahn equation ( D = 10 −4). 
+
+Figure 18: Boosted PINN solution slices at selected time points for the Allen–Cahn equation ( D =10 −4). 27 Figure 19: Boosted PINN weak learners for the Allen–Cahn equation ( D = 10 −4). 
+
+# 6 Ablation Study 
+
+Transfer Learning Ablation We present results for the transfer learning ablation experiment, which examines the effect of removing transfer learning between boosting stages. The hypothesis is that removing transfer learning will cause the MSE to increase. We selected three examples spanning different problem types: an ODE (Duffing), a coupled ODE (Lotka–Volterra), and a PDE (Burgers’). We generated a paired dataset using ten independent seeds; for a given seed, we ran the boosted PINN with and without transfer learning. From Table 16, the effect of transfer learning is statistically significant by the Wilcoxon signed-rank test for the Lotka–Volterra and Burgers’ examples, but not for the Duffing example ( p = 0 .3125 ). For the Duffing example, the difference is not statistically significant, likely due to high variance across seeds, though a practical difference in MSE is observed ( 2.04 × 10 −3 vs. 8.90 × 10 −3). For the Lotka–Volterra system, transfer learning is critical: without it, the MSE is orders of magnitude worse ( p = 0 .0042 ). For Burgers’, transfer learning gives a modest but significant improvement (p = 0 .0420 ). Problem MSE (Transfer) MSE (No Transfer) Wilcoxon p
+
+Duffing 2.04 × 10 −3 8.90 × 10 −3 0.3125 
+
+Lotka–Volterra 1.76 × 10 −3 7.91 × 10 −1 0.0042 ∗∗ 
+
+Burgers’ 1.77 × 10 −4 2.91 × 10 −4 0.0420 ∗
+
+Table 16: Effect of transfer learning on MSE.   
+
+> ∗
+> p < 0.05 .
+> ∗∗
+> p < 0.01 .
+
+# 7 Sensitivity Analysis 
+
+In this section, we report the results of a sensitivity analysis of the boosted PINN, varying the number of neurons per layer and the number of stages. Recall that the hidden dimension of the weak learners is uniform. We report findings for two examples: a coupled ODE system (Lotka-Volterra) and a stiff PDE (Allen-Cahn with periodic boundary conditions). We report three metrics. The first is the MSE achieved at the final stage of the boosted PINN. The second is the time until convergence, and the last is the number of epochs until convergence. Each metric is averaged over five seeds. Our hypotheses are as follows: 1. As the number of stages increases, the MSE should decrease, eventually plateau-ing [Chaudhry, 2026]. 2. As the number of neurons increases, the MSE should decrease but only up to a point be-cause if the size of the weak learners is too large, they begin to resemble monolithic PINNS, which we have shown (Section 5) perform worse than fitting small learners sequentially. 28 Lotka-Volterra The results for Lotka-Volterra are consistent with our hypotheses: increasing model size and the number of stages both reduce the MSE. Notably, when a weak learner lacks sufficient capacity to approximate the functional gradient, increasing the number of stages fails to improve performance, as shown in the last row of 23. In this regime, the model cannot adequately descend the space of functions, and convergence stalls. Next, we examine the sensitivity of convergence metrics (Figures 20 and 22). The left-hand plot reports the metric averaged over seeds that converged, conditional on convergence. The right-hand grayscale plot reports the proportion of seeds that converged for each configuration, serving as a measure of training stability. 
+
+Figure 20: MSE Sensitivity - Lotka-Volterra Holding the number of stages fixed, the number of epochs required for convergence decreases mono-tonically as the size of the weak learner increases. Training stability follows the same trend. This is consistent with our hypotheses: a larger weak learner is more expressive and can more accurately estimate the functional gradient. For a fixed hidden dimension, we observe no meaningful variation in the number of epochs to convergence across the number of stages. Each stage is trained indepen-dently, and its epoch budget is therefore unaffected by the number of stages preceding it. In terms of wall-clock time to convergence, we similarly observe little variation across stages for a fixed hidden dimension, but substantial variation across the hidden dimension axis. As the number of neurons increases, per-epoch computational cost grows, increasing total training time. 
+
+Figure 21: Crossing Epoch Sensitivity - Lotka-Volterra 29 Figure 22: Wall Clock Sensitivity - Lotka-Volterra 
+
+Allen-Cahn We perform the same sensitivity analysis on the Allen-Cahn PDE under a stiff regime. As shown in Figure 23, most of the variation in MSE arises from the hidden dimension rather than the number of stages. However, unlike the ODE example, increasing the number of neurons improves performance only up to a point, beyond which performance degrades. For this example, a hidden dimension between 64 and 128 performs best; at 256, performance degrades to the same order of magnitude as at 32. The observed degradation in the large weak learner size may be attributable to the same spectral bias [Rahaman et al., 2019], observed in standard PINNs, which would render each stage’s estimate of the functional gradient increasingly inaccurate. The crossing metrics are non-monotonic for the stiff PDE case. For the stiff PDE case, the cross-ing metrics behave non-monotonically with respect to model size. Stable training is confined to a specific region of the parameter space spanned by the number of stages and hidden dimension: specifically, a hidden dimension of 64, or a hidden dimension of 128 combined with a large number of stages. Within this stable region, epochs-to-convergence are lowest at a hidden dimension of 64, while wall-clock time to convergence increases with model size. 
+
+Figure 23: MSE Sensitivity - Allen-Cahn Taken together, the sensitivity analysis shows that for non-stiff systems, increasing model size and the number of stages monotonically improves performance. For stiff systems, by contrast, selecting an appropriately sized weak learner is critical: if the weak learner is too small, it fails to accurately estimate the functional gradient; if it is too large, it behaves like a monolithic PINN and suffers from 30 the same ill-conditioning, spectral bias, and unstable training dynamics mentioned in the introduc-tion (Section 1). 
+
+Figure 24 
+
+Figure 25 
+
+# 8 Discussion 
+
+The proposed framework separates nonlinear refinement into a sequence of low-dimensional vari-ational problems. Unlike classical boosting, each stage minimizes the full nonlinear residual, pre-serving operator structure. The approach enables second-order optimization while maintaining a principled geometric interpretation. We also showed that transfer learning across the boosting stages improves model performance. Our experiments show that for smooth, nonstiff problems, the standard PINN with L-BFGS out-performs the boosted PINN, as in the case of the viscous Burgers’ equation and Allen–Cahn in the nonstiff regime. Even in cases where the boosted PINN falls short in terms of accuracy, it outper-forms in terms of convergence, measured in time and epochs. Furthermore, for stiff or vector-valued problems, the boosted PINN converges with lower error and, in some cases, converges to a solu-tion when the standard PINN could not converge, as with the NRD and Van der Pol ODEs and the Allen–Cahn PDE. 
+
+Limitations There is a level of stiffness that the boosted PINN cannot handle, as shown for Van der Pol with μ = 4 .0 and Burgers’ with ν = 0 .002 . Although not shown, the boosted PINN also suffers from long temporal problems, similar to standard PINNs. If one extends beyond one cycle in the Lotka–Volterra example, all models fail to converge. Furthermore, our examples only use second-order optimizers for nonstiff ODEs. Implementing second-order optimizers for nonstiff PDEs and stiff equations remains future work. 31 Despite these limitations, the results make clear that boosting as an optimization framework is a valid approach to training PINNs. We successfully showed that boosting works for ODE IVPs and BVPs, both stiff and nonstiff, for coupled ODEs, and for PDEs in both stiff and nonstiff regimes. Our results reflect the theory: the weak learners learned non-trivial approximations to the projected functional gradient, and the ensemble converged toward the true solution with each additional weak learner. Boosting provides an alternative that uses far fewer parameters and less compute, while offering faster convergence times. 
+
+# 9 Conclusion 
+
+We introduced a variational boosting formulation of PINNs, grounded in existence and uniqueness theory for the underlying residual-minimization problem. By performing descent in function space through restricted variational minimization, the method provides stability, modular refinement, and practical second-order solvability. This perspective bridges variational PDE theory, functional gra-dient methods, and neural operator learning. Since the weak learners themselves are small, we were able to successfully implement and train two custom second-order optimizers, namely conjugate gradient and Newton. Both optimizers improve the training time and the error for the boosted PINN. Across a range of ODE, coupled ODE, and PDE benchmarks, the boosted PINN matches or exceeds the accuracy of standard monolithic PINNs while using substantially fewer parameters and, in stiff regimes, converges where standard PINNs fail outright. As mentioned in the Discussion (Section 8), these gains come with limitations. Convergence de-grades beyond a certain stiffness threshold. Performance on long temporal horizons remains an open challenge shared with standard PINNs, and our second-order optimizers have so far only been validated on nonstiff ODEs. Extending second-order optimization to stiff equations and PDEs and addressing long-horizon training are natural directions for future work. Taken together, the results, ablation studies, and sensitivity analysis support boosting as a principled and practical alternative to monolithic PINN training. This approach trades a single large network for a sequence of small, theoretically grounded corrections, with the potential to scale to harder physics-informed learning problems where standard architectures struggle. 
+
+# A Parameter Regimes: Duffing Equation 
+
+Table 17 lists the ten parameter sets used to evaluate the Duffing equation. For each set, the Descrip-tion column provides a qualitative characterization of the resulting dynamics. Results in the main text are averaged over all ten sets. ID δ α β γ ω u0 ˙u0 Description 0 1.0 -2.0 2.0 1.0 1.0 0.9 0.0 double-well, moderate damping 1 0.3 -1.0 1.0 0.5 1.2 0.5 0.0 classic chaotic regime 2 0.1 1.0 1.0 0.3 0.8 0.6 0.0 hardening spring, light damping 3 2.0 -1.0 1.0 0.5 1.0 1.0 0.0 strongly damped, double-well 4 0.5 1.0 0.05 0.5 1.0 0.5 0.0 near-linear, moderate forcing 5 0.4 1.0 1.0 0.8 2.5 0.3 0.0 high-frequency forcing 6 0.3 1.0 0.5 0.5 0.3 1.5 0.0 low-frequency, large amplitude 7 0.2 -1.0 1.0 1.0 1.4 0.2 0.0 double-well, strong forcing, near-chaotic 8 0.5 1.0 4.0 0.8 1.2 0.7 0.0 large nonlinearity, moderate damping 9 0.0 1.0 1.0 0.0 1.0 0.4 0.0 undamped, pure nonlinear oscillator Table 17: Duffing equation parameter regimes. 
+
+# B Model Architecture 
+
+All models take in the independent variables as input. The only exception is the Allen–Cahn (Pe-riodic) network, which takes three inputs: cos( π(x + 1)) and sin( π(x + 1)) , as shown in equation 32 72. Replacing the raw spatial coordinate x to encode the periodic domain [−1, 1] as a circle, guar-anteeing that the network output satisfies the periodic boundary conditions u(−1, t ) = u(1 , t ) and 
+
+∂xu|x=−1 = ∂xu|x=1 . The third input is time t.                                                                                                                       
+
+> Boosted PINN Neural Architecture WL Parameters Activation LR
+> Duffing Equation †(t)−32 −32 −(u)2,209 sin 1.0×10 −2
+> NRD †(t)−16 −16 −(u)593 tanh 1.0×10 −2
+> Lotka–Volterra (t)−32 −32 −32 −32 −(x, y )3,298 tanh 1.0×10 −3→1.0×10 −5
+> Van der Pol (t)−128 −128 −128 −128 −(u)49 ,921 sin 1.0×10 −2→1.0×10 −4
+> Burgers’ (x, t )−32 −32 −32 −(u)2,241 sin 1.0×10 −2→1.0×10 −3
+> Allen-Cahn (Dirichlet) (x, t )−64 −64 −(u)4,417 tanh 1.0×10 −2
+> Allen-Cahn (Periodic) (cos( π(x+ 1)) ,sin( π(x+ 1)) , t )−64 −64 −64 −(u)8,641 tanh 1.0×10 −2→5.0×10 −3
+
+Table 18: Boosted PINN weak learner architectures for different equations.  
+
+> †No learning rate scheduler; learning rate is fixed throughout training.
+
+Boosted PINN Stages Stage Weights Epochs per Stage Early Stopping 
+
+Duffing Equation 20 0.01–0.055 180 × 20 † False NRD 20 0.05 70 × 20 † False Lotka-Volterra 10 0.05 15000 × 1, 2000 × 9 True Van der Pol 40 0.05 2000 × 10 , 4000 × 10 , 8000 × 20 True Burgers’ 10 0.05–0.0275 2000 × 5, 4000 × 5 True Allen-Cahn (Dirichlet) 3 0.05 3000, 2500, 500 True Allen-Cahn (Periodic) 10 0.05 8000 × 1, 4000 × 9 True 
+
+Table 19: Boosted PINN training hyperparameters for different equations.          
+
+> †The notation n×kdenotes kconsecutive stages each trained for nepochs.
+
+The total epoch budget for the standard PINN is equal to the sum of epochs across all boosting stages. For example, in the Allen–Cahn (Periodic) example, the standard PINN is trained for 8,000 + 4 ×
+
+9,000 = 44 ,000 epochs. This ensures the standard PINN is given at least as much training time as the full boosted ensemble. We match the architecture of the standard PINN to that of the weak learners, rather than dividing the standard PINN’s capacity across boosting stages. Fixing the base network architecture in this way isolates the training procedure as the sole variable of interest: given an identical network, the comparison asks whether it is more effective to optimize it jointly in a single training run or to train it sequentially as a series of residual correctors. Because the boosted model applies this same base architecture K times, its total parameter count exceeds that of the standard PINN by a factor of K.We do not correct for this, as doing so would risk under-parameterizing each weak learner relative to the residual it must fit, introducing a confound of its own. Instead, we rely on time to convergence as the primary comparison metric, since it directly captures the added computational cost of training multiple weak learners sequentially. Any additional time required to train and aggregate the K
+
+stages is reflected in the reported wall-clock time, ensuring the comparison remains fair with respect to actual computational cost rather than parameter count. 
+
+Standard PINN LR Early Stopping 
+
+Duffing Equation 1.00 × 10 −3 Yes NRD 5.00 × 10 −4 Yes Lotka–Volterra 1.00 × 10 −3 Yes Van der Pol 1.00 × 10 −3 Yes Burgers’ 1.00 × 10 −2 Yes Allen-Cahn (Dirichlet) 1.00 × 10 −2 Yes Allen-Cahn (Periodic) 1.00 × 10 −2 → 5.00 × 10 −3 Yes Table 20: Standard PINN training hyperparameters. 33 C Sampling Strategy 
+
+Problem Strategy Validation Set Size ( N )
+
+Duffing Equation Sample from a fixed N training set 3,000 
+
+NRD Sample from a fixed N training set 6,000 
+
+Lotka–Volterra Sample from a fixed N training set 3,000 
+
+Van der Pol Sample from a fixed N training set 9,000 
+
+Burgers’ Sample from a fixed N training set 1,000 
+
+Allen-Cahn (Dirichlet) Sample a fresh N set for each stage 800 ,000 
+
+Allen-Cahn (Periodic) Sample a fresh N set for each stage 51 ,456 
+
+Table 21: Validation set size and sampling strategy for each problem. For most problems, the validation set is sampled once from a fixed set of N points and held constant throughout training. For the Allen–Cahn examples, however, a fresh validation set of size N is re-sampled at each boosting stage, consistent with the collocation-point resampling strategy described earlier for these two examples. 
+
+# D Error and Residual Metrics 
+
+Let upred denote the model prediction and utrue the reference (analytical or high-fidelity numeri-cal) solution, both evaluated on a discrete set of points {xi}Ni=1 (and possibly times {ti}Ni=1 ). Let 
+
+N [u]( x, t ) = 0 denote the governing differential equation. 
+
+D.1 Mean Squared Error 
+
+Following standard practice in the PINN literature, we report this quantity as the mean squared error (MSE), though it is technically computed as the root mean squared error (RMSE): MSE = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+|upred (xi, t i) − utrue (xi, t i)|2
+
+!1/2
+
+. (80) 
+
+D.2 Residual Norm 
+
+The residual norm measures the violation of the governing equation at the collocation points: 
+
+∥R [upred ]∥2 = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+R[upred ]( xi, t i) 2
+
+!1/2
+
+, (81) where R[upred ]( xi, t i) denotes the differential operator (e.g., ODE or PDE residual) applied to the predicted solution at the collocation points. A smaller residual norm indicates that the predicted solution more closely satisfies the governing equation. 
+
+D.3 Relative L2 Error 
+
+relative L2 error =
+
+PNi=1 |upred (xi, t i) − utrue (xi, t i)|2
+
+1/2
+
+PNi=1 |utrue (xi, t i)|2
+
+1/2 . (82) 
+
+# E Efficiency Tables 
+
+Table 22 illustrates the computational efficiency of the boosted PINN versus the standard PINN across ODE benchmarks. The wall clock time refers to the total training time. The number of 34 iterations refers to the number of epochs required to achieve MSE < 10 −2. Speed-up is computed relative to the standard PINN (Adam): Speed-up (Iterations) = Standard PINN iterations Boosted PINN iterations ,
+
+Speed-up (Wall Clock) = Standard PINN time Boosted PINN time .
+
+For example, a value of 1.25 in iterations indicates the standard PINN required 25% more epochs than the boosted PINN. A value of 0.50 in wall clock time indicates the standard PINN uses only 50% of the boosted PINN training time. In either case, large values are good for the boosted PINN. For the Duffing equation, the boosted PINN requires fewer iterations to converge, but has a longer wall clock time due to the overhead of computing the Hessian and other computational overhead. This includes computing the previous solution, and the full aggregated solution after each stage completes; deep-copying network states to enable rollback in the event of divergence during opti-mization; and warm-starting each new weak learner from the previous stage’s converged weights. For all other examples, the standard PINN fails to converge under the same epoch budget. For the PDE examples, there was only one example for which the standard PINN converged. For this example, the boosted PINN achieves a faster convergence with equal iterations. Boosted PINN Standard PINN Speed-up Problem Method Iterations Wall Clock (s) Iterations Wall Clock (s) Iterations Wall Clock Duffing Adam 702 8.23 1,530 3.25 2.18 × 0.40 ×                                                   
+
+> Adam + CG 738 7.03 −−2.07 ×0.46 ×
+> Adam + Newton 407 187 .72 −−3.76 ×0.02 ×
+> NRD (stiff) Adam 858 0.27 ††∞∞
+> NRD (nonstiff) Adam 658 0.23 ††∞∞
+> Adam + CG 434 1.61 −−∞∞
+> Adam + Newton 462 40 .28 −−∞∞
+> Van der Pol (stiff) Adam 134 ,234 15 ,550 .89 ††∞∞
+> Lotka–Volterra Adam 26 ,400 38 .06 ††∞∞
+
+Table 22: Computational efficiency comparison between boosted PINN and standard PINN on ODE problems.                                            
+
+> †Standard PINN did not converge.
+> −Experiment not conducted.
+> Boosted PINN Standard PINN Speed-up Problem Method Iterations Wall Clock (s) Iterations Wall Clock (s) Iterations Wall Clock Allen–Cahn ( D= 10 −4, stiff) Adam 16 ,933 499 .44 ††∞∞
+> Allen–Cahn ( D= 1 .0, nonstiff) Adam 500 2.78 500 3.51 1.00 ×1.26 ×
+> Burgers’ ( ν= 0 .1, nonstiff) Adam 600 22 .03 ††∞∞
+> Burgers’ ( ν= 0 .002 , stiff) Adam / L-BFGS −−−−−−
+
+Table 23: Computational efficiency comparison between boosted PINN and standard PINN on PDE problems.   
+
+> †Standard PINN did not converge.
+> −No converged solution obtained.
+
+# F Coercivity and Monotonicity Implications 
+
+F.1 Existence of a Minimizer 
+
+Without any conditions on F , the infimum 
+
+inf  
+
+> u∈Hm(Ω)
+
+∥F (u)∥2
+
+> L2(Ω)
+
+might not be attained. A minimizing sequence {un} could escape to infinity ( ∥un∥Hm → ∞ ) or converge weakly but not strongly. 35 Coercivity prevents this by ensuring that large residuals imply large norms: 
+
+∥F (u)∥L2 → ∞ as ∥u∥Hm → ∞ ,
+
+so that minimizing sequences remain bounded in Hm(Ω) . Existence then follows from the direct method of the calculus of variations [Evans, 2010]: • Take a minimizing sequence {un}.• Coercivity gives boundedness: ∥un∥Hm ≤ M for some finite M .• Reflexivity of Hm(Ω) gives a weakly convergent subsequence unk ⇀ u ∗.• Weak lower semicontinuity of L gives L(u∗) ≤ lim inf k L(unk ), so u∗ is a minimizer. 
+
+F.2 Uniqueness of the Minimizer 
+
+Strong monotonicity is a standard condition in the theory of monotone operators (see Bauschke and Combettes [2017]). Without strong monotonicity, F (u) = 0 could have multiple solutions, and L
+
+could have multiple global minima. Recall from (18) that F is assumed strongly monotone, 
+
+⟨F (u) − F (v), u − v⟩L2(Ω) ≥ γ∥u − v∥2
+
+> Hm(Ω)
+
+, γ > 0.
+
+This rules out multiple solutions. Suppose F (u∗) = 0 and F (v∗) = 0 . Then: 
+
+0 = ⟨F (u∗) − F (v∗), u ∗ − v∗⟩L2(Ω) ≥ γ∥u∗ − v∗∥2
+
+> Hm(Ω)
+
+,
+
+which forces ∥u∗ − v∗∥Hm(Ω) = 0 , and therefore u∗ = v∗. Hence, the solution to F (u) = 0 is unique in Hm(Ω) , and L has at most one global minimizer. 
+
+# References 
+
+Robert A. Adams and John J. F. Fournier. Sobolev Spaces . Elsevier, 6 2003. Heinz H. Bauschke and Patrick L. Combettes. Convex analysis and monotone operator theory in Hilbert Spaces . 1 2017. doi: 10.1007/978-3-319-48311-5. URL https://doi.org/10.1007/ 978-3-319-48311-5 .Rafael Bischof and Michael Kraus. Mixture-of-experts-ensemble meta-learning for physics-informed neural networks. 09 2022. Faris Chaudhry. Scaling laws and Pathologies of Single-Layer PINNs: network width and PDE nonlinearity. arXiv (Cornell University) , 3 2026. doi: 10.48550/arxiv.2603.12556. URL https: //doi.org/10.48550/arxiv.2603.12556 .Lawrence C. Evans. Partial Differential Equations: second edition, 2010. URL https:// bookstore.ams.org/gsm-19-r .Zhiwei Fang, Sifan Wang, and Paris Perdikaris. Ensemble learning for Physics Informed Neural Networks: a Gradient Boosting approach. arXiv (Cornell University) , 2 2023. doi: 10.48550/ arxiv.2302.13143. URL http://arxiv.org/abs/2302.13143 .Xavier Glorot and Yoshua Bengio. Understanding the difficulty of training deep feedforward neu-ral networks. In Yee Whye Teh and Mike Titterington, editors, Proceedings of the Thirteenth International Conference on Artificial Intelligence and Statistics , volume 9 of Proceedings of Machine Learning Research , pages 249–256, Chia Laguna Resort, Sardinia, Italy, 13–15 May 2010. PMLR. URL https://proceedings.mlr.press/v9/glorot10a.html .George Em Karniadakis, Ioannis G. Kevrekidis, Lu Lu, Paris Perdikaris, Sifan Wang, and Liu Yang. Physics-informed machine learning. Nature Reviews Physics , 3(6):422–440, 5 2021. doi: 10. 1038/s42254-021-00314-5. URL https://doi.org/10.1038/s42254-021-00314-5 .Jorge Nocedal and Stephen J. Wright. Numerical Optimization . 1 2006. doi: 10.1007/ 978-0-387-40065-5. URL https://doi.org/10.1007/978-0-387-40065-5 .36 Nasim Rahaman, Aristide Baratin, Devansh Arpit, Felix Draxler, Min Lin, Fred Hamprecht, Yoshua Bengio, and Aaron Courville. On the spectral bias of neural networks. In Kamalika Chaudhuri and Ruslan Salakhutdinov, editors, Proceedings of the 36th International Conference on Machine Learning , volume 97 of Proceedings of Machine Learning Research , pages 5301–5310. PMLR, 09–15 Jun 2019. URL https://proceedings.mlr.press/v97/rahaman19a.html .Maziar Raissi, Paris Perdikaris, and George E. Karniadakis. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational Physics , 378:686–707, 2019. doi: 10.1016/j. jcp.2018.10.045. URL https://doi.org/10.1016/j.jcp.2018.10.045 .Emilien Seiler, Wanzhou Lei, and Pavlos Protopapas. Stiff transfer learning for physics-informed neural networks. ArXiv.org , 2025. doi: 10.48550/arxiv.2501.17281. URL http://arxiv.org/ abs/2501.17281 .Pedro Taranc´ on- ´ Alvarez, Pablo Tejerina-P´ erez, Raul Jimenez, and Pavlos Protopapas. Efficient PINNs via multi-head unimodular regularization of the solutions space. Communications Physics ,8(1), 8 2025. doi: 10.1038/s42005-025-02248-1. URL https://www.nature.com/articles/ s42005-025-02248-1 .Sifan Wang, Xinling Yu, and Paris Perdikaris. When and why PINNs fail to train: A neural tangent kernel perspective. arXiv (Cornell University) , 7 2020. doi: 10.48550/arxiv.2007.14527. URL 
+
+http://arxiv.org/abs/2007.14527 .Sifan Wang, Yujun Teng, and Paris Perdikaris. Understanding and mitigating gradient flow patholo-gies in Physics-Informed Neural Networks. SIAM Journal on Scientific Computing , 43(5):A3055– A3081, 1 2021. doi: 10.1137/20m1318043. URL https://doi.org/10.1137/20m1318043 .Sifan Wang, Shyam Sankaran, and Paris Perdikaris. Respecting causality is all you need for training physics-informed neural networks. arXiv preprint arXiv:2203.07404 , 2022. URL https:// arxiv.org/abs/2203.07404 .Hanfeng Zhai and Timothy Sands. Controlling chaos in Van der Pol dynamics using Signal-Encoded Deep Learning. arXiv (Cornell University) , 12 2021. doi: 10.48550/arxiv.2112.14707. URL 
+
+https://doi.org/10.48550/arxiv.2112.14707 .37
