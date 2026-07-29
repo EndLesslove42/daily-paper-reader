@@ -1,0 +1,1146 @@
+Title: Modeling and Stabilization of Transport-Dominated Flows
+
+URL Source: https://arxiv.org/pdf/2607.22455v1
+
+Published Time: Mon, 27 Jul 2026 01:01:38 GMT
+
+Number of Pages: 26
+
+Markdown Content:
+# Modeling and Stabilization of Transport-Dominated Flows 
+
+# 2026 Graduate Student Mathematical Modeling Camp Final Report 
+
+# Christopher Agesen Sam Bradford Abhijnan Dikshit   
+
+> NJIT Western University Purdue University
+
+# Anshi Gupta Bhavana Morankar Jack Murphy   
+
+> U. of Houston NC State University U. of Arizona
+
+# Nanda N. Raghunathan Karnav Raval Lane H. Rogers   
+
+> U. of Pittsburgh Western University U. of Tennessee
+
+# Mentored by Dr. Valeria Barra 
+
+> San Diego State University
+
+# July 27, 2026 
+
+Abstract 
+
+This report explores and compares numerical stabilization methods for transport-dominated flows arising in atmospheric modeling. The Streamline-Upwind (SU) and Streamline-Upwind Petrov-Galerkin (SUPG) stabilization formulations are implemented in Julia’s ClimaCore.jl package and Python’s Firedrake pack-age for a test problem with slotted-cylinder initial conditions. These methods are compared for their ability to mitigate spurious oscillations while preserv-ing sharp features against existing hyperdiffusion and quasi-monotone limiter methods, alongside various combinations. For this benchmark, quasi-monotone limiters were most effective at minimizing un-physical extrema, at the expense of diffusing the overall structure. The SUPG method was not found to improve upon the no stabilization case, for this test case in the computed error met-rics. However, it performs best at preserving sharp feature and overall structure, among tested stabilized runs. Theoretical properties of SUPG are analyzed, and an asymptotics-based SUPG algorithm is proposed as future work. 
+
+1arXiv:2607.22455v1 [physics.flu-dyn] 24 Jul 2026 Contents 
+
+1 Introduction 32 Problem Statement 4
+
+2.1 SUPG Stabilization method . . . . . . . . . . . . . . . . . . . . . . . . 5
+
+3 Numerical Methods 5
+
+3.1 SU and SUPG weak formulation: discrete implementation . . . . . . . 63.2 The Stabilization Parameter τ . . . . . . . . . . . . . . . . . . . . . . . 73.3 Implementation details for the ClimaCore.jl code . . . . . . . . . . . . 83.4 Implementation details for the Firedrake code . . . . . . . . . . . . . . 9
+
+4 Results and Discussion 10 5 Theoretical Analysis 15 
+
+5.1 Conservation, boundedness, and variation control . . . . . . . . . . . . 15 5.2 Asymptotic Approach to Time-Dependent SUPG . . . . . . . . . . . . 18 
+
+6 Conclusions and Future Work 21 7 Acknowledgments 22 8 AI Use Disclosure 22 A Tracer Fields for All Stabilization Configurations 25 
+
+21 Introduction 
+
+Accurate numerical simulations of the Earth’s atmosphere are important for studying phenomena such as climate change. Among several classical modeling challenges in atmospheric flows, the transport of a passive tracer via pure advection is especially challenging due to the nature of such problems. A pure advection problem is an example of a partial differential equation (PDE) that, when discretized with a high-order Finite Element Method (FEM) or Spectral Element Method (SEM), leads to spurious numerical oscillations and instabilities. As such, it is necessary to implement stabilization strategies that can mitigate oscillations and instabilities. Examples of such stabilization strategies include a fourth-order Laplacian operator (referred to as hyperdiffusion ) [1], slope or flux-limiters [2], and flux-corrected transport [3]. Such methods, however, are not specific to the Finite or Spectral Element Methods (FEM or SEM), apply isotropic diffusion, symmetric in all directions, and often tend to overly smear out desired sharp gradients. Other methods such as the Streamline-Upwind Petrov Galerkin (SUPG) method [4] (and its simplified version, the Streamline-Upwind (SU) method) apply diffusion only along the streamlines of the flow and thus, can better maintain sharp gradients present in the flow. The main aim of this project is to systematically compare different stabilization strategies using the transport of a passive tracer as a test problem. The model of passive tracer transport (via pure advection) was implemented in the ClimaCore.jl 
+
+[5] and Firedrake [6] packages, which use the Julia and Python programming languages, respectively. 
+
+ClimaCore.jl [5] is an open-source library for the dynamical core ( dycore ) of a proposed advanced Earth System Model (ESM). An ESM is a massive, multiscale, multiphysics model that couples different model components and media (including the atmosphere, ocean, and land masses) to provide an accurate representation of Earth’s climate systems. The proposed ESM has been developed by the Climate Modeling Alliance (CliMA), which is a coalition of scientists, engineers, and applied mathemati-cians from CalTech, MIT, and the NASA Jet Propulsion Laboratory. The dynamical core (also called dycore ) of this ESM is described in this paper [7]. In the ClimaCore.jl library, some stabilization strategies are readily available and utilized to counteract the numerical instability of such transport-dominated flows. These include artificial diffusion, limiters, and flux-corrected transport strategies men-tioned earlier. In this project, the subject of primary interest is the FEM/SEM-specific SUPG [4] (and simplified SU method) of stabilizing numerical solutions to PDEs. We hypothe-size that the SUPG method will exhibit superior performance at preserving the sharp features in transport-dominated flows (which can be of interest in problems with dis-continuities or variations of scales), as this method introduces stabilization along the streamlines of the flow only—that is, anisotropically. Accordingly, we study the initial condition characterized by two high-density regions of passive tracers in the shape of 3slotted cylinders, as described below in Section 2. We then proceed to compare the performance of the SU and SUPG methods to alternative methods of stabilizing trans-port dominated flows, such as a specific class of slope/flux-limiters and hyperdiffusion in Section 4. In this paper, we offer an extensive numerical and theoretical analysis of the mathematical basis of SU and SUPG method for reducing spurious oscillations and preserving sharp features in transport dominated flow problems. In Section 5 (Theoretical Analysis), we distinguish global conservation of density and tracer mass from pointwise boundedness of the tracer mixing ratio. We show that the conservative semidiscrete SUPG formulation preserves total mass on the closed spherical domain, but that standard linear SUPG does not guarantee nonnegativity, a discrete maximum principle, or total-variation-diminishing behavior. We then dis-cuss residual-based discontinuity capturing and conservative flux limiting as possible modifications for suppressing crosswind oscillations and enforcing physically admissible tracer bounds. Additionally, we propose an improved time-dependent SUPG algorithm based on an asymptotic expansion of the tracer density. This algorithm allows us to solve an implicit SUPG problem by solving a series of explicit SUPG problems instead; greatly reducing computational cost. 
+
+# 2 Problem Statement 
+
+This section describes the slotted cylinders benchmark problem statement. This bench-mark problem is similar to the test case proposed by Nair and Lauritzen [8]. Consider the advection problem on the domain Ω 
+
+(∂ρ ∂t = −∇ · ρu, 
+
+> ∂Q ∂t
+
+= −∇ · Qu (1) Here, ρ(λ, θ, t ) ∈ ℜ is the fluid density, Q(λ, θ, t ) = q(λ, θ, t ) ∗ ρ(λ, θ, t ) ∈ ℜ is the tracer density, and u[u, v ] is the two-dimensional velocity field. The symbol ∇· denotes the divergence operator on the surface of a sphere. Moreover, λ, θ, and t denote latitude, longitude, and time respectively. For a divergent flow, u[u, v ] is defined as 
+
+u[u(λ, θ, t ), v (λ, θ, t )] = 
+
+u0 sin 2(λ) sin(2 θ) cos( πt T ) + ( 360  
+
+> T
+
+) cos( θ)
+
+u0 sin(2 λ) cos( θ) cos( πt T )
+
+
+
+Here, u0 = 2πR T , with the spherical radius of the Earth R = 6 .37122 × 10 6 m and 
+
+T = 12 · 24 · 60 · 60 s represents a total duration of twelve days in seconds. Consider the problem characterized by two slotted-cylinders for the tracer concen-tration as initial condition. Let r0 = R/ 2 = 3 .18561 ×10 6 be the radii of the two slotted cylinders, centered at ( −π/ 6, 0) and ( π/ 6, 0) respectively. The symbols r1 and r2 de-note the radii of the two great circles centered at these respective points. Accordingly, 4we initialize the tracer density Q(λ, θ, 0) as follows: 
+
+Q =
+
+
+
+1, r1 ≤ r0 and |λ − λ1| R ≥ D(r0/6) ,
+
+1, r2 ≤ r0 and |λ − λ2| R ≥ D(r0/6) ,
+
+1, r1 ≤ r0 and |λ − λ1| R < D (r0/6) and (ϕ − ϕ1) R < D (−5r0/12) ,
+
+1, r2 ≤ r0 and |λ − λ2| R < D (r0/6) ∧ (ϕ − ϕ2) R > D (5 r0/12) ,
+
+0.1, otherwise. where D(s) = 180  
+
+> π
+
+s.
+
+2.1 SUPG Stabilization method 
+
+The weak form of the above advection problem may be derived by multiplying the strong-form equations presented in (1) by a test function v ∈ H1(Ω) to obtain 
+
+Z
+
+> Ω
+
+∂ρ ∂t vd Ω = −
+
+Z
+
+> Ω
+
+[( ∇ · ρu)v] dΩ, (2) 
+
+Z
+
+> Ω
+
+∂Q ∂t v d Ω = −
+
+Z
+
+> Ω
+
+[( ∇ · Qu)v] dΩ (3) In order to apply integration by parts to the above form it will be necessary to let v to be in H10 (Ω). Since the standard Galerkin bilinear form is not coercive in the stream-line direction, spurious oscillations tend to emerge near sharp gradients in convection-dominated problems. But an anisotropic stabilization may be achieved through the Streamline-Upwinding Petrov Galerkin (SUPG) method [4]. The core idea of the Petrov-Galerkin stabilization strategy is to is to replace the test function v by an alternate function, ˜ v = v + τ u · ∇ v, which clearly indicates the flow direction. As a part of this approach the test function resides in a different function space than the trial function, unlike the classical Galerkin formulation. Thus, the SUPG weak form of (3) is given as Z
+
+> Ω
+
+˜v
+
+∂Q ∂t + ∇ · (Qu)
+
+
+
+dΩ = 0 .
+
+Upon expanding ˜ v we get, 
+
+Z
+
+> Ω
+
+v
+
+∂Q ∂t + ∇ · (Q u)
+
+
+
+dΩ 
+
+| {z }
+
+> standard Galerkin
+
++
+
+Z
+
+> Ω
+
+τ (u · ∇ v)
+
+∂Q ∂t + ∇ · (Q u)
+
+
+
+dΩ 
+
+| {z }
+
+> SUPG correction
+
+= 0 (4) 
+
+# 3 Numerical Methods 
+
+In this section, we present the discrete weak formulation underlying the ClimaCore.jl and Firedrake implementations. 53.1 SU and SUPG weak formulation: discrete implementation 
+
+The standard Galerkin formulation for the density equation is given as follows. Find 
+
+ρh ∈ Vh ⊂ H10 (Ω) such that for all vh ∈ Vh:
+
+∂ρ h
+
+∂t , v h
+
+
+
+− (ρh u, ∇vh) = 0 , (5) where ( ·, ·) denotes the L2(Ω) inner product and the divergence term has been inte-grated by parts. Note that SUPG correction is not applied to the density. A formulation of conservative SUPG for the tracer equation is formulated in the following lines. Find ( ρq )h ∈ Vh such that for all vh ∈ Vh:0 = 
+
+∂Q h
+
+∂t , v h
+
+
+
+− (Qh u, ∇vh) + 
+
+Z
+
+> ∂Ω
+
+vh Qh (u · ˆn) d σ
+
+| {z }
+
+> standard Galerkin
+
++ X
+
+> K
+
+Z
+
+> ΩK
+
+τ (u · ∇ vh) ρh Radv (qh) dΩ 
+
+| {z }
+
+> SUPG correction
+
+.
+
+(6) Depending on the precise choice of the term Radv (qh), the correction may be the con-sistent SUPG correction or the non-consistent SU correction. The various choices of 
+
+Radv (qh) and the corresponding corrections that they describe are charted in Table 1. 
+
+Petrov-Galerkin interpretation: To reiterate, the SU and SUPG terms may be interpreted as making use of the test function: ˜vh = vh + τ u · ∇ vh, (7) so that the trial and test function spaces differ. Consequently, we perturb the test functions so that the compact support of those functions travels along the direction of the streamlines. Table 1: Description of corrections based on the residual equation used. Mode Residual Radv (qh)
+
+:SU (Streamline Upwind only) u · ∇ qh non-consistent 
+
+:consistent (full Brooks–Hughes SUPG [4]) ∂tqh + u · ∇ qh consistent 63.2 The Stabilization Parameter τ
+
+The code uses the Tezduyar–Osawa [9] formula for pure advection ( κ = 0): 
+
+τ ϵ =
+
+" 2∆t
+
+2
+
++
+
+2∥u∥
+
+h
+
+2#−1/2
+
+, (8) where h is the average nodal length scale h ∼ he/p (element width divided by polyno-mial degree). 
+
+Reasoning behind the stabilization parameter: Recall the optimal stabilisation parameter for the 1D steady advection-diffusion problem: 
+
+τ ∗ = h
+
+2∥u∥ ξ(P e ),
+
+where ξ(P e ) = coth( P e ) − 1
+
+P e , and P e = ∥u∥ h
+
+2ε .
+
+But for an advection dominated problem( P e ≫ 1, ε → 0), coth( P e ) → 1, 1
+
+P e → 0 ⇒ ξ(P e ) → 1,
+
+and hence, 
+
+τ ∗ −→ h
+
+2∥u∥.
+
+The UGN element length scale: UGN stands for Upwind-direction, Global, Nodal, describing how the element length scale hUGN is constructed [9]: 
+
+• U: the length is measured in the upwind (streamline) direction ˆu = u/∥u∥, not isotropically. 
+
+• G: it is a global element length, using all nodes of the element by summing over all basis functions Na.
+
+• N: it is nodal , computed directly from the nodal basis functions Na and their gradients ∇Na.The explicit formula from [9] is: 
+
+hUGN = 2 ∥u∥
+
+> nen
+
+X
+
+> a=1
+
+u · ∇ Na
+
+!−1
+
+,
+
+where nen is the number of nodes per element. Geometrically, hUGN is the distance spanned by u across the element in the streamline direction. SUGN stands for Sta-bilisation parameter, Upwind, Global, Nodal — it is simply the prefix S (stabilisation parameter) appended to UGN. The three components are [9]: 7τSUGN1 = hUGN 
+
+2∥u∥ (advective timescale) ,τSUGN2 = ∆t
+
+2 (temporal timescale) ,τSUGN3 = h2UGN 
+
+4ν (diffusive timescale) .
+
+They are combined as an ℓ2 inverse norm: (τSUPG )UGN =
+
+ 1
+
+τ 2SUGN1 
+
++ 1
+
+τ 2SUGN2 
+
++ 1
+
+τ 2SUGN3 
+
+−1/2
+
+,
+
+so that τ is always bounded by the smallest of the three timescales. By removing the diffusing term, thus we get the formula defined in (8). 
+
+3.3 Implementation details for the ClimaCore.jl code 
+
+The ClimaCore.jl code used in testing was created by augmenting the existing sphere example limiters advection.jl in the public repository [5] (located in 
+
+ClimaCore.jl/examples/sphere/limiters advection.jl ). The quasi-monotone lim-iters and hyperdiffusion stabilization techniques were already implemented in the Cli-maCore.jl API and exercised in the limiters advection.jl example file. SU and SUPG were novel implementations, developed in this project. After computing the weak form of the solution, the resulting differential equation is solved using the tri-stage, third-order Strong Stability Preserving Runge-Kutta method (SSPRK33) from the OrdinaryDiffEq.jl package. At each time step, a weighted direct stiffness sum-mation is applied for continuity enforcement of the continuous-Galerkin (CG) spectral elements. Table 2 below highlights choices made for key solver and discretization pa-rameters in the code when solving the test case considered in this work. Table 2: Discretization and solver parameters used in the ClimaCore.jl code. Parameter Value Number of horizontal elements per cube panel 20 Number of quadrature nodes 4Time step size, ∆ t 345.60 s Number of time steps 3000 Hyperdiffusion coefficient 6.6 × 10 14 
+
+8The example code enables the combination of different stabilization methods. SU and SUPG cannot be applied in the same run, but either can be paired with lim-iters hyperdiffusion, or both limiters and hyperdiffusion. The implementation of the continuous equations and residual calculation for SUPG is described below. Let Ω be the sphere. The state consists of density ρ and tracer q (e.g. concentration). The strong form of the system is: 
+
+∂ρ ∂t + ∇ · (ρ u) = 0 (9) 
+
+∂(ρq )
+
+∂t + ∇ · (ρq u) = 0 (10) where u is a prescribed, time-dependent velocity field. Because the continuity equation (9) holds, the tracer equation (10) can be rewritten via the product rule: 
+
+∂(ρq )
+
+∂t + ∇ · (ρq u) = ρ
+
+∂q ∂t + u · ∇ q
+
+| {z }
+
+> Radv (q)
+
++q
+
+∂ρ ∂t + ∇ · (ρ u)
+
+| {z }
+
+> = 0 by (9)
+
+= ρ Radv (q).
+
+Hence at the continuous level the conservative residual of (10) factors as: 
+
+R(ρq ) = ρ Radv (q), where Radv (q) = ∂q ∂t + u · ∇ q. 
+
+At the discrete level, if ρh does not satisfy (9) exactly (which it generally will not), then the conservative and advective forms decouple. 
+
+3.4 Implementation details for the Firedrake code 
+
+The Firedrake library [6] implementation utilized the SU stabilization method for solv-ing the advection problem. Originally, the SUPG stabilization implemented in the Gusto library [10] was utilized. However, further exploration uncovered that stabi-lization is only implemented in Gusto for planar meshes rather than spherical meshes, which are of interest in this work, since the pure advection problem is modeled on a cubed spherical mesh in this project. As such, the SU stabilization was directly imple-mented through the Firedrake library using the weak form of the governing equations. The Gusto library example for the slotted cylinders benchmark [10] was adapted to test the Firedrake implementation. Firedrake allows the user to directly specify the test function space (whereas this is indirectly implemented in ClimaCore.jl and not part of the public-facing API). This allowed an easy specification of the SU correction test function shown in (7). This test function can then be used to specify the linear and bilinear forms of FEM as follows. Casting ∂Q/∂t + u · ∇ Q = 0 as a method-of-lines problem for the rate k ≡ ∂Q/∂t ,each stage solves: find k with 
+
+Z
+
+> Ω
+
+vh k dx 
+
+| {z }
+
+> a(wh,k )
+
+= −
+
+Z
+
+> Ω
+
+˜vh (u · ∇ Q) dx 
+
+| {z }
+
+> L(wh)
+
+, ˜vh = vh + τ u · ∇ vh, ∀ vh ∈ Vh. (11) 9Since the SU correction is applied to the advection term only and not the temporal term, a(ϕ, k ) is the standard Galerkin mass matrix, independent of u and τ . It is there-fore assembled and factorised once ( constant jacobian=True ) and reused across all stages, unlike the full SUPG, where the mass matrix must be reassembled whenever u
+
+changes; the trade-off is that the stabilization is only O(h) consistent. The stabilization parameter follows the Tezduyar formula as given in (8). To calculate the stabilization parameter, h = p|K| is computed from the local cell area, |K|, and stored as a DG 0field in Firedrake. Subsequently, the LinearVariationalSolve functionality from Firedrake can be used to solve the weak form of the equations. To advance the solution in time, the SSPRK3 scheme [11] is implemented, which solves the weak form of the equations and updates the solution at each time step. In this way, the Firedrake implementation can apply the SU stabilization to an unsteady advection problem. With k(D, t ) the rate from (11) at field D and velocity time t, the step D(n) → D(n+1) 
+
+is 
+
+D(1) = D(n) + ∆ t k  D(n), t (n) ,D(2) = 34 D(n) + 14 D(1) + 14 ∆t k  D(1) , t (n) + ∆ t , (12) 
+
+D(n+1) = 13 D(n) + 23 D(2) + 23 ∆t k  D(2) , t (n) + 12 ∆t ,
+
+with the velocity re-evaluated at the stage abscissae c = [0 , 1, 12 ]. Each stage is one LU solve of the pre-factored mass matrix; being strong-stability-preserving, SSPRK3 adds no oscillations beyond those in the spatially stabilized operator. Table 3 below details choices for important discretization and solver parameters used in the Firedrake code. The refinement level is an indication of the spatial grid size. A refinement level of n
+
+indicates that there are 2 n segments along each edge of a panel in the discretization. 
+
+# 4 Results and Discussion 
+
+We now compare numerical solutions of the passive-tracer advection system (1) under various stabilization (and combinations thereof) methods, using both the ClimaCore.jl 
+
+Table 3: Discretization and solver parameters used in the Firedrake code. Parameter Value Refinement level 4Time step size, ∆ t 345.60 s Number of time steps 3000 Polynomial degree of elements 3Quadrature degree 610 [5] and Firedrake [6] packages. We compare the simulations both qualitatively through the tracer fields and quantitatively using particular error metrics of interest. We solve the advection system with the slotted-cylinder test case, with the initial condition as shown in Figure 1. Following the examples in ClimaCore.jl [5], this is chosen such that the tracer field returns to its initial configuration after one cycle 
+
+t ∈ [0 , T ]. As such, we choose two classes of metrics to quantify the error between the 
+
+Figure 1: Initial condition for all simulations showing two slotted cylinders, plotted on a latitude-longitude grid. initial and final field. In order to evaluate if the tracer field remains physically bounded (no spurious undershoots/overshoots), we compute 
+
+qover = max λ,θ qT − max λ,θ q0
+
+∆q0
+
+, qunder = min λ,θ qT − min λ,θ q0
+
+∆q0
+
+, (13) where q0 and qT denote the initial and final tracer fields (respectively) and the initial tracer range is defined as ∆q0 = max  
+
+> λ,θ
+
+q0 − min  
+
+> λ,θ
+
+q0. (14) While (13) measure the appearance of local nonphysical extrema, they do not measure the preservation of the overall shape of the tracer field. Thus, we also compute the global errors between the initial and final tracer fields 
+
+ℓ1 = I[|qT − q0|]
+
+I[|q0|] , ℓ2 =
+
+I[( qT − q0)2]
+
+I[q20 ]
+
+1/2
+
+, ℓ∞ = max λ,θ |qT − q0|
+
+max λ,θ |q0| , (15) where 
+
+I[f ] = 14π
+
+Z 2π
+
+> 0
+
+Z π/ 2
+
+> −π/ 2
+
+f (λ, θ ) cos θ dθ dλ (16) 11 denotes the spherical area average. We numerically solve the passive-tracer advection system (1) for the slotted-cylinder test case, using hyperdiffusion, quasi-monotone limiting, SU, SUPG, and selected com-binations of these stabilization methods. The error metrics (13) and (15) are computed for each case, and shown in Table 4. Table 4: Comparison of simulations with different stabilization choices, including com-binations. All results were computed using ClimaCore.jl except for the labeled Fire-drake run. Here H, L, SU, and SUPG denote hyperdiffusion, the quasi-monotone limiter, streamline upwind, and streamline-upwind Petrov–Galerkin stabilization, re-spectively. 
+
+Stabilization qover qunder ℓ1 ℓ2 ℓ∞
+
+None 9.43 × 10 −3 −1.37 × 10 −2 9.60 × 10 −4 4.39 × 10 −3 1.34 × 10 −1
+
+H 1.24 × 10 −1 −1.42 × 10 −1 1.62 × 10 −1 5.99 × 10 −1 6.82 L 4.69 × 10 −7 −7.32 × 10 −8 9.86 × 10 −2 4.48 × 10 −1 6.30 SU 3.99 × 10 −2 −7.36 × 10 −2 9.39 × 10 −2 4.36 × 10 −1 4.50 SU (Firedrake) 6.57 × 10 −2 −7.83 × 10 −2 7.92 × 10 −2 1.70 × 10 −1 6.17 × 10 −1
+
+SUPG 5.96 × 10 −2 −4.61 × 10 −2 1.43 × 10 −2 2.75 × 10 −2 6.25 × 10 −1
+
+H + L 1.41 × 10 −7 −7.32 × 10 −8 1.43 × 10 −1 5.98 × 10 −1 7.01 L + SU 4.69 × 10 −7 −7.32 × 10 −8 1.21 × 10 −1 5.14 × 10 −1 5.52 L + SUPG 4.69 × 10 −7 −7.32 × 10 −8 9.86 × 10 −2 4.48 × 10 −1 6.30 H + L + SU 1.38 × 10 −7 −7.32 × 10 −8 1.63 × 10 −1 6.34 × 10 −1 6.58 H + L + SUPG 1.41 × 10 −7 −7.32 × 10 −8 1.43 × 10 −1 5.98 × 10 −1 7.01 
+
+First, we turn our attention to the solutions computed using the SU stabilization method, as this was the case computed by both the ClimaCore.jl and Firedrake im-plementations. The solutions at the initial, intermediate ( t = T / 2) and final ( t = T )times are shown in Figure 2. Observe that the solutions computed using different im-plementations qualitatively match with one another over the time domain, with visibly comparable smearing of the sharp tracer features by the final time. This is also reflected in the error results shown in Table 4, where all of the metrics match up to the order of magnitude, except for ℓ∞. This comparison provides a useful consistency check, as the main behavior of the SU method matches between two independent implementations. However, the discrepancy in ℓ∞ indicates that they are not numerically identical, and more work is required to find the source of this difference. In Figure 3 we show the tracer field at the final time point computed using ClimaCore.jl 
+
+for four stabilization methods, including the case without stabilization 1. Observe that the solution without stabilization is able to retain the sharp features of the slotted        
+
+> 1For completeness, the tracer fields at both t=T / 2 and t=Tfor all ten ClimaCore.jl stabilization configurations are shown in Appendix A.
+
+12 (a) ClimaCore.jl, t = 0. (b) Firedrake, t = 0.                 
+
+> (c) ClimaCore.jl, t=T / 2. (d) Firedrake, t=T / 2.
+> (e) ClimaCore.jl, t=T.(f) Firedrake, t=T.
+
+Figure 2: Comparison of the streamline-upwind (SU) solutions computed with Clima-Core.jl and Firedrake. The top row confirms the common initial tracer configuration at t = 0; the middle and bottom rows show the tracer fields at t = T / 2 and t = T ,respectively. 13 cylinders quite well and the solution with SUPG is not visually different than that with no stabilization. As expected, we see more blurring/smearing around the sharp features of the cylinders in the case of the quasi-monotone limiter and even more in the hyperdiffusion case.   
+
+> (a) No stabilization. (b) SUPG.
+> (c) Quasi-monotone limiter. (d) Hyperdiffusion.
+
+Figure 3: Tracer fields at final time point t = T for four stabilization methods imple-mented in ClimaCore.jl .Now turning our attention to Table 4, we can better assess the methods’ performance in preventing unphysical extrema while retaining the overall tracer field. Observe that compared to the no stabilization case, the quasi-monotone limiter drastically reduces final-time overshoot and undershoot, with qunder and qover reducing down to 10 −7–10 −8.However, this is done at the expense of significantly larger global errors. Hyperdiffusion performs poorly across all of the computed metrics compared to the no stabilization case. Among the ClimaCore.jl stabilized solutions, the SUPG method performs best at preserving the tracer structure (as is evident by the smallest ℓ1, ℓ2, and ℓ∞ errors), however it does not improve on the unstabilized baseline. Finally, in the cases where the limiter is included in a combined method, the extrema errors remain in the same 10 −7–10 −8 range, showing that the behavior is analogous to that when the limiter method used alone. Overall, these results illustrate the tradeoff between preserving global structure and suppressing local overshoots and undershoots. The quasi-monotone limiter is most effective at preventing spurious oscillation, but does so at the expense of global errors. 14 The SUPG method is better than the limiters at preserving the global structure, but has larger qunder and qover errors. No single stabilization method of those tested is best across all metrics – and most notably, the SUPG method does not improve on the no stabilization baseline for any of the metrics. It should be noted that the metrics chosen here for the definition of the errors, namely equations (13) and (15), only account for the difference between the final time solutions and the initial conditions. They do not track the temporal evolution over time. For a test case such as the one analyzed in this work, where the flow distorts the initial tracer configuration and then reverts it back to match its initial condition, tracking the history of the errors at every time step would give more information on the performance of the different stabilization methods in the transient stages. Finally, higher-order polynomial degree tests should be considered as they would highlight the benefits of the stabilization methods compared to the no stabilization results. 
+
+# 5 Theoretical Analysis 
+
+5.1 Conservation, boundedness, and variation control 
+
+The exact transport system possesses two different kinds of structure. The conservative variables ρ and Q = ρq satisfy global conservation laws, whereas the mixing ratio q
+
+satisfies a pointwise transport equation. Indeed, expanding the tracer-density equation gives 0 = ∂(ρq )
+
+∂t + ∇ · (ρq u) (17) = ρ
+
+∂q ∂t + u · ∇ q
+
+
+
++ q
+
+∂ρ ∂t + ∇ · (ρu)
+
+
+
+. (18) Consequently, wherever ρ > 0, the density equation implies 
+
+∂q ∂t + u · ∇ q = 0 . (19) Thus q is constant along characteristics of the exact velocity field. In particular, the continuous solution satisfies min  
+
+> Ω
+
+q(·, 0) ≤ q(x, t ) ≤ max  
+
+> Ω
+
+q(·, 0) for all t (20) for which the characteristic flow remains well defined. For the present slotted-cylinder problem, the physically relevant interval is therefore 0 .1 ≤ q ≤ 1. 
+
+Semidiscrete conservation 
+
+The conservative SUPG formulation in (6) preserves total tracer mass independently of whether it preserves the pointwise bounds in (20). To see this, choose the constant test 15 function wh = 1. This choice is admissible because the computational domain is the closed sphere and the finite element space contains constants. Since ∇1 = 0, both the advective weak term and the SUPG correction vanish. There is also no boundary-flux contribution on a closed surface. Hence, 
+
+∂Q h
+
+∂t , 1
+
+
+
+= 0 , (21) which gives ddt
+
+Z
+
+> Ω
+
+Qh dΩ = 0 . (22) The same argument applied to the density equation yields ddt
+
+Z
+
+> Ω
+
+ρh dΩ = 0 . (23) These identities hold at the semidiscrete level, up to quadrature and linear solver tolerances. A Runge–Kutta method also preserves these linear invariants provided that the residual at every stage has zero integral. The factor ρh in the tracer SUPG correction is nevertheless important. It makes the stabilization act on the advective residual of the mixing ratio while the prognostic variable Qh = ρhqh remains conservative. This mass-weighted construction supports consistency between the density and tracer equations, including preservation of a spa-tially constant mixing ratio. It does not , by itself, imply qh ≥ 0 or prevent the creation of new extrema. 
+
+Why standard SUPG is not bound preserving or TVD 
+
+The SUPG term adds residual-based dissipation primarily in the streamline direc-tion [4]. This improves stability for advection-dominated problems, but the resulting high-order finite element operator is not generally monotone and does not satisfy a discrete maximum principle. In particular, the consistent mass matrix and the off-diagonal entries of the transport operator need not have the sign structure required for a positivity-preserving update [12]. This distinction is visible in Table 4: the SUPG solution conserves the transported quantity but still produces nonzero overshoot and undershoot metrics, whereas the quasi-monotone limiter reduces both metrics to nearly machine precision. This limitation is consistent with the classical order barrier identified by Godunov: within the usual linear one-step setting, a method that is monotone for linear advection cannot be more than first-order accurate [13]. The theorem does not apply verbatim to every multidimensional finite element formulation, but it identifies the basic reason that a consistent residual-based stabilization such as SUPG (which is linear when applied to a linear PDE, and nonlinear otherwise) cannot simultaneously provide sharp resolution and unconditional monotonicity. A nonlinear limiting or nonlinear diffusion mechanism is required. 16 For a one-dimensional grid, the discrete total variation is commonly defined by TV( qn) = X
+
+> j
+
+|qnj+1 − qnj |, (24) and a method is TVD if TV( qn+1 ) ≤ TV( qn) [14]. Strict TVD should be interpreted cautiously for the present spherical deformational-flow benchmark. Even the exact multidimensional transport map can stretch interfaces and increase R 
+
+> Ω
+
+|∇ q| dΩ during the cycle. The more appropriate requirements here are preservation of the physical interval [0 .1, 1], absence of numerically generated extrema, and control of excess vari-ation relative to the exact transported field. Since the flow returns the tracer to its initial configuration at t = T , the ratio TV( qh(T )) /TV( qh(0)) can still be used as an end-of-cycle diagnostic, but a per-step TVD inequality is not expected from the exact multidimensional dynamics. 
+
+Modifications needed for sharper and bound-preserving transport 
+
+A first extension is a residual-dependent discontinuity-capturing or crosswind-diffusion term. One representative form is 
+
+SDC (qh, w h) = X
+
+> K
+
+Z
+
+> K
+
+νDC ,K (P⊥∇qh) · (P⊥∇wh) dΩ , (25) where 
+
+P⊥ = I − bu ⊗ bu, bu = u
+
+∥u∥, (26) and νDC ,K ≥ 0 is activated by a local residual or gradient sensor. At points where ∥u∥
+
+is zero or sufficiently small, the projector must be regularized, for example by replacing 
+
+∥u∥ with max( ∥u∥, ε u) for a small positive tolerance εu. The original “beyond SUPG” construction adds precisely this type of discontinuity-capturing mechanism to control strong internal and boundary layers [15]. Such a term damps crosswind oscillations that streamline diffusion alone cannot see and can substantially reduce ringing near the slots. However, a generic shock-capturing term is not automatically TVD or maximum-principle preserving; its coefficient and nonlinear sensor must be designed with those properties in mind. A stronger route is conservative algebraic flux correction or convex limiting. In algebraic form, write the high-order semidiscrete method as 
+
+MC ˙q + KH q = 0 , (27) where MC is the consistent mass matrix and KH contains the Galerkin and SUPG con-tributions. A bound-preserving low-order method is first constructed using a lumped mass matrix ML and sufficient graph viscosity: 
+
+ML ˙q + KLq = 0 . (28) 17 The low-order update is chosen to satisfy a local maximum principle under an appro-priate CFL restriction. The difference between the high- and low-order operators is then decomposed into pairwise antidiffusive fluxes fij = −fji . Replacing each flux by 
+
+αij fij , with 0 ≤ αij ≤ 1, restores as much high-order accuracy as the local bounds permit while retaining conservation. This is the finite element flux-correction frame-work developed in [16]; related invariant-domain and maximum-principle preserving continuous finite element constructions are given in [17]. For the coupled density–tracer system, the conservative variable Qh should continue to be updated in mass form, but the admissible bounds should be imposed on qh =
+
+Qh/ρ h. The density and tracer fluxes must therefore be limited consistently. Pointwise clipping of qh after a time step would restore nonnegativity but generally destroy tracer-mass conservation, whereas pairwise conservative flux limiting can enforce the bounds and preserve (22). When an SSP Runge–Kutta method is used, the limiter must be applied at every forward-Euler stage so that the fully discrete update remains a convex combination of bound-preserving stages [11]. These additions have clear benefits: they prevent physically impossible negative tracer concentrations, suppress spurious ringing, and make the extrema metrics in (13) controlled properties of the algorithm rather than empirical outcomes. The tradeoffs are additional nonlinearity, a CFL restriction for explicit bound preservation, and some extra diffusion near discontinuities. A useful practical hierarchy is therefore SUPG for streamline stability, residual-based discontinuity capturing for unresolved crosswind gradients, and conservative flux limiting only where the physical bounds would other-wise be violated. 
+
+5.2 Asymptotic Approach to Time-Dependent SUPG 
+
+In Section 3, we explored the efficacy of the time-independent SUPG implementation using the stabilizing term 
+
+τ e
+
+Z
+
+> Ω
+
+(u · ∇ v)
+
+
+
+∇ · (Qu ) + ∂Q ∂t 
+
+
+
+Where the term ∂Q ∂t is computed from the previous time step as a proxy for the ∂Q ∂t 
+
+field at the current time step. While this allows us to set up an explicit method rather than an implicit method, it suffers from inaccuracy for large time steps. Rather than pursuing a computationally costly implicit SUPG method, we take an asymptotic expansion based approach to improve our proxy for ∂Q ∂t at the current time step. Consider the SUPG stabilizing term (assuming no source, i.e. s = 0) 
+
+τ e
+
+Z
+
+> Ω
+
+(u · ∇ v)
+
+
+
+∇ · (Qu ) + ∂Q ∂t 
+
+
+
+= τ e
+
+Z
+
+> Ω
+
+∇v ·
+
+
+
+u
+
+
+
+∇ · (Qu ) + ∂Q ∂t 
+
+ 
+
+18 And since ∇ · (AB ) = ( ∇A) · B + A(∇ · B), this can be written as = τ e
+
+Z
+
+> Ω
+
+∇ · 
+
+
+
+v
+
+
+
+u
+
+
+
+∇ · (Qu ) + ∂Q ∂t 
+
+ 
+
+− τ e
+
+Z
+
+> Ω
+
+v
+
+
+
+∇ · 
+
+
+
+u
+
+
+
+∇ · (Qu ) + ∂Q ∂t 
+
+ 
+
+By the divergence theorem, 
+
+τ e
+
+Z
+
+> Ω
+
+∇ · 
+
+
+
+v
+
+
+
+u
+
+
+
+∇ · (Qu ) + ∂Q ∂t 
+
+ 
+
+= τ e
+
+I
+
+> ∂Ω
+
+v
+
+
+
+u
+
+
+
+∇ · (Qu ) + ∂Q ∂t 
+
+ 
+
+· ˆn = 0 ,
+
+since v vanishes on ∂Ω. Thus, the SUPG stabilizing term is 
+
+−τ e
+
+Z
+
+> Ω
+
+v
+
+
+
+∇ · 
+
+
+
+u
+
+
+
+∇ · (Qu ) + ∂Q ∂t 
+
+ 
+
+Then the tracer dynamics are described by 
+
+Z
+
+> Ω
+
+v
+
+∂Q ∂t 
+
+
+
+= −
+
+Z
+
+> Ω
+
+v(∇ · (Qu )) − τ e
+
+Z
+
+> Ω
+
+v
+
+
+
+∇ · 
+
+
+
+u
+
+
+
+∇ · (Qu ) + ∂Q ∂t 
+
+ 
+
+.
+
+We now perform a nondimensionalization of this problem. Take 
+
+Q = c ¯Q, u = U ¯u, t = T ¯t, ∇· = 1
+
+L ¯∇· 
+
+so we have 
+
+cT
+
+Z
+
+> Ω
+
+v
+
+∂ ¯Q∂¯t
+
+
+
+= − cU L
+
+Z
+
+> Ω
+
+v( ¯∇ · ( ¯Q¯u)) − τ e cU 2
+
+L2
+
+Z
+
+> Ω
+
+v{ ¯∇ · [¯ u( ¯∇ · ( ¯Q¯u)] }− τ e cU LT 
+
+Z
+
+> Ω
+
+v
+
+
+
+¯∇ · 
+
+
+
+¯u
+
+∂ ¯Q∂¯t
+
+ 
+
+.
+
+By the substitution T = L/U , we get 
+
+Z
+
+> Ω
+
+v
+
+∂ ¯Q∂¯t
+
+
+
+= −
+
+Z
+
+> Ω
+
+v( ¯∇ · ( ¯Q¯u)) − τ e UL
+
+Z
+
+> Ω
+
+v{ ¯∇ · [¯ u( ¯∇ · ( ¯Q¯u)] }− τ e UL
+
+Z
+
+> Ω
+
+v
+
+
+
+¯∇ · 
+
+
+
+¯u
+
+∂ ¯Q∂¯t
+
+ 
+
+In our atmospheric simulation of the Earth, U ≈ 10 2[km/hr ], L ≈ 6 · 10 3[km ]. We have τ e ≈ 2.5 · 10 −1[hr ]. Thus, 
+
+τ e UL ≈ 4 · 10 −3 ≪ 1.
+
+Letting ε := τ e U L , we have 
+
+Z
+
+> Ω
+
+v
+
+∂ ¯Q∂¯t
+
+
+
+= −
+
+Z
+
+> Ω
+
+v( ¯∇ · ( ¯Q¯u)) 
+
+− ε
+
+Z
+
+> Ω
+
+v( ¯∇ · { ¯u[ ¯∇ · ( ¯Q¯u)] }) − ε
+
+Z
+
+> Ω
+
+v
+
+
+
+¯∇ · 
+
+
+
+¯u
+
+∂ ¯Q∂¯t
+
+ (29) 19 From this point on, we will neglect the overbar notation (e.g. ¯Q) in the non-dimensionalization for simplicity. Consider the asymptotic expansion 
+
+Q = Q0 + εQ 1 + ... 
+
+Substituting into (19) and expanding up to O(1), we get the leading term relation 
+
+Z
+
+> Ω
+
+v
+
+∂Q 0
+
+∂t 
+
+
+
+= −
+
+Z
+
+> Ω
+
+v(∇ · (Q0u)) (30) Expanding up to O(ε), we have 
+
+Z
+
+> Ω
+
+v
+
+∂Q 1
+
+∂t 
+
+
+
+= −
+
+Z
+
+> Ω
+
+v(∇ · (Q1u)) −
+
+Z
+
+> Ω
+
+v{∇ · [u(∇ · (Q0u))] }−
+
+Z
+
+> Ω
+
+v
+
+
+
+∇ · 
+
+
+
+u
+
+∂Q 0
+
+∂t 
+
+ 
+
+.
+
+(31) If we consider the time discretization 
+
+∂Q ni
+
+∂t ≈ Qni − Qn−1
+
+> i
+
+∆t , (32) we can construct an algorithm based on solving consecutive pairs ( Qn+1 0 , Q n+1 1 ) from (Qn 
+
+> 0
+
+, Q n 
+
+> 1
+
+). First, we initialize the start system based on the initial concentration Q. We can set (Q00, Q 01) = ( Q, 0) Then, given some pair ( Qn 
+
+> 0
+
+, Q n 
+
+> 1
+
+) at the nth time step, we follow the diagram in Figure 4 and the algorithm outlined below. 
+
+# Qn 
+
+> 0
+
+# Qn
+
+> 1
+
+# Qn+1 0
+
+# ∂Q n+1 
+
+> i
+
+# ∂t Qn+1 1
+
+# 1 2
+
+# 2 3
+
+# 3
+
+# 3
+
+Figure 4: Diagrammatic representation of the solution algorithm for the asymptotic approach of the pure advection problem with SU stabilization. 20 1. Use the RK4 algorithm to compute Qn+1 0 from Qn 
+
+> 0
+
+within the standard Galerkin method in (30) 2. Numerically compute ∂Q n+1 0 
+
+> ∂t
+
+from Qn 
+
+> 0
+
+and Qn+1 0 in (32). 3. Use the SU method to compute Qn+1 1 from Qn 
+
+> 1
+
+, Qn+1 0 , and ∂Q n+1 0 
+
+> ∂t
+
+in (31). 4. Set n = n + 1, compute the tracer concentration Qn = Qn 
+
+> 0
+
++ εQ n 
+
+> 1
+
+, and repeat from step 1. While this algorithm involves solving two discrete Galerkin-type problems at each time step (standard Galerkin for Qn+1 0 , SU for Qn+1 1 ), it allows us to include a non-delayed time-dependent term in the strong-form residual in the stabilizing term. It should be noted that our asymptotic expansion Q = Q0 + εQ 1 is arbitrary, and could contain more terms. The algorithm detailed in this section is but a member of a class of algorithms; the algorithm where the number of expansion terms in n = 2. For example, with the addition of a third term Q2 scaled by ε2, we could detail an algorithm which requires solving three discrete Galerkin-type problems at each time step. Computation scales linearly with the number of expansion terms, as n terms requires n Galerkin-type problems to be solved at each time step. The choice for the number of expansion terms used should be based on comparisons with implicit SUPG methods, as well as computational constraints. 
+
+# 6 Conclusions and Future Work 
+
+In this work, we have implemented the Streamline Upwind (SU) and Streamline Up-wind Petrov-Galerkin (SUPG) stabilization methods for finite element methods (FEM) using the ClimaCore.jl library [5]. An implementation for SU is also developed in Firedrake [6] to compare and contrast it with the implementation in ClimaCore.jl. Other stabilization methods, such as hyperdiffusion and flux-limiters, are also imple-mented in ClimaCore.jl and we conduct a cross-comparison of these four stabilization methods. The comparison between the stabilization methods was performed using the slotted-cylinders deformation flow benchmark problem. For this problem, we found that the solution obtained without numerical stabilization is able to resolve the sharp features of the cylinders quite well and gave the smallest global errors. Stabilization using quasi-monotone limiters greatly improved at reducing spurious extrema at the expense of global accuracy, leading to smearing over the course of the simulation. The hy-perdiffusion method performed relatively poorly across all metrics. When methods were combined, the flux-limiter method was shown to largely determine the extrema behavior, with hyperdiffusion, SU, and SUPG having minimal additive impact. In a comparison of implementation, both Python’s Firedrake and Julia’s ClimaCore.jl produced errors at the same order of magnitude, with the notable exception of the 21 ℓ∞-error, where they differ by a single order of magnitude. The SUPG method was not found to improve upon the no stabilization baseline, for the metrics tested in this work. However, among the stabilized runs, the SUPG method resulted in the lowest global errors. Following these results, multiple directions for this research may be pursued. For instance, additional test cases with a variety of tracer configurations and fluid regimes would provide a more comprehensive comparison of the stabilization methods. More-over, additional error tracking measuring the error over time (rather than only at the final time) would give a more complete view. Finally, our implementations of the the SU and SUPG methods would benefit from different sets of parameter studies. The theoretical analysis also clarifies that conservation and bound preservation are distinct properties. The conservative semidiscrete SUPG formulation preserves total density and tracer mass on the closed spherical domain, but standard linear SUPG is not generally maximum-principle preserving or total variation diminishing. The overshoots and undershoots observed numerically are therefore consistent with the structure of the method. A future bound-preserving implementation could combine SUPG with residual-based crosswind discontinuity capturing and a conservative flux or convex limiter applied consistently to the density and tracer fluxes. An asymptotics based SUPG algorithm based on the SU and delayed SUPG meth-ods was developed, but remains to be implemented. For potential future research, this algorithm could be implemented and compared with implicit SUPG methods, and the impact of the number of asymptotic expansion terms on accuracy could be studied. 
+
+# 7 Acknowledgments 
+
+We would like to gratefully acknowledge the support of SIAM and the University of Delaware for providing the resources to conduct this work. Additionally, a special thank you to Dr. Valeria Barra for her excellent mentorship and support. 
+
+# 8 AI Use Disclosure 
+
+The code development for the Firedrake implementation was aided by Claude Opus 4.8. 
+
+# Bibliography 
+
+[1] Paul A. Ullrich et al. “Impact and importance of hyperdiffusion on the spectral element method: A linear dispersion analysis”. In: Journal of Computational Physics 375 (Dec. 2018), pp. 427–446. issn : 10902716. doi : 10.1016/j.jcp. 2018.06.035 .22 [2] Oksana Guba, Mark Taylor, and Amik St-Cyr. “Optimization-based limiters for the spectral element method”. In: Journal of Computational Physics (2010). doi :
+
+https://doi.org/10.1016/j.jcp.2014.02.029 .[3] Steven T Zalesak. “Fully multidimensional flux-corrected transport algorithms for fluids”. In: Journal of Computational Physics 31.3 (1979), pp. 335–362. issn :0021-9991. doi : https://doi.org/10.1016/0021- 9991(79)90051- 2 . url :
+
+https://www.sciencedirect.com/science/article/pii/0021999179900512 .[4] Alexander N. Brooks and Thomas J.R. Hughes. “Streamline upwind/Petrov-Galerkin formulations for convection dominated flows with particular emphasis on the incompressible Navier-Stokes equations”. In: Computer Methods in Ap-plied Mechanics and Engineering (1982). doi : https : / / doi . org / 10 . 1016 / 0045-7825(82)90071-8 .[5] CliMA. ClimaCore.jl . Version v0.14.51. Apr. 2025. url : https://github.com/ CliMA/ClimaCore.jl.git .[6] David A. Ham et al. Firedrake User Manual . First edition. Imperial College London et al. May 2023. doi : 10.25561/104839 .[7] Dennis Yatunin et al. “The Climate Modeling Alliance Atmosphere Dynamical Core: Concepts, Numerics, and Scaling”. In: Journal of Advances in Modeling Earth Systems 18.3 (2026), e2025MS005014. doi : https://doi.org/10.1029/ 2025MS005014 . url : https://agupubs.onlinelibrary.wiley.com/doi/abs/ 10.1029/2025MS005014 .[8] Ramachandran D. Nair and Peter H. Lauritzen. “A class of deformational flow test cases for linear transport problems on the sphere”. In: Journal of Computa-tional Physics (2010). doi : https://doi.org/10.1016/j.jcp.2010.08.014 .[9] Tayfun Tezduyar and Sunil Sathe. “Stabilization Parameters in SUPG and PSPG Formulations”. In: Journal of Computational and Applied Mathematics (2003). [10] The Gusto Development Team. Gusto: A library for dynamical cores using com-patible finite element discretisations . https://github.com/firedrakeproject/ gusto . 2026. [11] Chi-Wang Shu and Stanley Osher. “Efficient implementation of essentially non-oscillatory shock-capturing schemes”. In: Journal of computational physics (1988). 
+
+doi : https://doi.org/10.1016/0021-9991(88)90177-5 .[12] Jean-Luc Guermond, Bojan Popov, and Yong Yang. “The Effect of the Consistent Mass Matrix on the Maximum-Principle for Scalar Conservation Equations”. In: 
+
+Journal of Scientific Computing 70.3 (2017), pp. 1358–1366. doi : 10 . 1007 / s10915-016-0285-7 .[13] Sergei K. Godunov. “A Difference Method for Numerical Calculation of Dis-continuous Solutions of the Equations of Hydrodynamics”. In: Matematicheskii Sbornik 47.3 (1959). In Russian; English translation published as U.S. Joint Pub-lications Research Service report JPRS 7226 (1969), pp. 271–306. 23 [14] Ami Harten. “High Resolution Schemes for Hyperbolic Conservation Laws”. In: 
+
+Journal of Computational Physics 49.3 (1983), pp. 357–393. doi : 10.1016/0021-9991(83)90136-5 .[15] Michel Mallet Thomas J.R. Hughes and Akira Mizukami. “A new finite element formulation for computational fluid dynamics: II. Beyond SUPG”. In: Computer Methods in Applied Mechanics and Engineering (1986). doi : https://doi.org/ 10.1016/0045-7825(86)90110-6 .[16] Dmitri Kuzmin and Stefan Turek. “Flux Correction Tools for Finite Elements”. In: Journal of Computational Physics 175.2 (2002), pp. 525–558. doi : 10.1006/ jcph.2001.6955 .[17] Jean-Luc Guermond and Bojan Popov. “Invariant Domains and Second-Order Continuous Finite Element Approximation for Scalar Conservation Equations”. In: SIAM Journal on Numerical Analysis 55.6 (2017), pp. 3120–3146. doi : 10. 1137/16M1106560 .24 A Tracer Fields for All Stabilization Configurations 
+
+(a) No stabilization. (b) Hyperdiffusion. 
+
+(c) Quasi-monotone limiter. (d) SU. 
+
+(e) SUPG. (f) Hyperdiffusion + limiter. 
+
+(g) Limiter + SU. (h) Limiter + SUPG. 
+
+(i) Hyperdiffusion + limiter + SU. (j) Hyperdiffusion + limiter + SUPG. 
+
+Figure 5: Tracer fields at the intermediate time t = T / 2 for all stabilization choices implemented in ClimaCore.jl. 25 (a) No stabilization. (b) Hyperdiffusion. 
+
+(c) Quasi-monotone limiter. (d) SU. 
+
+(e) SUPG. (f) Hyperdiffusion + limiter. 
+
+(g) Limiter + SU. (h) Limiter + SUPG. 
+
+(i) Hyperdiffusion + limiter + SU. (j) Hyperdiffusion + limiter + SUPG. 
+
+Figure 6: Tracer fields at the final time t = T for all stabilization choices implemented in ClimaCore.jl. 26

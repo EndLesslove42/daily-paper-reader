@@ -6,38 +6,37 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-28
-- 运行时间：2026-07-28 21:50:54 UTC
+- 最新运行日期：2026-07-29
+- 运行时间：2026-07-29 21:10:20 UTC
 - 运行状态：成功
-- 本次总论文数：6
-- 精读区：1
-- 速读区：5
+- 本次总论文数：5
+- 精读区：2
+- 速读区：3
 
 ### 今日简报（AI）
-今日共处理6篇论文，精读1篇、速读5篇。最值得关注的是精读论文《Extending Fourier Neural Operators for Modeling Parameterized and Coupled PDEs》（9.0/10），它拓展了傅里叶神经算子以建模参数化与耦合偏微分方程。建议普通读者优先浏览速读中的《Neural operator discovery from heterogeneous trajectories》和《Physics-Informed Neural Networks for Predicting Nitrous Oxide Flux》，了解异质轨迹的算子发现与物理信息神经网络的应用。
-- 详情：[/202607/28/README](/202607/28/README)
+1) 今日精选5篇论文，精读2篇高评分研究：从确定性到生成式深度学习用于城市空气质量重建（9.0分），以及基于可调观测器的化学反应网络数据同化（8.0分）。  
+2) 最值得关注的方向：深度学习与数据同化融合解决稀疏观测问题，以及物理信息模型提升城市洪水预测的街道级合理性。  
+3) 建议优先阅读精读的两篇论文，并跟进物理信息CNN-LSTM在环境预测中的实际应用效果。
+- 详情：[/202607/29/README](/202607/29/README)
 
 ### 精读区论文标签
-1. [Extending Fourier Neural Operators for Modeling Parameterized and Coupled PDEs](/202607/28/2607.23466v1-extending-fourier-neural-operators-for-modeling-parameterized-and-coupled-pdes)  
+1. [From Deterministic to Generative Deep Learning for Urban Air Quality Reconstruction from Sparse Observations](/202607/29/2607.25687v1-from-deterministic-to-generative-deep-learning-for-urban-air-quality-reconstruction-from-sparse-observations)  
    标签：评分：9.0/10、query:aqac
-   evidence：扩展傅里叶神经算子以处理参数化和耦合PDE，直接适用于化学传输模型的代理建模
+   evidence：生成式深度学习用于城市空气质量重建
+2. [Data Assimilation for Chemical Reaction Networks and Population Models via a Tunable Observer](/202607/29/2607.25879v1-data-assimilation-for-chemical-reaction-networks-and-population-models-via-a-tunable-observer)  
+   标签：评分：8.0/10、query:aqac
+   evidence：通过可调观测器对化学反应网络进行数据同化
 
 ### 速读区论文标签
-1. [Neural operator discovery from heterogeneous trajectories](/202607/28/2607.23337v1-neural-operator-discovery-from-heterogeneous-trajectories)  
+1. [Modeling and Stabilization of Transport-Dominated Flows](/202607/29/2607.22455v1-modeling-and-stabilization-of-transport-dominated-flows)  
    标签：评分：7.0/10、query:aqac
-   evidence：从异构轨迹中发现神经算子，无需标记因素
-2. [Physics-Informed Neural Networks for Predicting Nitrous Oxide Flux](/202607/28/2607.23880v1-physics-informed-neural-networks-for-predicting-nitrous-oxide-flux)  
+   evidence：大气传输流动的数值稳定化
+2. [Operator Neural Jump ODEs: $L^2$-optimal prediction in function spaces](/202607/29/2607.23110v1-operator-neural-jump-odes-l2-optimal-prediction-in-function-spaces)  
    标签：评分：7.0/10、query:aqac
-   evidence：物理信息神经网络用于N2O通量预测，属于环境排放建模
-3. [STeMP: Spatio-Temporal Modelling Protocol](/202607/28/2607.20592v1-stemp-spatio-temporal-modelling-protocol)  
+   evidence：算子神经网络用于学习函数空间中的最优预测器，可应用于替代模型
+3. [Physics-Informed CNN-LSTM for Street-Scale Urban Flood Prediction: Reconciling Aggregate Accuracy and Street-Level Plausibility](/202607/29/2607.25148v1-physics-informed-cnn-lstm-for-street-scale-urban-flood-prediction-reconciling-aggregate-accuracy-and-street-level-plausibility)  
    标签：评分：6.0/10、query:aqac
-   evidence：环境研究的时空建模协议，直接适用于空气质量模型
-4. [Variational Boosting for Physics-Informed Neural Networks](/202607/28/2607.23940v1-variational-boosting-for-physics-informed-neural-networks)  
-   标签：评分：6.0/10、query:aqac
-   evidence：物理信息神经网络的变分提升方法，可用于环境建模
-5. [Domain-Decomposition Neural Surrogates for Scalable Decentralized Ensemble Kalman Filter Based Parameter Identification in High-Dimensional Stochastic PDEs](/202607/28/2607.24305v1-domain-decomposition-neural-surrogates-for-scalable-decentralized-ensemble-kalman-filter-based-parameter-identification-in-high-dimensional-stochastic-pdes)  
-   标签：评分：6.0/10、query:aqac
-   evidence：神经网络代理替换EnKF预报模型，域分解实现可扩展，适用于高维PDE参数辨识
+   evidence：物理信息代理模型用于城市环境预测
 
 
 <div class="dpr-home-promo-card">
