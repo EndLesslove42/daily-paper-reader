@@ -1,0 +1,972 @@
+Title: Nipping the Butterfly Effect in the Bud: Self-Output Fine-Tuning for Autoregressive Weather Prediction
+
+URL Source: https://arxiv.org/pdf/2607.21080v1
+
+Published Time: Fri, 24 Jul 2026 00:51:23 GMT
+
+Number of Pages: 16
+
+Markdown Content:
+# Nipping the Butterfly Effect in the Bud: Self-Output Fine-Tuning for Autoregressive Weather Prediction 
+
+# Yun-Ye Cai 
+
+National Taiwan University Taipei, Taiwan r12922104@csie.ntu.edu.tw 
+
+# Hsuan-Tien Lin 
+
+National Taiwan University Taipei, Taiwan htlin@csie.ntu.edu.tw 
+
+(a) Visualization of error growth in the AuroraTW autoregressive baseline. As the forecasting horizon expands (from +6h to +168h), prediction errors (row 3) compound, leading to significant deviations from the ground truth. 
+
+(b) Quantitative impact of error growth on 2 meter temperature. While the baseline (green) degrades rapidly, our proposed SOFT method (orange) maintains a lower error trajectory over the 168 hour horizon. 
+
+Figure 1: Visual and quantitative demonstration of autoregressive error growth and its mitigation via SOFT. We (a) identify that standard autoregressive rollouts induce error growing, and (b) propose Self-Output Fine-Tuning (SOFT) to significantly reduce long-term error. 
+
+## Abstract 
+
+Long-horizon weather forecasting is a fundamental challenge in at-mospheric science, for which autoregressive Deep Learning Weather Prediction (DLWP) has emerged as the primary paradigm. Although the autoregressive pipeline is highly scalable and flexible, its pre-diction errors grow rapidly over long forecasting horizons. In this work, we study this error growth phenomenon from both theoreti-cal and empirical perspectives. Our analysis reveals that the growth is driven by a feedback loop between output errors and input dis-tribution shifts. Specifically, the autoregressive process amplifies small initial output errors, which progressively corrupt subsequent input distributions, echoing the butterfly effect in atmospheric sci-ence and ultimately deteriorating forecasting accuracy over longer horizons. Furthermore, we show that this distributional shift orig-inates at the earliest stage of inference, with out-of-distribution signatures detectable as early as the first autoregressive step. To mitigate this issue, we propose Self-Output Fine-Tuning (SOFT) ,a plug-and-play strategy that leverages the model’s own one-step predictions to calibrate the biased input distribution encountered at the first step. Extensive experiments demonstrate that, despite its simplicity, SOFT achieves state-of-the-art performance on long-horizon forecasting tasks and substantially reduces both prediction errors and distributional discrepancy. The success of SOFT high-lights the importance of reexamining the fundamental pipeline of deep learning weather prediction, representing a critical pipeline advance for atmospheric science. 
+
+## Keywords 
+
+Deep Learning Weather Prediction,Autoregressive Modeling,Long-term Forecasting,Out-of-Distribution Generalization,AI for Science 
+
+## 1 Introduction 
+
+High-quality meteorological modeling and forecasting play a cru-cial role in scientific research and societal planning [ 7 , 10 , 16 ]. In recent years, deep learning weather prediction (DLWP) models [4 , 5 , 14 , 17 , 18 , 20 ] achieve competitive performance compared to traditional numerical weather prediction (NWP) methods while offering substantially lower computational cost. Fourcastnet [ 20 ], Pangu [ 4], GraphCast [ 14 ], Fuxi [ 9], FengWu [ 8], Stormer [ 18 ] and Baguan [ 19 ] demonstrate the superior accuracy of deep learning models in medium-range forecasting compared to traditional oper-ational systems. In addition, ClimaX [ 17 ], WeatherGFM [ 26 ], and Aurora[ 5] have been designed as foundation models, showing broad applicability across various downstream weather tasks. State-of-the-art DLWP systems largely rely on autoregressive forecasting strategies, which are favored because they allow flex-ible rollout durations during inference. Autoregressive pipelines perform well in nowcasting ( ≤ 6 hours) and short-range forecasting 
+
+> 1arXiv:2607.21080v1 [cs.LG] 23 Jul 2026
+
+(1 ∼ 3 days); however, prediction errors grow dramatically over medium-range (3 ∼ 10 days) and long-range ( > 10 days) horizons, as illustrated in Figure 1. This phenomenon, known as error accu-mulation [ 14 , 17 ] or cumulative iteration error [ 4], poses a critical challenge. Since accurate longer-horizon forecasts are essential for understanding large-scale atmospheric dynamics and support-ing climate-related decision-making, mitigating this degradation is crucial for the practical deployment of DLWP systems. Although various empirical strategies, such as multi-step rollout tuning [ 5, 14 ], temporal hierarchical modeling [ 4, 9 ], and replay buffers [ 5], have been proposed to mitigate this growing error phe-nomenon, they generally incur much higher computational costs or rougher temporal resolution. Moreover, a clear understanding of the root cause of the phenomenon remains limited. In this work, we argue that error growth in autoregressive strategies fundamentally reflects a distributional robustness problem . Specifically, we hypothesize that this error growth is mainly driven by a feedback loop between output errors and input distribution shifts. The loop originates from the autoregressive pipeline, where output predic-tion errors propagate as biases in the inputs for subsequent steps. As these biases accumulate, the input sequence progressively drifts away from the original training data distribution. This drift, in turn, further results in higher output errors, creating a vicious cycle in which the model is repeatedly forced to predict on data that increasingly resemble out-of-distribution (OOD) samples. We substantiate this hypothesis through extensive theoretical and empirical analysis. First, we derive an error propagation for-mula showing that error growth is determined by the interaction between errors newly generated at the current step and those ampli-fied from previous imperfect predictions. This formulation reveals that even small initial errors inevitably expand into large-scale deviations, akin to the butterfly effect in traditional atmospheric science. Empirically, we find that, the growth of prediction errors is accompanied by a drift in input distributions within the autoregres-sive pipeline. Much more surprisingly, however, this drift, albeit visually subtle, is detectable already at the very first step. Together, these findings indicate that our predictions are affected by the vi-cious feedback cycle from the outset, causing errors to compound throughout the sequence. Motivated by these insights, we propose Self-Output Fine-Tuning (SOFT), a simple yet effective, plug-and-play training strategy. Our key idea is to directly address the OOD issue by exposing the model to OOD scenarios during training, thereby improving distributional robustness. In particular, SOFT fine-tunes the model on its own one-step predictions, calibrating the biased input distribution and familiarizing the model with inevitable prediction errors, effectively converting OOD scenarios into pseudo in-distribution data. As a model-agnostic tactic, SOFT integrates seamlessly into existing DLWP pipelines, mitigating error growth in long-term forecasting from the very first step. Extensive experiments demonstrate that SOFT achieves state-of-the-art performance on long-horizon fore-casting tasks and substantially reduces both prediction errors and distributional discrepancy. Our contributions can be summarized as follows: 
+
+• We identify that error growth in autoregressive DLWP mod-els arises from a vicious loop between output errors and shifts in the input distribution. 
+
+• We analyze and reveal that small errors quickly grow, pro-ducing out-of-distribution states almost immediately in the autoregressive pipeline. 
+
+• We introduce SOFT , a plug-and-play strategy that improves long-horizon forecasting by simply fine-tuning the model on its own one-step predicted distributions. 
+
+• We conduct experiments that demonstrate the potential of SOFT, with open-source release 1 to increase reproducibil-ity and impact. In particular, SOFT significantly reduces both prediction errors and distributional discrepancy across long horizons, achieving state-of-the-art performance. The potential underscores the importance of pipeline-level ad-vances in artificial intelligence for science. This work has been made possible through close engagement within the joint, atmospheric-science-driven research project led by Dr. Hung-Chi Kuo (Department of Atmospheric Sciences) and Dr. Buo-Fu Chen (Center for Weather and Climate Disaster Research) at National Taiwan University. We are grateful for our collaborator’s deep domain expertise and strong embrace of artificial intelligence for science, which has been pivotal in identifying this critical chal-lenge in atmospheric science. They fully recognize the potential impact of our proposed solution and are actively engaged in inte-grating it directly into the operational forecasting pipeline. 
+
+## 2 Related Work 2.1 Deep Learning Weather Prediction and Long-Horizon Training Strategy 
+
+Deep learning methods address the high computational costs and limited efficiency of traditional numerical weather prediction [ 2,6 ]. Transformer-based architectures dominate the field, including FourCastNet [ 20 ], Pangu [ 4 ], Aurora [ 5], Stormer [ 18 ], ClimaX [ 17 ], WeatherGFM [ 26 ], Fuxi [ 9], and FengWu [ 8]. Alternatively, GraphCast [15] utilizes Graph Neural Networks (GNNs). Despite their short-term accuracy, these models suffer from rapid error growth during long-horizon autoregressive inference. Previous work identifies several primary mitigation strategies. MultiStep rollout tuning [ 14 ] minimizes error by training on a sequence of predictions rather than a single step. However, un-rolling autoregressive models significantly increases computational costs. Replay buffers [ 5, 8] attempt to mitigate this overhead by storing training states to simulate sequential goals, borrowing con-cepts from deep reinforcement learning. Alternatively, temporal hierarchical [ 4] approaches train on larger time steps to reduce the number of required rollouts. Both rollout and replay buffer methods try to address error growth via sequential optimization, leading to extra training costs. Conversely, while temporal hier-archical methods maintain lower deterministic error, they reduce temporal resolution, limiting their applicability for fine-grained meteorological tasks. 
+
+> 1https://github.com/yunye0121/SOFT
+> 2
+
+## 2.2 Error Growth and Distributional Shift 
+
+Error growth, also known as error accumulation, is a fundamen-tal challenge in autoregressive sequence generation, where small early deviations compound to drive the system into unstable states [ 21 ]. This phenomenon, formally described as exposure bias [ 3] or covariate shift [ 1 ], arises from the discrepancy between training and inference: models are trained conditioned on ground truth but must infer based on their own potentially imperfect predictions. Common solutions include imitation learning and curriculum strategies. Scheduled Sampling (SS) [ 3] stochastically mixes ground truth and model predictions in the sequence generated during train-ing. Dataset Aggregation (Dagger) [ 22 ] offers a more rigorous solu-tion by iteratively collecting data from the model’s induced distri-bution and increasing the dataset content after querying an oracle to label these states. Although theoretically sound and empirically work, these methods pose some significant computational chal-lenges. Scheduled sampling requires unrolling sequential graphs and DAgger necessitates iterative retraining loops. While this works for natural language processing as token calculating is cheap, these methods may not work in DLWP as weather variable map is a high-dimensional complex data. 
+
+## 3 Analysis of Error Growth 
+
+In this section, we investigate the underlying mechanisms of error growth in autoregressive deep learning weather prediction. We first establish the problem notation, and then analyze the phenomenon from both theoretical and empirical perspectives. Our analysis iden-tifies the feedback loop between input distribution shifts and output errors as the dominant factor causing instability in long-horizon predictions. 
+
+## 3.1 Problem Setup 
+
+3.1.1 Weather Forecasting as Regression. We define the weather state at time 𝑡 as a tensor X𝑡 ∈ R𝐻 ×𝑊 ×𝑉 , where 𝐻 and 𝑊 denote the spatial resolution (latitude and longitude grid) and 𝑉 represents the number of meteorological variables (e.g., temperature, wind speed, geopotential). 
+
+3.1.2 Autoregressive Rollout. For long-horizon forecasting, we aim to predict the sequential weather state up to a total horizon Δ𝑡 . Let 
+
+𝑓 be the forecasting model and 𝛿𝑡 be the time interval between inference steps. The total number of autoregressive steps is 𝐾 =
+
+Δ𝑡 /𝛿𝑡 . In an autoregressive pipeline, the forecasting model operates recursively, feeding the prediction at step 𝑘 back as the input for step 𝑘 + 1. The prediction trajectory is generated as: 
+
+ˆX𝑡 +𝑘𝛿𝑡 = 𝑓 𝑘 𝜃 (X𝑡 ), for 𝑘 = 1, . . . , 𝐾 (1) with a given initial condition X𝑡 .
+
+3.1.3 Objective. Our goal is to develop a framework that minimizes the prediction error over the entire horizon. Formally, we seek to minimize the expected loss over the rollout steps: 
+
+min  
+
+> 𝜃
+
+E
+
+> X𝑡
+
+" 𝐾 ∑︁ 
+
+> 𝑘 =1
+
+L( 𝑓 𝑘 𝜃 (X𝑡 ), X𝑡 +𝑘𝛿𝑡 )
+
+#
+
+(2) where L denotes a loss function (e.g., MSE or MAE). In this work, we are going to answer following researcher ques-tions: RQ1: What is the root cause of the error growth autogressive DLWP? RQ2: How to solve it efficiently without brute-forcefully computing increasing? 
+
+## 3.2 Error Propagation in Autoregressive DLWP 
+
+3.2.1 Theoretical Viewpoint. We first analyze how prediction er-rors propagate across autoregressive steps, leading to error growth that deteriorates long-horizon weather forecasting. While autore-gressive models are theoretically sound, practical implementation inevitably introduces small errors at each forward pass due to data noise [ 13 ], limited model capacity [ 11 ], or architectural bias [ 23 ]. We decompose the error at each step into (1) new errors introduced in the current step and (2) errors propagated from previous steps. For following analysis, we treat the weather state as a flattened vector x = vec (X) ∈ R𝑑 , allowing us to utilize standard Jacobian notation. 
+
+Proposition 3.1 (Error Propagation Approximation). Let the ground truth be denoted by x𝑡 = 𝑔 (x𝑡 −1) and the states from learned model by ˆx𝑡 = 𝑓 𝜃 ( ˆx𝑡 −1). We define the newly generated step error at step 𝑡 as 𝝐 𝑡 ≜ 𝑓 𝜃 (x𝑡 −1) − x𝑡 , and the error at step 𝑡 as 
+
+e𝑡 ≜ ˆx𝑡 − x𝑡 .Assume the ground truth 𝑔 and the model error function 𝜖 (x) ≜
+
+𝑓 𝜃 (x) − 𝑔 (x) are differentiable with Jacobians J𝑔 and J𝜖 , respectively. If e𝑡 −1 is sufficiently small, e𝑡 obeys the recurrence relation: 
+
+e𝑡 ≈ ( J𝑔 (x𝑡 −1) + J𝜖 (x𝑡 −1)) e𝑡 −1 + 𝝐 𝑡 (3) This approximation indicates that e𝑡 consists of (1) the new single-step error 𝝐 𝑡 and (2) a propagated term. The propagated term transforms the previous error e𝑡 −1 through the combined dynamics of the system and the model error Jacobian. This highlights that error growth is driven not only by the current prediction quality but by the amplification of past errors. We provide the full derivation in Appendix A. This approximation can be extended recursively, explaining why errors compound rapidly as the forecast horizon increases. 
+
+Corollary 3.2 (Error for 𝑛 -steps). Using the recurrence from Proposition 3.1, the error at step 𝑛 is: 
+
+e𝑛 ≈
+
+> 𝑛
+
+∑︁ 
+
+> 𝑖 =1
+> 𝑛 −1
+
+Ö
+
+> 𝑗 =𝑖
+
+(J𝑔 (x𝑗 ) + J𝜖 (x𝑗 )) 
+
+!| {z }
+
+> Ψ𝑛,𝑖
+
+𝝐 𝑖 (4) 
+
+where Ψ𝑛,𝑖 is the product of the sum terms from step 𝑖 to 𝑛 , and the empty product (when 𝑖 = 𝑛 ) is the identity matrix I.
+
+In chaotic systems such as weather, the propagator norm typi-cally satisfies ∥Ψ𝑛,𝑘 ∥ > 1. This implies that past single-step errors 
+
+𝝐 𝑘 are amplified, causing the cumulative error to grow rapidly along the generated trajectory. This mathematical growth implies a critical physical consequence: even small initial errors become sig-nificant after multiple autoregressive steps, echoing the butterfly effect often observed in weather systems. 
+
+3.2.2 Empirical Study. Based on the derivation in Section 3.2.1, we posit that there is an inherent risk of error propagation in au-toregressive pipelines. However, the observed error at each step 
+
+> 3
+
+contains both the propagated error described above and the intrin-sic difficulty of forecasting that specific time step. To isolate the impact of propagated error from the intrinsic difficulty, we conduct a controlled experiment. Instead of applying autoregressive pipeline, we adopt a direct prediction strategy: we set the inference time interval 𝛿𝑡 equal to the horizon Δ𝑡 , making the model predict the long term result in a single inference pass. This strategy eliminates error propagation while preserving other factors. 0 50 100 150      
+
+> hours
+> 1
+> 2
+> 3
+> MAE
+> t2m
+> 050 100 150
+> hours
+> 0
+> 100
+> 200
+> 300
+> 400
+> 500
+> 600
+> MAE
+> z_500
+> Using Previous Prediction Using Ground Truth Approximated Direct Prediction
+
+Figure 2: Impact of error propagation. The standard autore-gressive model (green) accumulates error significantly faster than the direct prediction strategy (purple) which isolates the intrinsic forecasting difficulty. The gap between them confirms that error propagation is a primary driver of per-formance degradation. 
+
+Figure 2 presents the results on two representative variables: t2m and z_500. Oracle baseline (orange) indicates that using ground truth inputs as the upper bound of performance. The Approximated Direct Prediction (purple) yields a significantly lower error growth rate compared to the standard autoregressive baseline (green). The performance gap confirms that propagated errors act as a com-pounding negative factor, exacerbating the error beyond the intrin-sic difficulty of the prediction task itself. 100 105 110 115 120 125 130 135 140         
+
+> longitude
+> 5
+> 10
+> 15
+> 20
+> 25
+> 30
+> 35
+> latitude
+> Model Prediction
+> 100 105 110 115 120 125 130 135 140
+> longitude
+> 5
+> 10
+> 15
+> 20
+> 25
+> 30
+> 35
+> latitude
+> Ground Truth
+> 265
+> 270
+> 275
+> 280
+> 285
+> 290
+> 295
+> 300
+> 305
+
+Figure 3: Visualization of ground-truth ERA5 (left) and our AuroraTW model prediction (right) at 2023/01/10 08:00. While visually similar to the human eye, the discriminator identifies them as belonging to different distributions. 
+
+## 3.3 Out-of-Distribution Butterfly effect in DLWP 
+
+Building on the discussion above, we realized that the autoregres-sive pipeline brings its own restrictions to weather forecasting tasks. The key finding in Figure 2 illustrates that using a model’s generated prediction as its subsequent input significantly degrades the result. This causes worse error performance than the inherent difficulty of the task itself, which we empirically showed by having the model directly predict a specific lead time). This motivates us to study how the model’s generated output actually differs from the ground truth and how it affects subsequent predictions. Fig-ure 3 compares the one-hour single-step prediction alongside the ground truth states at the corresponding time. Surprisingly, to the expert eye, the predicted fields appear physically consistent and visually indistinguishable from reality. However, visual fidelity can be misleading, masking high-dimensional discrepancies or artifacts imperceptible to humans [ 23 , 24 ]. Deep neural networks, on the other hand, can detect these subtle artifacts inherent to predictions [25]. 
+
+Figure 4: t-SNE visualization of embeddings from the Au-roraTW encoder. While the output images appear visually similar (see Figure 3), the model predictions (red) cluster sepa-rately from the ground truth (blue). This separation indicates that the predicted state deviates from the data manifold after the first inference step. 
+
+To quantify these imperceptible differences, we trained a light-weight binary classifier to distinguish between embeddings of orig-inal ERA5 data and single-step model predictions (details in Appen-dix C.4.4). As visualized in Figure 4, despite the visual similarity, the classifier achieves near-perfect discrimination ( ≈ 100% accuracy) with minimal training. This reveals that generated predictions do not inhabit the same manifold as the ground truth. Crucially, this distributional bias is introduced in the very first autoregressive step, setting the stage for the cumulative divergence observed in long-horizon forecasts. Even though the initial difference is small, the compounding effect amplifies this gap and leads to rapid error divergence at longer horizons. 
+
+## 3.4 Feedback Loop for Input Distribution Shift and Output Error 
+
+Having quantified the error growth in Section 3.2 and 3.3, we now identify the underlying mechanism. In an autoregressive pipeline, the input for each step depends entirely on the previous output. This creates a tight coupling between prediction error and the 
+
+> 4
+
+input distribution. Specifically, errors in the previous step cause the input state for the next step to deviate from the training manifold, resulting in Out-of-Distribution (OOD) samples. Step Prediction Error  
+
+> AutoRegressive
+> Out-Of-Distribution Instability
+> OOD Samples
+> Output Input
+
+Figure 5: The Error-Distribution Feedback Loop. Prediction errors push the subsequent input states out-of-distribution (OOD). This distribution shift causes model instability, lead-ing to larger errors, which in turn further deviate the input distribution. 
+
+Since machine learning models typically degrade on OOD inputs, this creates a compounding feedback loop: (1) prediction errors shift the next input state away from the training distribution; (2) this distributional shift degrades the model’s performance on the next step; (3) the increased error further biases the input for subsequent steps. 
+
+Table 1: MAE and FID scores between model predictions and ground truth weather states over increasing horizons. 
+
+Variable 6hr 24hr 96hr 132hr 168hr t2m 0.599 1.057 2.141 2.404 2.609 u10 0.564 1.109 2.661 3.059 3.266 t_850 0.397 0.770 2.128 2.499 2.789 z_500 8.535 131.595 332.714 392.902 442.777 FID 0.007 0.085 0.552 0.868 1.105 To validate this hypothesis, we quantify the distributional dis-crepancy between predicted states and the ground truth over in-creasing autoregressive horizons using the Fréchet Inception Dis-tance (FID). As shown in Table 1, there is a strong positive correla-tion between autoregressive steps and FID scores, confirming that the distribution progressively diverges from its learned distribution during the autoregressive process. 
+
+## 4 Proposed Framework 
+
+Based on the analysis in Section 3, we attribute error growth in au-toregressive pipeline to its error propagation mechanism and nega-tive feedback loops. Since the model encounters out-of-distribution inputs as early as the first step, subsequent predictions deviate further from the data manifold. To address this, we propose Self-Output Fine-Tuning (SOFT) , a simple yet effective finetuning methodology. Our core idea is to enable forecasting model to adapt to the biased patterns inherent in its own generated outputs. Unlike computationally expensive approaches that utilize multi-step rollouts or replay buffers, we construct a single-step distribu-tion alignment task. Conceptually, this is analogous to nipping the error in the bud . By correcting small distributional shifts immediately at the single-step level, we can prevent amplification of errors over long horizons due to the vicious cycle in autore-gressive pipeline. This approach is both strategically targeted and computationally efficient. 
+
+## 4.1 Stage 1: Training for Single Step Forecasting 
+
+In the first stage of our framework, we train a base model to forecast one step ahead using ERA5 data. Following previous work [ 5], we minimize the mean absolute error ( L1Loss ) between predicted states and ground truth grid. With the notation from Section 3.1, the training objective is defined as: 
+
+𝜃 𝑏𝑎𝑠𝑒 = argmin 
+
+> 𝜃
+
+E
+
+> X𝑡
+
+[∥ 𝑓 𝜃 (X𝑡 ) − X𝑡 +𝛿𝑡 ∥1] (5) Training convergence in this stage is critical. If the base model fails to capture single-step dynamics, the predictions will deviate significantly from ground truth distribution, making the subsequent fine-tuning stage ineffective due to excessive noise. 
+
+## 4.2 Stage 2: Self-Output Fine-Tuning (SOFT) 
+
+Even if a model achieves low error in Stage 1, it remains susceptible to error growth, as shown in Figure 1. This occurs because the model is trained on ground truth data but operates on its own gen-erated predictions during autoregressive inference. As discussed in Section 3.3, an out-of-distribution signature becomes evident after merely one step. We therefore propose SOFT, a method that focuses on mitigating the distributional discrepancy between train-ing and inference. SOFT trains the model on its own predictions, forcing it to learn how to correct its own artifacts and map biased inputs back to the true future state. Technically, we transform these OOD samples into pseudo-in-distribution (ID) samples to bridge the distribution gap. 
+
+4.2.1 Generating Biased States. First, we feed a clean sample X𝑡 −𝛿𝑡 
+
+into the pretrained model from Stage 1 (with fixed parameters 𝜃 base )to acquire a predicted input ˆX𝑡 . This input contains the model’s natural errors and artifacts: 
+
+ˆX𝑡 = stopgrad [𝑓 𝜃 𝑏𝑎𝑠𝑒 (X𝑡 −𝛿𝑡 )] (6) where stopgrad indicates that model is frozen and gradients are not propagated through this step. 
+
+4.2.2 Fine-Tuning Objective. Next, we fine-tune the model to pre-dict the ground truth future X𝑡 +𝛿𝑡 using the generated input ˆX𝑡 .The SOFT training objective is defined as: 
+
+𝜃 𝑆𝑂𝐹𝑇 = argmin 
+
+> 𝜃
+
+E
+
+> X𝑡
+
+∥𝑓 𝜃 ( ˆX𝑡 ) − X𝑡 +𝛿𝑡 ∥1
+
+ (7) where ˆX𝑡 = stopgrad [𝑓 𝜃 𝑏𝑎𝑠𝑒 (X𝑡 −𝛿𝑡 )] is the biased input generated by the frozen base model. Algorithm 1 (Appendix C.5) presents the SOFT pseudo-code. 
+
+## 4.3 Autoregressive Inference 
+
+Once fine-tuned, we deploy the model using a standard autoregres-sive pipeline. Recall from Section 3.1 that our goal is to generate 
+
+> 5
+
+Weather Data@t Model Prediction@t +𝞭 t
+
+MAE Loss  
+
+> Fixed Trainable
+
+# Stage 1: Single Step Prediction Training 
+
+Prediction@t 
+
+# Stage 2: Self Output Fine -Tuning 
+
+# Autoregressive Inference 
+
+Prediction@t +𝞭 t Prediction@t+ Δt……… Weather Data@ t
+
+Weather Data@t +𝞭 t
+
+Model Prediction@t +𝞭 t
+
+MAE Loss 
+
+Weather Data@t +𝞭 tFigure 6: Overview of the Self-Output Fine-Tuning (SOFT) framework. The process consists of two stages: (1) Training a base model on ground truth data to learn single-step dynamics, and (2) Fine-tuning the model on its own generated outputs ( ˆX𝑡 ) to align predictions with the ground truth ( X𝑡 +𝛿𝑡 ). This alignment mitigates error propagation during autoregressive inference. 
+
+a trajectory for a horizon Δ𝑡 . We initialize the process with the ground truth X𝑡 and recursively apply the learned model: 
+
+ˆX𝑡 +( 𝑘 )𝛿𝑡 = 𝑓 𝜃 𝑆𝑂𝐹𝑇 ( ˆX𝑡 +( 𝑘 −1)𝛿𝑡 ), for 𝑘 = 1, . . . , 𝐾 (8) with the initialization ˆX𝑡 = X𝑡 .This loop continues for 𝐾 = Δ𝑡 /𝛿𝑡 steps. Because our model was trained via SOFT, it allows us to extend the rollout horizon significantly (e.g., up to 7 days) without the catastrophic divergence seen in standard baselines. Furthermore, since we only modify the training input without altering the model architecture, we do not need to adjust the inference pipeline. 
+
+## 4.4 Theoretical Insights 
+
+Besides empirical intuition, we also provide a theoretical explana-tion for why the SOFT loss design works. Our main goal is to show that, under a linear assumption, the standard sequential rollout training—which optimizes all steps in autoregressive weather prediction—can be upper-bounded by the SOFT loss. 
+
+Theorem 4.1. Under a linear setting, for any integer 𝑘 ≥ 2, the 
+
+𝑘 -step rollout loss 𝐿 rollout is upper-bounded by the SOFT loss 𝐿 SOFT 
+
+plus error terms related to model divergence and structural mismatch, such that: 
+
+𝐿 rollout ≤ 2𝐿 SOFT + 4∥𝑊 ∥2 ∥( 𝑊 − ˜𝑊 )𝑋 𝑡 ∥2 + 4∥𝑊 ∥2 ∥( 𝑊 𝑘 −1 −𝑊 )𝑋 𝑡 ∥2
+
+(9) 
+
+where 𝑋 𝑡 denotes the initial condition and ˜𝑊 denotes the model weight well-trained by single-step prediction. 
+
+Through this analysis, we demonstrate that fine-tuning with the model’s own output is supported not only by empirical intuition but also by theoretical understanding. Although this analysis assumes a simplified linear case, it justifies our method from a theoretical perspective and lays the groundwork for future work. The detailed derivation is provided in Section B. 
+
+## 5 Experiments 
+
+In this section, we evaluate the effectiveness of the proposed SOFT framework on regional weather forecasting. We structure our em-pirical analysis around following core questions: 
+
+• Q1: Does SOFT mitigate error growth in autoregressive inference more effectively than state-of-the-art strategies? 
+
+• Q2: Does SOFT align the predicted distribution with the ground truth manifold and reduce out-of-distribution shift over long horizons? 
+
+• Q3: Is SOFT compatible with existing training strategies and diverse model architectures? Section 5.1 details the experimental setup. We address Research Question 1 in Section 5.2, Question 2 in Section 5.3, and Questions 3 in Section 5.4. 
+
+> 6
+
+Table 2: Main results of spatial MAE for our Aurora 168-hour forecasts across TW, EU, and NA regions. The best numbers in each column are shown in bold and the second best number are underlined 
+
+.TW EU NA Method t2m u10 t_850 z_500 t2m 10u t_850 z_500 t2m u10 t_850 z_500 SingleStepPrediction 3.029 3.718 3.255 504.107 5.250 3.863 5.531 1513.869 5.296 4.247 5.916 1417.180 +Rollout 2.898 3.447 3.050 474.561 4.828 3.700 5.298 1376.574 5.075 4.053 5.662 1316.752 +ReplayBuffer 2.728 3.333 2.923 446.555 4.566 3.528 4.996 1288.561 4.729 3.929 5.444 1213.615 
+
++GaussianNoiseAug 2.691 3.293 2.934 459.226 5.068 3.702 5.837 1385.477 4.885 3.877 5.752 1312.992 +FeatureMatching 3.034 3.844 3.249 498.506 5.317 3.967 5.605 1525.991 5.385 4.231 5.855 1354.967 +SOFT (ours) 2.609 3.266 2.789 442.777 4.762 3.570 5.187 1306.609 4.657 3.824 5.391 1217.320 
+
+## 5.1 Experimental Setup 
+
+5.1.1 Datasets. We evaluate our framework using the ERA5 reanal-ysis dataset [ 12 ], specifically curating a regional subset centered on East Asia surrounding Taiwan, North America and Europe ( 0.25 ◦
+
+resolution, detailed in Table 7, Appendix C.1) to simulate a practical local deployment. 
+
+5.1.2 Architectures. We utilize the pre-trained Microsoft Aurora [5 ] as our primary backbone, adapting it to our region via standard supervised learning. To demonstrate architectural generalization, we also employ a re-implementation of Pangu-Weather [ 4 ], trained from scratch on our regional split. 
+
+5.1.3 Metrics. We consider both deterministic error value and dis-tributional performance in this paper. We assess deterministic fore-cast accuracy using spatially-averaged Mean Absolute Error (MAE). To quantify distributional realism and the butterfly effect drift, we employ the Fréchet Inception Distance (FID), measuring the Wasserstein-2 distance between the feature embeddings of pre-dicted and ground-truth atmospheric states. 
+
+5.1.4 Baselines. To validate SOFT effectiveness, we compare it against common paradigms in long term training strategy in DLWP. 
+
+• Single Step Prediction Training: The baseline model only trained with standard next-step supervision ( 𝑡 → 𝑡 + 𝛿𝑡 ). This serves as the lower bound, representing a model with no specific long-term optimization. 
+
+• Rollout Tuning: The dominant strategy in SOTA mod-els [ 14 ], where predictions are unrolled for 𝐾 steps during training. While effective, it incurs linear growth for both memory and training cost. 
+
+• Replay Buffer: Maintain a buffer of intermediate states to approximate long-horizon training without direct un-rolling. 
+
+• Feature Matching Loss: A Generative Adversarial Net-work framework where a discriminator penalized the model embedding for deviations from the realistic atmospheric manifold. 
+
+• Gaussian Noise Augmentation: We inject Gaussian noise into inputs during training to prevent overfitting to deter-ministic trajectories and improve robustness against distri-butional shifts. Appendix C lists the implementation details and hyperparame-ters for all baselines. 
+
+Table 3: Win rate table for different methods comparison. 
+
+Method 6hr 24hr 96hr 132hr 168hr SingleStepPrediction 0 0 0 0 0+Rollout 2 1 0 0 0+ReplayBuffer 5 11 1 1 1+GaussianNoiseAug 0 1 6 7 9+FeatureMatching 0 0 0 0 0+SOFT (ours) 37 31 37 36 34 
+
+## 5.2 Comparison with State-of-the-Arts 
+
+5.2.1 Quantitative MAE Results. Table 2 presents the MAE perfor-mance for 168-hour autoregressive forecasting. We report results on four representative variables: t2m, u10, t_850, and z_500. These are standard metrics for long-range prediction and are critical for human activity. The proposed SOFT framework achieves competitive perfor-mance across all lead times and variables. While MultiStep roll-out and ReplayBuffer strategies are effective, they incur additional computational costs and optimization instability. Conversely, dis-tributional enhancement methods such as Feature Matching and Gaussian Noise Augmentation struggle to fully correct distribution mismatch. SOFT successfully balances computational efficiency with forecasting accuracy. 
+
+5.2.2 Comparison across all variables. We also report the number of variables that rank first in the 168-hour forecast. As shown in Table 3, the SOFT series wins across most variables. This shows that our method is not limited to specific variables or leading times, but provides a general improvement for these models. 
+
+5.2.3 Visualization. Figure 7 shows the error distribution for a representative case study on 2023/01/28 12:00 UTC at a 168-hour lead time. The baseline model exhibits large errors (darker regions), whereas SOFT shows significantly reduced error. 
+
+## 5.3 Mitigating Distributional Gap 
+
+A core premise of this work is that autoregressive models suffer from distributional shift — where predictions drift away from the manifold of natural weather states over time. We therefore aim to demonstrate that SOFT effectively address the distribution problem caused by the autoregressive compounding errors.  
+
+> 7Ground Truth
+> t2m z_500
+> AuroraTW Diff: AuroraTW AuroraTW-SOFT Diff: AuroraTW-SOFT
+> 270
+> 275
+> 280
+> 285
+> 290
+> 295
+> 300
+> 52000
+> 53000
+> 54000
+> 55000
+> 56000
+> 57000
+> 270
+> 280
+> 290
+> 300
+> 53000
+> 54000
+> 55000
+> 56000
+> 57000
+> 5.0
+> 2.5
+> 0.0
+> 2.5
+> 5.0
+> 1500
+> 1000
+> 500
+> 0
+> 500
+> 1000
+> 1500
+> 270
+> 275
+> 280
+> 285
+> 290
+> 295
+> 300
+> 53000
+> 54000
+> 55000
+> 56000
+> 57000
+> 5.0
+> 2.5
+> 0.0
+> 2.5
+> 5.0
+> 1500
+> 1000
+> 500
+> 0
+> 500
+> 1000
+> 1500
+
+Figure 7: Prediction Error Visualization. Visualization of ab-solute error for AuroraTW and AuroraTW-SOFT relative to ERA5 (ground truth) at a 168-hour lead time. The proposed SOFT method (rows 4-5) shows reduced error compared to the baseline (rows 2-3). Table 4: FID evaluation for three regions at a 168-hour hori-zon. Lower values indicate better alignment with the realistic atmospheric manifold. 
+
+Method TW EU NA SingleStepPrediction 1.105 2.741 3.431 +Rollout 0.838 1.509 2.510 +ReplayBuffer 0.790 1.159 1.915 +GaussianNoise 0.886 2.456 2.064 +FeatureMatching 1.173 2.663 2.922 +SOFT (ours) 0.737 1.233 1.556 We evaluate the Fréchet Inception Distance (FID) between pre-dicted rollout sequences and ground truth sequences. A lower FID indicates that the predicted weather patterns are distributionally closer to the ground truth. As shown in Table 4, both SOFT and the other strategies achieve significantly lower FID scores at later forecast stages compared to baselines. This supports our hypoth-esis that error growth is driven by distributional drift, and SOFT effectively mitigates this issue. 
+
+## 5.4 Ablation Study 
+
+5.4.1 Compatibility with Different Strategies. While SOFT is effec-tive as a standalone method, we investigate whether it complements other long-horizon strategies. We apply SOFT on top of checkpoints pretrained with the baseline methods discussed in Section 5.1.4. As shown in Table 5, SOFT improves performance in the majority of tested scenarios, effectively enhancing strategies like multi-step rollout and replay buffer with minimal additional training. This sug-gests that SOFT functions as a robust plug-and-play extension that enhances distributional robustness for various underlying training paradigms. 
+
+Table 5: The study for SOFT generalization ability. Values in italics indicate the relative percentage change compared to the respective baseline for 168 hour forecast. 
+
+Method t2m u10 t_850 z_500 SingleStepPrediction 3.029 3.718 3.255 504.107 +SOFT 2.609 3.266 2.789 442.777 
+
+(% Change) (-13.9%) (-12.2%) (-14.3%) (-12.2%) 
+
++Rollout 2.898 3.447 3.050 474.561 +Rollout+SOFT 2.785 3.362 2.901 468.248 
+
+(% Change) (-3.9%) (-2.5%) (-4.9%) (-1.3%) 
+
++ReplayBuffer 2.728 3.333 2.923 446.555 +ReplayBuffer+SOFT 2.694 3.311 2.876 459.404 
+
+(% Change) (-1.2%) (-0.7%) (-1.6%) (+2.9%) 
+
+5.4.2 Compatibility with Different Architectures. We apply SOFT to the Pangu-Weather architecture to demonstrate architectural gen-eralization. Table 6 shows that Pangu-Weather achieves consistent gains when SOFT is applied, confirming the method’s versatility across different backbone architectures. 
+
+Table 6: Ablation study for applying SOFT on different ar-chitecture. Values in italics indicate the relative percentage change compared to the PanguTW baseline for 168 hour fore-casts. 
+
+t2m 10u t_850 z_500 PanguTW 29.389 40.051 10.749 2333.240 +SOFT (ours) 27.902 25.607 4.451 1475.974 
+
+(% Change) (-5.1%) (-36.1%) (-58.6%) (-36.7%) 
+
+## 6 Conclusion 
+
+In this paper, we identify that error accumulation in autoregressive deep learning weather prediction is fundamentally driven by distri-butional shift. We theoretically analyze this phenomenon, showing that propagating errors progressively accumulate, pushing subse-quent predictions away from the ground truth manifold. Empirical evidence further demonstrates that the distribution begins to devi-ate from the ground truth trajectory as early as the first prediction step. 
+
+> 8
+
+To mitigate this distributional mismatch between training and inference, we propose Self-Output Fine-Tuning (SOFT). This sim-ple yet effective strategy explicitly exposes the model to its own one-step predictive bias during training, effectively bridging the dis-tribution gap. Extensive experiments on the ERA5 dataset validate that SOFT performs competitively across various weather variables and lead times. By aligning step-wise distributions, we successfully reduce both deterministic and distributional errors, as evidenced by improved MAE and FID scores. Crucially, SOFT is architecture-agnostic and computationally effi-cient, prioritizing a step-wise training objective over the sequential objectives commonly used in prior work. This design is practical in terms of cost and ensures ground-target adherence, consistent with our theoretical analysis. We demonstrate that this step-wise goal remains competitive with sequential objectives while utilizing the same computational budget. These findings suggest that long-range forecasting research should prioritize distributional alignment over complex architectural modifications. We hope this work encourages the community to view error accumulation through the lens of data distribution, paving the way for more reliable weather models in climate science. 
+
+## Limitations and Ethical Considerations 
+
+While validated on standard ERA5 benchmarks, our experiments are currently limited to a regional East Asia subset. Global-scale deployment remains future work. Ethically, we anticipate positive societal impacts on disaster preparedness and climate monitoring. Furthermore, our framework contributes to Green AI by signif-icantly reducing training costs compared to multi-step rollouts. Utilizing public reanalysis data without human subjects, this work poses no privacy, discrimination, or conflict of interest risks. 
+
+## Generative AI Disclosure 
+
+We utilized generative AI tools to assist with the preparation of this manuscript. Specifically, these tools were used to refine the writing (grammar and clarity), generate components of the frame-work overview diagram, and assist with coding tasks. The authors reviewed all AI-generated content to ensure accuracy and retain full responsibility for the paper’s content. 
+
+## References 
+
+[1] Kushal Arora, Layla El Asri, Hareesh Bahuleyan, and Jackie Cheung. 2022. Why Exposure Bias Matters: An Imitation Learning Perspective of Error Accumula-tion in Language Generation. In Findings of the Association for Computational Linguistics: ACL 2022 , Smaranda Muresan, Preslav Nakov, and Aline Villavicen-cio (Eds.). Association for Computational Linguistics, Dublin, Ireland, 700–710. doi:10.18653/v1/2022.findings-acl.58 [2] Peter Bauer, Alan Thorpe, and Gilbert Brunet. 2015. The quiet revolution of numerical weather prediction. Nature 525, 7567 (2015), 47–55. [3] Samy Bengio, Oriol Vinyals, Navdeep Jaitly, and Noam Shazeer. 2015. Scheduled sampling for sequence prediction with recurrent neural networks. Advances in neural information processing systems 28 (2015). [4] Kaifeng Bi, Lingxi Xie, Hengheng Zhang, Xin Chen, Xiaotao Gu, and Qi Tian. 2023. Accurate medium-range global weather forecasting with 3D neural networks. 
+
+Nature 619, 7970 (2023), 533–538. [5] Cristian Bodnar, Wessel P Bruinsma, Ana Lucic, Megan Stanley, Anna Allen, Johannes Brandstetter, Patrick Garvan, Maik Riechert, Jonathan A Weyn, Haiyu Dong, et al . 2025. A foundation model for the Earth system. Nature (2025), 1–8. [6] Jerald A Brotzge, Don Berchoff, DaNa L Carlis, Frederick H Carr, Rachel Hogan Carr, Jordan J Gerth, Brian D Gross, Thomas M Hamill, Sue Ellen Haupt, Neil Jacobs, et al . 2023. Challenges and opportunities in numerical weather prediction. 
+
+Bulletin of the American Meteorological Society 104, 3 (2023), E698–E705. [7] Gilbert Brunet, David B Parsons, Dimitar Ivanov, Boram Lee, Peter Bauer, Natacha B Bernier, Veronique Bouchet, Andy Brown, Antonio Busalacchi, Georgina Campbell Flatter, et al . 2023. Advancing weather and climate forecast-ing for our changing world. Bulletin of the American Meteorological Society 104, 4 (2023), E909–E927. [8] Kang Chen, Tao Han, Junchao Gong, Lei Bai, Fenghua Ling, Jing-Jia Luo, Xi Chen, Leiming Ma, Tianning Zhang, Rui Su, et al . 2023. Fengwu: Pushing the skillful global medium-range weather forecast beyond 10 days lead. arXiv preprint arXiv:2304.02948 (2023). [9] Lei Chen, Xiaohui Zhong, Feng Zhang, Yuan Cheng, Yinghui Xu, Yuan Qi, and Hao Li. 2023. FuXi: a cascade machine learning forecasting system for 15-day global weather forecast. npj climate and atmospheric science 6, 1 (2023), 190. [10] Erin Coughlan de Perez, BJJM van den Hurk, MK Van Aalst, Brenden Jongman, T Klose, and Pablo Suarez. 2015. Forecast-based financing: an approach for catalyzing humanitarian action based on extreme weather and climate forecasts. 
+
+Natural Hazards and Earth System Sciences 15, 4 (2015), 895–904. [11] Ian Goodfellow, Yoshua Bengio, and Aaron Courville. 2016. Deep Learning . MIT Press. http://www.deeplearningbook.org. [12] Hans Hersbach, Bill Bell, Paul Berrisford, Shoji Hirahara, András Horányi, Joaquín Muñoz-Sabater, Julien Nicolas, Carole Peubey, Raluca Radu, Dinand Schepers, et al . 2020. The ERA5 global reanalysis. Quarterly journal of the royal meteorological society 146, 730 (2020), 1999–2049. [13] Alex Kendall and Yarin Gal. 2017. What uncertainties do we need in bayesian deep learning for computer vision? Advances in neural information processing systems 30 (2017). [14] Remi Lam, Alvaro Sanchez-Gonzalez, Matthew Willson, Peter Wirnsberger, Meire Fortunato, Ferran Alet, Suman Ravuri, Timo Ewalds, Zach Eaton-Rosen, Weihua Hu, et al . 2023. GraphCast: Learning skillful medium-range global weather forecasting. Science 382, 6677 (2023), 1416–1424. [15] Remi Lam, Alvaro Sanchez-Gonzalez, Matthew Willson, Peter Wirnsberger, Meire Fortunato, Ferran Alet, Suman Ravuri, Timo Ewalds, Zach Eaton-Rosen, Weihua Hu, et al . 2023. Learning skillful medium-range global weather forecasting. 
+
+Science 382, 6677 (2023), 1416–1421. [16] Gerald A Meehl, Thomas Karl, David R Easterling, Stanley Changnon, Roger Pielke Jr, David Changnon, Jenni Evans, Pavel Ya Groisman, Thomas R Knutson, Kenneth E Kunkel, et al . 2000. An introduction to trends in extreme weather and climate events: observations, socioeconomic impacts, terrestrial ecological impacts, and model projections. Bulletin of the American Meteorological Society 
+
+81, 3 (2000), 413–416. [17] Tung Nguyen, Johannes Brandstetter, Ashish Kapoor, Jayesh K Gupta, and Aditya Grover. 2023. Climax: A foundation model for weather and climate. arXiv preprint arXiv:2301.10343 (2023). [18] Tung Nguyen, Rohan Shah, Hritik Bansal, Troy Arcomano, Sandeep Madireddy, Romit Maulik, Veerabhadra Kotamarthi, Ian Foster, and Aditya Grover. 2024. Scaling transformers for skillful and reliable medium-range weather forecasting. In ICLR 2024 Workshop on AI4DifferentialEquations In Science .[19] Peisong Niu, Ziqing Ma, Tian Zhou, Weiqi Chen, Lefei Shen, Rong Jin, and Liang Sun. 2025. Utilizing strategic pre-training to reduce overfitting: Baguan-a pre-trained weather forecasting model. In Proceedings of the 31st ACM SIGKDD Conference on Knowledge Discovery and Data Mining V. 2 . 2186–2197. [20] Jaideep Pathak, Shashank Subramanian, Peter Harrington, Sanjeev Raja, Ashesh Chattopadhyay, Morteza Mardani, Thorsten Kurth, David Hall, Zongyi Li, Kamyar Azizzadenesheli, et al . 2022. Fourcastnet: A global data-driven high-resolution weather model using adaptive fourier neural operators. arXiv preprint arXiv:2202.11214 (2022). [21] Marc’Aurelio Ranzato, Sumit Chopra, Michael Auli, and Wojciech Zaremba. 2015. Sequence level training with recurrent neural networks. arXiv preprint arXiv:1511.06732 (2015). [22] Stéphane Ross, Geoffrey Gordon, and Drew Bagnell. 2011. A reduction of imi-tation learning and structured prediction to no-regret online learning. In Pro-ceedings of the fourteenth international conference on artificial intelligence and statistics . JMLR Workshop and Conference Proceedings, 627–635. [23] Damien Teney, Armand Mihai Nicolicioiu, Valentin Hartmann, and Ehsan Ab-basnejad. 2024. Neural redshift: Random networks are not random functions. In 
+
+Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recogni-tion . 4786–4796. [24] Dmitry Ulyanov, Andrea Vedaldi, and Victor Lempitsky. 2018. Deep image prior. In Proceedings of the IEEE conference on computer vision and pattern recognition .9446–9454. [25] Haowen Wang, Guowei Zhang, Xiang Zhang, Zeyuan Chen, Haiyang Xu, Dou Hoon Kwark, and Zhuowen Tu. 2025. Exploring the equivalence of closed-set generative and real data augmentation in image classification. arXiv preprint arXiv:2508.09550 (2025). [26] Xiangyu Zhao, Zhiwang Zhou, Wenlong Zhang, Yihao Liu, Xiangyu Chen, Jun-chao Gong, Hao Chen, Ben Fei, Shiqi Chen, Wanli Ouyang, Xiao-Ming Wu, and Lei Bai. 2024. WeatherGFM: Learning A Weather Generalist Foundation Model via In-context Learning. arXiv:2411.05420 [cs.LG] https://arxiv.org/abs/2411. 05420 
+
+> 9
+
+## Appendix A Derivation of Error Propagation 
+
+In this section, we provide the detailed derivation for Proposition 3.1. 
+
+Definitions. Recall the definitions from the main text: 
+
+• Ground truth dynamics: x𝑡 = 𝑔 (x𝑡 −1).
+
+• Learned model: ˆx𝑡 = 𝑓 𝜃 ( ˆx𝑡 −1).
+
+• Model error function: 𝜖 (x) ≜ 𝑓 𝜃 (x) − 𝑔 (x).
+
+• Cumulative error at step 𝑡 : e𝑡 ≜ ˆx𝑡 − x𝑡 .
+
+• Single-step error at step 𝑡 : 𝝐 𝑡 ≜ 𝑓 𝜃 (x𝑡 −1) − x𝑡 .
+
+Proof. We start by expanding the cumulative error at step 𝑡 :
+
+e𝑡 = ˆx𝑡 − x𝑡 (10) Substituting the model dynamics for ˆx𝑡 and the ground truth dy-namics for x𝑡 :
+
+e𝑡 = 𝑓 𝜃 ( ˆx𝑡 −1) − 𝑔 (x𝑡 −1) (11) Since ˆx𝑡 −1 = x𝑡 −1 + e𝑡 −1, we can rewrite the first term as 𝑓 𝜃 (x𝑡 −1 +
+
+e𝑡 −1). Assuming e𝑡 −1 is small, we perform a first-order Taylor ex-pansion of 𝑓 𝜃 around the ground truth state x𝑡 −1:
+
+𝑓 𝜃 (x𝑡 −1 + e𝑡 −1) ≈ 𝑓 𝜃 (x𝑡 −1) + J𝑓 (x𝑡 −1)e𝑡 −1 (12) where J𝑓 is the Jacobian of the model 𝑓 𝜃 . Substituting this back into the error equation: 
+
+e𝑡 ≈ 𝑓 𝜃 (x𝑡 −1) + J𝑓 (x𝑡 −1)e𝑡 −1 − 𝑔 (x𝑡 −1) (13) We can rearrange the terms to group the single-step error: 
+
+e𝑡 ≈ ( 𝑓 𝜃 (x𝑡 −1) − 𝑔 (x𝑡 −1)) 
+
+| {z }
+
+> 𝝐 𝑡
+
++J𝑓 (x𝑡 −1)e𝑡 −1 (14) Recall that by definition, the model output is the sum of the ground truth and the error function: 𝑓 𝜃 (x) = 𝑔 (x) + 𝜖 (x). By the linearity of differentiation, the Jacobian of the model J𝑓 decomposes into: 
+
+J𝑓 (x) = ∇x (𝑔 (x) + 𝜖 (x)) = J𝑔 (x) + J𝜖 (x). (15) We previously derived the error update rule using the model Jaco-bian: e𝑡 ≈ 𝝐 𝑡 + J𝑓 (x𝑡 −1)e𝑡 −1. Substituting Eq. 15 into this update rule yields the final recurrence relation: 
+
+e𝑡 ≈ 𝝐 𝑡 + ( J𝑔 (x𝑡 −1) + J𝜖 (x𝑡 −1)) e𝑡 −1. (16) 
+
+□
+
+## B Derivation of SOFT Loss Upper Bound 
+
+In this section, we provide the detail process for getting theorem 4.1. 
+
+Proof. We begin by expressing the 𝑘 -step rollout loss and apply-ing the Triangle Inequality by adding and subtracting the prediction of the surrogate model, 𝑊 ˜𝑊 𝑋 𝑡 :
+
+∥𝑊 𝑘 𝑋 𝑡 − 𝑋 𝑡 +2 ∥ ≤ ∥ 𝑊 𝑘 𝑋 𝑡 − 𝑊 ˜𝑊 𝑋 𝑡 ∥ + ∥ 𝑊 ˜𝑊 𝑋 𝑡 − 𝑋 𝑡 +2 ∥ (17) We recognize the second term on the right-hand side as the square root of our SOFT surrogate loss, √𝐿 SOFT . For the first term, we factor out the matrix 𝑊 :
+
+∥𝑊 𝑘 𝑋 𝑡 − 𝑊 ˜𝑊 𝑋 𝑡 ∥ = ∥𝑊 (𝑊 𝑘 −1 − ˜𝑊 )𝑋 𝑡 ∥ (18) Using the submultiplicativity property of the chosen matrix norms, we can bound this term: 
+
+∥𝑊 (𝑊 𝑘 −1 − ˜𝑊 )𝑋 𝑡 ∥ ≤ ∥ 𝑊 ∥ · ∥( 𝑊 𝑘 −1 − ˜𝑊 )𝑋 𝑡 ∥ (19) To isolate the divergence between the current model 𝑊 and the fixed model ˜𝑊 , we add and subtract 𝑊 within the rightmost term: 
+
+𝑊 𝑘 −1 − ˜𝑊 = (𝑊 𝑘 −1 − 𝑊 ) + ( 𝑊 − ˜𝑊 ) (20) Applying the Triangle Inequality again yields: 
+
+∥( 𝑊 𝑘 −1 − ˜𝑊 )𝑋 𝑡 ∥ ≤ ∥( 𝑊 𝑘 −1 − 𝑊 )𝑋 𝑡 ∥ + ∥( 𝑊 − ˜𝑊 )𝑋 𝑡 ∥ (21) Substituting this back into our original inequality, we have: 
+
+∥𝑊 𝑘 𝑋 𝑡 −𝑋 𝑡 +2 ∥ ≤ √︁ 𝐿 SOFT +∥ 𝑊 ∥
+
+
+
+∥( 𝑊 𝑘 −1 − 𝑊 )𝑋 𝑡 ∥ + ∥( 𝑊 − ˜𝑊 )𝑋 𝑡 ∥
+
+
+
+(22) To relate this back to the squared loss functions, we square both sides. We utilize the standard algebraic inequality (𝑎 + 𝑏 )2 ≤
+
+2𝑎 2 + 2𝑏 2 twice. First, applying it to split the surrogate loss from the error terms: 
+
+𝐿 rollout ≤ 2𝐿 SOFT + 2∥𝑊 ∥2 
+
+∥( 𝑊 𝑘 −1 − 𝑊 )𝑋 𝑡 ∥ + ∥( 𝑊 − ˜𝑊 )𝑋 𝑡 ∥
+
+2
+
+(23) Second, applying it to expand the two inner error terms: 
+
+
+
+∥( 𝑊 𝑘 −1 − 𝑊 )𝑋 𝑡 ∥ + ∥( 𝑊 − ˜𝑊 )𝑋 𝑡 ∥
+
+2
+
+≤ 2∥( 𝑊 𝑘 −1−𝑊 )𝑋 𝑡 ∥2+2∥( 𝑊 − ˜𝑊 )𝑋 𝑡 ∥2
+
+(24) Substituting this expansion back into the squared bound yields the final result: 
+
+𝐿 rollout ≤ 2𝐿 SOFT +4∥𝑊 ∥2 ∥( 𝑊 − ˜𝑊 )𝑋 𝑡 ∥2 +4∥𝑊 ∥2 ∥( 𝑊 𝑘 −1 −𝑊 )𝑋 𝑡 ∥2
+
+(25) This completes the proof. □
+
+## C Experimental Setup C.1 Datasets 
+
+We use the ERA5 reanalysis dataset, a standard benchmark for data-driven weather forecasting. ERA5 provides hourly estimates of atmospheric variables on a 0.25 ◦ grid. We retrieved the data from the ECMWF Climate Data Store (CDS) using the cdsapi client, downloading all files in NetCDF ( .nc ) format. We curate regional subsets of ERA5 for different areas, including East Asia surrounding Taiwan, North America and Europe. Details are provided in Table 7. This setup reflects a practical deployment scenario where global foundation models are adapted to specific local regions. 
+
+## C.2 Model Architecture 
+
+We utilize the pre-trained Microsoft Aurora model as our back-bone. Aurora employs a 3D Swin Transformer within a Perceiver IO framework to capture multi-scale atmospheric dynamics. We first adapt this global model to our regional domain via standard one-step supervised learning. This provides a strong baseline for subsequent fine-tuning strategies. To evaluate architectural generalization (RQ3), we also employ Pangu-Weather. Pangu utilizes a 3D Earth-Specific Transformer (3DEST) to process volumetric data. As the official implementation is not open-source, we re-implemented the architecture based on the 
+
+> 10
+
+Table 7: ERA5 Dataset Configuration for Regional Fine-tuning. Attribute Specification 
+
+Spatial Resolution 0.25 ◦ (≈ 28 km) Temporal Resolution 1 hour TW Region 5◦N– 39 .75 ◦N, 100 ◦E– 144 .75 ◦EEU Region 35 ◦N– 69 .75 ◦N, 0◦E– 44 .75 ◦ENA Region 30 ◦N– 64 .75 ◦N, 115 ◦E– 159 .75 ◦EGrid Size 140 × 180 
+
+Training Period 2013–2018 Validation Period 2022 Testing Period 2023 Upper-air Variables u, v, t, q, z Pressure Levels (hPa) 50, 250, 500, 600, 700, 850, 925 Surface Variables u10, v10, t2m, msl published pseudo-code and trained it from scratch on our regional dataset. 
+
+## C.3 Evaluation Metrics 
+
+Our primary metric for forecast accuracy is the Mean Absolute Error (MAE), averaged over spatial dimensions. Let X𝑡 ∈ R𝐻 ×𝑊 ×𝐶 
+
+be the ground-truth state at time 𝑡 , and ˆX𝑡 be the prediction. The loss is defined as: 
+
+LMAE = 1
+
+𝐻 · 𝑊 · 𝐶 
+
+> 𝐻
+
+∑︁ 
+
+> ℎ=1
+> 𝑊
+
+∑︁ 
+
+> 𝑤 =1
+> 𝐶
+
+∑︁ 
+
+> 𝑐 =1
+
+X(ℎ,𝑤,𝑐 ) 
+
+> 𝑡
+
+− ˆX(ℎ,𝑤,𝑐 )
+
+> 𝑡
+
+where 𝐻,𝑊 , 𝐶 denote latitude, longitude, and channel dimensions, respectively. To assess whether predicted weather patterns remain realistic over long horizons, we employ the FID score. FID measures the Wasserstein-2 distance between the multivariate Gaussian distribu-tions of the ground truth ( D𝑟 ) and predicted ( D𝑝 ) data in a deep feature space. It is computed as: FID = ∥𝜇 𝑟 − 𝜇 𝑝 ∥2 + Tr 
+
+
+
+Σ𝑟 + Σ𝑝 − 2(Σ𝑟 Σ𝑝 )1/2 
+
+where (𝜇 𝑟 , Σ𝑟 ) and (𝜇 𝑝 , Σ𝑝 ) denote the mean and covariance of the feature embeddings for the real and predicted samples, respec-tively. Lower FID values indicate better alignment with the ground truth distribution, suggesting reduced distributional shift during autoregressive inference. 
+
+## C.4 Implementation Details 
+
+C.4.1 Baseline Training Setting. We first fine-tune the global Au-rora foundation model on the ERA5 subset for 400 epochs to obtain the well-trained model which works for single step weather pre-diction. We then use this as the base for further fine-tuning with different long-term strategies for an additional 50 epochs. We follow the default normalization settings from the Aurora repository. We adopt a learning rate schedule with linear warmup (first 10% of steps) followed by cosine annealing. The peak learning rate is 3 × 10 −5 with a weight decay of 1 × 10 −3. Batch size is set to 32 except rollout, which is configured to 16 with gradient accu-mulation step 2 due to GPU memory consistency. All experiments use 8 NVIDIA H200 GPUs. Single step prediction training requires approximately 24 hours, while each subsequent strategy requires approximately 4 to 6 hours. 
+
+C.4.2 Baseline Hyperparameters. Key hyperparameters for the baseline comparisons are as follows: 
+
+• Rollout: Rollout horizon 𝐾 = 2 steps. 
+
+• Replay Buffer: Buffer size 250, fine-tuning rate 1, replay start step 0. 
+
+• Feature Matching Loss: ResNet50 discriminator (via timm ). The discriminator is updated every 10 epochs for a duration of 10 epochs. We adopt all layer discriminator embeddings. 
+
+• Gaussian Noise Augmentation: Standard deviation 𝜎 =
+
+0.05 .
+
+C.4.3 Evaluation Metrics. To calculate the Fréchet Inception Dis-tance (FID), we use feature embeddings extracted from the 3D Swin Transformer backbone encoder of AuroraTW . We use this encoder for all FID calculations reported in this work. 
+
+C.4.4 Discriminator Probe Training. To quantify distribution shift, we trained a binary classifier on embeddings extracted from the frozen AuroraTW encoder. The probe is a 2 layer residual MLP with GELU, 1D Batch Normalization, and Dropout. It will be trained for 50 epochs using Adam and binary cross-entropy loss. On a balanced test set of ERA5 and single-step predictions the model achieved near 100% accuracy, confirming the embeddings are distinct. 
+
+C.4.5 Ablation Study Training Setting. For the ablation studies to test SOFT generalization, we apply the SOFT strategy for an additional 25 epochs based on current existing checkpoint. For Pangu-Weather, the single-step training mirrors the Aurora finetun-ing protocol but is trained from scratch without a global checkpoint. Other training factor (e.g. learning rate, optimizer and weight decay setting) remain unchanged. 
+
+Algorithm 1 Pseudo code of Self-Output Fine-Tuning (SOFT) 
+
+Require: Pretrained base model 𝜃 𝑏𝑎𝑠𝑒  
+
+> 1:
+
+Initialize trainable model 𝑓 𝜃 with weights 𝜃 ← 𝜃 𝑏𝑎𝑠𝑒  
+
+> 2:
+
+Initialize frozen generator 𝑓 gen with weights 𝜃 𝑏𝑎𝑠𝑒  
+
+> 3:
+
+while not converged do  
+
+> 4:
+
+Sample batch (X𝑡 −𝛿𝑡 , X𝑡 , X𝑡 +𝛿𝑡 ) 
+
+> 5:
+
+// 1. Generate gradient-detached states (using frozen model)  
+
+> 6:
+
+ˆX𝑡 ← stopgrad [𝑓 gen (X𝑡 −𝛿𝑡 )]  
+
+> 7:
+
+// 2. Predict future using biased input and compute loss  
+
+> 8:
+
+L ← ∥ 𝑓 𝜃 ( ˆX𝑡 ) − X𝑡 +𝛿𝑡 ∥1 
+
+> 9:
+
+// 3. Update parameters  
+
+> 10:
+
+𝜃 ← Optimizer (𝜃, ∇𝜃 L)  
+
+> 11:
+
+end while  
+
+> 12:
+
+return 𝜃 
+
+## C.5 Pseudo Code 
+
+We provide the detailed pseudo-code in Algorithm 1 to further clar-ify the implementation of Self-Output Fine-Tuning (SOFT). SOFT uses a frozen copy of the pretrained model ( 𝑓 gen ) to generate an 
+
+> 11
+
+intermediate state ˆX𝑡 . By training the model 𝑓 𝜃 to predict the future state X𝑡 +𝛿𝑡 from this generated input, we improve the model’s ro-bustness to its own prediction errors without requiring expensive multi-step backpropagation. 
+
+## D Additional Experimental Results D.1 Visualization 
+
+Figures 8, 9, 10, and 11 provide comparative visualizations of the ground truth, the AuroraTW baseline, and AuroraTW-SOFT predic-tions. We visualize the same variables analyzed in the main paper (t2m, u10, t_850, and z_500) using an initial start time of 2023/06/21 12:00. The predictions are shown for lead times of 6, 24, 96, and 168 hours. Consistent with our primary findings, the SOFT method re-duces the error growth observed in the baseline over these extended horizons. 
+
+> 12 Ground Truth
+
++6h +24h +96h +168h 
+
+> AuroraTW Diff AuroraTW-SOFT Diff
+
+287.5 
+
+290.0 
+
+292.5 
+
+295.0 
+
+297.5 
+
+300.0 
+
+302.5 
+
+287.5 
+
+290.0 
+
+292.5 
+
+295.0 
+
+297.5 
+
+300.0 
+
+302.5 
+
+6
+
+4
+
+2
+
+0
+
+2
+
+4
+
+6
+
+287.5 
+
+290.0 
+
+292.5 
+
+295.0 
+
+297.5 
+
+300.0 
+
+302.5 
+
+6
+
+4
+
+2
+
+0
+
+2
+
+4
+
+6
+
+# t2m Figure 8: Visualization of t2m predictions at different lead times. 
+
+13 Ground Truth 
+
++6h +24h +96h +168h 
+
+> AuroraTW Diff AuroraTW-SOFT Diff
+> 6
+> 4
+> 2
+> 0
+> 2
+> 4
+> 6
+> 6
+> 4
+> 2
+> 0
+> 2
+> 4
+> 6
+> 7.5
+> 5.0
+> 2.5
+> 0.0
+> 2.5
+> 5.0
+> 7.5
+> 6
+> 4
+> 2
+> 0
+> 2
+> 4
+> 6
+> 7.5
+> 5.0
+> 2.5
+> 0.0
+> 2.5
+> 5.0
+> 7.5
+
+# u10 Figure 9: Visualization of u10 predictions at different lead times. 
+
+14 Ground Truth 
+
++6h +24h +96h +168h 
+
+> AuroraTW Diff AuroraTW-SOFT Diff
+> 288
+> 290
+> 292
+> 294
+> 296
+> 298
+> 288
+> 290
+> 292
+> 294
+> 296
+> 298
+> 6
+> 4
+> 2
+> 0
+> 2
+> 4
+> 6
+> 288
+> 290
+> 292
+> 294
+> 296
+> 298
+> 6
+> 4
+> 2
+> 0
+> 2
+> 4
+> 6
+
+# t_850 Figure 10: Visualization of t_850 predictions at different lead times. 
+
+15 Ground Truth 
+
++6h +24h +96h +168h 
+
+> AuroraTW Diff AuroraTW-SOFT Diff
+
+56500 
+
+56750 
+
+57000 
+
+57250 
+
+57500 
+
+57750 
+
+58000 
+
+56500 
+
+56750 
+
+57000 
+
+57250 
+
+57500 
+
+57750 
+
+58000 
+
+400 
+
+200 
+
+0
+
+200 
+
+400 
+
+56500 
+
+56750 
+
+57000 
+
+57250 
+
+57500 
+
+57750 
+
+58000 
+
+400 
+
+200 
+
+0
+
+200 
+
+400 
+
+# z_500 Figure 11: Visualization of z_500 predictions at different lead times. 
+
+16
