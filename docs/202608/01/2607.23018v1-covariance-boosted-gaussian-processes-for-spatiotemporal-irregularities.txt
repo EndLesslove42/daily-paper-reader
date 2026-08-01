@@ -1,0 +1,1482 @@
+Title: Covariance-Boosted Gaussian Processes for Spatiotemporal Irregularities
+
+URL Source: https://arxiv.org/pdf/2607.23018v1
+
+Published Time: Tue, 28 Jul 2026 00:30:31 GMT
+
+Number of Pages: 46
+
+Markdown Content:
+Covariance-Boosted Gaussian Processes 
+
+# Covariance-Boosted Gaussian Processes for Spatiotemporal Irregularities 
+
+Jeremy Ovadia jeremy@sequoiarc.com 
+
+Sequoia Research Corporation 2875 Temple Ave Signal Hill, CA, 90755, USA 
+
+Abstract 
+
+Nonstationary Gaussian process (GP) models are powerful tools for capturing input-dependent variability by adapting to observed data. However, with limited sampling and highly param-eterized covariance structure, they are often prone to overfitting and overconfident uncertainty estimates, potentially leading to misleading predictions in safety-critical applications. Motivated by ionospheric modeling for satellite-based augmentation systems (SBAS), this paper proposes a Covariance-Boosted Gaussian Process (CBGP) framework centered upon boosting covariance pri-ors to discover nonstationary latent functions for signal and observation variation that capture irregularities in the input domain. An additional layer of GP modeling of “partially-whitened” observations guides latent function relative error estimation that is used to iteratively update weak priors in a gradient descent-like procedure. Following boosting, restrictions are imposed upon prior covariances to prevent overfitting while posterior uncertainties are inflated to prevent model over-confidence. CBGP model efficacy and robustness are demonstrated through out-of-sample testing of both simulated and real-world applications that meet a three-nines integrity standard. The mod-eling of an extensive ionospheric storm dataset over South America suggests accurate and reliable means to compute SBAS ionospheric corrections in the most challenging space weather environ-ment using regional models that are more informed and responsive than local fitting performed by currently-operating SBAS. 
+
+Keywords: Gaussian processes, boosting, nonstationary kernels, latent functions, ionospheric modeling 
+
+1 Introduction 
+
+As machine learning and artificial intelligence models have become more widely adopted, they have been increasingly considered for deployment in safety-critical applications. Specifically, continual real-time probabilistic inference models have been employed for monitoring, decision making, and fault detection in integrity-demanding settings that include autonomous driving (Viveiros et al., 2025), intensive care units in hospitals (Shillan et al., 2019), nuclear reactors (Yu et al., 2020), and air traffic control (Shone et al., 2021) among several others. Such models must be reliable, robust, and computationally-feasible to be executed in real-time settings, balancing tradeoffs of accuracy, efficiency, and consistency. Ultimately, applications to safety-critical systems cannot be overly forgiving from a safety perspective and often have integrity requirements that constrain models. The integrity of continual real-time probabilistic inference models is most severely challenged under irregular operating conditions or when anomalous observations are encountered, where the risk of producing hazardously misleading information (HMI) is elevated. The mishandling of irreg-ularities by inference models may yield misleading information (MI) that can have significant reper-cussions for integrity-focused applications, such as financial risk management (Liu et al., 2020a) and aerospace structure monitoring (Alvarez-Montoya et al., 2019). However, once MI poses risk to human well-being, as may be the case with applications to medical imaging (Dahnke et al., 2014) 
+
+1arXiv:2607.23018v1 [stat.ML] 25 Jul 2026 Ovadia 
+
+and natural disaster risk assessment (Wang et al., 2025), does it become HMI. Under these condi-tions, proper treatment of irregularities through model robustness and integrity become the highest priorities to prevent HMI. In safety-critical contexts, inference models designed with perfomance objectives to optimize accuracy under nominal working conditions, or even disturbed conditions, may not provide necessary safety that human life relies on. In both safety-critical and non-safety-critical applications, Gaussian processes (GPs) have widespread utility in describing real-world complex phenomenon that appear in various natural and computational contexts. A GP, expressed simply, is a stochastic process, or a collection of random variables, that can be jointly described by Gaussian distributions. Gaussian process regression (GPR) is a non-parametric, Bayesian interpolation technique that optimally determines linear weights of sampled observations as a best linear unbiased predictor (BLUP). GP modeling, generally, provides posterior expected values and uncertainties that describe predictive Gaussian distributions at unsampled states. GP models can be tuned, account for heteroskedastic noise, or include nonstationarity as means to better handle irregularities that pose a threat to a system being modeled; however, the ability for these models to adapt to input observations may also be accompanied by fragility that increases the risks of not meeting potential integrity standards, or producing HMI in a safety-critical set-ting. As adept as they may be in describing observations, nonstationary GP models may expose practitioners to overfitting and overconfidence, particularly with many hyperparameters and small samplings (Mohammed and Cawley, 2017). Covariance tuning via leave-one-out cross-validation have been shown to be susceptible to overfitting due to relatively high variances (Cawley and Tal-bot, 2007). Simulation-based methods that account for heteroskedastic noise have been often cited as potentially unreliable in scenarios with small sample numbers or high noise levels (Zhang and Zou, 2016; Wang and Haaland, 2019). The use of priors and regularization are two common reme-dies for overfitting with GP models (Rasmussen and Williams, 2006, preface) but may not always be easily-integrated into advanced adaptive models. A notable GPR application to a safety-critical system subject to HMI risk is ionospheric modeling for satellite-based augmentation systems (SBAS). The Wide Area Augmentation Sys-tem (WAAS), the Federal Aviation Association’s augmentation of the Global Positioning System (GPS), broadcasts SBAS corrections to aviation users for safe runway approaches across the United States, which include corrections for ionospheric delays, the largest source of user positioning error (Milliken and Zoller, 1978). WAAS’ ionospheric corrections, including gridded delay estimates and corresponding uncertainties, are computed in real-time using a stationary GP model that relies on a few accomodations to account for the spatial inhomogeneity of the ionosphere. First, WAAS omits all measurements near the geomagnetic equator, where the ionosphere is more active than at mid-latitudes, using a pierce point filter line (Sparks et al., 2022). Next, ionospheric models sub-sample measurements around local neighborhoods around each point in a set of spatial ionospheric grid points (IGPs) to compute corrections to be interpolated by the user (Sparks et al., 2011a). Finally, WAAS’ uncertainties for ionospheric corrections are inflated post-fit as means to mitigate the risk of broadcasting HMI (Walter et al., 2001; Sparks et al., 2011b). To further reduce the risk of broadcasting HMI from undersampling, WAAS also protects its users from potential spatiotem-poral variation of the ionosphere that is extremely challenging to predict with limited observations using an “ionospheric threat model” (Blanch et al., 2002). The result is robust, efficient homoge-neous ionospheric modeling performed in real-time that has successfully aided aerial guidance over the United States for decades but, ultimately, is a local stationary model with limited adaptability. In this paper, a nonstationary GP modeling framework based on boosting nonstationary co-variance priors using GP-based relative error approximations is developed and tested. Following a brief review of GP fundamentals and related work, approximations for these relative errors are 
+
+> 2Covariance-Boosted Gaussian Processes
+
+modeled in the domain of observations whitened using prior covariance approximations. Then, an integrity-focused boosting algorithm that includes covariance inflation of both priors and posteriors is proposed. Aspects of the modeling framework are illustrated by a simulated application prob-lem for which an irregularity is injected into a stationary GP. Next, the framework is tested on out-of-sample predictions for motorcycle acceleration (Silverman, 1985) and Meuse River (Rikken and Van Rijn, 1993) benchmark problems against other existing heterogeneous GP models. Lastly, a vast data set of tens of millions ionospheric measurements over South America is modeled with a focus on both accuracy and integrity of predictions to demonstrate the usefulness of our models for SBAS. 
+
+2 Background and Related Work 
+
+Several aspects of GP modeling, including adaptivity, misspecification, and error bounding, have been well-studied and are worth discussing before outlining novel GP methods. Fundamental concepts, foundational work, and relevant advancements are presented in this section to provide the groundwork for models presented in Section 3. 
+
+2.1 Gaussian Process Formulation and Regression 
+
+Consider a stochastic process yx ∈ R continuous with respect to a spatiotemporal quantity x ∈ Rn.Assume that this process is a GP that can be fully-described by its mean, μ(x) = E [yx], and covariance function, Cy(x, x ′) = E[( yx−μ(x))( yx′ −μ(x′))]. Consider a finite sampling of this process 
+
+{(xi, y i)}Ni=1 , and let C denote the corresponding covariance matrix with entries Ci,j = Cy(xi, x j ). Suppose that the kernel function for the covariance matrix takes the following form: 
+
+k (u, v ) = σsignal (u) σsignal (v) ρ (u, v ) (1) where σsignal denotes the variation of the signal and ρ describes its correlation function. The kernel evaluated at the sampled states can be written in matrix form as 
+
+K = Σ ρΣ (2) where K denotes the matrix computed by the kernel function with Ki,j = k (xi, x j ), ρ is a correlation matrix with ρi,j = ρ (xi, x j ), and Σ is a diagonal matrix with Σ i,i = σsignal (xi). Further assume that ρ is symmetric positive definite (SPD), implying C is an SPD matrix as well. The two commonly-used positive definite correlation functions of primary focus in this study are an exponential decay, or Ornstein-Uhlenbeck, correlation function 
+
+ρOU 
+
+ x, x ′ = exp 
+
+
+
+− ∥x − x′∥
+
+L
+
+
+
+(3) and the squared exponential decay, or Gaussian radial basis function (RBF), correlation function 
+
+ρRBF 
+
+ x, x ′ = exp 
+
+
+
+− ∥x − x′∥2
+
+L2
+
+
+
+. (4) Alternative representations for each of these correlation functions may include a 12 scaling factor within their exponential arguments. Both correlation functions are positive definite. Let σ2obs (u) denote the observation variance of the sampling at the spatiotemporal state u,which is assumed to include potential measurement noise and nugget effects. Let R be the diagonal 
+
+> 3Ovadia
+
+observation variance matrix sampled at {xi} defined by Ri,i = σ2obs (xi). Then, the prior covariance for the underlying GP that accounts for observation variance can be expressed as 
+
+C = Σ ρΣ + R. (5) This prior covariance guides the whitening of the vector of observations, y = ( yi), using a whitening matrix Γ satisfying ΓT Γ = C−1 (6) where Γy ∼ N (0 , I ) (7) takes the form of unit-normal white noise. A specific form for the whitening matrix Γ can be uniquely determined using various methods, such as Mahalanobis (or Zero Components Analysis) whitening, Principal Components Analysis whitening, or Cholesky decomposition. This study will focus on Mahalanobis whitening by the matrix square root of the inverse of the covariance, represented by Γ = C−1/2, (8) which is well-defined for an SPD covariance matrix. A GPR model interpolates the sampling of a GP {(xi, y i)}Ni=1 at any vector of spatiotemporal states, x∗, whether sampled or unsampled, to predicted observable states, y∗. Similar to GPs, GPR models are described solely by their posterior means and covariances, which are given as follows: 
+
+E [y∗] = w∗y (9) cov [ y∗] = K∗∗ + R∗ − w∗K∗T (10) where 
+
+w∗ = K∗C−1. (11) Here, K∗ 
+
+> i,j
+
+= k(xi, x ∗ 
+
+> j
+
+) and K∗∗  
+
+> i,j
+
+= k(x∗ 
+
+> i
+
+, x ∗ 
+
+> j
+
+) define the kernel matrices K∗ and K∗∗ , respectively. 
+
+R∗ is the observation variance matrix at x∗ specified by R∗ 
+
+> i,i
+
+= σ2obs (x∗ 
+
+> i
+
+). It is important to note that the posterior covariance for the GPR solution in Equation (10) is independent of the actual observations, y, but, instead, just the prior covariance and its components. The gradient of the expected value of the GPR solution with respect to x∗ is given by 
+
+∇ (E [y∗]) = ∇ (K∗) C−1y (12) where ∇ (K∗) can be evaluated at x∗ using a prescribed or inferred functional form for the kernel function k.
+
+2.2 Related Advancements In Gaussian Process Modeling 
+
+The kernels and observation noise, or nugget component, that comprise the GP prior covariance are critical aspects in describing similarity of observations and have been primary areas of focus in the development of GPR models (Rasmussen and Williams, 2006, chap. 4). Popular approaches for the tuning of hyperparameters defining these elements include optimizing marginal likelihoods and leave-one-out cross validation (Rasmussen and Williams, 2006, chap. 5). Other kernel adaption methods involve semidefinite programming problem for optimal Gram matrix alignment (Lanckriet et al., 2004) and hybrid kernels with genetic algorithm determined gain coefficients (Ouyang et al., 2023). 
+
+> 4Covariance-Boosted Gaussian Processes
+
+Kernels may also be discovered and tuned to observations through constructive methods. Ad-ditive kernel construction methods adds simple kernels together to yield more complex ones (Ras-mussen and Williams, 2006, chap. 4). Iterative kernel discovery, on the other hand, may utilize additive and multiplicative components for structural kernel expansion in an adaptive multi-step fashion (Lloyd et al., 2014). Other approaches have combined GPs with gradient boosting decision trees to enhance the ability to account for nonlinear feature interactions (Sigrist, 2022). The tuning and adaptivity of stationary GPs with kernels and noise properties that are as-sumed to be uniform throughout the input domain may better model observations but will fail to properly describe heterogeneous conditions that necessitate inhomogeneity of the prior covari-ance. Heteroskedastic GPs model observation noise nonuniformly and assume it depends on the observation state, meaning that the observation variance matrix R is not a scalar multiple of the identity matrix. Smooth heteroskedastic noise models using Markov chain Monte Carlo methods can estimate the posterior noise variance (Goldberg et al., 1997) with extensions including convex optimization (Le et al., 2005) and secondary GP models for noise (Kersting et al., 2007). Stochastic Kriging serves as a simulation-based metamodeling tool that decouples deterministic trends from heteroskedastic noise components (Ankenman et al., 2010). Recent software packages leveraging modern heteroskedastic GP modeling approaches include GPflow (Matthews et al., 2017), BoTorch (Balandat et al., 2020), PyMC (Abril-Pla et al., 2023), and hetGP (Binois and Gramacy, 2021). The software package hetGPy (O’Gara et al., 2025), which is a Python implementation of hetGP, will be included in computational experiments in Section 4.2. Beyond heteroskedastic GPs, nonstationary GP models provide means to describe intricate re-lationships that may vary significantly within the fit domain. Utilizing nonstationary kernels with signal variances and length scales that are inhomogeneous allows GPs to account for dynamics that are not solely dependent upon relative distances between observations. As is the case when ac-counting for heteroskedastic noise, nonstationary models must attribute the source of inhomogeneity of observations to signal and observation noise components; however, in doing so, nonstationary models employ methods to adapt both signal and noise components to realized observations using various methods (Booth et al., 2023; Noack et al., 2024). Estimating these kernel components as smooth latent functions embedded within the model introduces more hyperparameters but can pro-vide significant more explanatory power in capturing inhomogeneity in GP modeling (Plagemann et al., 2008; Heinonen et al., 2016). A common approach to model nonstationarity within a GP is to account for an inhomogeneous scaling of the input domain within the kernel. Input warping accounts for nonstationarity by transforming the input domain with expansion in areas of high variation and compression in areas of low variation (Snoek et al., 2014). Another input scaling approach is to explicitly model kernel length scales using inhomogeneous functions. One such kernel in a Gaussian RBF form was proposed in one-dimension by Gibbs (1997) and later generalized to multiple dimensions with anisotropic local geometry by Paciorek and Schervish (2003). In computational experiments in Section 4.2, an isotropic Gibbs-Paciorek kernel in Nd dimensions given by 
+
+kℓ(x, x ′) = σsignal (x)σsignal (x′)
+
+ 2 ℓ(x) ℓ(x′)
+
+ℓ(x)2 + ℓ(x′)2
+
+Nd/2
+
+exp 
+
+
+
+− ∥x − x′∥2
+
+ℓ(x)2 + ℓ(x′)2
+
+
+
+, (13) where ℓ is modeled as a latent function parameterized by an expansion of Gaussian RBF bases is tested against other existing and novel methods discussed in this paper. Other nonstationary methods account for inhomogeneity without explicit functional forms guid-ing a smooth nonstationary kernel. Divide-and-conquer methods (Rasmussen and Ghahramani, 2001; Kim et al., 2005) and treed GPs (Gramacy and Lee, 2008) partition the input space and 
+
+> 5Ovadia
+
+leverage multiple stationary GPs in a nonstationary fashion. Nonstationary GPs have also been constructed using Fourier components with frequencies inferred from using neural networks (Ton et al., 2018). Deep Gaussian processes use successive GP layers to construct nonstationary kernels learned from training data (Damianou and Lawrence, 2013; de Souza et al., 2023) while deeply nonstationary GPs layer nonstationary GPs in such a way that length a single layer informs the length scale of the following one (Salimbeni and Deisenroth, 2017). 
+
+2.3 Model Assessment and Error Bounding 
+
+Due to challenges in accurately describing real-world observations using a GP, model misspecifica-tion and criticism for GPs has been a key area of focus for practitioners. When a GP is misspecified, meaning it misaligns with the true process or system, posterior mean and variance estimates may be inaccurate and provide MI. These inaccuracies often manifest in the form of model overconfi-dence when misspecification results from the presence of irregularities or disturbances to the system. Adaptive GP methods that are responsive to input observations, such as those mentioned in Section 2.2, may be misguided and become excessively overconfident in undersampled contexts. Studying predictive simulations and standard residuals are straightforward means to assess GP posteriors. However, residual diagnostics in the whitened domain, as specified by Equation (7), can provide an enhanced insight into kernel misspecification as opposed to just identifying individual observations that are poorly fit by GPR posteriors (Bastos and O’Hagan, 2009). To meet potential integrity standards, posterior uncertainty estimates for model predictions can be inflated after fits are performed to account for either model misspecification or the undersampling of observations used for fitting an underlying process. A simple example of this would be inflating an empirical variance estimate using the corresponding standard error for the variance for a population when the independent sample number, N , is relatively low. GP upper confidence bound (UCB) models effectively inflate uncertainty by inflating posterior variances by βt to guide future sampling of a GP (Srinivas et al., 2010). Other UCB-like extensions take a rigorous approach to specifying the inflation factor β for safe control applications (Lederer et al., 2019; Fiedler et al., 2021). One approach for posterior uncertainty inflation, referred to here as Rirreg inflation, is an ex-isting spatiotemporally-homogeneous approach that was developed to account for observed spatial irregularities in ionospheric modeling (Walter et al., 2001; Sparks et al., 2011b). Uncertainty in-flation using Rirreg is predicated upon on the unlikelihood of the χ2 goodness-of-fit statistic for a GPR fit. The χ2 statistic, determined by the squared sum of whitened observations 
+
+χ2 = yT ΓT Γy, (14) will follow a χ2(d)-distribution for covariances accurately describing GPs with d degrees of freedom. To inflate GPR posterior uncertainties using Rirreg , the posterior covariance provided in Equation (10), but not the corresponding prior K and R matrices in the equation, is multiplied by the scalar value R2irreg given by 
+
+R2irreg = max 
+
+(
+
+χ2
+
+χ2
+
+> d, lowerbound
+
+, 1
+
+)
+
+. (15) Here, the value of χ2 
+
+> d, lowerbound
+
+is defined by the square of the following minimizer: 
+
+χd, lowerbound = min 
+
+(
+
+χ ∈ R+ P |X| ≥ ζ√Yχd, lowerbound 
+
+!
+
+≤ Pthreshold 
+
+)
+
+(16) where X and Y are random variables with respective distributions that are standard unit normal and standard χ2 with d degrees of freedom, and ζ and Pthreshold are scalar values. Thus, multi-
+
+> 6Covariance-Boosted Gaussian Processes
+
+plying all variances in Equation (5) by R2irreg will achieve the “worst” case χ2 (d) scaled by ζ such that a probability of an unsampled threshold breach with probability threshold Pthreshold can pass undetected. The parameters ζ and Pthreshold have been set in ionospheric modeling applications to 5.592 and 10 −10 , respectively (Sparks et al., 2011b), and will be assumed to be the same for all appropriate applications going forward. Inflating GPR-estimated variances by multiplying by R2irreg 
+
+is viewed as a form of homogeneous inflation since all variances are inflated uniformly irrespective of any spatiotemporal components. 
+
+3 Nonstationary Model Formulation 
+
+Nonstationary GP modeling developed in this paper takes a novel approach that is designed with an integrity-based focus for safety-critical applications. Instead of assuming a variable length scale, nonstationarity is introduced into kernels through latent functions for signal and observation vari-ation, schematically depicted in Figure 1, that are discovered through a boosting procedure based on their relative errors, which are estimated using an extra layer of GP modeling in the partially-whitened domain. Methods for posterior uncertainty inflation are proposed and incorporated into an algorithm for nonstationary covariance boosting that conservatively inflates priors and posterior uncertainties to reduce the risks of both overfitting and overconfidence. 
+
+Figure 1: Illustration of a nonstationary Gaussian process described by latent functions for signal and observation variation. 
+
+3.1 Prior Covariance Boosting 
+
+Suppose that the true prior covariance C for a GP exists and is unknown. However, we will not assume that all of its components are unknown but that we have prior knowledge of its correlation structure. 
+
+Assumption 1. Assume that the true correlation matrix, ρ, is known and well-specified. 
+
+Now, consider the following prior covariance 
+
+C(j) = Σ (j)ρΣ(j) + R(j) (17) as an SPD approximation for C with superscript denoting an index in a potential sequence of approximations, {C(j)}Jj=0 . Here, the matrices Σ (j) = diag 
+
+
+
+σ(j)signal 
+
+
+
+and R(j) = diag 
+
+
+
+σ(j)obs 
+
+2
+
+> 7
+
+Ovadia 
+
+represent approximate signal variation and approximate observation variance, respectively, for C(j).Note that the approximate covariance in Equation (17) assumes a true correlation matrix ρ that is shared by C, which is consistent with Assumption 1. Let η(j)signal and η(j)obs represent the relative error of the jth approximation for signal and obser-vation variation, respectively, which can be expressed in terms of the true variation as 
+
+η(j)X = σX
+
+σ(j)X
+
+− 1 (18) where “X” can represent the “signal” or “obs” subscripts. If the subsequent variation approxima-tions accounted for the relative errors with a scalar learning rate of ξ(j) > 0, then the ( j + 1)th approximations for signal and observation variation take the following form: 
+
+σ(j+1) X =
+
+
+
+1 + ξ(j)η(j)X
+
+
+
+σ(j)X . (19) These variations can be expressed recursively in terms of approximation errors, learning rates, and initial weak learners, σ(0) signal and σ(0) obs , as 
+
+σ(j+1) X = σ(0) X
+
+> j
+
+Y
+
+> i=0
+
+
+
+1 + ξ(i)η(i)X
+
+
+
+. (20) When both η(j)signal and η(j)obs are negligible in magnitude over their entire domains, and ξ(j) is bounded above by 1, then σ(j+1) signal and σ(j+1) obs become suitable approximations for the true variations. As a result under these conditions, C(j+1) would be a suitable approximation, boosted from C(0) ,for the true prior covariance C.It is worth noting that when any one of the relative errors η(i) is nonconstant for any i for either signal or observation variation, then the resultant approximate prior covariance C(j+1) would be inhomogeneous and the resultant Gaussian process model would be nonstationary. On the other hand, if all relative errors, η(i), are constant and initial weak approximations are homogeneous, then the resultant Gaussian process would remain stationary. 
+
+3.2 Partial Whitening Approximations 
+
+Let us consider an approximate prior covariance, C(j) as a whitener for observations, as specified in Equations (6) and (8). Consider the random variable ˆy(j) := Γ (j)y =
+
+
+
+C(j)−1/2
+
+y (21) as a “partial whitening” of the observations y. We consider this whitening “partial” in this context under the impression that C(j) does not fully account for all variation described by C. Given 
+
+y ∼ N (0 , C ), The partially-whitened observations are also a GP with ˆ y(j) ∼ N 
+
+
+
+0, ˆC(j)
+
+
+
+where ˆC(j) =
+
+
+
+C(j)−1/2
+
+C
+
+
+
+C(j)−1/2
+
+. (22) Expressing the covariance for the partially-whitened observations in terms of the approximate prior covariance error matrix, ∆ C(j) = C − C(j), yields ˆC(j) =
+
+
+
+C(j)−1/2 
+
+C(j) + ∆ C(j)  
+
+C(j)−1/2
+
+. (23) 
+
+8Covariance-Boosted Gaussian Processes 
+
+Isolating ∆ C(j), we obtain ∆C(j) =
+
+
+
+C(j)1/2  ˆC(j) − I
+
+  
+
+C(j)1/2
+
+. (24) Next, assumptions are made regarding the sign of prior covariances appearing in Equation (24). 
+
+Assumption 2. Assume that the kernel function is non-negative, k ≥ 0. We note that the commonly chosen Mat´ ern, exponential, or Gaussian radial basis function (RBF) kernel functions are all always positive, though negative kernels, such as the difference of Gaussians, do exist. 
+
+Assumption 3. All elements of the matrix cov ˆy(j) are non-negative. 
+
+Assuming all covariances of partially-whitened observations are non-negative suggests no spa-tiotemporal anticorrelation. However, such lack of anticorrelation may not be the case when C(j)
+
+is a poor approximation for C, so Assumption 3 asserts that C(j) is sufficiently accurate enough of an approximation to avoid such a scenario. Applying Assumptions 2 and 3 to the diagonal of Equation (24) enables the following approxi-mate inequality from diagonal terms: 
+
+
+
+∆C(j) 
+
+> i,i
+
+≳ C(j)
+
+> i,i
+
+
+
+var 
+
+h
+
+ˆy(j)i
+
+− 1
+
+ 
+
+> i
+
+. (25) Expanding Σ ρΣ − Σ(j)ρΣ(j) as a component of ∆ C(j) along the diagonal yields (∆ σ(j)signal ,i )2 + 2 σ(j)signal ,i ∆σ(j)signal ,i + ∆  σ2obs 
+
+(j) 
+
+> i
+
+≳
+
+
+
+σ(j)signal ,i 
+
+2
+
++  σ2obs 
+
+(j)
+
+> i
+
+ 
+
+var 
+
+h
+
+ˆy(j)i
+
+− 1
+
+
+
+(26) where ∆ σ(j)signal = σsignal − σ(j)signal and ∆  σ2obs 
+
+(j) = σ2obs −  σ2obs 
+
+(j) are the approximation errors for signal variation and the square of observation variation, respectively. Approximate equality cases in Equations (25) and (26) correspond to scenarios with cov ˆy(j)
+
+matrices with diagonal entries that are significantly larger than off-diagonal terms, or ones that are diagonally dominant. Such covariance matrices of partially-whitened observations would carry cross-correlations that are non-negative but nearly zero that suggest near spatiotemporal indepen-dence, which is a property of white noise. So, nearly accurate covariance approximations, C(j),likely correspond more to the approximate (“ ≈”) cases of Equations (25) and (26) and not nearly as much the strict inequality cases (“ >”). 
+
+3.3 Prior Covariance Relative Error Estimation 
+
+Methods to estimate components of the prior covariance approximation errors, ∆σ(j)signal and ∆  σ2obs 
+
+(j), given the approximations σ(j)signal and  σ2obs 
+
+(j) for signal and observation noise, respec-tively, will rely on two primary avenues: (A) GP models for the variation of partially-whitened observations in multiple domains and (B) heuristic modeling. Several possible modeling approaches can be adopted to progress forward from approximations made in Section 3.2; however, the ap-proach outlined takes a mathematically na¨ ıve approach to the critical task of attributing variation in partially-whitened observations to signal and observation noise components of the prior covari-ance approximation error. As a result, the modeling presented here is best-suited for applications in which under-approximations for signal and observation variance are coincidental, meaning that irregularities in the input domain are assumed to enhance both types of variation. First, we make a key heuristic assumption that enables the modeling of the observation com-ponent of the prior covariance approximation error. 
+
+> 9
+
+Ovadia 
+
+Assumption 4. The observation variance approximation error can be well-approximated by a spatiotemporally inhomogeneous non-negative multiple of the magnitude in which the variance of the partially-whitened observations deviate from unity and of the approximate observation variance itself, as expressed by 
+
+∆  σ2obs 
+
+(j) 
+
+> i
+
+≈ η(j)
+
+> R,i
+
+ σ2obs 
+
+(j) 
+
+> i
+
+(27) 
+
+η(j) 
+
+> R,i
+
+=
+
+
+
+1 − a(j)
+
+> i
+
+  
+
+var 
+
+h
+
+ˆy(j)
+
+> i
+
+i
+
+− 1
+
+
+
+(28) 
+
+for some 0 ≤ a(j) 
+
+> i
+
+≤ 1 for all i.
+
+Here, a(j) is an unspecified latent function that represents the portion of the variance of the partially-whitened observations that deviate from unity, given by var ˆy(j) − 1. The relative error for observation variation, ηobs , referenced in the boosting model in Section 3.1 is associated with the relative error for the R-matrix with observation variance along the diagonal, captured by ηR,as follows: 
+
+ηobs = pηR + 1 − 1. (29) Incorporating the observation variance approximation error in Equations (27) and (28) into Equation (26) yields the following approximate inequality for signal variation approximation error: (∆ σ(j)signal ,i )2 + 2 σ(j)signal ,i ∆σ(j)signal ,i ≳ b(j) 
+
+> i
+
+(30) where 
+
+b(j) 
+
+> i
+
+=
+
+
+
+σ(j)signal ,i 
+
+2
+
++ a(j)
+
+> i
+
+ σ2obs 
+
+(j)
+
+> i
+
+ 
+
+var 
+
+h
+
+ˆy(j)i
+
+− 1
+
+ 
+
+> i
+
+. (31) The quadratic form of the approximate inequality in Equation (30) is, then, solved by ∆σ(j)signal ,i ≳ η(j)signal ,i σ(j)signal ,i (32) 
+
+η(j)signal ,i =
+
+vuuut1 + b(j)
+
+> i
+
+
+
+σ(j)signal ,i 
+
+2 − 1. (33) When partial whitening accurately whitens the observations, meaning C(j) is an accurate covariance estimate, the variance of ˆ y(j) 
+
+> i
+
+will be nearly 1, which will result in negligible observation variance error, ∆ σ(j)obs ≈ 0. Based off of the rationale for strict approximations at the end of Section 3.2 from approximate inequalities, this case of accurate partial-whitening would also suggest to ∆ σ(j)signal ≈ 0. The quantity 1 − a(j) represents the portion of the variance of the partially-whitened observations that deviate from unity to be attributed to observation variance approximation error. To estimate ∆ σ(j)obs and ∆ σ(j)signal using Equations (27) and (32), respectively, approximations for var ˆy(j) and a(j) are required. Motivated by these approximations, partially-whitened observations are modeled using two different GPs. A first approach for these GPs models would consider the variation of  ˆy(j)2 that is representative of var ˆy(j) but follows a χ2(1) distribution when partial-whitening accurately whitens the observations. Naturally, consider the square of the partially-whitened observations mapped to the Gaussian domain, as expressed by the quantity 
+
+Z(j) 
+
+> χ2
+
+= H
+
+
+
+ˆy(j)2
+
+(34) 
+
+10 Covariance-Boosted Gaussian Processes 
+
+with 
+
+H(v) = F −1 
+
+> N(0 ,1)
+
+ Fχ2(1) (v) (35) where FD is the cumulative distribution function of the distribution D. Here, the function H maps a χ2(1) distribution to a unit normal distribution, N (0 , 1). If we let ˜ ρ be some SPD correlation matrix, then consider: 
+
+• ˜Z(j) 
+
+> χ2
+
+as a GP model for the quantity Z(j) 
+
+> χ2
+
+using the prior covariance ˜ ρ+I to estimate var ˆy(j)
+
+in the Gaussian domain 
+
+• ˜Z(j)  
+
+> N(0 ,1)
+
+as a GP model for the partially-whitened observations ˆ y(j) using the prior covariance ˜ρ + I
+
+We note that ˆ y(j) may not be Gaussian but will be nearly Gaussian when the partial-whitening is nearly accurate, suggesting the appropriateness for the GP model ˜Z(j) 
+
+> N(0 ,1)
+
+. Both ˜Z(j) 
+
+> χ2
+
+and ˜Z(j)
+
+> χ2
+
+assume unitary signal noise, like white noise, but also na¨ ıvely assume signal noise of the same magnitude. Profiles of the GP ˜Z(j) 
+
+> χ2
+
+, then, provide the primary foundation to approximate the variance of the partially-whitened observations that is central to relative errors of approximate prior covariance components in Equations (27) and (32). 
+
+Assumption 5. The approximation ˜v(j) 
+
+> κ
+
+≈ var ˆy(j) is valid with 
+
+˜v(j) 
+
+> κ
+
+=
+
+H−1
+
+
+
+˜ω(j)
+
+> χ2,κ
+
+
+
+H−1 (0) (36) ˜ω(j) 
+
+> χ2,κ
+
+= E
+
+h ˜Z(j)
+
+> χ2
+
+i
+
++ κ
+
+r
+
+var 
+
+h ˜Z(j)
+
+> χ2
+
+i
+
+(37) 
+
+for some scalar parameter κ ≥ 0.
+
+At this juncture, our attention turns to potential instances in which var ˆy(j) < 1. In such scenarios, the variance of the partially-whitened observation exceeds that of unitary white noise, which would be expected for observations whitened using the true prior covariance, var [ˆ y] = 1, suggesting that at least one of the approximations σ(j)signal and σ(j)obs exceed their true counterparts 
+
+σsignal and σobs , respectively. However, if these approximations yield an estimated variance of the partially-whitened observations with ˜ v(j) 
+
+> κ
+
+< 1, then it may be undesirable for a practitioner seeking to meet integrity standards to appropriately tune the approximate covariance by the decreasing the values of its components σ(j)signal and σ(j)obs at any spatiotemporal location knowing that it could result in deflated posterior uncertainties and, as a result, model overconfidence. This approach would be suitable as long as σ(j)signal and σ(j)obs are assumed to not overfit measurements. Thus, we will assume that the approximate covariance components σ(j)signal and σ(j)obs are chosen to be approximate lower bounds for their the true respective covariance components. In that regard, the approximate covariance C(j) can be considered a “nominal” covariance prior that has yet to be tuned, specifically by inflation, to account for any potential irregularities characterized by the variance of partially-whitened observations that exceeds unity. 
+
+Assumption 6. Assume that σ(j)signal ≲ σsignal and σ(j)obs ≲ σobs on the entire domain. Then, it follows that var ˆy(j) ≳ 1 with appropriateness to require the approximation ˜v(j) 
+
+> κ
+
+at or above 1. As 
+
+11 Ovadia 
+
+a result, the approximation ˜V (j) 
+
+> κ
+
+≈ var ˆy(j) is valid with 
+
+˜V (j) 
+
+> κ
+
+= Ψ 
+
+
+
+˜v(j) 
+
+> κ
+
+; 1 , β 
+
+
+
+(38) 
+
+where 
+
+Ψ( u; α, β ) = log 
+
+
+
+1 + 1
+
+β exp ( β (u − α)) 
+
+
+
++ α. (39) The scaled and shifted softplus function Ψ, also recognized as a smooth rectified linear unit function and represented in the top panel of Figure 2, maintains the value of ˜V (j) 
+
+> κ
+
+above 1 in a smooth and continuously differentiable fashion while approximating the identity function for values significantly larger than 1. When κ > 0, ˜ ω(j) 
+
+> χ2,κ
+
+represents an upper bound on a confidence interval of the GP posteriors for ˜Z(j) 
+
+> χ2
+
+as prescribed by κ. The value of ˜ ω(j) 
+
+> χ2,κ
+
+simply reduces to the posterior expected value when κ = 0. Since it is in the Gaussian domain, applying H−1 to model ˜Z(j) 
+
+> χ2
+
+values maps them to the χ2(1) domain, the more appropriate space for variance estimation. Our final assumption provides means to estimate the last remaining component of relative errors of covariance approximations, a(j).
+
+Assumption 7. The quantity ˜a(j) 
+
+> κ
+
+given by 
+
+˜a(j) 
+
+> κ
+
+= 1 −
+
+q
+
+˜r(j) 
+
+> κ
+
+(40) ˜r(j) 
+
+> κ
+
+= Φ 
+
+
+
+˜ω(j) 
+
+> N(0 ,1) ,κ
+
+2
+
++ ζk∇
+
+
+
+E
+
+h ˜Z(j) 
+
+> N(0 ,1)
+
+i 2
+
+˜V (j) 
+
+> κ
+
+H−1 (0) ; 0 , 1, γ 
+
+ (41) ˜ω(j)  
+
+> N(0 ,1) ,κ
+
+= E
+
+h ˜Z(j) 
+
+> N(0 ,1)
+
+i
+
++ κ sign 
+
+
+
+E
+
+h ˜Z(j) 
+
+> N(0 ,1)
+
+i r
+
+var 
+
+h ˜Z(j) 
+
+> N(0 ,1))
+
+i
+
+(42) 
+
+where ζk > 0 is some correlation-specific scaling factor and 
+
+Φ( u; c, d, γ ) = 12
+
+ 2u − c − d
+
+
+
+1 + 
+
+ 2u−c−dd−c
+
+γ 1/γ + c + d
+
+ (43) 
+
+provides a reasonable heuristic estimate for a(j) when η(j) 
+
+> R
+
+≫ 1 and η(j)signal ≫ 1 are predominantly coincidental spatiotemporally with the same sign. 
+
+The smooth function Φ thresholds input values between scalar parameters c and d with a steepening coefficient of γ, as shown in the bottom panel of Figure 2. The quantity ˜ ω(j) 
+
+> N(0 ,1) ,κ
+
+represents a κ-dependent confidence bound for ˜Z(j)  
+
+> N(0 ,1)
+
+that depends on the sign of the expected value, which results in magnitudes above the model’s expected value for κ > 0. The scaling factor, 
+
+ζk, for the exponential decay and squared exponential decay correlation functions are ζOU =
+
+p
+
+2 ˜L
+
+and ζRBF = √2 ˜L, respectively, where ˜L is the length scale for the GPR fit for ˜Z(j) 
+
+> N(0 ,1)
+
+. These values scale gradient magnitudes to be comparable to the magnitude of ˜Z(j) 
+
+> N(0 ,1)
+
+.The ratio ˜ r(j) 
+
+> κ
+
+quantifies the portion of the variance of the partially-whitened observations that can be solely attributed to observation variance as opposed to signal variance. For example, a nearly 
+
+12 Covariance-Boosted Gaussian Processes 
+
+zero-valued ˜ r(j) 
+
+> κ
+
+arises when there is little-to-no variation of ˜Z(j)  
+
+> N(0 ,1)
+
+relative to ˜Z(j) 
+
+> χ2
+
+, suggesting that the variation of ˆ y(j) is predominantly uncorrelated. On the other hand, values of ˜ r(j) 
+
+> κ
+
+nearing 1 indicates predominantly highly-correlated signal-oriented variation of ˆ y(j).With a heuristic nature, the value of ˜ r(j) 
+
+> κ
+
+may be somewhat inaccurate in some scenarios but still be “reasonable,” per Assumption 7, due to the expectation that larger relative errors of the covariance components η(j) 
+
+> R
+
+and η(j)signal are co-located. In general, any mismodeling of a(j) may wrongly attribute signal variation approximation errors to observation variation approximation errors and vice versa; however, the spatiotemporal coincidence of both types of approximation errors may lessen the impact of such mismodeling in practice. For example, an iterative refinement of covariance approximations made with minor incremental changes from successive approximation errors could make incorrect attributions between signal and observation variation approximation errors at a single iteration but still ultimately converge towards a fairly accurate approximation of the true prior covariance. 
+
+Figure 2: Smooth thresholding functions Ψ ( left ) and Φ ( right ) guided by threshold parameter values and the identity function. 
+
+3.4 Post-Fit Uncertainty Inflation via Effective Standard Error 
+
+After the prior covariance matrix is boosted using relative error estimates, we develop an approach for posterior uncertainty inflation as an inhomogeneous alternative to Rirreg inflation to meet in-tegrity standards by inflating: (A) the tuned prior covariance for further inflation post-fit and (B) the posterior covariance predicted at x∗. This post-fit inflation leverages our models for latent signal and observation variation errors discussed in Sections 3.1 −3.3 and predominantly lies in the well-applied formulations for the standard errors of the mean and variance, which depend on sam-ple numbers. For GPR, the sample number used for a fit is not translatable to the independent sampling of a distribution due to expected non-zero correlations across the samples. Instead, we will assume that an effective sample number, Neff , for a GPR fit can be approximated at each spatial location which would be analogous to the confidence specified by that independent sample number from a Gaussian distribution, as captured by the concept of effective sample size associated with design effect (Kish, 1965; Thi´ ebaux and Zwiers, 1984). The essence of inhomogeneous post-fit inflation for nonstationary GPR methods outlined in this study can be thought of as by applying an “effective standard error” for both the mean and the variance to inflate post-fit uncertainties using an effective sample number in different contexts. First, the ˜ ω-values prescribed in Equations (37) and (42) are κ-specified slices of GP posteriors in whitened domains. With Neff representing an approximation for the effective sample number for a GPR fit at x∗, then choosing the κ values to be 
+
+κinfl = zinfl 
+
+max √Neff , ϵ eff 
+
+(44) 
+
+> 13 Ovadia
+
+formulates ˜ ω-values such that their means are offset by multiples of the effective standard error for the mean for some scalar parameters zinfl , ϵ eff > 0. Here, the value ϵ2eff serves as a floor value for 
+
+Neff so that κinfl does not diverge to ∞ in heavily undersampled areas. Next, scaling κinfl by √2yields a zinfl -multiple of the effective standard error coefficient for the variance, which appropriately inflates the GP posterior variance in the form in Equation (10) to yield 
+
+σ2infl =
+
+
+
+1 + √2κinfl 
+
+
+
+diag (cov [ y∗]) . (45) So, the spatiotemporally-inhomogneous κinfl is used twice for post-fit inflation: once for sampling the GPR fits to partially-whitened observations further out from the expected value and a second time to inflate the posterior variance in a multiplicative fashion. Though design effect models often account for correlations when estimating effective sample numbers, this study takes a more simplified approach that only factors in spatial proximity. For all nonstationary GP modeling presented here, Neff will be estimated using a scaled Gaussian convolution with a representation of a sum of Dirac delta functions at the spatiotemporal location of each sampled measurement that takes the form 
+
+Neff (u) = 
+
+> N
+
+X
+
+> i=1
+
+exp 
+
+ −∥ u − xi∥2
+
+L2eff 
+
+
+
+(46) where Leff represents the Gaussian length scale scaled by √2 and u represents an arbitrary spa-tiotemporal state. It is important to note that, through this coarse design, Neff is invariant to the correlation function, ρ, and determined without the clustering of observations accounted for. The specifics of how the approximate prior covariances are proposed to be used distinctly from these post-fit inflated uncertainties in practice is outlined in the following section. 
+
+3.5 Nonstationary Covariance Boosting Algorithm 
+
+Practical incorporation of the prior covariance boosting methods and relative error approxima-tions in Sections 3.1 −3.4 into GPR models requires specific attention to both potential overfitting and model overconfidence. We present an approach that relies on four different prior covariance approximations: 1. An initial approximate prior covariance, C(0) , that is assumed to be comprised of an accu-rate correlation matrix, ρ, and signal and observation variation approximations that do not overapproximate true noise, given by σ(0) signal ≲ σsignal and σ(0) obs ≲ σobs , respectively. 2. The prior covariance that best whitens the observations as determined a by boosting process guided by analysis in Section 3.1 −3.3, denoted by C(j).3. A prior covariance used for GPR fitting, denoted by Cfit , that applies a smooth thresholding to the latent variation functions from C(j) as means to prevent overfitting. 4. A prior covariance used post-fitting to estimate inflated GP posterior uncertainties to prevent overconfident posteriors using methods outlined in Section 3.4, denoted by Cinfl .Algorithm 1 outlines a methodology to estimate GP posterior means ( μ), uncertainties ( σ), and post-fit-inflated uncertainties ( σinfl ) using these four model prior covariances, which we will further refer to as a Covariance-Boosted Gaussian Process (CBGP). Figure 3 illustrates the components of Algorithm 1 as a process diagram. Algorithm 1 is concisely structured so that its while loop computes all three of the prior covariances used for the computation of GP posteriors, C(j), Cfit , and Cinfl . First, C(j) is computed 
+
+> 14 Covariance-Boosted Gaussian Processes
+
+Figure 3: Schematic diagram of high-level procedures for Covariance-Boosted Gaussian Process (CBGP) methods outlined in Algorithm 1. through a boosting procedure occurring under the conditions of when IsConverged is set to False .Boosting iterations are designed in a way similar to a gradient descent method where incremental changes to σsignal and σobs are made proportional to the relative errors, η, as scaled by a learning rate, ξ, that is not directly incorporated into convergence criteria of the iterative method, which occurs when the maximum relative error component, δ, no longer exceeds a prescribed tolerance, ε.Several learning rate choices may be appropriate, including a constant one; however, in this study, we take a dynamic learning rate of 
+
+ξ = min 
+
+ ξ0
+
+(1 + δ)2 , 1
+
+
+
+(47) that assumes small values for large relative errors and does not exceed a value of 1. It is worth noting that the iterative procedure in Algorithm 1 specifies for the smooth thresholding of ˆ y(j) in practice using the function Ψ, so its magnitude does not exceed a prescribed value of zT. During boosting iterations, GPR fits are performed to partially-whitened observations, but GP posteriors are not computed for observations in the input domain. The second stage of Algorithm 1 that follows the completion of prior covariance boosting, characterized by when IsConverged is True and isFitted is False , guides the GPR fitting of the observations. Posterior means, μ, and uncertainties, σ, are computed after further refining C(j) to prevent potential overfitting by the smooth thresholding of σ(j)signal and σ(j)obs . A signed version of the softplus function Ψ bound the σ-components of the refine prior covariance Cfit , denoted by σ(j)signal 
+
+and σ(j)obs , by above by the scalar parameters σs,max and σo,max , respectively. The third and final stage of Algorithm 1 computes the inflated uncertainty σinfl when both 
+
+IsConverged and isFitted are True . Inhomogeneous inflation methods are based on “effective standard errors” that are outlined in Section 3.4. At this stage, further inflation of latent signal and observation variation quantified by σsignal ,infl and σobs ,infl , respectively, is performed using a single iteration with a learning rate of 1. Since the SPD matrix ρ serves as their correlation component, all three of the prior covariances 
+
+C(j), Cfit , and Cinfl that are used to provide CBGP posteriors are also SPD matrices, given that 
+
+C(0) is SPD. 
+
+> 15
+
+Ovadia 
+
+Algorithm 1 Nonsationary Prior Covariance Boosting 
+
+Given : initial covariance components σ(0) signal , σ(0) obs , ρ
+
+Parameters : ε, zinfl , zT , σs,max , σo,max , γΨ, γΦ, κ0, ρη
+
+˜x ← [xT , x ∗T ]T ▷ Concatenate training and (potentially) unsampled spatiotemporal states 
+
+j ← 0 ▷ Initialize iteration count 
+
+κ ← κ0
+
+δ ← 1 + ε ▷ Initialize max relative error difference 
+
+Neff ← ApproxEffectiveSampleNum (˜ x, . . . ) ▷ Effective sample number estimate at ˜ xσsignal ← σ(0) signal ⃗ 1 ▷ Weak learner for signal variation 
+
+σobs ← σ(0) obs ⃗ 1 ▷ Weak learner for observation variation 
+
+IsConverged ← False ▷ Specifier for boosting convergence 
+
+IsFitted ← False ▷ Specifier for whether GPR fit has been performed 
+
+doIteration ← True ▷ Specifier to iterate 
+
+while doIteration do if not IsConverged then 
+
+C(j) ← ConstructCovariance  σsignal , σ obs , ρ 
+
+Γ ←  C(j)−1/2 ▷ Whitening matrix ˆy ← Γy ▷ Partial whitening of observations ˆY ← Φ (ˆ y; −zT , z T , γ Φ) ▷ Smooth thresholding of whitened observations 
+
+μχ2 , σ χ2 ← GPRFit 
+
+
+
+˜x, H ( ˆY )2, C = ρη + I, K = ρη , R = I
+
+
+
+μN (0 ,1) , σ N (0 ,1) , ∇  ˜μN (0 ,1) 
+
+ ← GPRFit 
+
+
+
+˜x, ˆY , C = ρη + I, K = ρη , R = I
+
+
+
+end if 
+
+ωχ2 ← μχ2 + κσ χ2
+
+ωN (0 ,1) ← μN (0 ,1) + κσ N (0 ,1) 
+
+V ← Ψ
+
+
+
+H−1(ωχ2 )/H −1(0); 1 , γ Ψ
+
+
+
+r ← Equation (41) 
+
+a ← 1 − √rb ←
+
+
+
+σ2signal + aσ 2obs 
+
+
+
+(V − 1) 
+
+ηR ← (1 − a) ( V − 1) 
+
+ηobs ← √ηR + 1 − 1
+
+ηsignal ←
+
+r
+
+1 + bσ2signal 
+
+− 1
+
+if not IsConverged then 
+
+δ ← max ηobs , η signal ▷ Maximum relative error difference 
+
+ξ ← UpdateLearningRate ( δ, . . . )
+
+σsignal ← σsignal 
+
+ 1 + ξη signal 
+
+ ▷ Update signal variation function 
+
+σobs ← σobs (1 + ξη obs ) ▷ Update observation variation function 
+
+if δ < ε then 
+
+IsConverged ← True 
+
+end if end if if IsConverged then if not IsFitted then ▷ Compute posteriors 
+
+σsignal ,fit ← − Ψ( −σsignal , −σs,max , γ Ψ) ▷ Smooth thresholding of signal variation 
+
+σobs ,fit ← − Ψ( −σobs , −σo,max , γ Ψ) ▷ Smooth thresholding of observation variation 
+
+Cfit , K fit , R fit ← ConstructCovariance  σsignal ,fit , σ obs ,fit , ρ 
+
+μ, σ ← GPRFit ( x∗, y, C fit , K fit , R fit )
+
+IsFitted ← True ▷ Designate completion of fitting 
+
+κ ← zinfl    
+
+> max {Neff ,ϵ eff }
+
+▷ Determine κ for σinfl computation in following iteration 
+
+else ▷ σ infl computation 
+
+σsignal ,infl ← σsignal 
+
+ 1 + ηsignal 
+
+ ▷ Further inflation of signal variation 
+
+σobs ,infl ← σobs (1 + ηobs ) ▷ Further inflation of observation variation 
+
+Cinfl , K infl , R infl ← ConstructCovariance  σsignal ,infl , σ obs ,infl , ρ 
+
+σinfl ← GPRFit ( x∗, y, C infl , K infl , R infl )
+
+σinfl ←
+
+p
+
+1 + √2κσ infl 
+
+doIteration ← False ▷ Specify for the termination of the iterative scheme 
+
+end if end if 
+
+j ← j + 1 ▷ Update iteration counter 
+
+end while return : μ, σ, σinfl 
+
+16 Covariance-Boosted Gaussian Processes 
+
+4 Computational Results 
+
+This section provides results for out-of-sample computational tests of the CBGP modeling frame-work profiled in Section 3 for both accuracy and integrity. The first application for the CBGP framework is a synthetic one-dimensional problem under “nominal” and “disturbed” conditions that showcases features of our models and their ability to account for spatiotemporal irregular-ities injected into a stationary system. Next, computational experiments are performed for two benchmark problems with comparisons to other stationary, heteroskedastic, and nonstationary GP models. Our final and primary application problem fits ionospheric measurements over South America collected during disturbed space weather conditions in both locally planar and regional contexts for four five-day space weather storms. All four of the computational test cases, including both synthetic and real scenarios, are noted to predominantly align with assumptions made in Section 3. Notably, spatiotemporal irregularities present in the observations are largely characterized by concurrent heightened signal and obser-vation noise. Furthermore, spatiotemporal correlation lengthscales are seemingly homogeneous enough to obtain correlation matrices, ρ, that are considered sufficiently accurate for approximate prior covariances in the form of Equation (17). Initial prior covariance approximations that serve as weak learners for CBGP modeling are assumed to be stationary and to describe “nominal” conditions for each testing problem that do not significantly over-approximate neither signal nor observation variation, which are then boosted using methods outlined in Algorithm 1. These initial prior covariances are expected to underfit and underestimate uninflated uncertainties for any irregularities sampled in the observations, which consistent with Assumption 6. All out-of-sample testing will be subject to a “three-nines” integrity standard that is consistent with ionospheric error integrity bounding used by WAAS (Federal Aviation Administration, 2025), meaning that the GPR fit errors of 99.9% of deprived observations will be within the 99.9% con-fidence interval prescribed by the post-fit inflated GPR variance, or approximately 3.29 standard deviations from the expected value (Piedad and Hawkins, 2001). Thus, three-nines integrity stan-dards are met by GPR fits when at least 99.9% of out-of-sample errors standardized by post-fit inflated posterior uncertainties do not exceed 3.29. These inflated uncertainties for existing GP models refer to Rirreg multiplied by the posterior variance given by the diagonal of Equation (10). For CBGP methods outlined in this paper, these inflated uncertainties are simply σinfl .Details and parameterizations for all computational tests are provided in Appendix B. 
+
+4.1 One-Dimensional Simulated Scenario 
+
+The efficacy of our CBGP modeling framework is, first, demonstrated by a synthetic scenario char-acterized by spatiotemporal irregularities injected into a stationary GP process. This application problem is designed and parameterized to be a one-dimensional version of the detrended stationary GP model used by WAAS for ionospheric estimation, as described in Sparks et al. (2011a). Anominal stationary GP with an exponential decay kernel is defined on the unitless one-dimensional interval [ −20000 , 20000], comparable to local neighborhoods for ionospheric modeling ranging from 800 km to 2,100 km, using a covariance length scale ( Lρ = 8 , 000), signal variation parameter (σsignal ,0 = √0.91), and observation variation parameter ( σobs ,0 = 0 .3) adopted from WAAS’ model (Sparks et al., 2011a). The synthetic system is considered under two scenarios: 1. Nominal conditions : when the system is stationary and no irregularities are present. 
+
+> 17 Ovadia
+
+2. Disturbed conditions : when the system is subject to a hypothetical irregularity in the center of the input domain. Testing our novel CBGP models under such nominal conditions is essential to ensure that they do not overfit or become unstable when nonstationarity is unnecessary. Tests under disturbed condi-tions are just as important to study how well irregularities can be accounted for. The hypothetical irregularity is injected into the domain under disturbed conditions so that the true signal and observation variations are given by the Hill function (Goutelle et al., 2008) 
+
+σX = σX,0 1 + cX
+
+1 +   x−2400 360 
+
+6
+
+!
+
+(48) where “X” can be replaced with “signal” and “obs” and with csignal = 5 and cobs = 3. These inho-mogeneous variation functions, represented by green curves in Figure 4, describe a nonstationary GP model that otherwise assumes homogeneous correlation length scales that are unperturbed by the irregularity. Our CBGP model is tested against the stationary GP model under both nominal and disturbed conditions. In the nominal scenario, the stationary model is exact and employs the true covariance and will outperform any other model but has no means to account for the irregularity under dis-turbed conditions other than Rirreg inflation post-fit. The CBGP will use the stationary covariance to serve as a weak learner for its boosting algorithm. Truth consists of 5,000 simulations for both the nominal and disturbed conditions for this problem with a domain discretization size of 20 units. For each simulation, samplings consist of 30 simulated observations randomly chosen uniformly within the input domain to align with WAAS’ target of 30 ionospheric pierce points for its local ionospheric fits Sparks et al. (2011a). All other parameters for the simulated testing scenario are provided in Appendix B. 
+
+Figure 4: CBGP-estimated latent σsignal (top ) and σobs (bottom ) functions under nominal ( left )and disturbed ( right ) conditions for the first 250 one-dimensional simulations along with respective true functions described by Equation (48) ( green ) and stationary estimates used as weak learners (turquoise ). The orange curves correspond to the simulation used for Figures 5 and 6. Convergence of the iterative boosting scheme for prior covariances outlined in Algorithm 1 for one of the 5,000 simulations under disturbed conditions is demonstrated in Figure 5. The 
+
+> 18 Covariance-Boosted Gaussian Processes
+
+top panel of the figure shows an initial maximum relative error, δ, of over 264% for a stationary model at iteration #0 to below a prescribed 5% convergence tolerance at iteration #12 specified by 
+
+ε = 0 .05. The adaptive learning rate shown in the second figure panel increases as the relative error decreases and the scheme nears convergence. Root-mean-squared errors (RMSEs) and negative log predictive density (NLPD) in the third and fourth panels, respectively, demonstrate rapid accuracy improvements for posterior means and uncertainties from the stationary model in early iterations that begins to level off during the last few iterations. 
+
+Figure 5: Convergence and accuracy statistics of the iterative CBGP boosting scheme in Algorithm 1 for a single one-dimensional simulated scenario under disturbed conditions. GPR fits for the simulated process used to generate Figure 5 are shown in the top panel of Figure 6 with stationary posteriors in the top left and CBGP posteriors shown in the top right. Truth and uncertainties shown do not account for observation noise, which is assumed to be included in the noisy readout of the sampling and only accounted for in the prior covariance. The stationary fit, whose signal and observation variations are underestimates where the irregularity is imposed, produces a mean, shown in navy, that does not capture fluctuations of the truth nearly as well as the CBGP fit’s mean. Furthermore, the stationary’s post-fit inflated uncertainty, quantified by 3 .29 σinfl 
+
+and represented by the dark red dashed line, does not bound all of the truth, represented in gray, failing to meet the three-nines requirement for this simulation as homogeneous Rirreg overinflates uncertainties near the boundaries of the domain where the process is less subject to the irregularity and is at more risk of underinflating near the irregularity in the center of the domain. The CBGP model, on the other hand, not only has an uninflated confidence interval, defined by 3 .29 σ and represented by a dotted navy line, that is much greater where the irregularity is present but also produces a post-fit inflated confidence that is amplified in regions of the fit domain that are poorly sampled. The second and third rows of Figure 6 illustrate the intermediate GPR fitting of partially-whitened observations used for latent relative error estimation for the stationary initial state ( j =0) and nonstationary state after j = 12 iterations. The second row reveals how the iterative procedure refines initial partially-whitened observations, ˆ y(0) , that appear to have a relatively high autocorrelation to a seemingly uncorrelated state after 12 iterations, ˆ y(12) , that closely resembles the true whitened observations, shown in green. Similar behavior is observed in the last row of 
+
+> 19 Ovadia
+
+the figure where the partially-whitened observations mapped to a Gaussian distribution in the 
+
+χ2(1) domain, denoted by ˜Z(j) 
+
+> χ2
+
+, lose their initial autocorrelation and ultimately resemble white noise. The GPR posterior means fit to the partially-whitened observations, ˜Z(j)  
+
+> N(0 ,1)
+
+and ˜Z(j) 
+
+> χ2
+
+in the figure’s second and third rows, respectively, mostly capture the morphology of the irregularity for the initial stationary case while nearly zero-valued on the entire domain after convergence of the iterative algorithm. The initial GPR fits that assume unit signal and observation noise for j = 0 in the left column do not capture the entirety of the actual variation of the whitened observations in the Gaussian and χ2(1) domains, but such underfitting is appropriate due to the nature of the boosting process that allows for uncaptured variation to be explained by further iterations with little overfitting risk. 
+
+Figure 6: GPR posteriors and whitened observations for stationary GP ( left ) and CBGP ( right )fits for the single one-dimensional simulated scenario under disturbed conditions used for Figure 5. The top row of panels shows GPR posterior means and uncertainties fit to raw observations. The middle row shows partially-whitened observations ( navy ) along with the posterior mean of a GPR fit to them ( orange ) and observations whitened using the true covariance ( green ). The bottom row shows partially-whitened observations with the posterior mean of a GPR fit in the χ2(1) domain. Figure 4 shows the CBGP’s latent signal and observation variation function estimates, σsignal 
+
+and σobs , respectively, for the first 250 simulations under both nominal and disturbed conditions, shown in navy, along with the true and stationary initial σ’s, represented in green and turquoise, respectively. The orange curves shown on the right of the figure correspond to CBGP latent func-tion estimates for the disturbed simulation highlighted in Figures 5 and 6. For the nominal case, latent variation function estimates predominantly remain near the true stationary value and rarely exceed twice the true value. In disturbed settings, some estimated latent variation functions over-estimate the true values at their peak while others underestimate, but, in general, the majority of the 250 capture features of the injected irregularity with inflated varation in the center of the domain that reduces outward toward the edges. However, nearly all disturbed simulations overap-
+
+> 20
+
+Covariance-Boosted Gaussian Processes 
+
+proximate near the edges of the domain to at least a slight extent due to a sharpness of the Hill function characterizing the irregularity in Equation (48) that may not be easily captured by the exponential decay kernel used for GP modeling of the partially-whitened observations while tuning 
+
+C(j). Nevertheless, this overestimation is not particularly egregious in most cases and, for the most part, general inhomogeneity stemming from the injected irregularity is successfully captured by the CBGP model. Computational results for the stationary GP and CBGP models aggregated across all 5,000 nominal and disturbed simulations are listed in Table 1, which included 1,000,000 truth values for both sets of conditions. Included in the tables are RMSE, mean absolute error (MAE), NLPD, and Continuous Ranked Probability Score (CRPS) for μ and σ with both NLPD and CRPS also computed using μ and σinfl . Under nominal conditions, the stationary model’s exactness enable it to outperform the nonstationary model across all such metrics. However, the CBGP model is not drastically far off from the stationary model for the nominal scenario with aggregate RMSE and MAE that are only about 1% higher than its stationary counterparts. As expected, the stationary model has almost exactly 99.9% of its errors within 3.29 σ of the posterior mean while both stationary and CBGP models easily meet the three-nines requirement by having significantly more than 99.9% of the errors within σinfl .Under simulated disturbed conditions, discrepancies between the results for the stationary GP and CBGP models are magnified with the CBGP model providing substantially more accuracy. RMSEs and MAEs for CBGP errors under disturbed conditions, shown in the bottom row of Ta-ble 1, exhibit approximately 33% reductions from corresponding metric values for the stationary GP model. More notably, the CBGP model meets the three-nines integrity requirement but the stationary model does not with only about 99.41% of its errors within 3 .29 σinfl , falling short of the desired 99.9% level. The inability of the stationary GP model to meet this requirement high-lights the shortcomings of the Rirreg homogeneous inflation for GPs misspecified by inhomogeneous irregularities.                                           
+
+> Conditions Model RMSE MAE NLPD CRPS Within
+> 3.29 σ[%] NLPD (infl.) CRPS (infl.) Within
+> 3.29 σinfl [%]
+> nominal stationary GP 0.181 0.142 -0.321 0.100 99.8979 -0.0913 0.111 99.9999
+> CBGP 0.183 0.143 -0.280 0.103 99.9617 0.0466 0.125 100
+> disturbed stationary GP 0.710 0.427 6.92 0.363 77.8300 1.05 0.371 99.4108 CBGP 0.535 0.321 0.427 0.236 98.7205 0.624 0.267 99.9195
+
+Table 1: Aggregated error metrics from 5,000 one-dimensional simulated scenarios under both nominal ( top ) and disturbed ( bottom ) conditions. Complementary empirical cumulative distribution function (ECDF) curves, quantified by 1 −
+
+ECDF, for the magnitudes of stationary GP and CBGP model errors aggregated across all nominal and disturbed simulations displayed in Figure 7 further elucidate how the CBGP model properly handles both nominal and disturbed conditions while the stationary model struggles with the in-jected irregularity in disturbed conditions. The three columns of the figure show the complementary ECDF curves for the magnitudes of out-of-sample errors, errors standardized by the posterior un-certainty σ, and errors standardized by the inflated posterior uncertainty σinfl in respective order for nominal conditions in the top row and disturbed conditions on the bottom row. Under nominal conditions, the error magnitude profile for the stationary model is nearly identical to that of the CBGP one and, when standardized by σ aligns nearly perfectly with the standard unit normal curve, represented in orange. The CBGP model’s complementary ECDF σ-standardized and σinfl -standardized curves sits just below their stationary counterparts due to slightly overinflated latent 
+
+21 Ovadia 
+
+σsignal and σobs estimates displayed in Figure 4. Under disturbed conditions, though, differences in the models’ complementary ECDF curves not only exhibit significantly improved accuracy by in-corporating nonstationarity but also how the CBGP model meets the three-nines requirement while the stationary model is unable to. Complementary ECDF curves for disturbed σinfl -standarized errors for the stationary model rise above the standard unit normal curve before 2.58 is reached, suggesting that even a “two-nines” requirement is not met, while the CBGP curve lies below the standard unit normal one past 3.29. 
+
+Figure 7: Complementary ECDF curves for the magnitudes of out-of-sample errors ( left ), errors standardized by the posterior uncertainty σ (center ), and errors standardized by the inflated pos-terior uncertainty σinfl (right ) aggregated from 5,000 one-dimensional simulated scenarios under both nominal ( top ) and disturbed ( bottom ) conditions. The accuracy of the CBGP fits relative to their stationary GP counterparts is evident in the scatter plot of their RMSEs for each of the 5,000 simulations under nominal and disturbed con-ditions shown in Figure 8. In the figure, the red line represents when the stationary and CBGP models achieve the same RMSE for a single simulation. Though the stationary GP captures the homogeneous system properties exactly, the CBGP still achieves a lower RMSE than the nonsta-tionary model 41.80% of the time under nominal conditions (2,010 of 5,000 instances), as captured by the proportion of markers below the red line in the left plot of the figure. Under disturbed conditions though, the CBGP is more accurate than its stationary counterpart for 4,268 of the 5,000 simulations (85.36%). Notably, for disturbed cases with stationary RMSEs exceeding a value of 1, the CBGP model has lower RMSEs 98.66% of the time (589 of 597 instances). This simulated testing case, which was constructed to be a dimensionally-reduced case of WAAS’ ionospheric model under both nominal and disturbed conditions, provides encouraging results for CBGP fitting to actual ionospheric measurements in Section 4.3. 
+
+> 22 Covariance-Boosted Gaussian Processes
+
+Figure 8: Scatter plots comparing stationary GP and CBGP RMSEs across 5,000 one-dimensional simulations under nominal ( left ) and disturbed ( right ) conditions. The red curve represents the identity function, delineating RMSE equivalence for the two models. 
+
+4.2 Benchmark Experiments 
+
+To further test its efficacy, we evaluate the CBGP model against three other GP models for two benchmark experiments. Specifically, the CBGP model is compared with a stationary GP, a hetGPy implmentation of a heteroskedastic GP, and a nonstationary GP with a Gibbs-Paciorek kernel. Un-like the one-dimensional simulation tests in Section 4.1, the stationary GP will not be parameterized as the initial weak learner for the CBGP model but instead using manually-selected parameter-izations that better fit the observations. All hetGPy tests use default parameterization settings with only the choice of kernel specified. Nonstationary Gibbs-Paciorek models with kernels de-scribed in Equation (13) use latent functions for the length scale, signal variation, and observation variation determined by fitting Gaussian RBF basis functions by minimizing negative log marginal likelihoods. Due to the many degrees of freedom of having three different unknown inhomogeneous hyperparameters, initial guesses for Gibbs-Paciorek latent functions are given by the stationary GP model parameterizations. Both hetGPy and Gibbs-Paciorek implementations involve preprocessing by standardization using in-sample empirical means and standard deviations of both x and y.Parameterizations and computational details for all three comparison models are provided in Appendix B. 
+
+4.2.1 Motorcycle Acceleration Dataset Experiments 
+
+A seasoned litmus test for our CBGP framework is the modeling of simulated head acceleration during a motorcycle accident from Silverman (1985), which has been used to benchmark numerous heterogeneous models (Kersting et al., 2007; Heinonen et al., 2016; Saul et al., 2016; Binois et al., 2018; H¨ ark¨ onen et al., 2025) and as a featured application for hetGPy (O’Gara et al., 2025). However, to subject our framework to conditions for potential overconfidence and overfitting, we consider environments where about half of the measurements are deprived at a time while the other half are used for in-sample fitting by GP models. Specifically, we partition the input domain of the problem, 0 ≤ t ≤ 60 ms, into the subset M1 = t | mod ( t + 12 ∆t, 2∆ t) ≤ ∆t and its complement 
+
+M2 = M ∁ 
+
+> 1
+
+and fit each of the two subsets separately while depriving the other. Through this construction, interleaved intervals of size ∆ t are withheld at a time for GPR fitting to impose 
+
+> 23
+
+Ovadia 
+
+significant gaps in sampling, rather than a uniform deprivation of observations throughout the fit domain. Larger ∆ t values corresponding to larger gaps in sampling. For a given ∆ t, two experiments are performed: Experiment #1 subsamples the measurement set M1 while deprived of M2 measurements, and Experiment #2 subsamples M2 while deprived of M1.Error statistics and CPU times aggregated across Experiment #1 and #2 for deprivation widths ∆t = 1 , 2, 3, 4, 5 ms for all four GP models tested are listed in Table 2. A visualization of error statistics and average rank across the four models is provided in Figure 9 with rank values from 1 to 4 assigned to the lowest and highest values, respectively. First, all four of the models tested meet the three-nines requirement with 3 .29 σinfl bounding all out-of-sample, but the hetGPy implementation needs to use a Mat´ ern 3/2 kernel to achieve this requirement and is unable to do so using a Gaussian RBF kernel structure that is used by the other three models. In general, as the deprivation width ∆t increases, the error statistics for the models increase, suggesting poorer predictive power, as would be expected. The stationary GP has the lowest CPU times that are, on average, an order of magnitude lower than the other three inhomogeneous models, whose CPU times are mostly in-line with one another, but the stationary GP is, also, consistently outperformed by the other three models when using any of the error statistics studied. The CBGP ranks the highest of all four models for five of the six error statistics studied with the lone exception being NLPD computed using σinfl , for which the Gibbs-Paciorek model ranks highest.                                                                                                                                                 
+
+> ∆t
+> [ms] Model CPU [s] RMSE [g] MAE [g] NLPD CRPS [g] NLPD (infl.) CRPS (infl.) [g]
+> 1stationary GP 0.0204 25.7 20.3 6.34 16.2 4.86 15.7 hetGPy 0.116 23.0 17.0 4.34 12.2 4.37 12.4 Gibbs-Paciorek 0.0983 23.2 16.6 4.23 12.0 4.28 12.5 CBGP 0.134 22.2 16.8 4.26 11.7 4.34 12.1
+> 2stationary GP 0.00298 27.1 21.0 6.64 17.0 4.88 16.2 hetGPy 0.219 25.2 18.9 4.41 13.2 4.48 13.6 Gibbs-Paciorek 0.318 24.3 18.1 4.31 12.9 4.33 13.3 CBGP 0.0881 23.8 17.8 4.31 12.6 4.41 13.1
+> 3stationary GP 0.00297 28.7 22.8 7.07 18.6 4.91 17.1 hetGPy 0.183 24.5 18.7 4.63 13.6 4.61 13.9 Gibbs-Paciorek 0.0866 24.2 17.7 4.37 12.9 4.35 13.3 CBGP 0.0736 23.3 17.9 4.52 13.0 4.46 13.2
+> 4stationary GP 0.00200 27.2 21.4 6.66 17.2 4.91 16.6 hetGPy 0.252 26.0 19.0 4.59 14.0 4.62 14.4 Gibbs-Paciorek 0.110 28.8 20.8 4.63 15.6 4.46 15.5 CBGP 0.0878 25.3 18.3 4.40 13.4 4.44 13.7
+> 5stationary GP 0.00199 32.9 26.0 8.21 21.5 4.96 19.0 hetGPy 0.0949 26.6 20.2 4.59 14.2 4.65 14.6 Gibbs-Paciorek 0.0990 27.7 20.2 4.45 14.3 4.43 14.5 CBGP 0.0825 23.3 17.5 4.35 12.5 4.39 12.8
+
+Table 2: Error statistics and CPU times for Silverman’s motorcycle accident dataset experiment for deprivation widths ∆ t = 1 , 2, 3, 4, 5 ms. Posterior distributions for two deprived testing cases with ∆ t = 5 ms are shown in Figure 10. In-sample measurements are depicted in purple while out-of-sample measurements are represented in orange with corresponding shading behind them denoting deprived subintervals. Posterior means for the GP models are shown in solid turquoise and navy curves, respectively. Confidence intervals for uncertainties without post-fit inflation that account for observation noise are represented by dotted lines at 95% ( μ±1.96 σ) and 99.9% ( μ±3.29 σ) along with a 99.9% post-fit confidence interval (μ ± 3.29 σinfl ). The CBGP modeling framework represents the “nominal” near-zero acceleration prior to the simulated accident around t = 13 ms with an appropriately-small confidence interval and, after, captures the observed irregular variation during the accident with high integrity just 
+
+24 Covariance-Boosted Gaussian Processes 
+
+Figure 9: Error statistics for Silverman’s motorcycle accident dataset experiment for deprivation widths ∆ t = 1 , 2, 3, 4, 5 ms along with average rank. as well or better than any of the other models tested. Across both Test #1 and Test #2, 126 of 133 total measurements (94.7%) of the CBGP out-of-sample errors normalized by σ are within the 95% confidence interval, which increases to 131 measurements when normalized by σinfl (98.5%). Notably, the CBGP out-of-sample errors meet the requirement with and without post-fit inflation since all errors for the ∆ t = 5 ms scenario are within 3 .29 σ. Results from the two deprived testing cases show CBGP posterior distributions that fit both in-sample and out-of-sample measurements well but also meet integrity standards without overfitting nor overconfidence. 
+
+4.2.2 Meuse River Dataset Experiments 
+
+Our second benchmark problem for the CBGP model consists of modeling five features of the Meuse River dataset (Rikken and Van Rijn, 1993) in two spatial dimensions. This dataset consists of 155 measurements of concentrations of heavy metals in the topsoil near the Meuse River in the Netherlands along with the locations of the observations. Our testing problem consists of separately modeling the logartihm of the concentration of each of the four heavy metals, which are cadmium, copper, lead, and zinc, using a GP and also modeling the relative elevation of each sampling location as a GP in linear space. The concentrations of the heavy metals in the data set are correlated with the distance of the 155 sampling locations to the Meuse River and the relative elevation of each sampling but neither of these factors are accounted for in the GP models to prevent the inclusion of explanatory variables that reduce the inhomogeneity of GP modeling. Out-of-sample testing is conducted using a leave-one-out deprivation method for each of the observations for each of 
+
+> 25 Ovadia
+
+Figure 10: GP posterior means and uncertainties for computational tests with two different data deprivation schemes, Experiment #1 ( left ) and #2 ( right ), applied to the Silverman’s motorcycle accident dataset for the deprivation width ∆ t = 5 ms. the five features. Similar to the hetGPy and Gibbs-Paciorek implementations, stationary GP and CBGP fits preprocess observations by standardization using in-sample empirical means and standard deviations. Table 3 displays CPU times and error statistics for computational experiments for the five Meuse River dataset features for each of the four GP models. Expected values for heavy metal GP RMSE and MAE statistics are evaluated using the expression E [y] = exp  μ + 12 σ2 where μ and σ
+
+are modeled in logarithmic space while all other statistics are computed in logarithmic space. As might be expected, the stationary GP computational times listed, which are aggregated for all 155 leave-one-out tests, are orders of magnitude smaller than the other three inhomogeneous models. The CBGP is the next most efficient model in terms of CPU usage with times that are on average at least half of the corresponding times for the hetGPy and Gibbs-Paciorek implementations. No single model is the most accurate in describing leave-one-out errors for the Meuse River dataset with each of the models achieving the lowest RMSE for at least one of the five features: the stationary GP’s cadmium RMSE is lowest; hetGPy’s elevation RMSE is lowest; the Gibb-Paciorek’s zinc 
+
+> 26
+
+Covariance-Boosted Gaussian Processes 
+
+RMSE is lowest; and the CBGP’s copper and lead RMSEs are lowest. However, the CBGP is consistently relatively accurate with the lowest or second lowest RMSE, MAE, NLPD, and CRPS for all five features modeled. Furthermore, the CBGP model achieves the lowest NLPD values for all four heavy metal concentrations while still bounding the largest proportion of errors within the uninflated confidence interval specified by 3 .29 σ for four of the five features. One important observation is that the stationary GP and CBGP models successfully meet the three-nines integrity requirement with post-fit inflated uncertainties, as evidenced by corresponding percentages exceeding 99.9% in the last column of Table 3, but the hetGPy and Gibbs-Paciorek tests fail to do so for all but one test. This outcome suggests that, for the Meuse River dataset, 
+
+Rirreg inflation is insufficient in properly bounding residuals for inhomogeneous hetGPy and Gibbs-Paciorek implementations. One tradeoff for the CBGP meeting the integrity requirement is higher 
+
+σinfl values that resulted in higher NLPD and CRPS values computed using σinfl , as shown in the third- and second-to-last columns in Table 3, respectively.                                                                                                                                                                                              
+
+> Feature Model CPU [s] RMSE MAE NLPD CRPS Within
+> 3.29 σ[%] NLPD (infl.) CRPS (infl.) Within
+> 3.29 σinfl [%]
+> cadmium stationary GP 0.368 2.87 1.65 3.57 0.551 79.355 1.38 0.515 100
+> hetGPy 127. 5.44 2.50 1.29 0.499 97.419 1.29 0.507 99.355 Gibbs-Paciorek 66.0 4.55 2.15 1.29 0.458 98.065 1.24 0.465 98.710 CBGP 37.4 3.05 1.88 1.27 0.463 98.710 1.45 0.584 100
+> copper stationary GP 0.353 17.2 12.2 2.04 0.223 79.355 0.415 0.199 100
+> hetGPy 102. 15.5 10.8 0.370 0.177 98.710 0.367 0.180 98.710 Gibbs-Paciorek 111. 15.5 10.7 0.301 0.175 98.065 0.239 0.176 99.355 CBGP 35.4 14.1 10.0 0.278 0.172 98.065 0.525 0.210 100
+> lead stationary GP 0.356 78.0 49.8 1.78 0.247 88.387 0.601 0.233 100
+> hetGPy 124. 105. 58.9 0.635 0.235 98.065 0.598 0.241 99.355 Gibbs-Paciorek 101. 75.8 49.7 0.594 0.225 97.419 0.516 0.227 98.710 CBGP 37.2 74.1 47.4 0.455 0.213 98.710 0.684 0.268 100
+> zinc stationary GP 0.361 250. 158. 1.66 0.258 89.032 0.651 0.246 100
+> hetGPy 123. 270. 156. 0.583 0.227 98.065 0.553 0.231 98.710 Gibbs-Paciorek 77.6 214. 136. 0.469 0.207 98.065 0.437 0.209 100
+> CBGP 37.4 217. 136. 0.461 0.209 97.419 0.675 0.269 100
+> elevation stationary GP 0.342 0.785 0.624 3.53 0.502 77.419 1.24 0.451 100
+> hetGPy 133. 0.767 0.608 1.29 0.438 98.065 1.22 0.442 98.710 Gibbs-Paciorek 59.8 0.779 0.595 1.22 0.434 98.710 1.21 0.440 99.355 CBGP 32.2 0.778 0.598 1.25 0.436 98.710 1.47 0.536 100
+
+Table 3: Error statistics and CPU times for the Meuse River dataset experiment. A visualization of posterior means fit to all observations for each of the five features and for all four GP models is shown in Figure 11. In general, the three inhomogeneous GPs capture the high density of heavy metals near the river bank better than the stationary model. The Gibbs-Paciorek GP and the CBGP appear to better resolve differences between observation noise and signal variation than hetGPy. For example, hetGPy attributes the vast majority of the variability of the lead concentration measurements to heteroskedastic observation noise and uses a long length scale to describe the underlying GP. The Gibbs-Paciorek and CBGP posterior means compare well to one another; however, at times, the latent Gibbs-Paciorek length scales appear to be quite small for copper and lead concentrations near the spatial coordinates (181 , 333) and seemingly result in minor overfitting nearby. 
+
+4.3 Ionospheric Modeling 
+
+This section focuses on the application that motivated the development of CBGP methods in this paper: ionospheric modeling for SBAS. We test our algorithms for the ionospheric region covering 
+
+27 Ovadia 
+
+Figure 11: GP posterior means for five features from the Meuse River dataset. Concentrations for the four minerals are shown in logarithmic space. South America, which is subject to the Equatorial Ionization Anomaly (EIA) (Balan et al., 2018) and South Atlantic geomagnetic anomaly (Abdu et al., 2005), where space weather is the most active globally. South America is not currently covered by an SBAS with testing of WAAS-like algorithms suggesting severely limited availability there (Lejeune et al., 2003). This application to the ionosphere differs from the previous computational tests in this paper in the sense that CBGP modeling is performed both locally through subsampling and using all measurements within the spatial domain of observations. In particular, we test the following three GP models: 1. WAAS’ stationary GP model with linear drift outlined by Sparks et al. (2011a) that fits ionospheric measurements in a local neighborhood. 2. The CBGP model with linear drift that fits ionospheric measurements in a local neighborhood. 3. The CBGP model with de-meaning that fits all available ionospheric measurements over the entire test region at once. Linear drift modeling and de-meaning is described in Appendix A, and CBGP methods in Algorithm 1 are assumed to be modified accordingly for this application. For each of the two nonstationary GP models, the “nominal” prior covariance parameterization listed in Table 7 is identical to WAAS’ parameterization Sparks et al. (2011a). Following all other non-NCGBP tests in this paper and WAAS’ convention, Rirreg inflation is assumed for the stationary model. To summarize the WAAS model, ionospheric vertical total electronic content (TEC) measure-ments collected simultaneously at a single instance in time, or epoch, are fit using a spatial GP 
+
+> 28 Covariance-Boosted Gaussian Processes
+
+with an underlying planar model describing local behavior about a single ionospheric grid point (IGP) from a set of many IGPs that cover a region of interest. First, the ionosphere is assumed to be reduced to a single shell and ionospheric pierce points (IPPs) are determined, which specify a single location where all ionospheric content causing signal delay is assumed to reside. Then, the location of all measured IPPs are translated to an East-North-Up coordinate system relative to the IGP where the fit will be performed. For a single fit about an IGP, IPPs are subsampled to a local GPR fit neighborhood within a certain distance from the IGP within the east-north plane. This distance may range from 800 km to 2,100 km and is determined using an algorithm that targets 30 IPPs with measurements for fitting but still allows to use as few as 10 IPPs (Sparks et al., 2011a). Slant delay measurements collected along the satellite-to-receiver ray path are translated to the vertical domain specified to be orthogonal to the Earth’s surface at the IPP using a mapping func-tion (Ovadia et al., 2025). WAAS models are evaluated using the linear drift approach in Appendix A using a G matrix determined using only east and north IPP coordinates relative to the IGP. WAAS’ GP models are evaluated with a stationary exponential decay kernel and have been shown to be more accurate than planar fits alone (Sparks et al., 2011a). The set of IGPs used for the study is determined as the subset from those specified in the Minimum Operational Performance Standards (MOPS) IGP mask (Radio Technical Commission for Aeronautics, 2020) that encapsulates all lines-of-sight visible from mainland South America and the Falkand Islands with elevation angles 15 ◦ and above, as represented by grey square markers in Figure 12. The dotted curves surrounding IGPs denoted by “X” markers at (35 ◦S, 90 ◦W) and (35 ◦S, 35 ◦W) in the figure illustrate potential 800 km and 2,100 km neighborhoods, respectively, used for fitting by local GP models with linear drift. For locally planar stationary and nonstationary GPR fits at those two IGPs with corresponding neighborhoods, observations for fitting would be subsampled to include only IPPs encapsulated by the dotted lines. 
+
+Figure 12: Set of Ionospheric Grid Points (IGPs) with GNSS receiver sites used for ionospheric measurements. Dotted lines represent different potential sample neighborhoods for locally planar fits about a single IGP, represented with an “X” marker. The locally planar CBGP model is evaluated similar to WAAS’ model except with a linear drift version of Algorithm 1 replacing a stationary GP with linear drift; however, the regional 
+
+> 29 Ovadia
+
+CBGP model for our tests is much different. When it converges in a single iteration, the locally planar CBGP will yield posterior μ and σ values that are nearly identical to those from WAAS’ model, but its inflated uncertainty, σinfl , will be notably different since it does not employ WAAS’ 
+
+Rirreg inflation. On the other hand, regional CBGP model posteriors will be significantly different than its WAAS counterparts since it deviates from typical SBAS conventions of linearizing the ionosphere locally and does not subsample measurements collected. Instead, planar assumptions are removed for the regional model, and all observations available are used for fitting. In this scenario, a constant drift model from Appendix A de-means these observations in a BLUP fashion using G =⃗ 1. Such an approach departs from planar assumptions adopted by, not only WAAS, but other SBAS, including the MTSAT-based Satellite Augmentation System (MSAS) (Sakai et al., 2017), the European Geostationary Navigation Overlay System (EGNOS) (Olabode et al., 2022), and the GPS Aided Geo Augmented Navigation (GAGAN) system (Sarma et al., 2009). Absolute ionospheric measurements, considered as truth, are sourced from 30 Global navigation satellite system (GNSS) receivers that provide observables to the International GNSS Service (IGS) (Johnston et al., 2017) and the University Navstar Consortium (UNAVCO) located in and around South America. Truth is computed from GPS and Galileo satellite constellations using computa-tional methods described by Ovadia et al. (2025) with an assumed ionospheric shell height of 450 km. GNSS receiver information is provided in Table 4 and are represented as navy trianglies in the map shown in Figure 12. Station selection was determined manually by potential availability of measurements from both GPS and Galileo satellite constellations and by spatial proximity to create a nearest-neighbor separation distance on the order of hundreds of kilometers, which is typically used for SBAS ground networks. For breadth and intensiveness, our computational tests are conducted on 27,944,482 ionospheric measurements collected over four of South America’s most disturbed five-day space weather events since 2023. Each of the storms and their characterization is listed in Table 5. The March 2023 and 2025 storms are selected due to the presence of steep spatial ionospheric gradient magnitudes, as identified by rates of change of global ionospheric maps published by the Jet Propulsion Laboratory (Martire et al., 2024) computed using second-order central difference approximations. The May and October 2024 storms are selected due to the presence of extreme geomagnetic activity. These two 2024 timeframes coincide with notably high Planetary-K (Kp) index values, as computed by GFZ Helmholtz Centre Potsdam (Matzka et al., 2021), that quantifies disturbances to the Earth’s geomagnetic field and Disturbance Storm Time (Dst) index values, as computed by Kyoto Univer-sity (Takahashi et al., 1990), that quantify the intensity of the symmetrical equatorial electrojet across the globe. All GPS and Galileo measurements collected above a 5 ◦ line-of-sight elevation mask from the 30 GNSS receivers during these storms are included at a sampling rate of 30 sec-onds/sample, except for manually detected cycle slip events that yield erroneous measurements and prompt removal from the data set. Overall, our set of observations consist of 57,600 distinct epochs for GPR fitting with locally planar GP model evaluations performed at as many of the 206 IGPs in Figure 12 as possible for every epoch and the regional CBGP regional model only performing one per epoch. Due to diurnal fluctuations of the ionosphere, some nighttime epochs may correspond to nominal or quiet ionospheric conditions while daytime epochs often occur during highly active or disturbed conditions during ionospheric storms. Figure 13 provides instantaneous visualizations of ionospheric truth at a single epoch selected from each of the four storms studied along with corresponding posteriors from the regional CBGP model. Vertical delay measurements shown in the left column of the figure, represented both in units of meters and TEC units (TECU), show sample IPPs in the range of approximately 400-550 measurements at each epoch with marker color specifying the measured ionospheric vertical delay. The first three panels in the left column show various space weather disturbances consisting of 
+
+> 30
+
+Covariance-Boosted Gaussian Processes                                                                                                                                                            
+
+> Station Network Latitude [ ◦]Longitude [ ◦]Altitude [m] Constellations
+> AREG IGS -16.47 -71.49 2488.9 GPS, Galileo BELE IGS -1.41 -48.46 9.1 GPS BOAV IGS 2.85 -60.7 69.5 GPS, Galileo BOGT IGS 4.64 -74.08 2,576.8 GPS, Galileo BRAZ IGS -15.95 -47.88 1106 GPS, Galileo BRFT IGS -3.88 -38.43 21.7 GPS, Galileo CHPI IGS -22.69 -44.99 617.5 GPS, Galileo CN13 UNAVCO 24.07 -74.53 -34.5 GPS, Galileo CN19 UNAVCO 12.61 -70.05 -0.4 GPS, Galileo CN20 UNAVCO 9.35 -82.26 13.2 GPS, Galileo CN23 UNAVCO 17.26 -88.78 55.3 GPS, Galileo CN57 UNAVCO 10.84 -60.94 -5.6 GPS, Galileo CORD IGS -31.53 -64.47 747.1 GPS, Galileo CUIB IGS -15.56 -56.07 237.4 GPS, Galileo FALK IGS -51.69 -57.87 50.8 GPS, Galileo GLPS IGS -0.74 -90.3 1.8 GPS, Galileo KOUR IGS 5.25 -52.81 -25.8 GPS, Galileo MTV2 IGS -34.91 -56.18 40.8 GPS NAUS IGS -3.02 -60.06 93.9 GPS, Galileo PALM IGS -64.78 -64.05 31.2 GPS, Galileo POAL IGS -30.07 -51.12 76.7 GPS, Galileo POVE IGS -8.71 -63.9 119.6 GPS, Galileo PWRO UNAVCO -38.42 -69.21 491.6 GPS QUI3 IGS -0.14 -78.47 2,927.5 GPS RGDG IGS -53.79 -67.75 32.4 GPS, Galileo SANT IGS -33.15 -70.67 723.1 GPS, Galileo SAVO IGS -12.94 -38.43 76.3 GPS, Galileo SCRZ IGS -17.8 -63.16 438.3 GPS, Galileo TOPL IGS -10.17 -48.33 256.6 GPS, Galileo UNSA IGS -24.73 -65.41 1257.8 GPS, Galileo
+
+Table 4: GNSS receiver sites providing measurements used to compute ionospheric truth. 
+
+Start Date End Date Characterized By Receivers Without Measurements 
+
+2023-03-11 2023-03-15 Large Ionospheric Gradients BOAV 2024-05-09 2024-05-13 High Geomagnetic Activity NAUS 2024-10-08 2024-10-12 High Geomagnetic Activity -2025-03-24 2025-03-28 Large Ionospheric Gradients -
+
+Table 5: Storm set used for ionospheric model testing. prominent EIA crests, shown in truth from 13 March 2023, and nonlinear irregularities, observed in truth from the 2024 storms. The bottom left panel shows measurements under nominal con-ditions from 27 March 2025 during the nighttime, when the ionosphere is much less active than the daytime, with significantly smaller and smoother ionospheric delays than the plots for other disturbed epochs above it. The second column of the figure displays posterior means as predicted by the regional CBGP model on a 1 ◦ × 1◦-resolution grid, capturing the spatial irregularities and nonlinear behavior exhibited in the truth seemingly well. The last column of Figure 13 shows post-fit inflated uncertainties, represented by σinfl , evaluted at each epoch by the regional CBGP model. Heavily undersampled areas, such as the edges of the hypothetical SBAS service region shown, have exceedingly high uncertainties at or above 8 meters, where a threshold is applied to the plot, during stormy conditions that are significantly inflated by a low effective sample number estimate, Neff .
+
+31 Ovadia 
+
+The uncertainties for the sample nominal conditions from the nighttime ionosphere are much lower than those for disturbed conditions due to notably lower latent signal and observation variation estimates that stem from measurements that are less variable across South America. 
+
+Figure 13: Spatial visualizations of ionospheric truth at a single epoch ( left ) along with regional CBGP posterior means, μ, ( middle ) and inflated uncertainties, σinfl , ( right ) for a single epoch from each of the four storms tested. GP posteriors represented on a 1 ◦ × 1◦ grid that is different from the IGP set shown in Figure 12. Out-of-sample testing is conducted with a deprivation scheme that withholds an entire constel-lation’s worth of measurements at a time for GPR fits. More specifically, GPR fits are performed using only GPS measurements and projected to ionospheric pierce points (IPPs) of deprived Galileo measurements, and, similarly, Galileo measurements would, then, be fit as an in-sample set and then projections would be made at GPS IPPs so that all measurements are tested out-of-sample. 
+
+> 32
+
+Covariance-Boosted Gaussian Processes 
+
+Through this construction, all GPR fits are performed using a sampling that would be reflective of an SBAS system that uses a single GNSS constellation for its ionospheric modeling, like WAAS’ use of GPS as its lone constellation for ionospheric modeling. For local fit methods, out-of-sample errors are only calculated once for each measurement for fits from its closest IGP. Measurements with IPPs without nearby IGPs from the set shown in Figure 12 are excluded from out-of-sample analysis for commensurability of local and regional modeling. Table 6 provides computational results for nearly 28 million out-of-sample ionospheric model errors aggregated over the 20-day storm set for WAAS’ locally planar stationary GP, the locally planar CBGP, and the regional CBGP models. First, tests for all three GP models meet the three-nines requirement with over 99.9% of errors within 3 .29 σinfl . The regional CBGP model’s uninflated confidence interval 3 .29 σ nearly meets the three-nines requirements on its own as it bounds approximately 99.7% of the out-of-sample errors. The regional CBGP also tests as the most accurate of the three with the lowest RMSE and MAE values that are at least 10% lower than its locally planar stationary GP counterpart’s while the locally planar CBGP RMSEs and MAEs also improve upon the stationary GP’s by at least 8%. The locally planar CBGP tests yield the lowest NLPD and CRPS values primarily due to its σ and σinfl values that are lower than those for the regional CBGP model.                              
+
+> Model RMSE [m] MAE [m] NLPD CRPS [m] Within
+> 3.29 σ[%] NLPD (infl.) CRPS (infl.) [m] Within
+> 3.29 σinfl [%]
+> Locally Planar Stationary GP 1.01 0.592 3.59 0.482 87.03674 1.24 0.529 99.98773
+> Locally Planar CBGP 0.928 0.543 0.876 0.395 99.41266 1.05 0.441 99.95820
+> Regional CBGP 0.901 0.535 0.918 0.398 99.69285 1.15 0.471 99.98576
+
+Table 6: Error statistics for out-of-sample ionospheric modeling errors aggregated across 57,600 distinct epochs spanning all 20 storm days and totalling 27,944,482 observations. Complementary ECDF curves for out-of-sample error magntiudes for locally planar station-ary GP, the locally planar CBGP, and the regional CBGP models aggregated across the entire ionospheric testing set are shown in Figure 14. Studying the curves for raw error magnitude dis-tributions, shown in the left figure panel, reveals significantly shorter tails for the regional CBGP in comparison with those for the other two models, suggesting the inappropriateness of planar assumptions in certain contexts that yield out-of-sample errors over 30 meters. Complementary ECDF curves for errors standardized by the posterior uncertainty σ, as displayed in the center panel of the figure, show approximately 95% of these CBGP errors bounded by the standard unit normal distribution, shown in orange, while only a small fraction of the locally planar stationary GP errors are bounded. A visualization of each of the three models meeting the three-nines integrity requirement is provided in the right figure panel showing complementary ECDF curves for errors standardized by the inflated posterior uncertainty σinfl that are below the standard unit normal curve at 3.29. The CBGP model’s ionospheric estimation accuracy improvement over WAAS’ locally planar stationary GP is diurnally consistent across the entire 20-day testing timeframe. Figure 15 shows the distribution of differences of out-of-sample raw error magnitudes resulting from the testing of two models at each of the 57,600 epochs tested. In the plots shown, differences of the regional CBGP model errors from the locally planar stationary ones above zero indicate outperformance of the CBGP model from an accuracy standpoint. Daily trends can be observed where model error means and medians at a given epoch are mostly consistent during nighttime and early morning when the ionosphere is significantly less active, occurring during the early-middle of the UTC day. However, during the daytime and early evening, the CBGP model routinely has smaller error 
+
+33 Ovadia 
+
+Figure 14: Complementary ECDF curves for the magnitudes of out-of-sample errors ( left ), errors standardized by the posterior uncertainty σ (center ), and errors standardized by the inflated pos-terior uncertainty σinfl (right ) aggregated across 57,600 distinct epochs spanning all 20 storm days and totalling 27,944,482 observations. magnitudes with rare instances of epochs with underperformance. The mean of the error difference distributions predominantly exceed corresponding medians and 75th percentiles are often further from medians than the 25th percentile during the daytime, indicating a typical skew suggesting heavier positive tails where the CBGP model is more accurate. The regional CBGP model nearly meets or exceeds the accuracy of the locally planar stationary model not only in aggregate, but also for nearly every epoch in our expansive testing set. In addition to enhanced accuracy, the regional CBGP provides lower uncertainties over South America than the locally planary stationary GP in meeting the three-nines integrity requirement, which would suggest higher availability for a potential SBAS in the region. For a 99.9% integrity requirement, the MOPS specifies for an SBAS’ grid ionospheric vertical errors (GIVEs) to be broad-cast to the aviation user as a 3.29-multiple of the ionospheric correction uncertainty, represented by 3.29 σinfl (Radio Technical Commission for Aeronautics, 2020). Lower GIVE values, generally, cor-respond to smaller positioning uncertainties for the aviation user and, thus, more confident runway approaches for the aviation user. Figure 16 displays the percentage of 3 .29 σinfl that are bounded by the MOPS-specified GIVE quantization levels of 3.0, 4.5, and 6.0 meters in the left, center, and right columns, respectively, for the locally planar stationary GP in the top row and the regional CBGP in the middle row across the entire 20-day storm set for each IGP without any deprivation of measurements. Over mainland South America, the CBGP’s 3 .29 σinfl values are approximately 5-20% below their locally planar stationary GP counterparts, as evidenced by the bottom row of the figure that displays the differences between the two. Along the periphery of the IGP set, the inflated uncertanties are higher for the regional CBGP due to the heavy undersampling of the ionosphere there; however, these IGPs may be less important for overall SBAS coverage. Though practical SBAS implementation must account for other factors not considered in this study, compu-tational tests demonstrating higher accuracy and lower uncertainties than WAAS’ locally planary stationary GP while still meeting the three-nines integrity requirement are encouraging for fielding a potential SBAS in South America. 
+
+> 34 Covariance-Boosted Gaussian Processes
+
+Figure 15: Distributions of differences of magntiudes of out-of-sample errors from the locally planar stationary GP and regional CBGP ionospheric models for each of the 57,600 epochs spanning four five-day storms. 
+
+5 Conclusions 
+
+A novel CBGP framework for nonstationary GP modeling is developed in this study to account for spatiotemporal irregularities while cautioning against overfitting or overconfidence. In these models, latent functions for signal and observation variation are estimated by iteratively inflating nominal homogeneous functions through relative error estimation relying on sub-layer GP model-ing in partially-whitened domains. The risk of overfitting is mitigated by thresholding these latent functions from above while posterior variances are inflated post-fit to prevent overconfidence. Rig-orous testing through data deprivation of both simulated and real-world observations show both accuracy improvement over stationary models and satisfaction of integrity requirements. Notably, all applications of our CBGP modeling framework meet a three-nines integrity standard, revealing that the models are not overly optimistic. Results from benchmark experiments with heavy un-dersampling and inhomogeneity reveal that CBGP modeling is capable of outperforming existing inhomogeneous GP methods in terms of both accuracy and integrity. One important aspect of the CBGP modeling in this paper is its robustness, particularly in ionospheric applications that are subject to strict integrity requirements for safety-critical pur-
+
+> 35 Ovadia
+
+Figure 16: Proportions of inflated 99.9% uncertainties, represented by 3 .29 σinfl , below quantized thresholds of 3.0 ( left ), 4.5 ( center ), and 6.0 meters ( right ) for the locally planar stationary GP (top ), the regional CBGP ( middle ), and their difference ( bottom ). poses. Ionospheric test cases in the most disturbed conditions both geographically and temporally span a very extensive dataset spanning 20 days of GNSS receiver collections. Nearly all of the spatial GPR fits at each of the 57,600 epochs see our regional CBGP model improve upon the ac-curacy of a local stationary GP model used by WAAS for ionospheric corrections, suggesting a lack of overfitting that can plague adaptive models. CBGP models also meet the stringent three-nines integrity standard for the ionospheric application, indicating that it is not overconfident. Addi-tionally, the CBGP model is not too computationally expensive to run in real-time due to iterative schemes that can converge relatively quickly with appropriately chosen learning rates. With such accuracy, integrity, and computational efficiency, the CBGP model stands as an excellent candidate for ionospheric modeling in SBAS or Precise Point Positioning-Real-Time Kinematic (PPP-RTK) applications. Adoption of this model would be a stark difference from ionospheric modeling for current SBAS systems that simply fit local spatial neighborhoods using planar assumptions and exclude highly-variable measurements using a pierce point filter line (Sparks et al., 2022). Possible practical extensions of our models for ionospheric purposes could be incorporating physics-based GP modeling (Yang et al., 2021) and characterizing ionospheric threat models (Blanch et al., 2002) for regional fits using the effective sample number, Neff .Even with encouraging computational tests in this study, notable limitations and vulnerabilities accompany the CBGP model in its current form. In Section 3, seven explicit assumptions for 
+
+> 36 Covariance-Boosted Gaussian Processes
+
+CBGP validity detail the limited appropriateness of the model. Among these assumptions are prior knowledge of the correlation structure, which is usually only speculated or approximated in practical applications. Another notable assumption is the approximate co-location of heightened signal and observation variation for irregulaties, which constrains the scope of potential applications. Any instance in which heteroskedastic noise does not trend spatiotemporally with signal variation may be inappropriate for CBGP modeling. An example of such a scenario may be ionospheric modeling in the polar regions where stochasticity may dominate deterministic elements due to localized plasma irregularities, known as “patches,” that can range in size from 10 km to 1,000 km in size (Tsunoda, 1988; Zhang et al., 2020). As with any adaptive model, the CBGP may be susceptible to misleading undersampled observations. Such vulnerabilities may be significantly magnified when CBGP models are not well-parameterized or when chosen length scales do not align well with observations. Though effective in accuracy and integrity testing, the CBGP modeling framework presented in this paper has room for improvement from both a formulation and computational standpoint. Some of the heuristic estimation that attribute partially-whitened variation to signal and observation noise components is the most significant area where improvement can be made and could be potentially replaced with other maximum a posteriori (MAP) estimation-based approaches. Hyperparameters, such as the irregularity length scale for ρη, can be optimally determined instead of prescribed. Also, our methods can be extended in a “deeper” fashion that recursively calls the nonstationary framework for multiple layers when applying GP modeling partially-whitened observations instead of using only one extra layer. For large scale applications with large samplings, the inclusion of sparse GP methods could significantly improve computational efficiency and reduce memory costs considerably (Qui˜ nonero-Candela and Rasmussen, 2005; Liu et al., 2020b). Finally, means to account for correlation length scale heterogeneity, which are assumed to be uniform in this study, may also be incorporated. The ability of CBGP models to perform well in nominal conditions while also adapt to spa-tiotemporal irregularities, as evidenced through both simulations and real datasets, make it a strong candidate for ionospheric modeling for SBAS, among other real-time safety-critical potential ap-plications. CBGP’s boosting of the prior covariance matrix using relative errors estimated from partially-whitened observations is a novel approach that can prompt the further development of more nonstationary GP methods that improve upon model limitations in this study. 
+
+Acknowledgments and Disclosure of Funding 
+
+This research was jointly funded by the United States Federal Aviation Administration (FAA) supporting WAAS and the Australian and New Zealand governments supporting the Southern Positioning Augmentation Network (SouthPAN) initiative. The contents of this paper are the views of the author and do not represent those of the FAA nor the Australian and New Zealand governments. The author appreciates the data provided by IGS, UNAVCO, GFZ Helmholtz Centre Potsdam, and Kyoto University. 
+
+References 
+
+M.A. Abdu, I.S. Batista, A.J. Carrasco, and C.G.M. Brum. South atlantic magnetic anomaly ioniza-tion: A review and a new focus on electrodynamic effects in the equatorial ionosphere. Journal of Atmospheric and Solar-Terrestrial Physics , 67(17):1643–1657, 2005. ISSN 1364-6826. doi: https://doi.org/10.1016/j.jastp.2005.01.014. URL https://www.sciencedirect.com/science/ 
+
+> 37 Ovadia
+
+article/pii/S1364682605001240 . Space Geophysics. Oriol Abril-Pla, Vanessa Andreani, Colin Carroll, Larry Dong, Christopher J. Fonnesbeck, Max Kochurov, Ravin Kumar, Junpeng Lao, David Lunn, Osvaldo A. Martin, et al. Pymc: a modern, and comprehensive probabilistic programming framework. PeerJ Computer Science , 9:e1516, 2023. doi: 10.7717/peerj-cs.1516. URL https://doi.org/10.7717/peerj-cs.1516 .J. Alvarez-Montoya, M. Torres-Arredondo, and J. Sierra-P´ erez. Gaussian process modeling for damage detection in composite aerospace structures by using discrete strain measurements. In 
+
+Proceedings of the 7th Asia-Pacific Workshop on Structural Health Monitoring , Hong Kong, China, November 2019. URL https://www.ndt.net/?id=24153 .Bruce Ankenman, Barry L. Nelson, and Jeremy Staum. Stochastic kriging for simulation meta-modeling. Operations Research , 58(2):371–382, 2010. ISSN 0030364X, 15265463. URL http: //www.jstor.org/stable/40605923 .Nanan Balan, LiBo Liu, and HuiJun Le. A brief review of equatorial ionization anomaly and iono-spheric irregularities. Earth and Planetary Physics , 2(4):257–275, 2018. ISSN 2096-3955. doi: 10. 26464/epp2018025. URL https://www.eppcgs.org/en/article/doi/10.26464/epp2018025 .Maximilian Balandat, Brian Karrer, Daniel R. Jiang, Samuel Daulton, Benjamin Letham, An-drew Gordon Wilson, and Eytan Bakshy. Botorch: A framework for efficient monte-carlo bayesian optimization. Advances in Neural Information Processing Systems , 33:21524–21538, 2020. URL 
+
+https://arxiv.org/abs/1910.06403 .Leonardo S. Bastos and Anthony O’Hagan. Diagnostics for gaussian process emulators. Techno-metrics , 51(4):425–431, 2009. doi: 10.1198/TECH.2009.08050. Micka¨ el Binois and Robert B. Gramacy. hetgp: Heteroskedastic gaussian process modeling and sequential design in r. Journal of Statistical Software , 98(13), 2021. doi: 10.18637/jss.v098.i13. URL https://www.jstatsoft.org/article/view/v098i13 .Micka¨ el Binois, Robert B. Gramacy, and Mike Ludkovski. Practical heteroscedastic gaussian process modeling for large simulation experiments. Journal of Computational and Graphical Statistics ,27(4):808–821, 2018. doi: 10.1080/10618600.2018.1458625. URL https://doi.org/10.1080/ 10618600.2018.1458625 .Juan Blanch, Todd Walter, and Per Enge. Ionospheric threat model methodology for waas. NAV-IGATION , 49(2):103–107, 2002. doi: https://doi.org/10.1002/j.2161-4296.2002.tb00259.x. URL 
+
+https://onlinelibrary.wiley.com/doi/abs/10.1002/j.2161-4296.2002.tb00259.x .Annie S. Booth, Andrew Cooper, and Robert B. Gramacy. Nonstationary Gaussian Process Sur-rogates. arXiv e-prints , art. arXiv:2305.19242, May 2023. doi: 10.48550/arXiv.2305.19242. Gavin C. Cawley and Nicola L. C. Talbot. Preventing over-fitting during model selection via bayesian regularisation of the hyper-parameters. Journal of Machine Learning Research , 8(31): 841–861, 2007. URL http://jmlr.org/papers/v8/cawley07a.html .Robert Dahnke, Rachel A Yotter, and Christian Gaser. Individualized gaussian process-based prediction and detection of local and global gray matter abnormalities in elderly subjects. Neu-roImage , 97:333–348, 2014. 
+
+> 38 Covariance-Boosted Gaussian Processes
+
+Andreas Damianou and Neil D. Lawrence. Deep Gaussian processes. In Carlos M. Carvalho and Pradeep Ravikumar, editors, Proceedings of the Sixteenth International Conference on Artificial Intelligence and Statistics , volume 31 of Proceedings of Machine Learning Research , pages 207– 215, Scottsdale, Arizona, USA, 29 Apr–01 May 2013. PMLR. URL https://proceedings.mlr. press/v31/damianou13a.html .Daniel Augusto de Souza, Alexander Nikitin, ST John, Magnus Ross, Mauricio A ´Alvarez, Marc Deisenroth, Jo˜ ao Paulo Gomes, Diego Mesquita, and C´ esar Lincoln Mattos. Thin and deep gaussian processes. In A. Oh, T. Naumann, A. Globerson, K. Saenko, M. Hardt, and S. Levine, editors, Advances in Neural Information Processing Systems , volume 36, pages 13138–13148. Curran Associates, Inc., 2023. URL https://proceedings.neurips.cc/paper_files/paper/ 2023/file/2aa212d6f40c1cb19b777e83db00ec6a-Paper-Conference.pdf .Federal Aviation Administration. Waas performance analysis report no. 95. Technical Report 95, William J. Hughes Technical Center, Satellite Navigation Branch, December 2025. URL https: //www.nstb.tc.faa.gov/reports/FAA_WAAS_PAN_Report_95_v1.0.pdf .Christian Fiedler, Carsten W. Scherer, and Sebastian Trimpe. Practical and rigorous uncertainty bounds for gaussian process regression. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 35, pages 7439–7447, 2021. doi: 10.1609/aaai.v35i8.16912. Mark N. Gibbs. Bayesian Gaussian Processes for Regression and Classification . PhD thesis, University of Cambridge, 1997. Paul Goldberg, Christopher Williams, and Christopher Bishop. Regression with input-dependent noise: A gaussian process treatment. In M. Jordan, M. Kearns, and S. Solla, editors, Advances in Neural Information Processing Systems , volume 10. MIT Press, 1997. S. Goutelle, M. Maurin, F. Rougier, X. Barbaut, L. Bourguignon, M. Ducher, and P. Maire. The Hill equation: a review of its capabilities in pharmacological modelling. Fundamental & Clinical Pharmacology , 22(6):633–648, 2008. Robert B. Gramacy and Herbert K. H. Lee. Bayesian treed gaussian process models with an application to computer modeling. Journal of the American Statistical Association , 103(483): 1119–1130, 2008. ISSN 01621459. URL http://www.jstor.org/stable/27640148 .Markus Heinonen, Henrik Mannerstr¨ om, Juho Rousu, Samuel Kaski, and Harri L¨ ahdesm¨ aki. Non-stationary gaussian process regression with hamiltonian monte carlo. In Arthur Gretton and Christian C. Robert, editors, Proceedings of the 19th International Conference on Artificial In-telligence and Statistics , volume 51 of Proceedings of Machine Learning Research , pages 732– 740, Cadiz, Spain, 09–11 May 2016. PMLR. URL https://proceedings.mlr.press/v51/ heinonen16.html .Teemu H¨ ark¨ onen, Sara Wade, Kody Law, and Lassi Roininen. Mixtures of gaussian process experts with smc 2. Journal of Machine Learning Research , 26(206):1–38, 2025. URL http://jmlr.org/ papers/v26/22-0973.html .G. Johnston, A. Riddell, and G. Hausler. The international GNSS service. In Peter J. G. Teunissen and Oliver Montenbruck, editors, Springer Handbook of Global Navigation Satellite Systems ,pages 967–982. Springer International Publishing, Cham, Switzerland, 1st edition, 2017. doi: 10.1007/978-3-319-42928-1 33. URL https://doi.org .
+
+> 39 Ovadia
+
+Kristian Kersting, Christian Plagemann, Patrick Pfaff, and Wolfram Burgard. Most likely het-eroscedastic gaussian process regression. In Proceedings of the 24th International Confer-ence on Machine Learning , ICML ’07, page 393–400, New York, NY, USA, 2007. Associa-tion for Computing Machinery. ISBN 9781595937933. doi: 10.1145/1273496.1273546. URL 
+
+https://doi.org/10.1145/1273496.1273546 .Hyoung-Moon Kim, Bani K Mallick, and C. C Holmes. Analyzing nonstationary spatial data using piecewise gaussian processes. Journal of the American Statistical Association , 100 (470):653–668, 2005. doi: 10.1198/016214504000002014. URL https://doi.org/10.1198/ 016214504000002014 .Leslie Kish. Survey Sampling . John Wiley & Sons, New York, 1965. Gert RG Lanckriet, Nello Cristianini, Peter Bartlett, Laurent El Ghaoui, and Michael I Jor-dan. Learning the kernel matrix with semidefinite programming. Journal of Machine Learning Research , 5(Jan):27–72, 2004. URL https://www.jmlr.org/papers/volume5/lanckriet04a/ lanckriet04a.pdf .Quoc V. Le, Alex J. Smola, and St´ ephane Canu. Heteroscedastic gaussian process regression. In 
+
+Proceedings of the 22nd International Conference on Machine Learning , ICML ’05, page 489–496, New York, NY, USA, 2005. Association for Computing Machinery. ISBN 1595931805. doi: 10.1145/1102351.1102413. URL https://doi.org/10.1145/1102351.1102413 .Armin Lederer, Jonas Umlauft, and Sandra Hirche. Uniform error bounds for gaussian process re-gression with application to safe control. In H. Wallach, H. Larochelle, A. Beygelzimer, F. d’Alch´ eBuc, E. Fox, and R. Garnett, editors, Advances in Neural Information Processing Systems 32 ,pages 659–669. Curran Associates, Inc., 2019. R. Lejeune, M. B. El-Arini, P. Doherty, J. Klobuchar, E. De Paula, F. Rodrigues, and A. Canav-itsas. Performance of SBAS ionospheric estimation in the equatorial region. In Proceedings of the 16th International Technical Meeting of the Satellite Division of the Institute of Navigation (ION GPS/GNSS 2003) , pages 1658–1669, Portland, OR, USA, September 2003. Institute of Navigation. URL https://www.ion.org/publications/abstract.cfm?articleID=5352 .Bingqing Liu, Ivan Kiskin, and Stephen Roberts. An overview of gaussian process regression for volatility forecasting. In 2020 International Conference on Artificial Intelligence in Information and Communication (ICAIIC) , pages 681–686, 2020a. doi: 10.1109/ICAIIC48513.2020.9065045. Haitao Liu, Yew-Soon Ong, Xiaobo Shen, and Jianfei Cai. When gaussian process meets big data: A review of scalable gps. IEEE Transactions on Neural Networks and Learning Systems , 31(11): 4405–4423, 2020b. doi: 10.1109/TNNLS.2019.2957109. James R. Lloyd, David K. Duvenaud, Roger B. Grosse, Joshua B. Tenenbaum, and Zoubin Ghahra-mani. Automatic construction and natural-language description of nonparametric regression models. In Advances in Neural Information Processing Systems (NeurIPS) , 2014. L´ eo Martire, Thomas F. Runge, Xing Meng, Siddharth Krishnamoorthy, Panagiotis Vergados, Anthony J. Mannucci, Olga P. Verkhoglyadova, Attila Komj´ athy, Angelyn W. Moore, Robert F. Meyer, Byron A. Ijima, and Donald W. Green. The JPL-GIM algorithm and products: multi-GNSS high-rate global mapping of total electron content. Journal of Geodesy , 98(5):44, May 2024. doi: 10.1007/s00190-024-01860-3. 
+
+> 40 Covariance-Boosted Gaussian Processes
+
+Alexander G. de G. Matthews, Mark van der Wilk, Tom Nickson, Keisuke Fujii, Alexis Boukouvalas, Pablo Le´ on-Villagr´ a, Zoubin Ghahramani, and James Hensman. Gpflow: A gaussian process library using tensorflow. Journal of Machine Learning Research , 18(40):1–6, 2017. URL http: //jmlr.org/papers/v18/16-537.html .J. Matzka, C. Stolle, Y. Yamazaki, O. Bronkalla, and A. Morschhauser. The geomagnetic kp index and derived indices of geomagnetic activity. Space Weather , 19(5):e2020SW002641, 2021. doi: https://doi.org/10.1029/2020SW002641. URL https://agupubs.onlinelibrary.wiley.com/ doi/abs/10.1029/2020SW002641 . e2020SW002641 2020SW002641. Richard Milliken and Christoph Zoller. Principle of operation of navstar and system characteristics. 
+
+Navigation: Journal of the Institute of Navigation , 25(2):95–106, 1978. URL https://api. semanticscholar.org/CorpusID:60614759 .Rekar O. Mohammed and Gavin C. Cawley. Over-fitting in model selection with gaussian process regression. In Petra Perner, editor, Machine Learning and Data Mining in Pattern Recogni-tion , volume 10358 of Lecture Notes in Computer Science , pages 192–205, Germany, July 2017. Springer. ISBN 978-3-319-62415-0. doi: 10.1007/978-3-319-62416-7. Marcus M. Noack, Hengrui Luo, and Mark D. Risser. A unifying perspective on non-stationary kernels for deeper gaussian processes. APL Machine Learning , 2(1):010902, 02 2024. ISSN 2770-9019. doi: 10.1063/5.0176963. URL https://doi.org/10.1063/5.0176963 .David O’Gara, Micka¨ el Binois, Roman Garnett, and Ross A. Hammond. hetgpy: Heteroskedastic gaussian process modeling in python. Journal of Open Source Software , 10(106):7518, 2025. doi: 10.21105/joss.07518. URL https://doi.org/10.21105/joss.07518 .A. Olabode, O. Abe, C. Cesaroni, A. Brack, T. Oluwadare, C. Nguyen, and H. Schuh. Egnos performance during different space weather conditions over ecac region. In 2nd Symposium of IAG Commission 4 ”Positioning and Applications” , pages iag–comm4–2022–47, Potsdam, Germany, September 2022. doi: 10.5194/iag-comm4-2022-47. Zi-Lu Ouyang, Zao-Jian Zou, and Lu Zou. Adaptive hybrid-kernel function based gaussian process regression for nonparametric modeling of ship maneuvering motion. Ocean Engineering , 268: 113373, 2023. ISSN 0029-8018. doi: https://doi.org/10.1016/j.oceaneng.2022.113373. URL 
+
+https://www.sciencedirect.com/science/article/pii/S0029801822026567 .Jeremy Ovadia, David Champlin, Corey Pong, and Eric Altshuler. Sensitivity of receiver differential code bias estimates to mapping functions. NAVIGATION: Journal of the Institute of Navigation ,72(4), 2025. ISSN 0028-1522. doi: 10.33012/navi.723. URL https://navi.ion.org/content/ 72/4/navi.723 .Christopher Paciorek and Mark Schervish. Nonstationary covariance functions for gaussian process regression. In S. Thrun, L. Saul, and B. Sch¨ olkopf, editors, Advances in Neural Information Processing Systems , volume 16. MIT Press, 2003. URL https://proceedings.neurips.cc/ paper_files/paper/2003/file/326a8c055c0d04f5b06544665d8bb3ea-Paper.pdf .Floyd Piedad and Michael Hawkins. High Availability: Design, Techniques, and Processes . Prentice Hall Professional, New York, USA, 2001. ISBN 978-0130962495. Christian Plagemann, Kristian Kersting, and Wolfram Burgard. Nonstationary gaussian process regression using point estimates of local smoothness. In Walter Daelemans, Bart Goethals, and 
+
+> 41 Ovadia
+
+Katharina Morik, editors, Machine Learning and Knowledge Discovery in Databases , pages 204– 219, Berlin, Heidelberg, 2008. Springer Berlin Heidelberg. ISBN 978-3-540-87481-2. Joaquin Qui˜ nonero-Candela and Carl Edward Rasmussen. A unifying view of sparse approximate gaussian process regression. Journal of Machine Learning Research , 6(65):1939–1959, 2005. URL 
+
+http://jmlr.org/papers/v6/quinonero-candela05a.html .Radio Technical Commission for Aeronautics. Minimum operational performance standards for global positioning system/satellite-based augmentation system airborne equipment. Technical Document RTCA DO-229F, RTCA, Inc., Washington, DC, 2020. Prepared by Special Committee 159 (SC-159). Carl Rasmussen and Zoubin Ghahramani. Infinite mixtures of gaussian process experts. In T. Di-etterich, S. Becker, and Z. Ghahramani, editors, Advances in Neural Information Processing Systems , volume 14. MIT Press, 2001. URL https://proceedings.neurips.cc/paper_files/ paper/2001/file/9afefc52942cb83c7c1f14b2139b09ba-Paper.pdf .Carl Edward Rasmussen and Christopher K. I. Williams. Gaussian Processes for Machine Learning .The MIT Press, 2006. M. G. J. Rikken and R. P. G. Van Rijn. Soil pollution with heavy metals – an inquiry into spatial variation, cost of mapping and the risk evaluation of copper, cadmium, lead and zinc in the floodplains of the meuse west of stein, the netherlands. Doctoraalveldwerkverslag, Department of Physical Geography, Utrecht University, 1993. Takeyasu Sakai, Mitsunori Kitamura, Takahiro Aso, and Kazuaki Hoshinoo. Sbas ionospheric correction with minimalization of the ionospheric threat. In Proceedings of the 2017 International Technical Meeting of The Institute of Navigation , pages 1049–1056, Monterey, California, January 2017. doi: 10.33012/2017.14943. Hugh Salimbeni and Marc P. Deisenroth. Deeply non-stationary gaussian processes. In NIPS Workshop on Bayesian Deep Learning , 2017. URL http://bayesiandeeplearning.org/2017/ papers/49.pdf .A. D. Sarma, D. Venkata Ratnam, and D. Krishna Reddy. Modelling of low-latitude ionosphere using modified planar fit method for gagan. IET Radar, Sonar & Navigation , 3(6), 2009. doi: 10.1049/iet-rsn.2009.0022. Alan D. Saul, James Hensman, Aki Vehtari, and Neil D. Lawrence. Chained gaussian pro-cesses. In Arthur Gretton and Christian C. Robert, editors, Proceedings of the 19th Inter-national Conference on Artificial Intelligence and Statistics , volume 51 of Proceedings of Ma-chine Learning Research , pages 1431–1440, Cadiz, Spain, 09–11 May 2016. PMLR. URL 
+
+https://proceedings.mlr.press/v51/saul16.html .Duncan Shillan, Jonathan A. C. Sterne, Alan Champneys, and Ben Gibbison. Use of machine learning to analyse routinely collected intensive care unit data: A systematic review. Criti-cal Care , 23(1):284, 2019. doi: 10.1186/s13054-019-2564-9. URL https://doi.org/10.1186/ s13054-019-2564-9 .Rob Shone, Kevin Glazebrook, and Konstantinos G. Zografos. Applications of stochastic modeling in air traffic management: Methods, challenges and opportunities for solving air traffic problems under uncertainty. European Journal of Operational Research , 292(1):1–26, 2021. doi: 10.1016/ j.ejor.2020.10.039. 
+
+> 42 Covariance-Boosted Gaussian Processes
+
+Fabio Sigrist. Gaussian process boosting. Journal of Machine Learning Research , 23(232):1–46, 2022. URL http://jmlr.org/papers/v23/20-322.html .B. W. Silverman. Some aspects of the spline smoothing approach to non-parametric regression curve fitting. Journal of the Royal Statistical Society. Series B (Methodological) , 47(1):1–52, 1985. ISSN 00359246. URL http://www.jstor.org/stable/2345542 .Jasper Snoek, Kevin Swersky, Richard S. Zemel, and Ryan P. Adams. Input warping for bayesian optimization of non-stationary functions. In International Conference on Machine Learning (ICML) , 2014. URL http://proceedings.mlr.press/v32/snoek14.html .Lawrence Sparks, Juan Blanch, and Nitin Pandya. Estimating ionospheric delay using kriging: 1. methodology. Radio Science , 46(6), 2011a. doi: https://doi.org/10.1029/2011RS004667. URL 
+
+https://agupubs.onlinelibrary.wiley.com/doi/abs/10.1029/2011RS004667 .Lawrence Sparks, Juan Blanch, and Nitin Pandya. Estimating ionospheric delay using kriging: 2. impact on satellite-based augmentation system availability. Radio Science , 46(6), 2011b. doi: https://doi.org/10.1029/2011RS004781. URL https://agupubs.onlinelibrary.wiley.com/ doi/abs/10.1029/2011RS004781 .Lawrence Sparks, Eric Altshuler, Nitin Pandya, Juan Blanch, and Todd Walter. Waas and the ionosphere – a historical perspective: Monitoring storms. NAVIGATION: Journal of the Institute of Navigation , 69(1), 2022. ISSN 0028-1522. doi: 10.33012/navi.503. URL https://navi.ion. org/content/69/1/navi.503 .Niranjan Srinivas, Andreas Krause, Sham M. Kakade, and Matthias Seeger. Gaussian process optimization in the bandit setting: No regret and experimental design. In Proceedings of the 27th International Conference on Machine Learning , pages 1015–1022, 2010. Shun Takahashi, Toshihiko Iyemori, and Masahiko Takeda. Ring current response to impulsive southward IMF: A cause of second development of the Dst index. Journal of Geomagnetism and Geoelectricity , 42(11):1325–1331, January 1990. doi: 10.5636/jgg.42.1325. H. J. Thi´ ebaux and F. W. Zwiers. The interpretation and estimation of effective sample size. 
+
+Journal of Climate and Applied Meteorology , 23(5):800–811, 1984. ISSN 07333021, 21635366. URL http://www.jstor.org/stable/26181354 .Jean-Francois Ton, Seth Flaxman, Dino Sejdinovic, and Samir Bhatt. Spatial mapping with gaus-sian processes and nonstationary fourier features. Spatial Statistics , 28:59–78, 2018. ISSN 2211-6753. doi: https://doi.org/10.1016/j.spasta.2018.02.002. URL https://www.sciencedirect. com/science/article/pii/S2211675317302890 . One world, one health. Roland T. Tsunoda. High-latitude f region irregularities: A review and synthesis. Reviews of Geophysics , 26(4):719–760, 1988. doi: 10.1029/RG026i004p00719. Inˆ es Viveiros, H´ elder Silva, Yuri Andrade, and Cristiano Pend˜ ao. Smart gnss integrity monitoring for road vehicles: An overview of ai methods. IEEE Access , 13:20278–20296, 2025. doi: 10.1109/ ACCESS.2025.3534659. Todd Walter, Andrew Hansen, Juan Blanch, Per Enge, Tony Mannucci, Xiaoqing Pi, Larry Sparks, Byron Iijima, Bakry El-Arini, Roland Lejeune, Mine Hagen, Eric Altshuler, Rob Fries, and Aleck Chu. Robust detection of ionospheric irregularities. NAVIGATION , 48(2):89–100, 
+
+> 43 Ovadia
+
+2001. doi: https://doi.org/10.1002/j.2161-4296.2001.tb00231.x. URL https://onlinelibrary. wiley.com/doi/abs/10.1002/j.2161-4296.2001.tb00231.x .Wen Wang, Q.J. Wang, and Rory Nathan. Gaussian process regression on multiple drivers and attributes for rapid prediction of maximum flood inundation extent and depth. Journal of Hy-drology , 649:132476, 2025. ISSN 0022-1694. doi: https://doi.org/10.1016/j.jhydrol.2024.132476. URL https://www.sciencedirect.com/science/article/pii/S0022169424018729 .Wenjia Wang and Benjamin Haaland. Controlling sources of inaccuracy in stochastic kriging. 
+
+Technometrics , 61(3):309–321, 2019. doi: 10.1080/00401706.2018.1514328. URL https://doi. org/10.1080/00401706.2018.1514328 .Xiu Yang, Guzel Tartakovsky, and Alexandre M. Tartakovsky. Physics information aided kriging using stochastic simulation models. SIAM Journal on Scientific Computing , 43(6):A3862–A3891, 2021. doi: 10.1137/20M1331585. URL https://doi.org/10.1137/20M1331585 .Y. Yu, L. Li, H. Zhang, et al. A review of machine learning applications in nuclear engineering. 
+
+Progress in Nuclear Energy , 128:103496, 2020. doi: 10.1016/j.pnucene.2020.103496. URL https: //doi.org/10.1016/j.pnucene.2020.103496 .Q.-H. Zhang, Z.-Y. Xing, Y. Wang, and Y.-Z. Ma. Formation and evolution of polar cap ionospheric patches and their associated upflows and scintillations. In Q. Zong et al., editors, Dayside Magnetosphere Interactions , Geophysical Monograph Series. AGU/Wiley, 2020. doi: 10.1002/ 9781119509592.ch16. URL https://agupubs.onlinelibrary.wiley.com/doi/abs/10.1002/ 9781119509592.ch16 .Xiaowei Zhang and Lu Zou. Simulation metamodeling in the presence of model inadequacy. In 
+
+Proceedings of the 2016 Winter Simulation Conference , WSC ’16, page 566–577. IEEE Press, 2016. ISBN 9781509044849. 
+
+Appendix A. Incorporating Linear Drift Into Gaussian Process Models 
+
+For many applications of GPs, linear drift models are used to account for existing trends embedded within observations. Such models assume that observations will deviate from an underlying linear model in a Gaussian fashion, suggesting that linearly detrended observations follow a nearly Gaus-sian distribution. Ionospheric modeling, one of the notable applications of this study, often assumes a local spatial linearity for fitting measurements captured at a single instant in time (Walter et al., 2001). When assuming an underlying linear drift model, suppose that the observations y deviate from a linear model ymodel with respect to the spatiotemporal state x as follows: 
+
+ymodel = Gβ (49) where 
+
+G =
+
+
+
+1 x1,1 x1,2 · · · x1,n 
+
+1 x2,1 x2,2 · · · x2,n 
+
+... ... . . . ...1 xN, 1 xN, 2 · · · xN,n 
+
+ (50) 
+
+> 44 Covariance-Boosted Gaussian Processes
+
+with xi,k representing the kth dimension of the ith observation’s spatiotemporal state. The ( n + 1)-sized vector β represents linear model coefficients. Following Sparks et al. (2011a), the GPR posteriors for expected value and variance are given by 
+
+E [y∗] = w∗y (51) var [ y∗] = w∗Kw − 2w∗K∗ + R∗ (52) where 
+
+w∗ = P K ∗ + Qy (53) and 
+
+Q = C−1G(GT C−1G)−1 (54) 
+
+P = C−1 − QG ∗T C−1. (55) The whitening matrix for the raw observations with a linear drift, Γ, is defined by the relationship ΓT Γ = P. (56) However, the whitening matrix for the linearly detrended, or “de-drifted’,’ observations would still be defined by Equation (6). To de-mean observations using this drift model, the G matrix in Equation (50) can be con-structed simply as a column vector of 1s, indicating that the linear model is constant and the observations follow a Gaussian distribution but with a mean that is potentially nonzero. In such scenarios, the drift model serves as a BLUP for de-meaning the observations. It is worth noting that the methods outlined in Algorithm 1 do not account for linear drift models, and the algorithm is assumed to be modified appropriately for all such applications in this study. 
+
+Appendix B. Parameterizations 
+
+Parameters used for all CBGP applications and experiments in Section 4 are provided in Table 7. Several parameters from the “Simulated” and “Ionosphere” columns in the table are sourced from WAAS’ operational system, as referenced in Sparks et al. (2011a). The parameters Lρ and 
+
+Lη represent the kernel length scales for ρ and ρη, respectively. Parameters used for all stationary GP, hetGPy, and Gibbs-Paciorek model experiments in Sec-tion 4.2 are provided in Table 8. As is the case for CBGP parameter selection, these parameters are chosen manually to provide results with as high accuracy and integrity as possible. For example, hetGPy motorcycle acceleration experiment with a Gaussian RBF kernel is unable to meet the three-nines integrity standard through our testing, so a Mat´ ern 3/2 kernel is implemented. For Gibbs-Paciorek experiments, stationary model parameters are used to seed initial guesses for latent functions for the length scale, signal variation, and observation variation. In addition, the num-ber of centers used for each experiment are determined roughly as the square root of the sample numbers for the data set after deprivation. 
+
+> 45
+
+Ovadia 
+
+Parameter Simulated Motorcycle Acceleration Meuse River Ionosphere drift model None None None linear or de-meaning kernel structure exponential decay Gaussian RBF Gaussian RBF exponential decay 
+
+Lρ 8,000 8 ms 500 m 8,000 km 
+
+Lη 4,000 16 ms 1,000 m 4,000 km 
+
+Leff 300 4 ms 200 m 800 km 
+
+ϵeff 0.25 0.25 0.25 0.25 
+
+σsignal ,0
+
+√0.91 ≈ 0.9539 1 g 0.1 √0.91 ≈ 0.9539 m 
+
+σobs ,0 0.3 1 g 0.1 0.3 m 
+
+σs,max 10 ∞ 2 8 m 
+
+σo,max 10 ∞ 2 1.2 m 
+
+zT 8 8 8 8
+
+κ0 -0.1257 -0.1257 -0.1257 -0.1257 
+
+ξ0 1 3 3 3
+
+zinfl 3.29 1.96 3.29 3.29 
+
+γΨ 4 4 4 4
+
+γΦ 4 4 4 4
+
+ε 0.05 0.05 0.05 0.05 
+
+Table 7: Parameters for CBGP applications and experiments in Section 4. 
+
+Model Parameter Motorcycle Acceleration Meuse River Gibbs-Paciorek (and Stationary GP) kernel structure Gaussian RBF Gaussian RBF 
+
+Lρ, 0 10 ms 500 m 
+
+σsignal ,0 10 g 0.25 
+
+σobs ,0 10 g 0.25 number of centers 8 4 × 4 = 16 scaled RBF basis width 0.5 2hetGPy kernel structure Mat´ ern 3/2 Gaussian RBF 
+
+Lρ, 0 10 ms default 
+
+Table 8: Parameters for stationary, hetGPy, and Gibbs-Paciorek experiments in Section 4.2. 
+
+46

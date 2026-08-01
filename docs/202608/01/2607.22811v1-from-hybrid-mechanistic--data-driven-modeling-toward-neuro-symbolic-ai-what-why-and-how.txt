@@ -1,0 +1,660 @@
+Title: From Hybrid Mechanistic–Data-Driven Modeling Toward Neuro-Symbolic AI: What, Why, and How
+
+URL Source: https://arxiv.org/pdf/2607.22811v1
+
+Published Time: Tue, 28 Jul 2026 00:09:54 GMT
+
+Number of Pages: 15
+
+Markdown Content:
+# From Hybrid Mechanistic–Data-Driven Modeling Toward Neuro-Symbolic AI: What, Why, and How 
+
+## Moein E. Samadi 1,2, Andreas Schuppert ∗,1,2
+
+> 1
+
+Institute for Computational Biomedicine, RWTH Aachen University, Aachen, Germany. 
+
+> 2
+
+Center for Computational Life Sciences, RWTH Aachen University, Aachen, Germany. 
+
+> ∗
+
+Correspondence: aschuppert@ukaachen.de 
+
+Abstract 
+
+Hybrid mechanistic–data-driven models, which combine first-principles with learned components, are increasingly used in process engineering and scientific machine learning. Common hybrid modeling designs are specified primarily through their architectures and training losses, which offers a limited basis for a shared semantic interface to compare or verify them across domains, with comparatively little attention paid to epistemic uncertainty in the mechanistic part. We bridge hybrid modeling and neuro-symbolic (NeSy) AI by reconstructing these designs as instances of NeSy interface. The resulting translation, Hybrid-to-NeSy (H2N), places mechanistic knowledge on the language side, learned modules on the belief side, and validity domains together with constraints on the logic side. For each design, H2N then yields an explicit NeSy inference functional and a logic–belief decomposition. From this decomposition we derive two metrics: structural violation rate (SVR), measuring whether the learned belief respects the mechanistic structure; and belief dispersion (BD), measuring how concen-trated the learned plausibility is, serving as a hybrid model’s epistemic uncertainty in its mechanistic part. We instantiate H2N on a case study of a structured hybrid model for binary classification under la-bel noise and show that models with higher SVR and BD exhibit greater variability in held-out accuracy. Under structural distribution shift, H2N further quantifies a model’s uncertainty during extrapolations, whereas test accuracy reveals the same shift only post hoc. 
+
+# 1 Introduction 
+
+In many science and engineering domains, the system of interest is partially understood: mass and energy balances, reaction stoichiometry, structural topology, or known kinetic forms specify what must be true, while the remaining components (constitutive closure, an unobserved rate, an environment-dependent residua) resist first-principles treatment and must be learned from data. Hybrid mechanistic–data-driven models , also called semi-parametric [1] or grey-box [2] models, embed mechanistic knowledge while learning the rest [3–7]. A canonical example: in a bioreactor model, mass balances and stoichiometry are fixed equations, while the cell-specific growth rate μ(c, T ) is learned from data and inserted into the otherwise-mechanistic dynamics. The hybrid model thus inherits the interpretability [8], data efficiency [9], and extrapolation properties [10] of mechanistic models, while using data-driven approximation where mechanism is incomplete. Across application areas, hybrid modeling has converged on a handful of reusable design patterns [11]: (i) 
+
+serial and parallel arrangements of mechanistic and learned sub-models [12], (ii) residual correction by output superposition [13], (iii) mixture-of-experts with gating [14, 15] and fuzzy-rule analogues [16, 17], and (iv) validity-domain rules that modulate the learned component when inputs leave the training support [18–20]. Similar patterns appear throughout scientific machine learning [21], but they are described at the level of architectures and training losses. Two consequences follow. First, there is no widely adopted shared semantic account of what a hybrid model means as an inference object, which can make cross-domain comparison and verification difficult. Second, hybrid models often lack a principled way to represent and propagate epistemic 
+
+uncertainty in mechanistic assumptions 1arXiv:2607.22811v1 [cs.LG] 24 Jul 2026 Neuro-symbolic (NeSy) AI has long studied how to combine logical structure with learned components [22–29]. De Smet and De Raedt [30] recently consolidated this literature into a general definition: a NeSy model is a tuple ( L, μ, Ω, b θ ) where L is a language with semantics μ over an interpretation space Ω and bθ
+
+is a belief weight, with inference defined by an integral functional 
+
+Fθ,x (φ) = 
+
+Z
+
+> Ω′
+
+l(φ, ω ) bθ,x (ω) d m(ω) (1) that combines a logic function l (evaluating queries φ in interpretations ω) with the belief bθ,x . Crucially, this interface separates the logic side (what is admissible , given by L, μ, l, and the integration domain Ω ′ ⊆ Ω) from the belief side (what is plausible , given by bθ,x ). Hybrid modeling and NeSy AI address closely related integration problems but from opposite directions: hybrid modeling has rich architectural patterns but limited basis for a shared semantic interface; NeSy has the semantics but emphasises logical languages rather than mechanistic equation systems and engineering patterns. Our work establishes a connection between these perspectives. 
+
+Thesis. Our central claim is that hybrid mechanistic–data-driven models can be reconstructed, systemati-cally, as NeSy models in the sense of De Smet and De Raedt [30]. Under this correspondence the mechanistic equations and structural constraints supply the language L and its semantics μ; the learned components in-duce a belief function bθ over the unknown quantities; and validity rules and constraints are expressed either as logic functions l or as restrictions of the integration domain Ω ′. Every hybrid architecture then induces an explicit inference functional of the form (1). 
+
+Consequences of placement. Where each assumption is placed within the NeSy tuple ( L, μ, Ω, b θ ) de-termines which inference functionals are well-defined. In particular, for structured hybrid models of Ref. [9], keeping the structural partition on the logic side (encoding it in the integration domain Ω ′ rather than in the belief bθ ) yields an additive decomposition BD = BD seen + BD unseen (Section 5), in which BD unseen is computable from the coverage of Ω ′ at deployment time, before any out-of-distribution (OOD) sample is observed. The conventional architecture-and-loss descriptions of hybrid models express no such quantity, because they do not separate the structural partition from the learned predictor. 
+
+Contributions. (i) We introduce a principled translation procedure that maps any hybrid model descrip-tion into a NeSy tuple ( L, μ, Ω, b θ ) with an explicit inference functional (Sections 2–3). (ii) Applying the procedure to canonical hybrid design patterns yields a compact mapping table (Table 1) that records, for each pattern, what changes in ( L, μ, Ω, b θ ) and in the induced functional, together with representative NeSy architectures that realize it. (iii) We derive an evaluation protocol comprising two metrics that measure violations of logical structure and the learned belief’s concentration (Section 4). (iv) We instantiate the translation on a structured hybrid model for binary classification under label noise and show that the result-ing metrics quantify the trained model’s epistemic uncertainty in the mechanistic component at deployment time, as well as uncertainty during extrapolation, failure modes that test accuracy alone does not reveal (Section 5). 
+
+# 2 Problem Setting and Definitions 
+
+Hybrid mechanistic–data-driven models. Let x ∈ X denote inputs, z ∈ Z a latent state, and y ∈ Y 
+
+an output. Let α denote mechanistic parameters, and let ψ collect unknown terms (residuals, gates, noise terms) required to complete the mechanistic description. Here, a closure is any constitutive specification of such unknown terms that renders the mechanistic constraints solvable once x and α are fixed. A hybrid model is specified by 
+
+(Mechanistic constraints) G(x, z ; α, ψ ) = 0 , (2) 
+
+(Observation model) y = H(x, z ; α, ψ ) ∈ Y , (3) 
+
+(Learned closure) ψ = gβ
+
+ q(x, z ), ξ , ξ ∼ p(ξ), (4) 2where q is a feature map and gβ is a learned module (deterministic or stochastic), and ξ is a noise variable with a fixed base distribution p(ξ). Given x, the prediction ˆ yα,β (x) is obtained by solving (2)–(4) for ( z, y ); if multiple solutions exist, the hybrid specification is assumed to include a fixed solver. If gβ is stochastic, the specification induces a predictive distribution; a point prediction can be taken as ˆ yα,β (x) := E[y | x]. 
+
+Definition 1 (Hybrid model) . A hybrid model is the specification Mα,β = ( G, H, g β ) together with the induced prediction map x 7 → ˆyα,β (x).
+
+Many hybrid modeling designs can also be summarized at the architecture level as 
+
+y = Comp  Mα(x), N β
+
+ x, M α(x) , (5) where Mα denotes the mechanistic operator, Nβ collects learned components, and Comp is the composition rule that combines the mechanistic output with the learned component. 
+
+NeSy models and the inference functional. We adopt the interface of De Smet and De Raedt [30]. A NeSy model specifies a language L, a semantics μ over an interpretation space Ω, and a belief function 
+
+bθ that weights interpretations; inference aggregates a logic function l against belief as in Equation (1). We distinguish the full space Ω from the restricted space Ω ′ ⊆ Ω relevant to a given translation (unknown pa-rameters, closures, latent states). Under mild measurability conditions on (Ω , l, B θ,x ), stated in Appendix A, the functional (1) is well-defined; Dirac beliefs correspond to Bθ,x = δω∗(x).
+
+Definition 2 (Hybrid-to-NeSy decomposition) . A hybrid model Mα,β induces a NeSy tuple (L, μ, Ω, b θ ) and an induced inference functional F , where 1. L and μ capture the structural core given by Equations (2) –(3) and the composition pattern in Equation 
+
+(5) ;2. Ω is the interpretation space of assignments to unknown quantities (e.g. α, ψ, z , gates, noise); 3. bθ is a belief function over Ω induced by learned part(s); (Dirac in deterministic settings; non-degenerate in stochastic/Bayesian settings); 4. F is the induced inference functional of the form Equation (1) .
+
+Proposition 3 (Logic–belief separation) . Let (L, μ, Ω, b θ ) be obtained via Definition 2. Fix x, φ ∈ L, and measurable Ω′ ⊆ Ω. Let Bθ,x be the induced (finite) belief measure on Ω′ and assume l(φ, ·) is measurable and non-negative. For τ ≥ 0 define 
+
+Ωτ
+
+> viol
+
+(φ) := {ω ∈ Ω′ : l(φ, ω ) ≤ τ }, Ωτ
+
+> adm
+
+(φ) := Ω ′ \ Ωτ
+
+> viol
+
+(φ).
+
+Then: 1. Logic side (admissibility). The violation/admissibility partition Ωτ
+
+> viol
+
+(φ) vs. Ωτ
+
+> adm
+
+(φ) is determined entirely by l (hence by (L, μ ) and the chosen feasibility/scoring rule). In the hard case τ = 0 , Fθ,x (φ) = R 
+
+> Ω′
+
+l(φ, ω ) d Bθ,x (ω) = R 
+
+> Ω0adm (φ)
+
+l(φ, ω ) d Bθ,x (ω).
+
+2. Belief side (plausibility). Conditional on admissibility, inference is governed by how Bθ,x allocates 
+
+probability mass within Ωτ
+
+> adm
+
+(φ) (concentrated vs. dispersed). In particular, if Bθ,x = δω∗(x), then 
+
+Fθ,x (φ) = l(φ, ω ∗(x)) and the induced behavior is admissible iff ω∗(x) ∈ Ωτ
+
+> adm
+
+(φ); non-degenerate beliefs distribute probability mass across multiple admissible interpretations. Proof sketch. The admissibility partition uses only l(φ, ·) and τ , hence only ( L, μ, l ) and not Bθ,x . In the hard case τ = 0, l(φ, ·) = 0 on Ω 0viol (φ) by non-negativity together with the definition of Ω 0viol (φ), so the violating set contributes nothing; a Dirac belief collapses Fθ,x (φ) to l(φ, ω ∗(x)). The full argument is in Appendix B. 
+
+Remark 4 (Coverage independent of belief) . The partition Ωτ
+
+> adm
+
+/Ωτ 
+
+> viol
+
+depends only on (L, μ, l ), so struc-tural coverage of Ω′ is a function of the logic side alone. Sec. 5 uses this independence to compute BD unseen 
+
+from row coverage, without access to the OOD sample. 
+
+Problem. Given a hybrid model (Equation (5)), construct ( L, μ, Ω, b θ ) and l such that structures are evaluated via l under ( L, μ ), unknowns live in Ω, learning induces bθ , and the induced functional F reproduces the hybrid’s predictive behaviour (up to selection rules). 33 Method: A translation from hybrid modeling to NeSy 
+
+This section gives a constructive solution to H2N : given a hybrid design, we build ( L, μ, Ω, b θ ) and l so that the induced functional in (1) becomes an explicit, comparable interface. The input x is external to ω; the learned part induces bθ,x (ω) conditional on x, while query dependence enters through l(φ, ω ). If a design requires query-dependent beliefs, this can be represented by extending ω or letting bθ,x depend on φ; our default conditions on x only. 
+
+## 3.1 Translation principles 
+
+H2N is governed by five principles, stated in full in Appendix C and summarised here: 
+
+(P1) Mechanistic structure determines the language L, with unknown closures and latent states introduced as explicit symbols. 
+
+(P2) Semantics μ specify evaluation; the logic function l is the operational object inside the integral, implementing admissibility or scoring. 
+
+(P3) Learned modules induce belief bθ,x (ω) over interpretations; deterministic learners are the Dirac case. 
+
+(P4) Validity domains and hard constraints live on the logic side: by restricting the integration domain Ω′ ⊆ Ω and/or by selection inside l, separating admissibility (logic) from plausibility (belief). Hard physical laws are encoded on the logic side rather than in bθ : such laws express data-independent admissibility, whereas bθ is by construction data-dependent. Encoding them in bθ would couple their enforcement to sample size, which is inconsistent with their meaning. Soft or empirical constraints, whose strength legitimately depends on data, may enter bθ .
+
+(P5) Architectural factorisations (serial, parallel, mixture) are mirrored by factorisations of l and/or bθ,x .As summarised in Algorithm 1 in Appendix C, the result is a NeSy inference object whose structural core (L, μ, l ) and uncertainty model bθ make comparison of hybrid designs systematic. 
+
+## 3.2 Mapping of hybrid modeling designs to NeSy elements 
+
+Table 1 summarizes how canonical hybrid modeling design patterns map to NeSy elements and how each pattern changes the inference functional Fθ,x in Equation (1). Across the patterns, the translation separates structure from learned uncertainty. The main differences are whether a pattern changes (i) the structural language L that determines what is expressible, (ii) operational admissibility or scoring through l that determines how structure is enforced, (iii) which unknowns are integrated over through the choice of Ω ′
+
+within Ω, or (iv) how uncertainty is allocated through belief factorization and dispersion in bθ,x .
+
+# 4 Evaluation Protocol 
+
+Let Dtest = {(xi, y i)}ni=1 be a test set, and let Fθ,x be the induced inference functional in Equation (1). We evaluate the H2N translation with two kinds of queries, each evaluable through l(φ, ω ) and integrable under 
+
+bθ,x . A constraint query φcon  
+
+> x
+
+expresses structural admissibility; a predictive query φpred  
+
+> x,y
+
+expresses agreement with data (e.g. ∥ˆy(x, ω ) − y∥ ≤ ε for a tolerance ε), of which ordinary test accuracy is the point-estimate reading. The protocol is otherwise agnostic to the domain. For a constraint query φcon  
+
+> x
+
+and a tolerance τ ≥ 0, the logic–belief separation partitions Ω ′ into an admissible region Ω τ
+
+> adm
+
+(φ) and a violating region Ω τ
+
+> viol
+
+(φ). This partition is fixed entirely by l (hence by (L, μ ) and the chosen feasibility rule), independently of the belief (Proposition 3, Remark 4). The belief-weighted violation mass at x,
+
+Vθ (x; φ) := 
+
+Z
+
+> Ω′
+
+I[l(φ, ω ) ≤ τ ] d Bθ,x (ω), dBθ,x = bθ,x dm, 
+
+is the (normalised) belief mass falling in the violating region; it couples the logic-side partition to the belief and reduces to R 
+
+> Ω′
+
+I[l(φ, ω ) = 0] d Bθ,x in the hard Boolean case τ = 0. 4Table 1: Canonical hybrid modeling design patterns mapped to NeSy elements and their primary impact on the inference functional  Fθ,x  in Equa-tion (1). The final column lists representative NeSy architectures that realise each pattern. 
+
+> Hybrid design  L μ / l Ω (and  Ω′) bθ (via  bθ,x ) Effect on  Fθ,x  Example NeSy realisations Serial closure  (learned kinetics/transport inside balances) [3, 4] Balance equations with explicit closure symbols Residual or trajectory evaluation; feasibility selection Closures, parameters, latent states, noise; Ω ′
+> restricts to relevant unknowns Belief over closures/params (Dirac or probabilistic)
+> l enforces feasibility; belief integrates closure uncertainty DeepProbLog-style amortised inference; neuro-symbolic concept learners
+> Parallel residual  (mechanistic + learned correction) [12, 13] Constraint tying  y
+> to  ymech  and residual symbol Often graded scoring; constraints as penalty Residual map, bias/noise terms; Ω′ may implement trust region Belief over residual/noise; optional drift priors Architectural correction becomes either Ω ′
+> restriction or  l
+> penalty Logic-constrained neural networks; residual-corrected neural ODEs (sci-ML)
+> Mixture-of-experts  (with gating or weighting) [14, 15] Expert submodels plus gate symbols Hard selection (Boolean) or soft mixing (graded) Gate variables, mixture weights, expert latents; Ω ′
+> can enforce regime constraints Belief over gate/weights and experts Hard/soft regimes shift expressivity between  l and  bθ,x
+> LTN with gating; attention-mixture symbolic learners
+> Rule + physics  (fuzzy rules with constraints) [17, 31] Rule predicates plus mechanistic formulas Fuzzy truth + constraint penal-ties/feasibility Memberships, rule weights, constraint slack; Ω ′ may encode admissible slack Belief over mem-berships/weights Constraints handled by Ω ′
+> restriction and/or  l
+> penalization Logic Tensor Networks; Semantic Loss; KENN
+> Modular structures  (Boolean module graphs) [9, 32] Wiring constraints and module predicates Boolean satisfaction; robust variants via tolerance in  l
+> Module tables/outputs, latent flips; Ω ′
+> restricts to queried symbols Belief over module uncertainty (Dirac or distribution) Robustness expressed by tolerance in  l vs dispersion in belief Modular Boolean networks
+
+54.1 Metrics 
+
+Structural violation rate (SVR). Given a constraint query φcon  
+
+> x
+
+,SVR( θ) := 1
+
+n
+
+> n
+
+X
+
+> i=1
+
+Vθ (xi; φcon  
+
+> xi
+
+), (6) the average belief mass placed on interpretations that violate the structural constraints. SVR is near 0 when the logic side reliably admits interpretations that satisfy the constraints under the learned belief, and increases as belief mass concentrates on invalid interpretations. Three properties characterise SVR. (i) It lives on the logic side: its value is governed by the admissibility partition Ω τ
+
+> adm
+
+/Ωτ
+
+> viol
+
+, a property of ( L, μ, l ), weighted by the belief. (ii) It is tolerance-dependent: the strictness of the constraint is set by τ (the violation budget κ in the case study of Section 5); tightening τ enlarges the violating region and raises SVR, loosening it lowers SVR. (iii) It is a feasibility measure, not a dispersion measure: for a Dirac belief, Vθ (x; ·) ∈ { 0, 1}
+
+records only whether the point estimate is admissible, and SVR says nothing about how concentrated the belief is. 
+
+Belief dispersion (BD). To assess epistemic uncertainty, we choose an uncertain projection ωU = πU (ω)(e.g. closure values, parameters) and report BD( θ) := 1
+
+n
+
+> n
+
+X
+
+> i=1
+
+tr 
+
+
+
+Cov ω∼bθ,x i[ωU ]
+
+
+
+, (7) where sampling ω ∼ bθ,x is from the normalised belief on Ω ′ (proportional to bθ,x (ω) dm (ω)). BD has the dual set of properties. (i) It lives on the belief side: it is a functional of the second moment of bθ,x alone, and the logic function l does not enter. (ii) It is tolerance-independent: BD never references τ or the admissibility partition, so changing the constraint’s strictness leaves it unchanged. (iii) It is a dispersion measure: BD is zero for Dirac beliefs and grows as the belief spreads; it is invariant under orthonormal reparameterisations of ωU but not scale-invariant, so ωU should be standardised when coordinates differ in scale. 
+
+# 5 Case Study: Structured networks for noisy binary classification 
+
+We instantiate H2N on structured Boolean networks for binary classification with prior feature grouping. The mechanistic part is a partition of the N binary-represented features into M disjoint groups routed to first-layer Boolean modules Fm : {0, 1}nm → { 0, 1}, combined by an output module FO : {0, 1}M → { 0, 1}.The learned components are the module truth-tables, identified by the learning strategy of NoiseCut [33]. 
+
+H2N translation. The unknowns are the module truth tables, so we introduce one Boolean atom per table entry: fm,k encodes Fm(k) at local input k ∈ { 0, 1}nm , and oK encodes FO (K) at second-layer 
+
+row K ∈ { 0, 1}M . An interpretation ω ∈ Ω = Ω ′ = BA (A the set of all atoms) is then a complete assignment of module outputs, and induces a predictor: routing x through the first layer selects the row 
+
+Kω (x) =  ω(f1,k 1(x)), . . . , ω (fM,k M (x)), with predicted label Oω (x) = ω(oKω (x)). Under Boolean semantics 
+
+μ = μB , per-sample consistency is φs =  Oω (x(s)) ↔ y(s) and the constraint query is φcon = VSs=1 φs
+
+over the S training samples. Writing viol( ω) = P 
+
+> s
+
+I[μB (φs, ω ) = 0] for the number of training samples misclassified by the interpretation ω, the noise robustness of the logical side is determined by the choice of logical evaluation function: 
+
+lhard = μB (φcon , ω ), ltol = I[viol( ω) ≤ κ] .
+
+These correspond respectively to exact consistency ( κ = 0) and consistency subject to a violation budget κ.Consequently, noise robustness is a design choice of the logical evaluation function rather than a property of the learned belief; SVR is evaluated under ltol , with the budget κ playing the role of the tolerance τ of Section 4. 6Belief. NoiseCut identifies the truth tables of the first-layer modules, yielding point estimates ˆFm, which are incorporated as Dirac factors. The truth table of the output module is estimated via label counting: for each row K, let n0(K) and n1(K) denote the numbers of training samples labeled 0 and 1, respectively. This defines a Bernoulli parameter pK = n1(K)/(n0(K) + n1(K)) with pK = 12 assigned to rows receiving no training support (i.e., n0(K) + n1(K) = 0). The belief factorises as 
+
+bθ (ω) = Y
+
+> m
+
+I
+
+h
+
+ω|Fm = ˆFm
+
+i| {z }
+
+> Dirac (first-layer modules)
+
+Y
+
+> K
+
+pω(oK ) 
+
+> K
+
+(1 − pK )1−ω(oK )
+
+| {z }
+
+> Bernoulli (output module)
+
+.
+
+The non-degenerate Bernoulli factors capture the epistemic uncertainty, while unobserved rows are assigned the maximum-entropy value pK = 12 . Under the counting measure, the functional in (1) corresponds to a weighted model count. The corresponding estimators are described in Appendix D. 
+
+Experimental setup. The data are generated from random functionality-preserving modules with nm = 4 inputs per first-layer module. All experiments use M = 4 first-layer modules ( N = 16, 2 16 samples) and a 50% /50% train/test split. The noise sweep study uses a fixed tolerance κ = ⌊0.5 S⌋, and 50 seeds at each of ten noise levels from 0% to 45%. The tolerance sweep uses 10 seeds and fixes 10% label noise and sweeps κ/S from 0 to 0 .5 (Appendix E); the OOD study uses 10 seeds and fixes κ = ⌊0.10 S⌋ and 10% label noise and holds out Nood ∈ { 1, 2, 4, 6} of the 16 reachable second-layer rows (Appendix F). Label noise flips training labels only, keeping testing labels clean. All H2N metrics use 20 ,000 Monte Carlo FO draws, with BD additionally available in closed form (Appendix D). 
+
+Result 1: quantifying uncertainty in the mechanistic part. Table 2 and Figure 1 report the H2N metrics across label-noise levels. As the noise increases, mean test accuracy falls from 1 .00 to 0 .63 while mean BD measured at the deployment time rises from 0 to near its maximum 2 M /4 = 4, the value attained when every second-layer row is maximally uncertain, pK = 12 . Test accuracy and BD are strongly anti-correlated across seeds (Spearman ρ = −0.94), and therefore track related but distinct properties: the former is a point estimate of predictive error, the latter the dispersion of the row-Bernoulli belief. As shown in Table 2 (as well as in Figure G1), SVR, under the tolerance κ = ⌊0.5 S⌋, remains near zero while the realized violation count stays within the budget and rises to 0 .428 only at at 45% noise levels, where violations routinely exceed κ.Table 2: Noise sweep with H2N metrics; struct [4 , 4, 4, 4], train fraction 50%, κ = ⌊0.5 S⌋. Each entry reports the mean over 50 seeds with the 95% confidence interval. SVR and BD are measured at the deployment time using training data with label noise. Acc. and F1 score are measured using test data with clean labels.                                                            
+
+> Noise Acc. ( ±95% CI) Acc. std F1 ( ±95% CI) SVR ( ±95% CI) BD ( ±95% CI) 0% 1.000(0.000) 0.000 1.000(0.000) 0.000(0.000) 0.000(0.000) 5% 0.998(0.002) 0.008 0.997(0.003) 0.000(0.000) 0.794(0.032) 10% 0.989(0.005) 0.019 0.989(0.005) 0.000(0.000) 1.544(0.045) 15% 0.973(0.010) 0.035 0.970(0.012) 0.002(0.001) 2.221(0.062) 20% 0.948(0.014) 0.048 0.944(0.017) 0.011(0.002) 2.798(0.057) 25% 0.922(0.016) 0.055 0.916(0.019) 0.036(0.005) 3.234(0.043) 30% 0.898(0.017) 0.059 0.890(0.022) 0.083(0.007) 3.539(0.026) 35% 0.851(0.017) 0.061 0.839(0.025) 0.170(0.008) 3.779(0.014) 40% 0.819(0.018) 0.065 0.803(0.028) 0.275(0.007) 3.912(0.007) 45% 0.633(0.021) 0.073 0.545(0.066) 0.428(0.006) 3.991(0.002)
+
+The central observation concerns not the means but the spread of accuracy. When the 500 trained models are stratified by their BD value, the seed-to-seed standard deviation of test accuracy increases monotonically with BD, from 0 at BD ≈ 0 to about 0 .073 as BD → 4 (Figure 1(b)); the per-seed scatter in Figure 1(a) exhibits the same effect. A high BD thus signals a wider, less predictable accuracy distribution. Because BD is a function only of the training-label counts n0(K), n 1(K) and the mechanistic structure of first-layer 70 1 2 3 4    
+
+> belief dispersion (BD)
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> 1.0
+> test accuracy
+> (a) per-seed test accuracy vs. BD
+> 01234
+> belief dispersion (BD)
+> 0.00
+> 0.01
+> 0.02
+> 0.03
+> 0.04
+> 0.05
+> 0.06
+> 0.07
+> 0.08
+> std. of test accuracy across seeds
+> (b) seed-level accuracy std vs. BD
+> 0
+> 5
+> 10
+> 15
+> 20
+> 25
+> 30
+> 35
+> 40
+> 45
+> training label noise (%)
+
+Figure 1: Noise sweep, 50 seeds per level (struct [4 , 4, 4, 4], κ = ⌊0.5 S⌋). (a) Per-seed scatter of test accuracy against BD, coloured by noise level: the spread of accuracy widens as BD grows. (b) Standard deviation of test accuracy across seeds, computed within bins of BD; the accuracy uncertainty rises monotonically with BD. partitions, it provides an a priori estimate of how uncertain a trained model’s accuracy will be, a quantity that test accuracy can report only after labeled test data have been collected. 
+
+Result 2: quantifying uncertainty during extrapolation. We hold Nood ∈ { 1, 2, 4, 6} reachable second-layer rows entirely out of training (with 10% noise) and stratify the test set into covered and held-out rows, for which predictions amounts to extrapolation. Because the row partition is logical (fixed by Ω ′
+
+rather than by the learned predictor) BD decomposes exactly as BD = BD seen + BD unseen , where BD unseen = 
+
+> 14
+
+|{ K : n0(K) + n1(K) = 0 }| sums the maximum-entropy variance of the unobserved rows and is read off the 
+
+learned first-layer functions. Crucially, BD unseen is computable from row coverage alone, before any OOD sample is seen (Remark 4). Across 10 seeds, mean in-distribution accuracy stays at 0 .99–1 .00 while mean OOD or extrapolation accuracy collapses to 0 .35 , 0.35 , 0.56 , 0.49 and mean BD unseen rises monotonically as 0 .25 , 0.50 , 0.68 , 0.95; the full numbers are in Appendix F. The decomposition thus reports the model’s epistemic state about coverage from Ω ′ directly, whereas accuracy reveals the same shift only after the OOD labels are observed. 
+
+# 6 Discussion 
+
+Hybrid models are often presented as architectures and losses. H2N reconstructs each design as a NeSy in-ference object ( L, μ, Ω, b θ ) with an explicit functional F , making it clear which assumptions act as structural admissibility (language/semantics/logic function) versus learned plausibility (belief over unknown parame-ters, functions, or states). This does not remove modeling choices (hard vs. soft constraints, choice of μ, belief parameterisation), but makes them comparable across canonical hybrid design patterns. SVR quantifies how much belief mass violates the structural constraints (logic side), while BD summarises epistemic dispersion of the learned belief (belief side); the two are complementary and decoupled, since the tolerance controls SVR without affecting BD. Robustness under structured shift becomes a targeted intervention: modify l
+
+(changed regimes/constraints) versus modify bθ .
+
+Measurable consequence of placement. Sec. 5 instantiates the placement argument empirically: BD quantifies the model’s uncertainty on its structure and on uncovered regions of Ω ′ at deployment time, while test accuracy reports the same shift only post hoc. The diagnostic follows from logic–belief separation 8(Prop. 3, Rem. 4) and is well-defined under H2N but undefined under the architecture-and-loss description of the same model. 
+
+What NeSy gains from hybrid modeling. Hybrid modeling contributes assets that NeSy has lacked an interface to: an established library of compositional patterns (serial closure, parallel residual, mixture-of-experts, modular networks) with documented identifiability and validity-domain analyses; principled con-straint families (conservation, balance, monotonicity) that translate naturally into l rather than into ad-hoc penalty terms; and diagnostic practices from process engineering (validity envelopes, residual checks) that the H2N metrics generalise. The flow is therefore bidirectional: H2N gives hybrid modelers a semantic interface, and gives NeSy researchers a pre-processed catalogue of structured-uncertainty designs to import. 
+
+Limitations. The translation is not unique: redistributing assumptions between Ω ′ and l can alter F unless normalisation is controlled. Principles P1–P5 fix a canonical placement per pattern (Table 1); within this discipline, alternative placements correspond to alternative modeling commitments rather than equivalent notations. For large or continuous Ω, diagnostics rely on approximate inference and inherit its calibration error. 
+
+# References 
+
+[1] Ana P Teixeira, Nuno Carinhas, Jo˜ ao ML Dias, Pedro Cruz, Paula M Alves, Manuel JT Carrondo, and Rui Oliveira. Hybrid semi-parametric mathematical systems: Bridging the gap between systems biology and process engineering. Journal of biotechnology , 132(4):418–425, 2007. [2] Herbert JAF Tulleken. Grey-box modelling and identification using physical knowledge and bayesian techniques. Automatica , 29(2):285–308, 1993. [3] Dimitris C Psichogios and Lyle H Ungar. A hybrid neural network-first principles approach to process modeling. AIChE Journal , 38(10):1499–1511, 1992. [4] Michael L Thompson and Mark A Kramer. Modeling chemical processes using prior knowledge and neural networks. AIChE Journal , 40(8):1328–1340, 1994. [5] Henricus JL Van Can, Chris Hellinga, Karel Ch AM Luyben, Joseph J Heijnen, and Hubert AB Te Braake. Strategy for dynamic process modeling based on neural networks in macroscopic balances. 
+
+AIChE Journal , 42(12):3403–3418, 1996. [6] Mukul Agarwal. Combining neural and conventional paradigms for modelling, prediction and control. 
+
+International Journal of Systems Science , 28(1):65–81, 1997. [7] Andreas A Schuppert. Extrapolability of structured hybrid models: a key to optimization of complex processes. In Equadiff 99: (In 2 Volumes) , pages 1135–1151. World Scientific, 2000. [8] Ian T Cameron and Katalin Hangos. Process modelling and model analysis , volume 4. Elsevier, 2001. [9] Bernold Fiedler and Andreas Schuppert. Local identification of scalar hybrid models with tree structure. 
+
+IMA Journal of Applied Mathematics , 73(3):449–476, 2008. [10] Henricus JL Van Can, Hubert AB Te Braake, Sander Dubbelman, Chris Hellinga, Karel Ch AM Luyben, and Joseph J Heijnen. Understanding and applying the extrapolation properties of serial gray-box models. AIChE journal , 44(5):1071–1089, 1998. [11] Moritz Von Stosch, Rui Oliveira, Joana Peres, and Sebasti˜ ao Feyo De Azevedo. Hybrid semi-parametric modeling in process systems engineering: Past, present and future. Computers & Chemical Engineering ,60:86–101, 2014. [12] Dae Sung Lee, Che Ok Jeon, Jong Moon Park, and Kun Soo Chang. Hybrid neural network modeling of a full-scale industrial wastewater treatment process. Biotechnology and bioengineering , 78(6):670–682, 2002. 9[13] N Bhutani, GP Rangaiah, and AK Ray. First-principles, data-based, and hybrid modeling and optimiza-tion of an industrial hydrocracking unit. Industrial & engineering chemistry research , 45(23):7807–7816, 2006. [14] J Peres, R Oliveira, and S Feyo De Azevedo. Knowledge based modular networks for process modelling and control. Computers & Chemical Engineering , 25(4-6):783–791, 2001. [15] J Peres, R Oliveira, and S Feyo de Azevedo. Bioprocess hybrid parametric/nonparametric modelling based on the concept of mixture of experts. Biochemical Engineering Journal , 39(1):190–206, 2008. [16] Tomohiro Takagi and Michio Sugeno. Fuzzy identification of systems and its applications to modeling and control. IEEE transactions on systems, man, and cybernetics , (1):116–132, 1985. [17] Pascal F van Lith, Ben HL Betlem, and Brian Roffel. A structured modeling approach for dynamic hybrid fuzzy-first principles models. Journal of Process Control , 12(5):605–615, 2002. [18] Olaf Kahrs and Wolfgang Marquardt. The validity domain of hybrid models and its application in process optimization. Chemical Engineering and Processing: Process Intensification , 46(11):1054–1066, 2007. [19] Andreas A Schuppert. Efficient reengineering of meso-scale topologies for functional networks in biomed-ical applications. Journal of Mathematics in Industry , 1(1):6, 2011. [20] Moein E Samadi, Jorge Guzman-Maldonado, Kateryna Nikulina, Hedieh Mirzaieazar, Konstantin Shara-futdinov, Sebastian Johannes Fritsch, and Andreas Schuppert. A hybrid modeling framework for gen-eralizable and interpretable predictions of icu mortality across multiple hospitals. Scientific reports ,14(1):5725, 2024. [21] Jarka Glassey and Moritz Von Stosch. Hybrid modeling in process industries . CRC Press, 2018. [22] Sebastian Bader and Pascal Hitzler. Dimensions of neural-symbolic integration-a structured survey. 
+
+arXiv preprint cs/0511042 , 2005. [23] P Hitzler, MK Sarker, TR Besold, AD Garcez, S Bader, H Bowman, P Domingos, P Hitzler, KU K¨ uhnberger, LC Lamb, et al. Neural-symbolic learning and reasoning: A survey and interpre-tation. Frontiers in artificial intelligence and applications , 342:1–51, 2022. [24] Giuseppe Marra, Sebastijan Dumanˇ ci´ c, Robin Manhaeve, and Luc De Raedt. From statistical relational to neurosymbolic artificial intelligence: A survey. Artificial Intelligence , 328:104062, 2024. [25] Artur d’Avila Garcez, Marco Gori, Luis C Lamb, Luciano Serafini, Michael Spranger, and Son N Tran. Neural-symbolic computing: An effective methodology for principled integration of machine learning and reasoning. arXiv preprint arXiv:1905.06088 , 2019. [26] Artur d’Avila Garcez and Luis C Lamb. Neurosymbolic ai: The 3 rd wave. Artificial Intelligence Review ,56(11):12387–12406, 2023. [27] Michael van Bekkum, Maaike de Boer, Frank van Harmelen, Andr´ e Meyer-Vitali, and Annette ten Teije. Modular design patterns for hybrid learning and reasoning systems: a taxonomy, patterns and use cases. 
+
+Applied Intelligence , 51(9):6528–6546, 2021. [28] Vaishak Belle, Andrea Passerini, and Guy Van den Broeck. Probabilistic inference in hybrid domains by weighted model integration. In Proceedings of the Twenty-Fourth International Joint Conference on Artificial Intelligence, IJCAI 2015, Buenos Aires, Argentina, July 25-31, 2015 , pages 2770–2776. IJCAI Inc, 2015. [29] Emanuele Marconato, Stefano Teso, Antonio Vergari, and Andrea Passerini. Not all neuro-symbolic con-cepts are created equal: Analysis and mitigation of reasoning shortcuts. Advances in Neural Information Processing Systems , 36:72507–72539, 2023. 10 [30] Lennert De Smet and Luc De Raedt. Defining neurosymbolic ai. arXiv preprint arXiv:2507.11127 , 2025. [31] Pascal F van Lith, Ben HL Betlem, and Brian Roffel. Combining prior knowledge with data driven mod-eling of a batch distillation column including start-up. Computers & chemical engineering , 27(7):1021– 1030, 2003. [32] Moein E Samadi, Sandra Kiefer, Sebastian Johaness Fritsch, Johannes Bickenbach, and Andreas Schuppert. A training strategy for hybrid models to break the curse of dimensionality. Plos one ,17(9):e0274569, 2022. [33] Moein E Samadi, Hedieh Mirzaieazar, Alexander Mitsos, and Andreas Schuppert. Noisecut: a python package for noise-tolerant classification of binary data using prior knowledge integration and max-cut solutions. BMC bioinformatics , 25(1):155, 2024. 
+
+# A Measurability assumptions for the inference functional 
+
+The functional (1) is well-defined under the following standard conditions. We assume (Ω , ΣΩ) is measurable with Ω ′ ∈ ΣΩ; that ω 7 → l(φ, ω ) is measurable for each query φ; that the belief induces a finite measure 
+
+Bθ,x on Ω ′; and that l(φ, ·) ∈ L1(Ω ′, B θ,x ). Dirac beliefs correspond to Bθ,x = δω∗(x), recovering pointwise evaluation Fθ,x (φ) = l(φ, ω ∗(x)). 
+
+# B Proof of Proposition 3 
+
+Proof. For (1), the partition Ω τ
+
+> viol
+
+(φ) versus Ω τ
+
+> adm
+
+(φ) is defined directly from l(φ, ·) and τ , hence depends only on ( L, μ, l ) and not on Bθ,x . For the integral identity in the hard case τ = 0, note that under the hypothesis l(φ, ·) ≥ 0 the set Ω 0viol (φ) = {ω ∈ Ω′ : l(φ, ω ) ≤ 0} coincides with {ω ∈ Ω′ : l(φ, ω ) = 0 }. Hence the integrand vanishes on Ω 0viol (φ), that subset contributes zero, and 
+
+Fθ,x (φ) = 
+
+Z
+
+> Ω′
+
+l(φ, ω ) d Bθ,x (ω) = 
+
+Z
+
+> Ω0adm (φ)
+
+l(φ, ω ) d Bθ,x (ω).
+
+For (2), since l(φ, ·) is measurable, substituting Bθ,x = δω∗(x) into Fθ,x (φ) = R 
+
+> Ω′
+
+l(φ, ω ) d Bθ,x (ω) collapses the integral to l(φ, ω ∗(x)). By the definition of Ω τ
+
+> adm
+
+(φ), this value exceeds τ iff ω∗(x) ∈ Ωτ
+
+> adm
+
+(φ), which is the stated admissibility criterion. For non-Dirac beliefs, Fθ,x (φ) is the Bθ,x -weighted average of l(φ, ·), so (in the hard case) its value depends only on how Bθ,x allocates mass within Ω 0adm (φ). 
+
+# C H2N principles (full statements with algorithm) 
+
+P1 (Structure as language). Mechanistic equations and modular composition graphs determine the 
+
+symbols and well-formed expressions of L. Unknown closures and latent states are introduced as explicit symbols in L so that they can be quantified over by interpretations. 
+
+P2 (Semantics as evaluation). The semantics μ specifies how formulas are evaluated in an interpretation (Boolean truth, fuzzy degree, etc.). The logic function l is the operational object used inside the integral: it implements admissibility and scoring by selecting or reweighting semantic values, e.g. hard satisfaction indicators or residual-based penalties. 
+
+P3 (Learning as belief conditioned on input). Learned modules induce a belief component bθ by producing a non-negative density/weight bθ,x (ω) over interpretations ω ∈ Ω′ given input x. Deterministic learners correspond to Dirac beliefs concentrated at ω∗(x); Bayesian/ensemble/energy-based learners induce non-degenerate beliefs. 
+
+P4 (Constraints and structures live on the logic side). Validity domains, trust regions, hard con-straints (e.g. conservation, positivity), and regime declarations are encoded as structural admissibility rather than plausibility: (i) by restricting the integration domain Ω ′ to an admissible subset of Ω, and/or (ii) by enforcing selection/penalties inside l. This separates what is admissible (logic/structure) from what is plausible (belief/learning). 11 Algorithm 1: H2N translation 
+
+Input: Hybrid modeling design with mechanistic part Mα, learned part(s) gβ , composition Comp, and structures C
+
+Output: NeSy tuple ( L, μ, Ω, b θ ), logic function l, and induced functional Fθ,x  
+
+> 1
+
+Build the language L. Encode mechanistic equations, wiring/composition predicates, and rule symbols. Introduce explicit symbols for unknown closures/residuals/gates/slacks and latent states.  
+
+> 2
+
+Define the interpretation space Ω. Let ω ∈ Ω assign values to the unknown entities introduced in L (e.g. α, ψ, z ,gating variables, mixture weights, memberships, noise, slack variables).  
+
+> 3
+
+Choose semantics μ and define the logic function l. Fix an evaluation scheme (Boolean, fuzzy, residual-/trajectory-based) and define l(φ, ω ) accordingly: hard admissibility (indicator selectors), tolerant 
+
+admissibility (thresholded residuals), or graded scoring (penalties/likelihood-like scores).  
+
+> 4
+
+Encode structures C on the logic side. Implement hard feasibility by restricting the measurable integration domain to Ω ′ ⊆ Ω, and/or implement soft feasibility by penalties/selection inside l. (These choices affect F unless one renormalizes/conditions the belief.)  
+
+> 5
+
+Define belief bθ (conditional on inputs x). Specify a non-negative density function bθ,x (ω) w.r.t. m induced by the learned components (posterior, likelihood-weighted prior, ensemble mixture). Dirac beliefs arise as degenerate cases; weights can be normalized when probabilities are required.  
+
+> 6
+
+Assemble inference. Instantiate Fθ,x (φ) by Equation (1) over Ω ′. If the pattern factorizes (serial, parallel, mixture), make the factorization of l and/or bθ,x explicit. 
+
+P5 (Factorization mirrors architectural composition). When the hybrid design factorizes (serial, parallel, mixture), the NeSy construction should make this explicit by factorizing l and/or bθ,x over cor-responding sub-interpretations and sub-formulas. This yields comparable semantics across patterns and clarifies where uncertainty and structures enter. Hence, comparing hybrid modeling designs reduces to comparing how they change (i) the language/semantics, (ii) admissibility/scoring via l, (iii) the unknowns integrated over in Ω ′, and (iv) the belief factorisation and dispersion. 
+
+# D Monte Carlo procedure for H2N metrics in the case study 
+
+With Ω = BA and counting measure, the inference functional reduces to a sum over ω: Fθ,x (φ) =
+
+P 
+
+> ω
+
+l(φ, ω )bθ,x (ω). NoiseCut yields Dirac belief on the first-layer functions ˆFm and an independent Bernoulli belief on each second-layer atom oK with parameter pK = n1(K)/(n0(K) + n1(K)) (and pK = 12 when 
+
+n0(K) + n1(K) = 0). Under this factorisation: 
+
+BD. Closed form BD = P 
+
+> K
+
+pK (1 − pK ) because the first-layer is Dirac (zero variance) and the 2 M second-layer atoms are independent. 
+
+SVR. We draw T = 20 ,000 Monte Carlo samples F (t) 
+
+> O
+
+∈ { 0, 1}2M
+
+by independent Bernoulli sampling per row. With Dirac first-layer, the number of violated training samples decomposes per row: viol( ω(t)) = X
+
+> K
+
+n1(K)I
+
+h
+
+F (t) 
+
+> O
+
+(K) = 0 
+
+i
+
++ n0(K)I
+
+h
+
+F (t) 
+
+> O
+
+(K) = 1 
+
+i.
+
+The tolerance enters as the violation budget κ inside ltol = I[viol ≤ κ], so an interpretation is admissible when viol ≤ κ and violating otherwise. Hence SVR = 1 − 1
+
+> T
+
+P 
+
+> t
+
+Iviol( ω(t)) ≤ κ is the Monte Carlo estimate of the belief mass on violating interpretations. T = 20 ,000 yields standard errors below 0 .005; we verified stability by replicate runs with different MC seeds. (BD requires no sampling: it is the closed form above.) 
+
+# E Tolerance sweep 
+
+This appendix isolates the role of the tolerance τ (instantiated here and in the case study of Section 5 by the violation budget κ) as a purely logic-side design choice, and turns the two contrasting tolerance properties of the metrics established in Section 4 into a measurement. SVR is tolerance-dependent (property (ii) of the SVR): it reads the admissibility partition Ω κ
+
+> adm
+
+/Ωκ
+
+> viol
+
+, which κ resizes. BD is tolerance-independent (property (ii) of the BD): as a second moment of the belief bθ it never references κ or the admissibility 12 partition. Sweeping κ at a fixed belief should therefore move SVR across its full range [0 , 1] while leaving BD (and the deployed predictor’s accuracy) exactly fixed. We fix one learned model per seed (struct [4 , 4, 4, 4], 10% label noise, 50% training fraction, 10 seeds) and re-evaluate the H2N metrics under eleven budgets, with κ/S ranging from 0 to 0 .5. The fit is performed once: neither the first-layer Dirac factors ˆFm nor the row-Bernoulli parameters pK are refitted between budgets. Only the logic function ltol = I[viol( ω) ≤ κ] changes, so any variation across the columns of Table E1 is attributable to the logic side alone. Two columns are flat by construction. Accuracy is constant at 0 .998 because the deployed predictor is the per-row threshold of the Bernoulli belief, which does not reference κ. BD is constant at 0 .783 because it is a functional of bθ alone; its within-seed spread across the eleven budgets is exactly 0, so the column mean and every per-seed value coincide. The two logic-side columns instead move monotonically and are mirror images, since Pr[viol ≤ κ] = 1 − SVR. At budgets below the noise floor ( κ/S ∈ { 0, 0.05 }) essentially every sampled interpretation exceeds the budget (the cleanest belief consistent with the mechanistic structure still misclassifies the ∼ 10% of flipped training labels) so SVR saturates at 1 .000 and the admissible mass is 0. As the budget crosses the noise level near κ/S = 0 .10, SVR collapses (0 .403 at κ/S = 0 .10, 0 .160 at 0 .15, 0.055 at 0 .20) and reaches 0 by κ/S = 0 .40, where the budget comfortably absorbs the label noise and every sampled interpretation is admissible. This makes the SVR/BD distinction of Section 4 concrete and complements Appendix G: there, fixing 
+
+κ and varying the noise moves BD while leaving SVR near zero; here, fixing the noise and varying κ moves SVR across its entire range while leaving BD untouched. Table E1: Tolerance dependence of the H2N metrics (struct [4 , 4, 4, 4], 10% noise, 50% train). Mean over 10 seeds. Accuracy and BD are independent of κ; SVR and the admissible mass Pr[viol ≤ κ] = 1 − SVR vary monotonically. 
+
+κ/S Accuracy SVR BD Pr[viol ≤ κ]0.00 0.998 1.000 0.783 0.000 0.05 0.998 1.000 0.783 0.000 0.10 0.998 0.403 0.783 0.597 0.15 0.998 0.160 0.783 0.840 0.20 0.998 0.055 0.783 0.945 0.25 0.998 0.016 0.783 0.984 0.30 0.998 0.004 0.783 0.996 0.35 0.998 0.001 0.783 0.999 0.40 0.998 0.000 0.783 1.000 0.45 0.998 0.000 0.783 1.000 0.50 0.998 0.000 0.783 1.000 
+
+# F OOD experiment: full numbers 
+
+This appendix gives the full numbers behind Result 2 of Section 5 and discusses the structural out-of-distribution (OOD) protocol. The mechanistic partition routes each input through M = 4 first-layer modules whose joint output indexes one of 2 M = 16 second-layer rows; for the randomly drawn ground-truth modules all 16 rows are reachable. We hold Nood ∈ { 1, 2, 4, 6} of these rows out of training entirely (with 10% label noise and budget κ = ⌊0.10 S⌋), so that any test input landing on a held-out row forces a prediction on a region of Ω ′ that received no training support: structural extrapolation rather than interpolation. Because the row partition is logical (fixed by Ω ′ rather than by the learned predictor) belief dispersion decomposes exactly as BD = BD seen + BD unseen , with BD unseen = 14 |{ K : n0(K) + n1(K) = 0 }| collecting the maximum-entropy variance ( pK = 12 ) of the uncovered rows. By Remark 4 this term is read off the learned first-layer factorisation alone, before any OOD label is observed, which is what makes it a deployment-time quantity rather than a post-hoc one. 13 1 2 4 6
+
+held-out reachable rows Nood 
+
+0.0 
+
+0.5 
+
+1.0 
+
+1.5 
+
+2.0 
+
+2.5 
+
+> belief dispersion (BD)
+
+decomposition BD = BD seen + BD unseen 
+
+> BD seen
+> BD unseen
+
+Figure F1: Structural OOD shift (struct [4 , 4, 4, 4], 10% noise, 10 seeds). The additive H2N decomposition BD = BD seen + BD unseen : BD unseen , computed from row coverage alone, grows monotonically with Nood 
+
+and identifies the belief mass on the held-out region without observing OOD test data (whiskers: ±1 std of BD unseen ). Table F1: Structural OOD shift on second-layer rows (struct [4 , 4, 4, 4], 10% label noise, κ = ⌊0.10 S⌋). Mean (std) over 10 seeds. All 2 M = 16 second-layer rows are reachable for the randomly drawn ground-truth modules; the experiment holds out Nood of them entirely from training. “unseen frac.” is the mean fraction of rows left uncovered under the learned factorisation. 
+
+Nood Acc. in-dist Acc. OOD BD BD seen BD unseen unseen frac. 1 0.998 (0.007) 0.347 (0.473) 0.997 (0.095) 0.747 (0.095) 0.250 (0.000) 0.062 2 0.998 (0.007) 0.345 (0.282) 1.199 (0.100) 0.699 (0.100) 0.500 (0.000) 0.125 4 0.998 (0.005) 0.556 (0.263) 1.330 (0.370) 0.655 (0.116) 0.675 (0.472) 0.169 6 0.990 (0.024) 0.494 (0.308) 1.635 (0.484) 0.685 (0.350) 0.950 (0.725) 0.237 
+
+As shown in Figure F1 and Table F1, mean BD unseen rises monotonically with the hold-out size (0 .25 , 0.50 , 0.68 , 0.95), and at the smaller hold-outs ( Nood = 1 , 2) it is deterministic across seeds (std 0): the learned first-layer partition reliably keeps every held-out row as a distinct uncovered row, so BD unseen = 14 Nood exactly. At the larger hold-outs ( Nood = 4 , 6) a seed-to-seed variance appears (std 0 .47 and 0 .73): in 3 of the 10 seeds at each level the learner recovers a label-equivalent factorisation that maps held-out ground-truth rows into already-observed learned equivalence classes, giving BD unseen = 0. This is exactly what the decomposition is meant to report: BD unseen measures the belief mass on rows uncovered under the actually-learned factorisation , the only one accessible at deployment time, not under a hypothetical ground-truth one. The OOD-accuracy variance has a separate origin. A held-out row receives the maximum-entropy belief 
+
+pK = 12 , whose thresholded prediction is either right or wrong for that entire row; when few rows are held out (especially Nood = 1) the per-seed OOD accuracy is therefore near-bimodal (std 0 .47) and concentrates as more rows are averaged. Despite this variance the qualitative pattern is robust: in-distribution accuracy is essentially unchanged across Nood while OOD accuracy is far lower, and BD unseen (computed before any OOD label is seen) grows with the hold-out. Finally, BD unseen is informative about severity , not only presence: pooling all seeds, those with BD unseen > 0 average 0 .39 OOD accuracy against 0 .69 for the seeds where the learner absorbed the held-out rows (BD unseen = 0). A zero BD unseen thus does not certify OOD robustness (those models still fall well below their in-distribution accuracy) but signals that the model believes it has coverage, which is the deployment-time statement the decomposition is designed to make. 14 G SVR and BD are complementary 
+
+SVR and BD probe opposite sides of the logic–belief separation (Proposition 3) and are, by construction, free to vary independently. SVR is a functional of the admissibility partition Ω τ
+
+> adm
+
+/Ωτ
+
+> viol
+
+, which is a property of ( L, μ, l ), weighted by the belief, and it is governed by the tolerance τ . BD is the trace of the belief covariance and depends on bθ,x alone, never referencing l or τ . The two therefore read out distinct degrees of freedom: moving the tolerance at a fixed belief slides SVR while leaving BD unchanged (Appendix E), and concentrating or dispersing the belief at a fixed admissibility moves BD while leaving SVR fixed. All four combinations are realisable, so neither metric can be recovered from the other. A model may disperse its belief widely (large BD) yet rarely violate its constraints (small SVR) when the admissible region is large or the tolerance is loose; conversely, a model with a sharp belief (small BD) can still place that belief largely outside the admissible region (large SVR). SVR thus answers whether the learned belief respects the mechanistic structure, while BD answers how concentrated the learned plausibility is; neither subsumes the other, and reporting both separates structural violations from epistemic uncertainty rather than collapsing them into a single accuracy figure. The case study (Section 5) exhibits this decoupling directly. Under a fixed tolerance κ = ⌊0.5 S⌋, Table 2 and Figure G1 show SVR pinned at or near zero across a wide noise range ( ≤ 0.011 through 20% noise, and still only 0 .083 at 30%): the generous budget keeps almost all sampled interpretations admissible. BD, by contrast, climbs monotonically over the same range, from 0 at 0% noise to 3 .539 at 30% and toward its ceiling 2 M /4 = 4 as the row beliefs approach maximum entropy. SVR departs from zero only once the noise pushes the realized violation count past the fixed budget, rising to 0 .460 at 50%, by which point BD has already saturated. The two metrics therefore move on different schedules: BD tracks the growth of epistemic uncertainty in the learned rows from the very first noise increment, whereas SVR is a logic-side feasibility statement that fires only when the chosen tolerance is exceeded. 0 10 20 30 40 50 
+
+label noise (%) 
+
+0.5 
+
+0.6 
+
+0.7 
+
+0.8 
+
+0.9 
+
+1.0 
+
+> test accuracy
+
+accuracy and normalised metrics vs. noise 
+
+> accuracy
+> BD (norm.)
+> SVR (norm.)
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> normalised metric [0  1]
+
+Figure G1: Noise sweep, 50 seeds per level (struct [4 , 4, 4, 4], κ = ⌊0.5 S⌋). Mean test accuracy, mean belief dispersion BD, and mean SVR (shaded band: ±1 standard deviation across seeds) as functions of the label-noise level. The y-axis for the two metrics has been normalized for better visualizations. 15

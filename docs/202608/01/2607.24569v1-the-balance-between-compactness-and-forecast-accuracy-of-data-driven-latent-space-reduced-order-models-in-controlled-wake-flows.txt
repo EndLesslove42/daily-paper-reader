@@ -1,0 +1,1113 @@
+Title: The balance between compactness and forecast accuracy of data-driven latent-space reduced-order models in controlled wake flows
+
+URL Source: https://arxiv.org/pdf/2607.24569v1
+
+Published Time: Tue, 28 Jul 2026 02:23:02 GMT
+
+Number of Pages: 32
+
+Markdown Content:
+# The balance between compactness and forecast accuracy of data-driven latent-space reduced-order models in controlled wake flows 
+
+Alberto Solera-Rico 1,2 , Patricia Garc´ ıa-Caspue ˜ nas 3, Carlos Sanmiguel Vila 1,2 and Stefano Discetti 2
+
+> 1
+
+Sub-directorate general of aeronautical systems, Spanish National Institute for Aerospace Technology (INTA), ctra. M-301, km. 10.5, 28330 San Mart´ ın de la Vega, Madrid, Spain. ROR: https://ror.org/02m44ak47 
+
+> 2
+
+Departamento de Ingenier´ ıa Aeroespacial, Universidad Carlos III de Madrid, Avenida de la Universidad 30, 28911 Legan´ es, Madrid, Spain. ROR: https://ror.org/03ths8210 
+
+> 3
+
+Department of Mechanical Engineering, University of Washington, 1410 NE Campus Parkway, Seattle, WA 98195, USA. ROR: https://ror.org/00cvxb145 
+
+Corresponding author: Stefano Discetti, sdiscett@ing.uc3m.es; Alberto Solera-Rico, alberto.solera@alumnos.uc3m.es 
+
+Model-based active flow control requires predictive models that are accurate, stable, and fast enough for real-time optimisation. In controlled wake flows, this is often achieved through Reduced-Order Models (ROMs) that first compress high-dimensional velocity snapshots into a latent space and then learn a time-stepping predictor for the dynamics in the latent space. Here, we study how the choice of the spatial encoder affects the predictability of the resulting latent coordinates for wake flows under control inputs. Using two actuated 2D wake configurations, a simplified truck wake and the fluidic pinball, we compare Proper Orthogonal Decomposition (POD) against nonlinear Convolutional Autoencoders (CAEs) and two types of variational autoencoders for compression, and evaluate several temporal predictors based on Long Short-Term Memory networks. CAEs achieve higher compression efficiency and sharper short-term reconstructions, but they produce latent dynamics that are more irregular and with broadband spectral content. As a consequence, long-horizon forecasts degrade faster and show a higher probability of catastrophic divergence than POD-based models. POD yields smoother latent trajectories that are easier to learn and extrapolate, leading to more reliable predictions beyond the short-term regime. These results reveal a clear trade-off between compactness and forecast accuracy, and suggest that the stability of the latent dynamics prediction can outweigh maximal compression. This is particularly relevant for control strategies rooted in forecasts of the dynamics, such as model predictive control and reinforcement learning. The findings provide practical guidance for designing actuation-aware, hardware-feasible predictive ROMs for real-time flow control. arXiv:2607.24569v1 [physics.flu-dyn] 27 Jul 2026 A. Solera-Rico, P. Garc´ ıa-Caspue˜ nas, C. Sanmiguel Vila and S. Discetti 
+
+> 1. Introduction
+
+Active Flow Control (AFC) has emerged as a relevant strategy to enhance the aerodynamic performance of ground and air vehicles (Brunton & Noack 2015). By manipulating flow separation and wake structures using actuators such as synthetic jets, plasma devices, or moving surfaces, significant performance gains can be achieved (Greenblatt & Wygnanski 2000; Glezer & Amitay 2002; Cattafesta & Sheplak 2011). For ground vehicles, the efficacy of open-loop actuation has been well-demonstrated in wind tunnel studies on simplified bluff bodies, where steady and pulsed blowing can substantially recover base pressure and reduce drag (Littlewood & Passmore 2012; McNally et al. 2015; Cerutti et al. 2020; Amico 
+
+et al. 2022, 2024; Robledo et al. 2026). Feedback control promises further significant improvements (Brunton & Noack 2015). Real-world conditions are inherently unsteady, and an effective AFC system must be able to sense the current flow state, predict its evolution, and apply an optimal control action that is adapted in real-time. To meet these demands, data-driven methods and machine learning are now opening new research avenues (Brunton et al. 2020). Broadly, these approaches fall into two categories: model-free controllers that learn a policy directly from data, and model-based controllers that exploit an explicit dynamical model. Model-free strategies can be attractive when little is known a priori about the system. Such approaches have shown promising results in low-Reynolds-number or numerically simulated flows where large amount of training data are generated in a cheap and safe manner (Garcia et al. 2025; Su´ arez et al. 2025). However, model-free methods are often sample inefficient, provide less transparent guarantees on stability and safety, and struggle to incorporate hard constraints on actuators or states. These limitations are particularly restrictive in experimental AFC, where data is expensive and hardware must operate within strict bounds. This motivates a focus on model-based approaches, where control decisions are derived from an explicit predictive model. A typical example of model-based control is Model Predictive Control (MPC) (Rawlings 
+
+et al. 2017; Camacho & Bordons 2013). At each time step, MPC leverages a model of the dynamics to forecast future flow states over a finite horizon and solves an optimisation problem to obtain the optimal control sequence. Compared with purely model-free strategies, this framework is more sample efficient, offers clearer routes to stability and safety guarantees, and handles constraints naturally. The primary challenge is therefore the development of a predictive model that is both sufficiently accurate to capture the controlled dynamics and computationally efficient for real-time execution (Kaiser et al. 
+
+2018; Bieker et al. 2020; Marra et al. 2024 b; Solera-Rico et al. 2025; Liu et al. 2025). The effectiveness of MPC ultimately hinges on the reliability of the plant model. In turbulent flows, the difficulty is not only to approximate the unforced dynamics, but also to represent how actuation reshapes the accessible state space. Recent studies show that controlled wakes often evolve on low-dimensional, actuation-dependent manifolds (Marra 
+
+et al. 2024 a). Reduced coordinates learned without accounting for control inputs may thus yield latent dynamics that are unnecessarily complex or even inconsistent with feasible actuation commands. This perspective motivates the need to develop actuation-aware reduced-order predictors that remain simple enough for receding-horizon optimisation while capturing the key controlled dynamics. For this reason, this work focuses on the central challenge of building predictive models suitable for model-based control. While being a gold standard and highly informative in predictive-control implementations (Bewley et al. 2001), full-order simulations are computationally intractable in real-time loops. We thus focus on a framework based on ROMs, with two stages: (i) compress the high-dimensional velocity field into a low-
+
+> 2
+
+Compactness versus forecast accuracy in controlled wake-flow ROMs 
+
+dimensional latent space (the encoding stage), and (ii) learn a time-stepping model that predicts the latent evolution under actuation (the prediction step). This approach has been recently explored by several studies with data-driven methods (Maulik et al. 2021; Bukka et al. 2021; Solera-Rico et al. 2024). This separation is consistent with many classical ROM pipelines, where the compression step is based on POD: since POD is a purely energy-based decomposition, the resulting latent basis is not explicitly optimised jointly with the subsequent dynamical estimator. While the merits of such techniques are already apparent, we identify two research gaps. On the one hand, the generalisation capabilities of these methods under different exogenous inputs are not clear, and a recipe for training and predicting under environments with active control has not been consolidated yet. On the other hand, there is a growing tendency towards using powerful encoders, while it is not clear if an Occam’s razor solution could be more effective under some configurations. Wake flows, for instance, often evolve on low-dimensional attractors, with a rather predictable dynamics. In flows dominated by vortex shedding, the leading POD coefficients often exhibit narrow-band, nearly oscillatory dynamics because POD isolates the most energetic coherent structures. In special cases, such as nearly periodic flows, these structures may align with Koopman-related spectral components (Rowley et al. 2009; Mezi´ c2013; Taira et al. 2017). However, it must be remarked that, even though POD is a linear decomposition, it does not imply that a linearised dynamics is achievable in its reduced space. Therefore, any analogy between the dynamics of the leading POD coefficients and Koopman modes should be understood as problem-dependent rather than intrinsic to POD. On the other hand, CAEs can be driven to approximate Koopman operators (Lusch et al. 
+
+2018), although, generally speaking, training driven by reconstruction compactness does not entail robustness guarantees on the dynamics. Existing comparisons between POD and CAE have been targeted already for systems with autonomous dynamics (Fresca et al. 
+
+2021; Fresca & Manzoni 2022); however, the interaction between the encoder choice and multi-input actuation, on actuation-dependent manifolds, remains less explored. To address the gaps above, we compare linear and nonlinear options for encoding, considering wake flow systems under control actions. For encoding, we contrast the classical energy-optimal POD (Sirovich 1987) with nonlinear CAEs (Solera-Rico et al. 
+
+2024), which typically yield more compact latent representations but may induce more complex controlled latent dynamics. For temporal prediction, we employ Long Short-Term Memory (LSTM) networks (Hochreiter & Schmidhuber 1997), which are well suited for sequential latent dynamics. Using two 2D wake flows, a simplified truck model (Solera-Rico et al. 2025) and the fluidic pinball (Deng et al. 2020), we quantify the trade-off between compactness and forecast accuracy of the latent space dynamics, and show how the preferred reduction strategy depends on the prediction horizon required by the controller. The paper is organised as follows. Section 2 provides a description of the methodology, including the generation of data for the chosen test cases. The analysis of the model results is provided in § 3. Finally, the conclusions are discussed in § 4. 
+
+> 2. Methodology
+
+This section details the methodology to develop and evaluate predictive reduced-order models. First, we describe the two flow configurations and the generation of their respective high-fidelity Direct Numerical Simulation (DNS) datasets. Next, we present the two methods used to encode the high-dimensional spatial fields into a low-dimensional latent-space. Finally, in § 2.3, we detail three approaches based on LSTM network architectures for predicting the temporal evolution of this latent space in response to control inputs. The proposed ROM framework is illustrated schematically in Figure 1. 
+
+> 3
+
+A. Solera-Rico, P. Garc´ ıa-Caspue˜ nas, C. Sanmiguel Vila and S. Discetti  
+
+> Figure 1. Schematic of the data-driven reduced-order modelling framework. High-dimensional input velocity fields are compressed into a low-dimensional latent-space time-series using an encoder (POD or CAE). This latent state, along with the corresponding control sequence, is fed into a temporal predictor to infer the future evolution of the latent space. Finally, a decoder reconstructs the predicted latent states back into the high-dimensional, full-field velocity state space.
+
+2.1. Flow configurations and data generation 
+
+Two different 2D wake flow configurations are used to assess the control architectures. These cases are chosen to represent different control challenges: the first is a single-input system, while the second is a more complex multi-input problem. Both datasets are created using DNSs with open-loop control signals designed to excite the underlying flow dynamics. In low-Reynolds-number flows, DNS provides a simulation framework with minimal numerical approximations to precisely represent flow dynamics and capture all scale features. The following sections describe the setup for each case in detail, a summary of the datasets can be found in table 1. 2.1.1. Simplified 2D truck model 
+
+This first case is a simplified model of a wake flow around a road vehicle. Figure 2 depicts the flow configuration based on the horizontal mid-plane geometry of the Ground Transportation System (GTS) (Storms et al. 2001), a standard truck model also studied in recent work (McArthur et al. 2016). The model under study is a rectangular bluff body with a reference non-dimensional width 𝑊 = 1, length 𝐿 = 7.647 𝑊 , and rounded leading edges with radius 𝑟 = 0.118 𝑊 . The inflow velocity is uniform with a magnitude of 𝑈 ∞,and the Reynolds number, defined as Re = 𝑈 ∞𝑊 /𝜈 , where 𝜈 represents the fluid kinematic viscosity, is set to 500. The rectangular computational domain extends from (− 7𝑊, 23 𝑊 )
+
+in the streamwise direction ( 𝑥 ) and (− 7.5𝑊, 7.5𝑊 ) in the transverse direction ( 𝑦 ), with the front of the bluff body placed at 𝑥 = 0. The simulation domain employs a hybrid mesh, structured near the wall and unstructured elsewhere, encompassing around 168 , 000 cells. The time is scaled using the convective time 𝑡 𝑐 = 𝑊 /𝑈 ∞. The DNS is executed in OpenFOAM, using the Gym-preCICE (Shams & Elsheikh 2023) wrapper for the coupling library (Chourdakis et al. 2022) and the OpenFOAM adapter (Chourdakis et al. 2023) to integrate the simulation with the specified control sequence. This Reynolds number is chosen as a representative bluff-body wake configuration to develop and validate control-oriented ROMs before scaling to higher-Re turbulent regimes. At Re = 500 the wake already exhibits the features relevant to this study, namely vortex shedding and sensitivity to base actuation, while the two-dimensional flow assumption remains valid, as verified in advance with a three-dimensional simulation. The compactness–predictability trade-off identified in this work, rooted in the spectral organisation of POD versus the broadband character of the CAE latent dynamics, is not expected to be specific to this Reynolds number regime; an explicit assessment at higher Re and in three-dimensional configurations is left for future work. 
+
+> 4
+
+Compactness versus forecast accuracy in controlled wake-flow ROMs          
+
+> 𝐿 =7.65 𝑊
+> 𝑊
+> 𝑟 =0.118 𝑊 𝑤 𝑗𝑒𝑡 =0.05 𝑊
+> 𝑈 ∞
+> Figure 2. Schematic of the simplified truck flow configuration. Zero-net-mass flow jets are illustrated in blue.
+
+The control is implemented using two opposing flow jets at the sides of the vehicle base with zero-net mass flow, similar to previous experimental setups (Barros et al. 2016; Cerutti 
+
+et al. 2020). In this case, the overall mass flow rate of the two jets combined is forced to be zero at each instant of the simulation. The jets, each with a width of 𝑤 𝑗𝑒𝑡 = 0.05 𝑊 ,exhibit parabolic velocity profiles with a maximum mean velocity of 1 .5𝑈 ∞. The dataset comprises a time series of velocity fields, with a time increment of 𝛥𝑡 = 𝑡 𝑐 /5 = 𝑊 /5𝑈 ∞.Figure 3 illustrates the global mesh and a flow sample around the jet region.     
+
+> Figure 3. DNS mesh and flow details near the base of the truck when jets operate at peak suction/blowing. The symbol 𝑈 𝑥 in the inset indicates the streamwise velocity component. Figure adapted from (Solera-Rico et al.
+> 2025).
+
+The control input for the simplified truck configuration was generated using a filtered-noise excitation strategy to ensure a rich broadband excitation. First, a discrete white Gaussian noise sequence was generated: 
+
+𝜉 𝑛 ∼ N ( 0, 1) (2.1) where 𝑛 ∈ N0 represents the discrete time step index. This index corresponds to the physical time 𝑡 𝑛 = 𝑛𝛥𝑡 , with a control update interval of 𝛥𝑡 = 0.2𝑡 𝑐 .To target the relevant flow dynamics, this stochastic sequence was processed through a fourth-order Butterworth bandpass filter, denoted by the operator B4:˜𝜉 𝑛 = B4
+
+ 𝜉 𝑛 ; 𝑓 low , 𝑓 high 
+
+ (2.2) The filter cut-off frequencies were set to 𝑓 low = 0.05 𝑡 −1 
+
+> 𝑐
+
+and 𝑓 high = 0.5𝑡 −1 
+
+> 𝑐
+
+to encompass the wake’s natural shedding frequency of 𝑓 𝑠ℎ ≈ 0.2𝑡 −1 
+
+> 𝑐
+
+. The filter was applied in a zero-phase (forward-backward) configuration to prevent distortion. 
+
+> 5
+
+A. Solera-Rico, P. Garc´ ıa-Caspue˜ nas, C. Sanmiguel Vila and S. Discetti 
+
+Finally, the filtered sequence ˜ 𝜉 𝑛 was bounded to reflect the physical limits of the synthetic jets and scaled to determine the applied jet flow rate, 𝑏 (𝑡 𝑛 ):
+
+𝑏 (𝑡 𝑛 ) = ¤𝑚 max min  1, max  −1, ˜𝜉 𝑛 
+
+ (2.3) where the maximum volumetric flow rate capacity of the actuator is ¤𝑚 max = 0.075 𝑈 ∞𝑊 .During the simulation, the environment linearly interpolated the commanded values between the discrete points 𝑡 𝑛 and 𝑡 𝑛 +1 to provide a continuous forcing signal to the DNS solver. Following the simulation, a data preprocessing pipeline was executed to convert the raw OpenFOAM output into a structured dataset. The velocity fields (with 𝑢, 𝑣 being respectively the streamwise and crosswise velocity components) were first interpolated onto a uniform Cartesian grid of 128 × 256 points using cubic interpolation. This grid spans the domain from 𝑥 /𝑊 = −6 to 𝑥 /𝑊 = 22 and 𝑦 /𝑊 = −7 to 𝑦 /𝑊 = 7. A mask was applied to set to zero the velocity in the grid points inside the truck body. The velocity fields 
+
+𝑼 (𝒙 , 𝑡 ) were then normalised by subtracting the temporal mean field, ¯𝑼 (𝒙 ), and dividing the components 𝑢 and 𝑣 by their respective global scalar standard deviations ( 𝜎 𝑢 , 𝜎 𝑣 ), calculated throughout the entire dataset. In parallel, the actual jet flow rate was extracted from post-processing files and time-synchronised with the velocity snapshots. The final 10% snapshots of the long sequence were used for testing, with the remaining used for training. 2.1.2. Fluidic pinball 
+
+The second test case is the Fluidic pinball, a canonical 2D setup often used for complex multi-input multi-output (MIMO) control problems (Deng et al. 2020), schematised in Figure 4. The geometry consists of three cylinders of equal diameter 𝐷 = 2𝑅 , with their centres located at the vertices of an equilateral triangle. The centre-to-centre side length of the triangle is 3 𝑅 . The origin of the reference system is located in the midpoint between the two centres of the downstream cylinders, with the 𝑥 axis pointing in the direction and the sense of the free-stream velocity 𝑈 ∞ and the 𝑦 axis perpendicular to it in the transverse direction. The rectangular computational domain extends from (− 5𝐷, 15 𝐷 ) in the streamwise ( 𝑥 ) direction and (− 5𝐷, 5𝐷 ) in the transverse ( 𝑦 ) direction. 
+
+𝑅 
+
+3𝑅 
+
+3𝑅 
+
+𝑈 ∞ 
+
+> Figure 4. Schematic of the fluidic pinball flow configuration.
+
+The dataset for this configuration was generated with a solver based on an implicit time integration finite element method. The Reynolds number is set to Re = 150, higher than the 
+
+> 6
+
+Compactness versus forecast accuracy in controlled wake-flow ROMs 
+
+transition point Re ≃ 115 from a quasi-periodic asymmetric regime to chaotic flow (Deng 
+
+et al. 2020, 2025). This regime exhibits a dominant vortex shedding with random upward and downward switches in the centre jet, remaining as a challenging dynamical system. The time is scaled using the convective time 𝑡 𝑐 = 𝐷 /𝑈 ∞. The resulting dataset contains the 2D velocity fields ( 𝑢, 𝑣 ) for each time step, normalised with the free-stream velocity 𝑈 ∞.Control is applied by changing the tangential speed of the three cylinder surfaces, providing three independent control parameters. Notice that the input speeds are normalised with 𝑈 ∞
+
+and defined positive when the rotation is set to be counter-clockwise. The control setup for the fluidic pinball configuration was designed as a multi-input strategy using quasi-stationary step ramps to excite the dynamics of the system. The control inputs are defined by the normalised tangential speeds of the three cylinders, 
+
+b(𝑡 ) = [𝑏 1 (𝑡 ), 𝑏 2 (𝑡 ), 𝑏 3 (𝑡 )] 𝑇 , corresponding to the top, bottom, and forward cylinders, respectively. To cover the control spectrum, target speed combinations, denoted as v𝑘 , were generated from the 125 possible permutations of discrete rotational speeds: 
+
+v𝑘 ∈ V 3, where V = {− 1, −0.5, 0, 0.5, 1} (2.4) For a given target step 𝑘 , each cylinder 𝑖 ∈ { 1, 2, 3} maintains its target speed 𝑣 𝑘,𝑖 for a constant hold duration of 𝑇 hold ,𝑖 . Following the hold phase, the speed transitions linearly to the subsequent target value 𝑣 𝑘 +1,𝑖 over a cylinder-specific ramp duration 𝑇 ramp ,𝑖 .Mathematically, the control signal for cylinder 𝑖 during the transition to the (𝑘 + 1)-th step and its subsequent hold phase can be described by the piecewise function: 
+
+𝑏 𝑖 (𝑡 ) =
+
+(𝑣 𝑘,𝑖 + 𝑣 𝑘 +1,𝑖 −𝑣 𝑘,𝑖  
+
+> 𝑇 ramp ,𝑖
+
+(𝑡 − 𝑡 𝑘,𝑖 ), if 𝑡 𝑘,𝑖 ≤ 𝑡 < 𝑡 𝑘,𝑖 + 𝑇 ramp ,𝑖 
+
+𝑣 𝑘 +1,𝑖 , if 𝑡 𝑘,𝑖 + 𝑇 ramp ,𝑖 ≤ 𝑡 ≤ 𝑡 𝑘 +1,𝑖 
+
+(2.5) where 𝑡 𝑘,𝑖 marks the beginning of the 𝑘 -th ramp for cylinder 𝑖 , and 𝑡 𝑘 +1,𝑖 = 𝑡 𝑘,𝑖 +𝑇 ramp ,𝑖 +
+
+𝑇 hold ,𝑖 is the beginning of the next cycle. The transition durations vary for each actuator, defined as 𝑇 ramp ,1 = 25 𝑡 𝑐 for the top cylinder, 𝑇 ramp ,2 = 40 𝑡 𝑐 for the bottom cylinder, and 
+
+𝑇 ramp ,3 = 120 𝑡 𝑐 for the forward cylinder. Similarly, the hold durations are also specific to each cylinder, i.e. 𝑇 hold ,1 = 30 𝑡 𝑐 , 𝑇 hold ,2 = 235 𝑡 𝑐 and 𝑇 hold ,3 = 1250 𝑡 𝑐 .This dataset contains a total of 70,000 snapshots, captured with a time spacing of 0.1 convective times between each snapshot. The final 20,000 snapshots are reserved for testing, with the first 50,000 used for training. Following the simulation, each snapshot of the velocity field was preprocessed and interpolated onto a regular grid, resulting in a final resolution of 96 × 192 pixels. As with the previous flow configuration, a zero velocity mask is applied to the inner body regions. Both POD and CAE operate on the fluctuating velocity components 𝒖 (𝒙 , 𝑡 ) = 𝑼 (𝒙 , 𝑡 ) − ¯𝑼 (𝒙 ), normalised by their respective global standard deviations. 2.2. Dimensionality reduction methods 
+
+The datasets consist of long time-series of full-field velocity field snapshots under different control actions. Attempting to directly predict the temporal evolution of the entire high-dimensional spatial field, 𝑼 (𝒙 , 𝑡 ), is computationally intractable for real-time control applications. The core strategy is therefore to first reduce the high spatial dimensionality of each snapshot into a low-dimensional latent-space representation, 𝒛 (𝑡 ) ∈ R𝑑 , where 
+
+𝑑 ≪ 𝑁 𝑝 is the latent dimension, and 𝑁 𝑝 the number of grid points. The subsequent task, detailed in § 2.3, is to build a predictive model that can forecast the temporal evolution of this much smaller state vector. In this work, we implement and systematically compare two canonical families of methods for the spatial dimensionality reduction task: the 
+
+> 7
+
+A. Solera-Rico, P. Garc´ ıa-Caspue˜ nas, C. Sanmiguel Vila and S. Discetti                           
+
+> Table 1. Summary of the datasets for the two flow configurations. Parameter Simplified truck Fluidic pinball Reynolds number 500 150 Control type Single-input (synthetic jets) Multi-input (rotating cylinders) Control signal Filtered random Quasi-stationary step ramps Control dimension 13Total snapshots 50,000 70,000 Test snapshots 5,000 20,000 Time step ( 𝛥𝑡 )0.2𝑡 𝑐 0.1𝑡 𝑐
+> Spatial resolution ( 𝑁 𝑦 ×𝑁 𝑥 )128 ×256 96 ×192
+
+classical, energy-optimal linear POD, and nonlinear deep CAEs following previous work such as Fukagata & Fukami (2025) and Solera-Rico et al. (2024). Within the nonlinear family, we additionally consider two regularised variational variants, a 𝛽 -Variational Autoencoder ( 𝛽 -VAE) and a Decomposed-KL Variational Autoencoder (DKL-VAE), to assess whether latent-space regularisation modifies the resulting latent dynamics. The following sections detail the implementation of each model. To compare the performance of CAE and POD methods, we define the energy percentage 
+
+𝐸 metric, following Solera-Rico et al. (2024), Eivazi et al. (2022), a metric of the energy captured by the low-order reconstruction as: 
+
+𝐸 = ©«
+
+1 −
+
+* Í 𝑁 𝑝 
+
+> 𝑗 =1
+
+Í𝑁 𝑐 
+
+> 𝑖 =1
+
+ 𝑢 𝑖, 𝑗 − ˜𝑢 𝑖, 𝑗 
+
+2
+
+Í𝑁 𝑝 
+
+> 𝑗 =1
+
+Í𝑁 𝑐  
+
+> 𝑖 =1
+
+𝑢 2
+
+> 𝑖, 𝑗
+
++ª®¬
+
+× 100 % , (2.6) where ⟨·⟩ indicates ensemble averaging in time, 𝑁 𝑝 is the number of grid points, 𝑁 𝑐 the number of velocity components, 𝑢 𝑖, 𝑗 denotes the 𝑖 -th component of the reference fluctuating velocity at grid point 𝑗 and ˜ 𝑢 𝑖, 𝑗 its low-order reconstruction. The same metric is evaluated at two stages of the framework: on the decoded snapshot to assess the compression quality of POD or CAE, and on the decoded prediction at a horizon 𝜏 (in convective time 𝑡 𝑐 units) to assess the end-to-end prediction accuracy. When the time average ⟨·⟩ is omitted, the same error ratio evaluated for a single snapshot is referred to as the instantaneous accuracy; the pooled distributions reported in § 3 are built from these instantaneous values. 2.2.1. Proper orthogonal decomposition 
+
+POD is employed as a linear baseline to compare against the nonlinear CAE. POD provides an optimal linear basis to represent a dataset in terms of the 𝐿 2 norm, which can be interpreted in this case as turbulent kinetic energy. We first decompose the velocity field 
+
+𝑼 (𝒙 , 𝑡 ) (which contains both 𝑢 and 𝑣 components) as: 
+
+𝑼 (𝒙 , 𝑡 ) = ¯𝑼 (𝒙 ) + 𝒖 (𝒙 , 𝑡 ), (2.7) where ¯𝑼 (𝒙 ) is the velocity field averaged over time and 𝒖 (𝒙 , 𝑡 ) is the fluctuating component. The fluctuating velocity field can be approximated as a linear combination of orthonormal spatial basis functions 𝝓 𝑖 (𝒙 ), the POD modes: 
+
+𝒖 (𝒙 , 𝑡 ) ≈ 
+
+> 𝑑
+
+∑︁ 
+
+> 𝑖 =1
+
+𝑎 𝑖 (𝑡 )𝝓 𝑖 (𝒙 ), (2.8) 
+
+> 8
+
+Compactness versus forecast accuracy in controlled wake-flow ROMs 
+
+where 𝑎 𝑖 (𝑡 ) are the time-dependent modal coefficients and 𝑑 is the number of modes retained for reconstruction. To find the modes, the snapshot matrix 𝑺 is assembled from the training data, where each row is a flattened velocity snapshot 𝒖 (𝒙 , 𝑡 𝑗 ). Let 𝑁 𝑡 be the number of training snapshots and 𝑁 𝑝 be the number of grid points. The matrix 𝑺 thus has dimensions 𝑁 𝑡 × ( 𝑁 𝑝 𝑁 𝑐 ), with 
+
+𝑁 𝑐 being the number of velocity components. Following the method of snapshots (Sirovich 1987), the spatial modes 𝝓 𝑖 are found by solving the eigenvalue problem for the spatial covariance matrix 𝑪 :
+
+𝑪 = 1
+
+𝑁 𝑡 − 1 𝑺 𝑇 𝑺 , (2.9) where 𝑪 is an 𝑁 𝑝 𝑁 𝑐 × 𝑁 𝑝 𝑁 𝑐 matrix. The eigenvectors of 𝑪 , sorted by their corresponding eigenvalues 𝜆 𝑖 , are the POD modes 𝝓 𝑖 . The eigenvalues represent the kinetic energy content of each mode. Given the high dimensionality of 𝑪 , for computational efficiency we compute only the leading 𝑑 eigenvectors using a randomised SVD algorithm. Once the spatial modes 𝜱 (a matrix of size 𝑁 𝑝 𝑁 𝑐 × 𝑑 ) are known, the temporal modes 
+
+𝑨 (a matrix of size 𝑁 𝑡 × 𝑑 ) are obtained by projecting the snapshot matrix onto the modes: 
+
+𝑨 = 𝑺𝜱 . (2.10) This matrix 𝑨 of temporal coefficients forms the latent-space representation for POD-based models, analogous to the latent vector 𝒛 of the CAE. 2.2.2. Convolutional autoencoder 
+
+An Autoencoder (AE) is a neural network architecture designed for dimensionality reduction (Hinton & Salakhutdinov 2006), commonly used for feature learning and data compression. It consists of two main components: an encoder ( E) and a decoder ( D). The encoder maps the high-dimensional input 𝒖 to a low-dimensional latent-space vector 
+
+𝒛 = E ( 𝒖 ). The decoder then reconstructs the input from this latent vector, ˜ 𝒖 = D ( 𝒛 ),aiming to obtain a reconstruction ˜ 𝒖 as close to the original 𝒖 as possible. The encoder and decoder networks are trained simultaneously by gradient descent and backpropagation using the Adam algorithm (Kingma & Ba 2014), with the hyperparameters detailed in table 2. The training process minimises a loss function that measures the discrepancy between the input 𝒖 and the reconstruction ˜ 𝒖 , defined as the squared 𝐿 2 norm of the reconstruction error: L𝑟 𝑒𝑐 = ∥𝒖 − ˜𝒖 ∥22. Once trained, the encoder is used to generate the temporal evolution of the latent space by applying it to each time step: 𝒛 𝑡 = E ( 𝒖 𝑡 ).The spatial nature of flow field data guides the choice of a Convolutional Neural Network (CNN) to build the encoder and decoder networks, since spatial patterns are encoded more naturally by convolutional layers (Lecun et al. 1998). In the encoder, we use five or six convolutional layers (for the pinball and truck case, respectively) with a stride of two so that each layer halves the spatial dimension. This spatial reduction allows the subsequent layers to capture information at larger scales in the input flow data. As the spatial dimensions decrease, the count of filters in each layer increases to maintain information of the flow. After the last convolutional layer, the spatial information is flattened, and a fully connected layer is added to combine the information. Finally, a single linear layer with 𝑑 units outputs the latent vector 𝒛 .The decoder model is configured as a nearly symmetric network relative to the encoder. The latent vector 𝒛 is input into a fully-connected layer, with its output reshaped to match the last convolutional layer of the encoder. Subsequently, five to six transposed convolution layers are applied to incrementally expand the spatial dimension while reducing the number 
+
+> 9
+
+A. Solera-Rico, P. Garc´ ıa-Caspue˜ nas, C. Sanmiguel Vila and S. Discetti                                                  
+
+> Table 2. CAE, 𝛽 -VAE and DKL-VAE training hyperparameters for each case. 𝛽 applies to the 𝛽 -VAE, and the loss weights 𝜆 MI ,𝜆 TC ,𝜆 Dim to the DKL-VAE. Hyperparameter Simplified truck Fluidic pinball Latent Dimension ( 𝑑 )810
+> 𝛽 (𝛽 -VAE) 0.0025 0.005
+> 𝜆 MI (DKL-VAE) 1.6×10 −41×10 −4
+> 𝜆 TC (DKL-VAE) 5×10 −45×10 −3
+> 𝜆 Dim (DKL-VAE) 1.6×10 −41×10 −4
+> Batch Size 1024 256 Learning Rate 1×10 −31×10 −3
+> Epochs 200 300 Test snapshots 5,000 20,000
+
+of filters. The last transposed convolution layer, using two filters, generates the output channels for the 𝑢 and 𝑣 velocity components. The activation function is the exponential linear unit (Clevert et al. 2015) for all layers except the last, where the activation is linear. 2.2.3. 𝛽 -Variational autoencoder 
+
+In addition to the deterministic CAE, we also include a 𝛽 -VAE (Solera-Rico et al. 
+
+2024) as a regularised nonlinear baseline. The 𝛽 -VAE shares the same convolutional encoder-decoder backbone as the CAE described above, but uses a probabilistic latent representation (Higgins et al. 2017). The encoder outputs the parameters of a Gaussian distribution in latent space, 𝝁 (𝒖 ) and 𝝈 (𝒖 ), from which the latent vector is sampled via the reparameterisation trick, 𝒛 = 𝝁 + 𝝈 ⊙ 𝝐 , with 𝝐 ∼ N ( 0, 𝑰 ). The decoder reconstructs ˜ 𝒖 from 
+
+𝒛 . This probabilistic structure allows us to assess whether constraining the geometry of the nonlinear latent manifold can mitigate the loss of long-horizon predictability observed for the CAE. The training loss combines the reconstruction error with the Kullback-Leibler divergence 
+
+𝐷 KL , which measures the discrepancy between the encoded latent distribution and a unit Gaussian prior: 
+
+L𝛽 -VAE = ∥𝒖 − ˜𝒖 ∥22 + 𝛽 𝐷 KL , (2.11) where 𝛽 controls the strength of the regularisation. Larger values of 𝛽 promote more disentangled and statistically independent latent coordinates at the cost of reconstruction fidelity (Solera-Rico et al. 2024). The parameter 𝛽 is tuned to increase in statistical inde-pendence relative to the deterministic CAE without significantly increasing reconstruction error. The 𝛽 -VAE is trained with the same latent dimension and remaining hyperparameters as the CAE, reported in Table 2. 2.2.4. Decomposed-KL variational autoencoder 
+
+A limitation of the 𝛽 -VAE is that the single coefficient 𝛽 weights the whole Kullback–Leibler term, which couples several effects: promoting independence between latent coordinates also forces each marginal towards the prior, and an excessive penalty can reduce the information capacity of the latent space. To assess whether a more selective regularisation modifies the latent dynamics, we consider a DKL-VAE, in which the divergence is split into three independently weighted contributions following the decomposition of Chen et al. 
+
+(2018), recently applied to manifold learning of fluid flows by Wang et al. (2026): 
+
+> 10
+
+Compactness versus forecast accuracy in controlled wake-flow ROMs 
+
+LDKL-VAE = ∥𝒖 − ˜𝒖 ∥22 + 𝜆 MI I + 𝜆 TC T + 𝜆 Dim K, (2.12) where I is the index-code mutual information between the snapshot index and the latent code, T is the total correlation that measures the statistical dependence among latent coordinates, and K is the dimension-wise divergence between each marginal latent distribution and the prior. These three terms sum to the standard Kullback–Leibler divergence, so the 𝛽 -VAE is recovered when 𝜆 MI = 𝜆 TC = 𝜆 Dim = 𝛽 . Increasing 𝜆 TC 
+
+alone encourages independent latent coordinates without tightening the matching of each coordinate to the prior, thereby decoupling disentanglement from prior matching. The aggregated posterior required by these terms is estimated through minibatch stratified sampling (Chen et al. 2018). We evaluate the DKL-VAE on the simplified truck and fluidic pinball cases as an alternative regularisation strategy, using 𝜆 MI = 𝜆 Dim = 1.6 × 10 −4
+
+and 𝜆 TC = 5 × 10 −4 for the truck, and 𝜆 MI = 𝜆 Dim = 1 × 10 −4 and 𝜆 TC = 5 × 10 −3
+
+for the pinball (Table 2), keeping the same convolutional backbone, latent dimension and remaining hyperparameters as the CAE and 𝛽 -VAE. 2.3. Time-series prediction models 
+
+Once high-dimensional spatial data 𝑼 (𝒙 , 𝑡 ) is compressed into a low-dimensional latent-space time-series 𝒛 (𝑡 ), the next task is to build a predictive model that can predict the evolution of this latent state. The goal is to learn a function 𝑓 that predicts a future sequence of 𝐻 latent states (the horizon ), given a sequence of 𝐿 past latent states and their corresponding control inputs (the lookback ). Critically, the control action 𝒃 𝑡 applied at time 𝑡 influences the state at 𝑡 + 1. Therefore, a causal model must predict the discrete state sequence [ˆ𝒛 𝑡 +1, . . . , ˆ𝒛 𝑡 +𝐻 ] using the control sequence [𝒃 𝑡 −𝐿 , . . . , 𝒃 𝑡 , . . . 𝒃 𝑡 +𝐻 −1]:
+
+[ˆ𝒛 𝑡 +1, . . . , ˆ𝒛 𝑡 +𝐻 ] = 𝑓 ([ 𝒛 𝑡 −𝐿 +1, . . . , 𝒛 𝑡 ], 𝒃 𝑡 −𝐿 , . . . , [𝒃 𝑡 , . . . , 𝒃 𝑡 +𝐻 −1]) , (2.13) where ˆ 𝒛 denotes the predicted state. From a closure-modelling standpoint, projection-based ROMs are not in general closed (Noack 
+
+et al. 2003). An in-principle infinite Mori–Zwanzig memory kernel encodes the action of unresolved scales on the resolved coordinates (Menier et al. 2023; Gupta et al. 2025). We adopt as a working hypothesis a finite-memory approximation in which this kernel is truncated to a window of length 𝐿 and represented by the learned predictor, which absorbs both the resolved-mode contribution and a deterministic, data-driven surrogate of the orthogonal-dynamics term. Under this hypothesis, latent representations that better separate resolved and unresolved scales are expected to render the truncated closure a closer approximation; the empirical consequences are revisited in §3.3. We restrict the temporal modelling stage to LSTM-based predictors (Hochreiter & Schmidhuber 1997) for two reasons. First, LSTMs are a well-established baseline for nonlinear time-series modelling in fluids and ROM settings (Solera-Rico et al. 2025), and they provide sufficient expressive power to test our main question, namely how the choice of spatial encoder affects predictability in the latent space. Second, LSTMs offer a favourable accuracy-complexity balance: they are comparatively lightweight, stable to train on moderate datasets, and amenable to real-time deployment on embedded hardware. By keeping the predictor family fixed, we ensure a controlled comparison in which differences in forecasting performance can be attributed primarily to the latent representations produced by POD versus CAEs. 
+
+> 11
+
+A. Solera-Rico, P. Garc´ ıa-Caspue˜ nas, C. Sanmiguel Vila and S. Discetti 
+
+The input to the LSTM at each step in the lookback sequence is the concatenation of the latent state and the control signal at that time. In this study, we implement and compare three distinct predictive LSTM architectures, illustrated in Figure 5. 
+
+Figure 5. Schematic of the three LSTM-based prediction architectures tested. For all architectures, the latent space (in blue) and control space (in gray) are fed as input throughout the entire lookback period up to the current time step 𝑡 . (Top) Single-step model , consisting of an LSTM layer that predicts the immediate next time step of the latent space 𝒛 𝑡 +1 (in red). (Middle) Direct sequence model. The latter predicts the entire horizon sequence of the latent space at once by combining a latent context vector (yellow bar) as the output of the LSTM layer with the horizon sequence of the control space through an multi-layer perceptron (MLP) layer. (Bottom) Derivative-based model. The LSTM predicts the time derivative of the latent state ¤𝒛 𝑡 . An Adams-Bashforth method is used to propagate the solution to 𝒛 𝑡 +1 with derivative information. The process is repeated up to time instant 𝑡 + 𝐻 by feeding the predictions into the advanced lookback sequence. 
+
+r Single-step: This is a standard autoregressive model, corresponding to the top schematic in Figure 5. The LSTM takes the lookback sequence (up to 𝒛 𝑡 and 𝒃 𝑡 ) and predicts only the single next latent state, ˆ 𝒛 𝑡 +1. To generate long-term predictions, this output is combined with the next control input 𝒃 𝑡 +1 and fed back into the model to predict ˆ 𝒛 𝑡 +2.This process is repeated recursively, thus potentially suffering from error propagation. 
+
+r Direct sequence: This model, shown in the middle of Figure 5, is a sequence-to-sequence architecture. It takes the lookback sequence as input to the LSTM core. The final hidden state of the LSTM (which encodes information up to time 𝑡 ) is then concatenated with the future control sequence that will modify the future states, 
+
+12 Compactness versus forecast accuracy in controlled wake-flow ROMs 
+
+[𝒃 𝑡 , . . . , 𝒃 𝑡 +𝐻 −1], and passes through a MLP. This network directly predicts the entire future sequence of latent states [ˆ𝒛 𝑡 +1, . . . , ˆ𝒛 𝑡 +𝐻 ] in a single forward pass, avoiding the recursive error accumulation of the single-step model. While this requirement for the complete future control sequence makes it unsuitable for standard reactive controllers, it is the ideal structure for MPC, where this exact future control sequence is the variable being optimised. 
+
+r Derivative-based: This hybrid architecture, shown at the bottom of Figure 5, embeds a numerical time integrator within the prediction loop as described in Yang et al. (2025). Instead of directly predicting the future state ˆ 𝒛 𝑡 +1, the LSTM is trained to predict the time derivative of the latent state ¤𝒛 , based on the inputs at time 𝑡 , ¤𝒛 𝑡 = 𝑔 (𝒛 𝑡 , 𝒃 𝑡 ). The future state is then obtained using an explicit time-stepping scheme. The model uses the second-order Adams-Bashforth method: ˆ𝒛 𝑡 +1 = ˆ𝒛 𝑡 + 𝛥𝑡 
+
+ 32 ¤𝒛 𝑡 − 12 ¤𝒛 𝑡 −1
+
+
+
+, (2.14) where the LSTM provides the derivative ¤𝒛 𝑡 at each step. ¤𝒛 𝑡 −1 is initialised by estimating the initial derivative using a backward finite difference of the last two latent states in the lookback window. This imposes a physical structure on the model, which can improve stability for long-horizon predictions. All three architectures are trained by minimising a loss function, Lpred , based on the 𝐿 2
+
+norm between the predicted latent-state sequence and the ground truth sequence over the prediction horizon 𝐻 :
+
+Lpred = 1
+
+𝐻 
+
+> 𝐻
+
+∑︁ 
+
+> 𝑖 =1
+
+∥ ˆ𝒛 𝑡 +𝑖 − 𝒛 𝑡 +𝑖 ∥22 . (2.15) While Single-step and Direct sequence models are trained using this standard 𝐿 2
+
+loss, the Derivative-based architecture employs a specific loss, also introduced in Yang 
+
+et al. (2025), which weights only the 𝐿 2 norm of the first and last steps in the horizon. This was found to improve the long-term stability of the derivative-based integration. A summary of the training parameters is shown in table 3. We note that the hyperparameters have been tuned via a manual hyperparameter search on the test set metrics, specifically for each predictor architecture, in order to compare each architecture in its optimal configuration. 
+
+> 3. Results
+
+This section presents a systematic comparison of the performance of the eight main model combinations: POD and CAE encoding, each paired with the three LSTM predictors, plus the 𝛽 -VAE and DKL-VAE encodings, each paired with the best-performing predictor. We first evaluate the baseline compression efficiency of encoders, followed by an analysis of the long-term predictive accuracy, and conclude with an investigation into the latent-space dynamics to explain the observed performance. 3.1. Compression methods: POD, CAE, 𝛽 -VAE and DKL-VAE 
+
+We first establish the reconstruction accuracy of the four dimensionality reduction methods, independent of the temporal prediction. Figure 6 provides a qualitative comparison of the reconstructed velocity fields from POD, CAE, 𝛽 -VAE and DKL-VAE models against the ground truth “True”. The “Decoded” columns show the instantaneous reconstruction of a test snapshot from its latent representation. 
+
+> 13
+
+A. Solera-Rico, P. Garc´ ıa-Caspue˜ nas, C. Sanmiguel Vila and S. Discetti                                                                                             
+
+> Table 3. LSTM training hyperparameters. Model 𝑑 𝐿 𝐻 LSTM lay. LSTM dim. MLP dim. Dropout
+> Simplified 2D truck case
+> POD-based models
+> Single-step 816 1232 32 0.0
+> Direct sequence 816 8264 64 0.0
+> Derivative-based 848264 64 0.3 AE-based models
+> Single-step 8812128 128 0.0
+> Direct sequence 8822128 128 0.0
+> Derivative-based 8822128 128 0.0
+> Fluidic pinball case
+> POD-based models
+> Single-step 22 64 1116 16 0.3
+> Direct sequence 22 32 16 2128 256 0.0
+> Derivative-based 22 816 264 64 0.3 AE-based models
+> Single-step 10 64 1116 16 0.3
+> Direct sequence 10 32 16 2128 256 0.0
+> Derivative-based 10 816 264 64 0.3
+
+In all cases, the latent dimension selection criterion is such that the minimum number of coordinates leads to at least 95% of the original variance of the data for the truck and 90% for the fluidic pinball configuration. These thresholds refer to the mean reconstruction accuracy 𝐸 averaged over the entire test set (or the cumulative eigenvalue ratio for POD). For the simplified truck case (right column of Figure 6), both models use a latent dimension of 𝑑 = 8. A more significant difference is seen in the fluidic pinball case (left column). Here, the CAE, 𝛽 -VAE and DKL-VAE are able to encode, across the entire test set, 90% of the variance with a latent space of dimension 10, compared to POD which needs 22. The nonlinear AEs are more efficient and powerful compressors, capable of capturing the features of the flow under control actions in a more compact latent representation than the linear POD, as observed in previous works (Murata et al. 2020; Fukami et al. 2020; Eivazi et al. 2022; Zhu et al. 2024). Notably, the AE reconstructions in Figure 6 retain less diffuse and higher-wavenumber features than POD, while 𝛽 -VAE prediction exhibits a visible phase shift in the wake, discussed in § 3.3. As shown next, preserving these details can increase the complexity of the latent dynamics and reduce long-horizon predictability. 3.2. Prediction accuracy 
+
+Having established the compression baseline, we now assess the core task: the long-term prediction of the latent-space dynamics. The left panels of Figures 7 (fluidic pinball) and 8 (simplified truck) show the accuracy of the prediction, 𝐸 , as a function of the prediction time horizon, 𝜏 . This accuracy metric 𝐸 is computed on the reconstructed flow fields, thus measuring the performance of the whole framework from end-to-end. To quantify the sensitivity of the comparison to training stochasticity, the complete framework is retrained for an ensemble of 20 independent seeds per case: for each seed, the CAE, 𝛽 -VAE and DKL-VAE encoders are retrained from scratch and the LSTM predictors are trained on the latent space of the same-seed encoder, while the POD basis is deterministic and only its predictors are re-seeded. The curves report, at each horizon, the median of 𝐸 over all prediction windows in the test set and all seeds, and the violin panels pool the corresponding instantaneous values. 
+
+> 14
+
+Compactness versus forecast accuracy in controlled wake-flow ROMs −505                       
+
+> y/L c
+> pinball ,τ= 20
+> −707truck ,τ= 50
+> −505
+> y/L c
+> d = 22
+> −707
+> d = 8
+> POD
+> −505
+> y/L c
+> d = 10
+> −707
+> d = 8
+> β-VAE
+> −505
+> y/L c
+> d = 10
+> −707
+> d = 8
+> CAE
+> −50510 15
+> x/L c
+> Decoded
+> −505
+> y/L c
+> −50510 15
+> x/L c
+> Predicted
+> d = 10
+> −60815 22
+> x/L c
+> Decoded
+> −707
+> −60815 22
+> x/L c
+> Predicted
+> d = 8
+> DKL -VAE
+> −202Vorticity
+
+Figure 6. Qualitative comparison of flow field reconstruction and long-term prediction for the fluidic pinball (left, at 𝜏 = 20) and the simplified truck (right, at 𝜏 = 50). The “True” row shows the reference nondimensional vorticity; all rows for a given case are extracted from the same test snapshot. The “Decoded” column shows the instantaneous reconstruction from the latent space for the POD, 𝛽 -VAE, CAE and DKL-VAE models, without prediction. The “Predicted” column shows the final predicted field decoded from the best LSTM models’ latent-space predictions after the specified time horizon. 
+
+A consistent trend emerges across both flow cases. The Single-step models (in red) exhibit a rapid decay in accuracy, as the recursive error accumulation quickly destabilises the prediction. The Direct sequence (blue) and Derivative-based (green) models are more stable, generally retaining high accuracy for longer prediction horizons. However, the most critical finding is the comparison between the compression methods. For the simplified truck case (Figure 8), the AE-based models (dashed lines) initially show a slight advantage due to the higher AEs compression power, but for horizons longer than 𝜏 ≈ 10, the POD-based models (solid lines) are more accurate and stable. The separation between encoders nevertheless remains within a few percentage points of 𝐸 over the reported truck horizons, indicating that this case lacks the dynamical complexity to discriminate strongly between compression methods; the fluidic pinball provides the more demanding comparison. This trend is even more pronounced in the pinball case (Figure 7). Despite the superior reconstruction performance of the AEs, the POD-based models (solid blue and green lines) consistently outperform their AE-based counterparts (dashed blue and green lines) for nearly the entire prediction horizon. This identifies a practical crossover: for short horizons, the AEs can be competitive due to their compactness, whereas for horizons beyond roughly 𝜏 ≈ 10 (truck) and essentially across all tested horizons (pinball), POD yields more reliable forecasts. 
+
+15 A. Solera-Rico, P. Garc´ ıa-Caspue˜ nas, C. Sanmiguel Vila and S. Discetti 0 5 10 15 20    
+
+> τ
+> 020 40 60 80 100
+> E (%)
+> τ= 0 .1τ= 5 020 40 60 80 100
+> E (%)
+> pinball
+> Single-step Direct sequence Derivative-based POD CAE
+> β-VAE DKL-VAE
+
+Figure 7. Prediction accuracy 𝐸 for the fluidic pinball over an ensemble of 20 training seeds. Left: median of 𝐸                     
+
+> (Eq. 2.6) as a function of the prediction horizon 𝜏 (convective time 𝑡 𝑐 units), taken over all prediction windows in the test set and all seeds. Colours denote the LSTM architectures ( Single-step ,Direct sequence ,
+> Derivative-based ); line styles denote the encoder: solid POD, dashed CAE, dotted 𝛽 -VAE, dash-dotted DKL-VAE. Right: distributions of the instantaneous 𝐸 (evaluated snapshot by snapshot) for the POD- and CAE-based models, pooling all prediction windows and seeds, at 𝜏 =0.1 and 𝜏 =5. White markers indicate the median ( ◦for POD, ^for CAE); black boxes span the interquartile range (25th–75th percentiles). The first reported horizon is 𝜏 =0.1.
+
+The DKL-VAE, in dash-dotted lines in Figures 7 and 8, follows the same pattern as the other nonlinear encoders. For the truck ( 𝑑 = 8) and the Direct sequence model, its accuracy at the first reported horizon, a median 𝐸 ≈ 99%, is indistinguishable from the CAE; at intermediate horizons it remains at CAE level, with a median 𝐸 = 91 .3% at 
+
+𝜏 = 20 against 91 .4% for the CAE, 90 .9% for the 𝛽 -VAE and 94 .0% for POD ( Direct sequence predictors), and at 𝜏 = 50 it stays below the best POD-based model (78 .9% against 87 .4%). For the pinball ( 𝑑 = 10), the DKL-VAE accuracy at the first reported horizon is again in line with the other nonlinear encoders (median 𝐸 ≈ 91 .1%, between the CAE and 𝛽 -VAE values); its forecast accuracy is comparable to the CAE and 𝛽 -VAE at both the short and long ( 𝜏 = 5, median 𝐸 ≈ 82 .6%) horizons used elsewhere in the manuscript, while POD remains more accurate throughout. In both cases the more selective regularisation does not recover the long-horizon prediction accuracy of POD. The trade-off between compactness and predictability therefore persists when the latent regularisation is decomposed into independently weighted information-theoretic terms. For the truck, the horizon reported in Figure 8 is limited to 𝜏 = 50. Beyond this horizon the run-to-run variability across training seeds grows rapidly: at 𝜏 = 100 a substantial fraction of the 20 seeds produces diverged predictions (median 𝐸 < 0 over the prediction windows) for every encoder–predictor combination except the POD-based 
+
+Derivative-based model, so conclusions drawn at longer horizons would reflect training stochasticity rather than the choice of encoder. The seed analysis also identifies the 
+
+Derivative-based predictor as the most robust option at long horizons in this case: combined with POD, it shows no diverged seeds at 𝜏 = 50 and retains a median 𝐸 = 80 .5% at 𝜏 = 100, with a single mild failure across the ensemble. This result is further clarified by the violin panels of Figures 7 and 8, which show the statistical distribution of the prediction accuracy 𝐸 of an ensemble of test trajectories and training seeds in both a short- and long-term prediction horizon. At the single-step, short prediction horizon ( 𝜏 = 0.1 for pinball and 𝜏 = 0.2 for truck), all models perform well, with high median accuracies (white dots) and compact distributions. However, at the long horizon (e.g., 𝜏 = 5 or 𝜏 = 30), the distributions diverge significantly. The POD-based 
+
+16 Compactness versus forecast accuracy in controlled wake-flow ROMs 
+
+models (solid-line violins) maintain a higher median accuracy and generally a narrower distribution, indicating a more reliable performance. In contrast, CAE-based models (dashed-line violins) exhibit a lower median accuracy and a very long tail towards 𝐸 = 0. This long tail reveals that a large fraction of the CAE-based predictions fail significantly, diverging from the true solution. This implies greater sensitivity of the nonlinear latent dynamics to minor prediction errors, so some trajectories drift into qualitatively different regimes and abruptly fail. From a MPC standpoint, this means that a slightly less compact but more predictable latent model can enlarge the feasible prediction horizon and, in principle, improve closed-loop robustness. Pooling the training seeds does not alter this picture: the long tail of the CAE-based distributions is a property of the models rather than of a particular training realisation. 0 10 20 30 40 50                        
+
+> τ
+> 80 85 90 95 100
+> E (%)
+> τ= 0 .2τ= 30 025 50 75 100
+> truck
+> Single-step Direct sequence Derivative-based POD CAE
+> β-VAE DKL-VAE
+> Figure 8. Prediction accuracy 𝐸 for the simplified truck over an ensemble of 20 training seeds, with the same protocol, statistics and line conventions as Figure 7. Left: median of 𝐸 over all prediction windows and seeds as a function of 𝜏 , reported up to 𝜏 =50 (see text). Right: distributions of the instantaneous 𝐸 for the POD-and CAE-based models at 𝜏 =0.2 and 𝜏 =30. The first reported horizon is 𝜏 =0.2.
+
+3.3. Analysis of latent-space dynamics and flow prediction 
+
+The contrast between encoders observed in the previous section can be anticipated from the framing of § 1 and § 2.3. The POD basis inherits a structure for shedding-dominated flows analogous to the dynamics observed with a Koopman embedding, whereas the AEs optimise pointwise reconstruction. It is nonetheless important to distinguish between a linear decomposition and a linear dynamical representation. POD provides the former, but not the latter. It is indeed well known that, after projection of the Navier-Stokes equations onto a POD basis, the reduced coefficients generally evolve according to nonlinear equations containing modal interaction terms (Noack et al. 2005). The discrepancy in predictive performance, despite the superior encoding capabilities of the AEs, can be explained by the structure of the latent spaces. Figure 9 plots the temporal evolution of the first four latent coefficients, comparing the ground truth “Reference” (solid black line) with the prediction from the best-performing Direct sequence LSTM model (blue dashed line). The upper row shows the latent space of the POD. The dynamics are simple, smooth, and quasi-periodic, dominated by low-frequency oscillations. As a result, the LSTM model can easily learn and accurately forecast this simpler dynamics, with the predicted signal tracking the reference for long durations. The remaining rows show the 𝛽 -VAE, CAE and DKL-VAE latent spaces. In contrast with the POD modes, the dynamics are more complex and non-periodic, showing higher-frequency components. The AEs encode the flow features into a more compact repre-sentation whose dynamics are more irregular and broadband. The LSTM has difficulty 
+
+> 17
+
+A. Solera-Rico, P. Garc´ ıa-Caspue˜ nas, C. Sanmiguel Vila and S. Discetti pinball - POD truck - POD pinball - β-VAE truck - β-VAE pinball - CAE truck - CAE pinball - DKL-VAE truck - DKL-VAE            
+
+> z1z2z3z4z1z2z3z4 z1z2z3z4z1z2z3z4 z1z2z3z4z1z2z3z4
+> τ
+> z1
+> τ
+> z2
+> τ
+> z3
+> 020 40 60 80 100
+> τ
+> z4
+> τ
+> z1
+> τ
+> z2
+> τ
+> z3
+> 0510 15 20
+> τ
+> z4
+> Direct sequence Reference Predicted
+
+Figure 9. Temporal evolution of the first four leading latent coefficients (energy-ordered for POD; ordered by peak Power Spectral Density (PSD) of the encoded reference for CAE, 𝛽 -VAE and DKL-VAE), comparing the ground truth (solid black line) with the prediction of the best-performing Direct sequence LSTM model (blue dashed line). Left column shows pinball case and right column truck case. Rows show POD (top), 𝛽 -VAE (second), CAE (third) and DKL-VAE (bottom) latent spaces. 
+
+modelling these more complex dynamics, and the predicted signal diverges from the reference at shorter prediction horizons. This analysis supports the hypothesis that the linear basis of POD creates a latent space with simple, low-frequency dynamics that are easier to learn and predict. Conversely, the nonlinear AEs, in their less-restricted search for optimal compression, create a more complex and chaotic latent space that is more difficult to forecast. This conclusion is visualised and further explained by the “Predicted” columns of Figure 6. These fields show the final prediction of the flow field at a long-time horizon. They correspond to a single representative trajectory; the quantitative accuracy is reported as the median curves of Figures 7 and 8, where the median of 𝐸 is taken over ∼100 test initial conditions and 20 training seeds. For the pinball case ( 𝜏 = 20), the POD-based prediction retains the large-scale vortex shedding structure, while showing clear signs of smoothing of the flow fields. The AE-based predictions are sharper, retaining smaller details in the flow field but achieving lower accuracy for this snapshot; the DKL-VAE prediction shows the same sharper, lower-accuracy character as the other nonlinear encoders. For the truck case in 𝜏 = 50, all models retain the wake structure, with the CAE and 𝛽 -VAE predictions slightly below the reconstruction of the POD model; the DKL-VAE prediction is consistent with the other nonlinear encoders, following the statistical trend observed in Figures 7 and 8. It can be noted that the higher spatial frequency content of the AE decoded 
+
+18 Compactness versus forecast accuracy in controlled wake-flow ROMs 
+
+fields, compared to POD reconstructed fields, produces better reconstructed energy in the short term predictions, but tends to produce faster error growth as the errors accumulate in the latent-space prediction. This faster error growth can be attributed to the accumulation of phase-shift errors in the predictions, translating into a higher error when the predicted shifted and reference wake flow fields are compared and evaluated (see Figure 13 below). This behaviour can be identified in Figure 10, where the averaged 𝐿 2 error of the velocity predictions is shown. The plot highlights areas where the predicted fields produce larger errors, coincident with those areas including higher spatial frequency fluctuations. This behaviour is consistent with the idea that nonlinear latent coordinates, while efficient for reconstruction, can exhibit higher sensitivity to initial-condition and phase errors. Hence, small LSTM prediction mismatches grow more quickly in the AEs latent system, effectively reducing its long-horizon predictability. This observation is consistent with the closure perspective of § 2.3: the broadband AE latent dynamics places a heavier burden on the truncated memory term that the predictor must absorb, whereas the narrow-band POD dynamics renders the finite-memory approximation closer to sufficient. −505            
+
+> y/L c
+> d = 22
+> pinball
+> −707
+> d = 8
+> POD
+> truck
+> −505
+> y/L c
+> d = 10
+> −707
+> d = 8
+> β-VAE
+> −505
+> y/L c
+> d = 10
+> −707
+> d = 8
+> CAE
+> −50510 15
+> x/L c
+> −505
+> y/L c
+> d = 10
+> −60815 22
+> x/L c
+> −707
+> d = 8
+> DKL -VAE
+> 0.02.55.0Normalised L2error of velocity fluctuations
+
+Figure 10. Pointwise normalised 𝐿 2 error magnitude of the predicted velocity fluctuations, combining the streamwise and crosswise components as √︁ 𝑒 2 
+
+> 𝑢
+
++ 𝑒 2 
+
+> 𝑣
+
+at each grid point, where each component 𝑒 𝑖 = ⟨( ˆ𝑢 𝑖 −
+
+𝑢 𝑖 )2⟩/ 𝜎 2 
+
+> 𝑖
+
+is the mean squared error normalised by the variance 𝜎 2 
+
+> 𝑖
+
+of the corresponding reference velocity component. Each per-component field is averaged over the full prediction horizon, 𝜏 ∈ [ 0, 20 ] for the fluidic pinball (left) and 𝜏 ∈ [ 0, 100 ] for the simplified truck (right), and further averaged over all prediction windows in the test set. Predictions correspond to the best-performing Direct sequence LSTM model. Top row: POD; second row: 𝛽 -VAE; third row: CAE; bottom row: DKL-VAE. 
+
+19 A. Solera-Rico, P. Garc´ ıa-Caspue˜ nas, C. Sanmiguel Vila and S. Discetti 
+
+In what follows, latent-space stability refers to the predictive accuracy and reliability of the latent dynamics over the admissible control range considered in the dataset. A stable latent representation is one whose multi-time-delay predictor remains bounded, accumulates error slowly over the prediction horizon, and preserves the dominant phase, amplitude and geometric structure of the encoded trajectory. This is an operational, finite-horizon definition tailored to predictive ROMs for control, not a statement of Lyapunov stability of the full controlled flow. The qualitative differences between the encoder latent spaces can be made quantitative through phase-space diagnostics applied to the best-performing Direct sequence predictor. Figures 11 and 12 show the phase portraits on the dominant latent pair and a Poincar´ e section in the next two coordinates, comparing the encoded reference with the predicted trajectory. For the truck, the POD latent trajectory exhibits a ring-like phase portrait and a compact Poincar´ e section, both well reproduced by the LSTM. The CAE trajectory shows a broader, irregular geometry, and the predicted Poincar´ e section is markedly more concentrated than the reference, indicating that the CAE predictor collapses onto a narrower effective attractor rather than only accumulating phase errors. The 𝛽 -VAE sits between the two, with a more regular phase portrait due to the latent space KL regularisation, but a still-broad Poincar´ e section. The DKL-VAE shows a phase portrait and Poincar´ e section comparably structured to the 𝛽 -VAE, consistent with the comparable degree of latent regularisation applied by both objectives. The fluidic pinball case shows analogous behaviour with the wider attractor expected from its weakly chaotic dynamics. −2                
+
+> 0
+> 2
+> z∗
+> 2
+> Truck
+> POD
+> z∗
+> 2
+> β-VAE
+> z∗
+> 2
+> CAE
+> z∗
+> 2
+> DKL-VAE
+> −202
+> z∗
+> 1
+> −2
+> 0
+> 2
+> z∗
+> 2
+> Fluidic pinball
+> −202
+> z∗
+> 1
+> z∗
+> 2
+> −202
+> z∗
+> 1
+> z∗
+> 2
+> −202
+> z∗
+> 1
+> z∗
+> 2
+> Encoded reference LSTM predicted
+> Figure 11. Phase portraits of the dominant standardised latent pair (𝑧 ∗
+> 1, 𝑧 ∗
+> 2)for the encoded reference (black) and the Direct sequence LSTM prediction (coloured). Rows: truck (top) and fluidic pinball (bottom). Columns: POD, 𝛽 -VAE , CAE and DKL-VAE. Standardisation uses the variance of the encoded reference. The POD portrait is the most regular for both flows; the CAE shows a broader, irregular geometry that the predictor fails to reproduce; the DKL-VAE portrait is comparably structured to the 𝛽 -VAE.
+
+To separate the contribution of phase from amplitude in the prediction error, the dominant standardised latent pair is mapped to its polar form, 𝐴 (𝑡 ) =√︃ 𝑧 21 + 𝑧 22 and 𝜙 (𝑡 ) = arg (𝑧 1 +
+
+𝑖𝑧 2) on the continuous branch. For POD the coordinates are energy-ordered; for 𝛽 -VAE, 
+
+> 20
+
+Compactness versus forecast accuracy in controlled wake-flow ROMs −4 0 4                     
+
+> −4
+> 0
+> 4
+> z∗
+> 3
+> Truck
+> POD
+> −404
+> −4
+> 0
+> 4
+> β-VAE
+> −404
+> −4
+> 0
+> 4
+> CAE
+> −404
+> −4
+> 0
+> 4
+> DKL-VAE
+> −202
+> z∗
+> 2
+> −2
+> 0
+> 2
+> z∗
+> 3
+> Fluidic pinball
+> −202
+> z∗
+> 2
+> −2
+> 0
+> 2
+> −202
+> z∗
+> 2
+> −2
+> 0
+> 2
+> −202
+> z∗
+> 2
+> −2
+> 0
+> 2
+> Encoded reference LSTM predicted
+> Figure 12. Poincar´ e sections in (𝑧 ∗
+> 2, 𝑧 ∗
+> 3)taken at positive crossings of 𝑧 ∗
+> 1=0. Encoded reference (black) versus LSTM-predicted (coloured), with the same row/column layout as Figure 11. Compact structures indicate quasi-periodic or weakly chaotic behaviour; wider clouds indicate broader spectral content.
+
+CAE and DKL-VAE the coordinates are reordered by decreasing peak intensity of the PSD of the encoded reference, so that the dominant oscillatory pair is identified consistently across encoders. The phase error is wrapped to [− 𝜋, 𝜋 ], so |𝛥𝜙 | is bounded in [0, 𝜋 ]
+
+and |𝛥𝜙 | = 𝜋 indicates complete loss of phase coherence between the predicted and the encoded dominant pair. Figure 13 reports the absolute phase error |𝛥𝜙 | and amplitude error |𝛥𝐴 | for both flows. In the truck case, all three baseline encoders retain |𝛥𝜙 | < 𝜋 /2up to 𝜏 ≈ 400; 𝛽 -VAE then saturates close to 𝜋 around 𝜏 ≈ 550 and CAE around 𝜏 ≈ 900, while POD remains below 𝜋 /2 over the entire test trajectory ( 𝜏 ≈ 1000). The DKL-VAE loses phase coherence earlier, with |𝛥𝜙 | exceeding 𝜋 /2 from 𝜏 ≈ 200 onward. For the fluidic pinball |𝛥𝜙 | grows faster and the four encoders are closer to each other, with CAE reaching |𝛥𝜙 | ≈ 𝜋 around 𝜏 ≈ 80 and POD and 𝛽 -VAE oscillating near 𝜋 from 𝜏 ≈ 150 onward. The amplitude error stays in a comparable range across encoders, with the only clear separation appearing in the truck POD case where it is essentially negligible. The decomposition shows that long-horizon degradation in the latent space is driven by phase drift rather than amplitude distortion, and that for the truck CAE and 𝛽 -VAE lose phase coherence earlier than POD. For the more chaotic pinball, the separation between encoders is less clear, as expected. Beyond the phase and amplitude decomposition, we further characterise the latent dynamics through their short-horizon sensitivity to perturbations. We estimate the effective divergence rate from the latent trajectories (Rosenstein et al. 1993). For each reference point 𝒛 𝑖 in the standardised 𝑑 -dimensional latent state, the nearest neighbour 𝒛 𝑗 is identified subject to a temporal exclusion window of at least one reference shedding period (estimated from the dominant Welch frequency of the encoded 𝑧 1), which prevents false neighbours arising from temporal correlations. The control sequence is included in the neighbour-search space so that neighbours share a similar actuation history, while future control inputs are not explicitly considered and its effect is therefore included in the divergence rates. The mean logarithmic separation ⟨ln 𝑑 (𝑘 𝛥𝑡 )⟩ is then fitted linearly on a fixed convective-time 
+
+> 21
+
+A. Solera-Rico, P. Garc´ ıa-Caspue˜ nas, C. Sanmiguel Vila and S. Discetti 0 250 500 750 1000 
+
+> 0
+> π/ 2
+> π
+> |∆φ| [rad]
+
+|∆φ| [rad]     
+
+> 0250 500 750 1000
+> 0
+> 1
+> 2
+> |∆A| [std.]
+
+|∆A| [std.]                    
+
+> 050 100 150 200 250
+> τ
+> 0
+> π/ 2
+> π
+> |∆φ| [rad]
+> 050 100 150 200 250
+> τ
+> 0
+> 1
+> 2
+> |∆A| [std.]
+> Truck Fluidic pinball
+> POD β-VAE CAE DKL-VAE
+> Figure 13. Absolute phase error |𝛥𝜙 |(left) and absolute amplitude error |𝛥𝐴 |(right) of the dominant latent pair, for the truck (top) and fluidic pinball (bottom). Lines: POD (blue), 𝛽 -VAE (green), CAE (orange) and DKL-VAE (pink). Thick lines are a centred moving average over one reference shedding period; thin lines are the raw signals. The errors are similar across encoders except for the truck POD case, where the phase error grows more slowly and the amplitude error remains close to zero, indicating that it is dominated by phase error.
+
+window, with [0.2, 10 ] 𝑡 𝑐 for the pinball and [3, 10 ] 𝑡 𝑐 for the truck. The truck window starts at 3 𝑡 𝑐 to skip the initial transient observed in the curves of Figure 14. We report the resulting slope as an effective short-horizon divergence rate 𝜆 eff rather than a Lyapunov exponent. The two flows studied here are not classically chaotic in the Rosenstein sense: the truck wake at 𝑅𝑒 = 500 is quasi-periodic, and the fluidic pinball at 
+
+𝑅𝑒 = 150 is only weakly chaotic, just past the transition to chaotic dynamics (Deng et al. 
+
+2020). As a consequence, an asymptotic log-linear divergence regime is not observed over the test-trajectory horizon; the mean separation saturates relatively quickly as it approaches a fraction of the attractor size. This is a physical feature of the actuated wakes, not a defect of the estimator. We therefore interpret 𝜆 eff as an integrated divergence rate over the fit window rather than as an asymptotic dynamical invariant, and we rely on the relative ordering of the values across methods and the comparison between encoded-reference and predicted trajectories, rather than on the absolute magnitude. Figure 14 makes this regime visible: the linear fits are drawn only within the fit window, so one can judge the local quality of the linear approximation for each curve. Under control the latent trajectory is non-autonomous, so the separation of initially close states reflects both the intrinsic sensitivity of the flow and differences in the forcing histories, a contribution that classical Lyapunov exponents do not isolate and that is instead the object of conditional Lyapunov exponents in driven systems (Pecora & Carroll 1990); the inclusion of the control sequence in the nearest-neighbour search described above ensures that compared trajectories share similar actuation histories. Indicators of this kind have recently been shown to be recoverable directly in a latent space, although in the autonomous setting ( ¨ Ozalp & Magri 2025). The fluidic pinball results show encoded-reference divergence rates of comparable magnitude across all four encoders ( 𝜆 ref ≈ 0.045–0 .057 per convective time), consistent with the separation rate of the chaotic wake being largely independent of the choice of encoder. The LSTM predictors reproduce the same order of magnitude; the POD predictor slightly underestimates the reference, the 𝛽 -VAE predictor slightly overestimates it, and the CAE and DKL-VAE predictors moderately underestimate it. For the truck, the encoded 
+
+> 22
+
+Compactness versus forecast accuracy in controlled wake-flow ROMs 
+
+POD does not show a proper log-linear region, consistent with the quasi-periodic trajectory in the POD latent space. The value of 𝜆 ref annotated for this case should therefore not be compared quantitatively with the other encoders, as it mainly reflects the curvature of the separation curve within the fit window. The DKL-VAE shows a divergence rate comparable to the CAE and 𝛽 -VAE in both cases, consistent with its similar long-horizon forecast accuracy. 0 5 10   
+
+> −0.5
+> 0.0
+> 0.5
+> 〈ln  d(t)〉
+> λref = 0 .075
+> λpred = 0 .042
+
+POD     
+
+> 0510
+> 0.0
+> 0.5
+> 1.0
+> λref = 0 .036
+> λpred = 0 .040
+
+β-VAE     
+
+> 0510
+> −0.5
+> 0.0
+> 0.5
+> λref = 0 .057
+> λpred = 0 .049
+
+CAE     
+
+> 0510
+> 0.5
+> 1.0
+> λref = 0 .042
+> λpred = 0 .045
+
+DKL-VAE                   
+
+> 0510
+> τ
+> 1.2
+> 1.4
+> 1.6
+> 〈ln  d(t)〉
+> λref = 0 .045
+> λpred = 0 .039
+> 0510
+> τ
+> 0.6
+> 0.8
+> 1.0
+> 1.2
+> λref = 0 .056
+> λpred = 0 .064
+> 0510
+> τ
+> 0.6
+> 0.8
+> 1.0
+> λref = 0 .056
+> λpred = 0 .041
+> 0510
+> τ
+> 0.8
+> 1.0
+> 1.2
+> λref = 0 .057
+> λpred = 0 .042
+> Truck Fluidic pinball
+> Encoded reference LSTM predicted Linear fit (fit window)
+
+Figure 14. Rosenstein-style logarithmic separation of initially close latent-state pairs, ⟨ln 𝑑 (𝑡 )⟩ , for the encoded reference (solid) and the LSTM-predicted trajectory (dashed). Rows: truck and fluidic pinball cases. Columns: POD, 𝛽 -VAE , CAE and DKL-VAE. The dotted black line in each panel is the linear fit used to extract the effective short-horizon divergence rate, drawn only within its fit window ( [3, 10 ] 𝑡 𝑐 for the truck, [0.2, 10 ] 𝑡 𝑐 
+
+for the pinball). Fitted slopes are annotated in the top-left corner of each panel as 𝜆 ref and 𝜆 pred . Neither case exhibits a clean asymptotic log-linear regime, reflecting the quasi-periodic or weakly chaotic nature of the actuated wakes rather than a defect of the estimator; 𝜆 eff is therefore reported as an integrated short-horizon divergence rate over the fit window, not as a Lyapunov exponent. 
+
+From a practical standpoint, these diagnostics suggest valuable indications to construct a stable latent space for controlled flows. Encoders producing smooth, low-dimensional latent dynamics associated with the dominant coherent oscillatory structures, here POD, yield more predictable and therefore more stable latent trajectories than purely reconstruction-driven nonlinear encoders. In addition, standardisation of the latent coordinates, inclusion of the control history in the predictor and in the stability diagnostic, and selection of the latent dimension based on long-horizon predictability rather than reconstruction energy alone improve the conditioning of the latent predictor. For flows undergoing strong control-induced bifurcations, a single global latent space may not be sufficient; in such cases, control-conditioned encoders, local latent models for different control regimes, or regime-aware mixture models may be more appropriate. Imposing stability by construction, for instance through Lyapunov-based reduced-order models for predictive control (Zhao et al. 
+
+2022), is a promising direction for future work. Overall, the results indicate that for reliable, long-term forecasting, the stability and simplicity of the latent dynamics can be more relevant than the compression efficiency of the encoder, as long as the large-scale structures provide enough information for the application. 
+
+23 A. Solera-Rico, P. Garc´ ıa-Caspue˜ nas, C. Sanmiguel Vila and S. Discetti 
+
+> 4. Conclusions
+
+We have discussed the effectiveness of data-driven frameworks based on latent-space compression and multi-time-delay embedding for prediction of wake flows under control actions. We compared the classical linear POD encoder against a nonlinear CAE and two regularised variational variants, a 𝛽 -VAE and a DKL-VAE, and assessed three LSTM-based predictors, including an autoregressive single-step model, a direct sequence-to-sequence model, and a derivative-based model with explicit time integration. As expected, AEs provided clearly higher compression efficiency than POD, achieving comparable reconstruction accuracy with fewer latent variables. Surprisingly, this advan-tage did not translate into superior long-horizon prediction. For short horizons, AE-based models can match or slightly outperform POD due to their stronger reconstruction of small-scale features. Yet, as the horizon increases, POD-based models become consistently more accurate and markedly more stable. This crossover occurs around 𝜏 ≈ 10 in the truck case and is essentially present throughout the tested horizons in the more complex pinball dynamics. The violin-plot statistics confirmed that CAE-based predictors are more prone to catastrophic divergence at long horizons, whereas POD-based predictors retain higher median accuracy and a narrower spread, indicating greater reliability. These statistics are computed over ensembles of 20 independently retrained encoder–predictor pairs per case, so the reported comparison is robust to training stochasticity; for the truck, the same analysis shows that horizons beyond 𝜏 = 50 are dominated by run-to-run variability, and the reported horizon is clipped accordingly. We explain this counterintuitive result with the different complexity of the latent space. POD yields smooth, quasi-periodic latent trajectories that are easy for LSTMs to learn and extrapolate. In contrast, AE latent variables exhibit more irregular, broadband dynamics. Even when the decoded fields retain sharper spatial detail, the increased nonlinearity and sensitivity of the latent evolution lead to faster accumulation of phase errors, shortening the reliable prediction window. Therefore, in the context of long-horizon forecasting for receding-horizon control, the simplicity and stability of the latent dynamics can be more valuable than maximal compression. Within the linearisation viewpoint, the long-horizon predictability of POD is due to narrow-band dynamics resembling coordinates associated with dominant Koopman spectral components of shedding-dominated wake flows. Such alignment does not generally occur in a reconstruction-trained AE. The 𝛽 -VAE results do not recover the long-horizon accuracy of POD either; for the truck it in fact trails the CAE at every horizon beyond 
+
+𝜏 ≈ 10 (Figure 8), indicating that latent disentanglement alone is not sufficient to recover this property. The same holds for the DKL-VAE evaluated on the truck and pinball cases: decomposing the latent regularisation into independently weighted information-theoretic terms matches the reconstruction and has a comparable degree of linear independence between latent coordinates of the 𝛽 -VAE but does not restore the long-horizon prediction accuracy of POD, suggesting that the trade-off is not an artefact of the particular 𝛽 -VAE penalty. The trade-off is similarly robust to encoder architecture choices: supplementary experiments on the fluidic pinball, varying the filter count and activation function of the CAE over ensembles of training seeds (Appendix A.3), show no notable effect on long-term predictability, with the baseline CAE remaining a well-balanced operating point. Regarding temporal predictors, we assessed architectures with multi-time-delay embed-ding of the control vector within the latent space. Even under equal lookback horizons, we observed a significant sensitivity in the prediction accuracy on the choice of the LSTM model. Autoregressive single-step models degraded rapidly due to recursive error accumulation. The direct sequence and derivative-based architectures improved stability 
+
+> 24
+
+Compactness versus forecast accuracy in controlled wake-flow ROMs 
+
+and yielded the best long-term performance, with the direct sequence model being especially aligned with MPC practice because it maps a candidate future control sequence directly into a predicted state trajectory. Overall, the results highlight a practical principle for data-driven model-based AFC: a slightly higher-dimensional but dynamically simpler latent representation may enable more reliable prediction over longer horizons. An essential practical caveat is that the relative performance of AE- versus POD-based ROMs also depends on the capacity of the temporal predictor. In principle, more expressive sequence models could better accommodate the broadband AE latent dynamics, shifting the trade-off in favour of nonlinear encoders. However, such gains must be weighed against real-time compute, latency, and power constraints for deployment on embedded platforms, motivating co-design of the encoder and predictor with hardware feasibility in mind. Furthermore, the validation in this work relied on simulation data at relatively low Reynolds numbers, characterised by the absence of noise and compact representability using POD. It can be hypothesised that, for flows exhibiting a broader bandwidth of energetically relevant frequencies in their velocity fluctuation spectra, linear techniques would eventually be superseded by nonlinear compression methods based on AEs. Future work will be targeted to assess this aspect at higher Reynolds numbers and in different flow configurations. The results presented in this work should be interpreted within the limitations of the chosen flow configurations. The two-dimensional, low-Reynolds-number regime does not capture the full three-dimensional complexity, broadband spectral content or chaotic dynamics of fully-developed turbulence. Future developments should also focus on testing actuation-aware or regularised nonlinear encoders that explicitly trade spatial fidelity for latent predictability, assess these ideas in three-dimensional and higher-Reynolds-number settings, and close the loop within real-time MPC experiments to quantify the control benefit of longer stable horizons. 
+
+> Declaration of competing interest
+
+The authors report no conflict of interest. 
+
+> Data availability
+
+All datasets and codes used in this work will be made openly available in public repositories upon publication. 
+
+> CRediT authorship contribution statement
+
+Alberto Solera-Rico: Conceptualization, Methodology, Software, Validation, Formal analysis, Investigation, Data Curation, Writing – Original draft, Visualization. Patri-cia Garc´ ıa-Caspue ˜ nas: Conceptualization, Methodology, Software, Validation, Formal analysis, Investigation, Data Curation, Writing – Original draft, Visualization. Carlos Sanmiguel Vila: Conceptualization, Methodology, Resources, Writing – Original draft, Writing – Review & Editing, Supervision. Stefano Discetti: Conceptualization, Methodol-ogy, Resources, Writing – Review & Editing, Supervision, Project administration, Funding acquisition. 
+
+> Declaration of generative AI in scientific writing
+
+During the preparation of this work, the authors used Gemini, Claude and ChatGPT to improve the readability and language of the manuscript. After using these tools, the authors 
+
+> 25
+
+A. Solera-Rico, P. Garc´ ıa-Caspue˜ nas, C. Sanmiguel Vila and S. Discetti 
+
+reviewed and edited the content as needed and assume full responsibility for the content of the published article. 
+
+Funding sources 
+
+This project has received funding from the European Research Council (ERC) under the European Union’s Horizon 2020 research and innovation programme (grant agreement No 949085, NEXTFLOW ERC StG). Views and opinions expressed are however those of the authors only and do not necessarily reflect those of the European Union or the European Research Council. Neither the European Union nor the granting authority can be held responsible for them. 
+
+Appendix A. Sensitivity analyses 
+
+This appendix reports the sensitivity studies that support the conclusions of § 3, covering the sampling frequency of the latent-space time series, the capacity and architecture of the encoders, and an alternative latent-space predictor based on Sparse Identification of Nonlinear Dynamics (SINDy) (Brunton et al. 2016 a). All studies use the fluidic pinball case unless stated otherwise, with the Direct sequence LSTM predictor as the reference dynamical model. 
+
+A.1. Sampling frequency 
+
+The original sampling interval was selected to resolve the dominant frequency content of the latent variables while keeping memory and computational cost within practical bounds. To assess the sensitivity of the prediction performance to this choice, we repeated the analysis with two coarser sampling rates, 𝛥𝑡 = 0.2 and 𝛥𝑡 = 0.4 (2 ×
+
+and 4 × the original step). The results in Figure 15 at 2 𝛥𝑡 are very close to those at the original 𝛥𝑡 , confirming that the original sampling rate is sufficient to capture the relevant latent dynamics. The CAE is slightly more affected by undersampling than POD, consistent with the broader spectral content of its latent trajectories, but the gap is not large enough to explain alone the performance difference observed at the original 𝛥𝑡 . The relative ranking of POD and CAE is preserved across all tested rates. The PSD of the latent coordinates, reported in Figure 16, further confirms that the dominant frequencies are well resolved for both encoders, with several orders of magnitude separating the spectral peaks from the values at the Nyquist frequency of each sampling rate. 0 5 10 15 20    
+
+> τ
+> 025 50 75 100
+> E (%)
+> τ= 0 .1τ= 5
+> pinball
+> CAE orig POD orig CAE (sub ×2) POD (sub ×2) CAE (sub ×4) POD (sub ×4)
+
+Figure 15. Effect of the sampling rate of the latent-space time series on the prediction performance for the fluidic pinball with 𝐸 = 90% and the Direct sequence LSTM predictor. Three rates are compared: 𝛥𝑡 , 2 𝛥𝑡 
+
+and 4 𝛥𝑡 . (Left) Prediction accuracy 𝐸 as a function of the prediction horizon 𝜏 . (Right) Violin plots of 𝐸 at a short-term and a long-term horizon. White markers indicate the median ( ◦ for POD, ^ for CAE); black boxes span the interquartile range (25th–75th percentiles). 
+
+A.2. Encoder capacity 
+
+To rule out underfitting as the source of the lower forecast accuracy of the CAE, we performed a latent-dimension sweep for both encoders, selecting 𝑑 values corresponding to 𝐸 = 80%, 90% (baseline), and 95% of 
+
+26 Compactness versus forecast accuracy in controlled wake-flow ROMs 0 1 2
+
+> 10 −3
+> 10 1
+> 10 5
+> PSD
+> Truck
+
+POD   
+
+> 012
+
+β-VAE   
+
+> 012
+
+CAE   
+
+> 012
+
+DKL-VAE              
+
+> 024St
+> 10 −7
+> 10 −2
+> 10 3
+> PSD
+> Fluidic pinball
+> 024St
+> 024St
+> 024St
+> z1z2z3z4Encoded Predicted
+
+Figure 16. Power spectral density against Strouhal number St = 𝑓 𝐿 𝑟 𝑒 𝑓 /𝑈 ∞ of the four leading latent coordinates (𝑧 1–𝑧 4) for the encoded reference (solid) and the Direct sequence LSTM prediction (dashed), with 𝐿 𝑟 𝑒 𝑓 the truck width or cylinder diameter and 𝑈 ∞ the reference velocity. The upper limit of each panel corresponds to the Nyquist frequency of the original sampling rate. Rows: truck (top) and fluidic pinball (bottom). Columns: POD, 𝛽 -VAE , CAE and DKL-VAE. The dominant spectral peaks are well resolved at the original sampling rate for all encoders, with several orders of magnitude separating the peaks from the values at the Nyquist frequency. the reconstructed variance. This yields CAE models with 𝑑 = 7, 10 , 15 and POD models with 𝑑 = 13 , 22 , 36, see Figure 17. Increasing the reconstructed energy reduces the prediction variance for short-to-medium horizons (up to approximately 𝜏 = 5). At long horizons, however, the baseline 𝐸 = 90% remains the most reliable configuration for both encoders. Larger latent dimensions improve short-term accuracy but degrade long-term stability, confirming that the compactness–predictability trade-off is a fundamental property of the framework rather than a consequence of underfitting at the baseline configuration. The relative ranking of POD and CAE is preserved across all tested dimensions. We also note that the capacity of the baseline CAE model was previously optimised through a hyperparameter study. 0 5 10 15 20    
+
+> τ
+> 025 50 75 100
+> E (%)
+> τ= 0 .1τ= 5
+
+pinball 
+
+> CAE (d=7) POD (d=13) CAE orig (d=10) POD orig (d=22) CAE (d=15) POD (d=36)
+
+Figure 17. Effect of the encoder capacity on the prediction performance for the fluidic pinball trained with the Direct sequence LSTM predictor, for three reconstructed energy targets: 𝐸 = 80%, 90% (baseline) and 95%. (Left) Prediction accuracy 𝐸 as a function of the prediction horizon 𝜏 . (Right) Violin plots of 𝐸 at a short-term and a long-term horizon. White markers indicate the median ( ◦ for POD, ^ for CAE); black boxes span the interquartile range (25th–75th percentiles). 
+
+27 A. Solera-Rico, P. Garc´ ıa-Caspue˜ nas, C. Sanmiguel Vila and S. Discetti 
+
+A.3. Encoder architecture 
+
+Beyond the latent dimension, the encoder architecture itself is a potential source of bias in the compactness– predictability comparison. To assess its influence, we varied the number of convolutional filters and the activation function of the CAE encoder–decoder ( 𝑑 = 10, all other hyperparameters fixed). The notation CAE 𝑁 denotes a variant whose convolutional layers use 𝑁 times the number of filters of the baseline CAE 1; CAE tanh uses a hyperbolic tangent activation in place of the baseline ELU, with the same filter count as CAE 1. For each encoder the same Direct sequence LSTM predictor is trained with identical settings, and each variant is independently retrained for 20 seeds, following the protocol of § 3. The results are reported in Figure 18. Across the tested range, the architecture has only a marginal effect on long-term predictability: CAE 2 performs marginally better than the baseline (median 𝐸 = 81 .2% against 79 .7% for CAE 1 at 𝜏 = 5), while CAE 1/2, CAE 1/4 and CAE tanh remain within 3 .5 percentage points of the baseline, and no variant approaches the long-horizon accuracy of POD (median 𝐸 = 86 .6% at 𝜏 = 5). The relative ranking of POD and the CAE variants is preserved, and the baseline CAE 1 remains a well-balanced operating point between capacity and accuracy. These results indicate that the compactness–predictability trade-off is a robust property of the encoder family and is not an artefact of the specific architecture chosen for the baseline comparison. 0.0 2.5 5.0 7.5 10 .0 12 .5 15 .0 17 .5 20 .0   
+
+> τ
+> 020 40 60 80 100
+> E (%)  POD 22
+> CAE 1
+> β-VAE DKL-VAE CAE 1/4
+> CAE 1/2
+> CAE 2
+> CAE tanh
+> POD 22
+> CAE 1
+> β-VAE DKL-VAE CAE 1/4
+> CAE 1/2
+> CAE 2
+> CAE tanh
+> POD 22
+> CAE 1
+> β-VAE DKL-VAE CAE 1/4
+> CAE 1/2
+> CAE 2
+> CAE tanh
+> 020 40 60 80 100
+> E (%)
+> τ= 0 .1τ= 5
+
+Figure 18. Median prediction accuracy 𝐸 (𝜏 ) over the training-seed ensemble (left) and pooled distributions of the instantaneous 𝐸 at 𝜏 = 0.1 and 𝜏 = 5 (right) for the paper baselines (POD 22 , CAE 1, 𝛽 -VAE, DKL-VAE) and the architecture variants, evaluated on the fluidic pinball case with 𝑑 = 10 and the Direct sequence LSTM. Numerical subscripts denote the filter-count multiplier relative to CAE 1; CAE tanh has the same filter count as CAE 1 but uses a hyperbolic tangent activation. 
+
+Appendix B. SINDy as latent-space predictor 
+
+We finally tested SINDy with control inputs (Brunton et al. 2016 b) as an alternative to the LSTM predictor on both the POD and CAE latent spaces of the two flow configurations. The regularisation variant used was SINDy-ALASSO, reported by Fukami et al. (2021) as a robust sparse identification method for complex dynamics of higher dimensionality. Forward integration of the identified sparse polynomial models without an explicit closure causes the predicted trajectories to diverge from the reference within a few convective times. For the chaotic fluidic pinball, the absence of a closure term makes the identified equations unstable for long-horizon forecasting (Figure 19). The POD–SINDy model, with 22 coupled ordinary differential equations, was particularly expensive to identify and still diverged within a few convective times; the CAE–SINDy model showed a comparable instability. The truck case, with a smaller latent dimension 𝑑 = 8, should in principle be more favourable for SINDy; nevertheless, the resulting predictors decay faster than the LSTM alternatives, Figure 20. The approach completely fails to capture the dynamics of the CAE latent space and lacks long-term stability for the POD modes. Rather than acting as an effective regulariser, the structural sparsity of SINDy proves insufficient to compensate for the complexity of the controlled-wake latent dynamics under the conditions tested here. The LSTM, with its recurrent memory, provides a more effective implicit closure for this class of problems. 
+
+28 Compactness versus forecast accuracy in controlled wake-flow ROMs 0 5 10 15 20       
+
+> τ
+> 020 40 60 80 100
+> E (%)
+> τ= 0 .1τ= 5
+> pinball
+> CAE orig POD orig SINDy/CAE SINDy/POD
+
+Figure 19. Comparison between SINDy and the Direct sequence LSTM predictor on the fluidic pinball with 
+
+𝐸 = 90%. (Left) Prediction accuracy 𝐸 as a function of the prediction horizon 𝜏 . (Right) Violin plots of 𝐸 at a short-term and a long-term horizon. White markers indicate the median ( ◦ for POD, ^ for CAE); black boxes span the interquartile range (25th–75th percentiles). 0 10 20 30 40 50       
+
+> τ
+> 020 40 60 80 100
+> E (%)
+> τ= 0 .2τ= 50
+> truck
+> POD orig CAE orig SINDy/POD SINDy/CAE
+
+Figure 20. Comparison between SINDy and the Direct sequence LSTM predictor on the truck case. (Left) Prediction accuracy 𝐸 as a function of the prediction horizon 𝜏 . (Right) Violin plots of 𝐸 at a short-term and a long-term horizon. White markers indicate the median ( ◦ for POD, ^ for CAE); black boxes span the interquartile range (25th–75th percentiles). 
+
+REFERENCES 
+
+Amico, Enrico, Cafiero, Gioacchino & Iuso, Gaetano 2022 Deep reinforcement learning for active control of a three-dimensional bluff body wake. Physics of Fluids 34 (10), 105126. 
+
+Amico, E, Serpieri, J, Iuso, G & Cafiero, G 2024 Flow topology of deep reinforcement learning drag-reduced bluff body wakes. Physics of Fluids 36 (8), 087122. 
+
+Barros, Diogo, Bor´ ee, Jacques, Noack, Bernd R, Spohn, Andreas & Ruiz, Tony 2016 Bluff body drag manipulation using pulsed jets and coanda effect. Journal of Fluid Mechanics 805 , 422–459. 
+
+Bewley, Thomas R, Moin, Parviz & Temam, Roger 2001 DNS-based predictive control of turbulence: an optimal benchmark for feedback algorithms. Journal of Fluid Mechanics 447 , 179–225. 
+
+Bieker, Katharina, Peitz, Sebastian, Brunton, Steven L, Kutz, J Nathan & Dellnitz, Michael 
+
+2020 Deep model predictive flow control with limited sensor data and online learning. Theoretical and computational fluid dynamics 34 (4), 577–591. 
+
+Brunton, Steven L & Noack, Bernd R 2015 Closed-loop turbulence control: Progress and challenges. 
+
+Applied Mechanics Reviews 67 (5), 050801. 
+
+Brunton, Steven L., Noack, Bernd R. & Koumoutsakos, Petros 2020 Machine learning for fluid mechanics. 
+
+Annual Review of Fluid Mechanics 52 (Volume 52, 2020), 477–508. 
+
+Brunton, Steven L, Proctor, Joshua L & Kutz, J Nathan 2016 a Discovering governing equations from data by sparse identification of nonlinear dynamical systems. Proceedings of the national academy of sciences 
+
+113 (15), 3932–3937. 
+
+Brunton, Steven L, Proctor, Joshua L & Kutz, J Nathan 2016 b Sparse identification of nonlinear dynamics with control (SINDYc). IFAC-PapersOnLine 49 (18), 710–715. 
+
+Bukka, Sandeep Reddy, Gupta, Rachit, Magee, Allan Ross & Jaiman, Rajeev Kumar 2021 Assessment of unsteady flow predictions using hybrid deep learning based reduced-order models. Physics of Fluids 33 (1). 
+
+29 A. Solera-Rico, P. Garc´ ıa-Caspue˜ nas, C. Sanmiguel Vila and S. Discetti 
+
+Camacho, Eduardo F. & Bordons, Carlos 2013 Model Predictive Control , 2nd edn. Advanced Textbooks in Control and Signal Processing . London: Springer London. 
+
+Cattafesta, Louis N. & Sheplak, Mark 2011 Actuators for active flow control. Annual Review of Fluid Mechanics 43 (Volume 43, 2011), 247–272. 
+
+Cerutti, Juan Jos´ e, Sardu, Costantino, Cafiero, Gioacchino & Iuso, Gaetano 2020 Active flow control on a square-back road vehicle. Fluids 5 (2), 55. 
+
+Chen, Ricky T. Q., Li, Xuechen, Grosse, Roger & Duvenaud, David 2018 Isolating sources of disentanglement in variational autoencoders. In Advances in Neural Information Processing Systems , , vol. 31. 
+
+Chourdakis, G, Davis, K, Rodenberg, B, Schulte, M, Simonis, F, Uekermann, B, Abrams, G, Bungartz, HJ, Cheung Yau, L, Desai, I, Eder, K, Hertrich, R, Lindner, F, Rusch, A, Sashko, D, Schneider, D, Totounferoush, A, Volland, D, Vollmer, P & Koseomur, OZ 2022 preCICE v2: A sustainable and user-friendly coupling library [version 2; peer review: 2 approved]. Open Research Europe 2 (51). 
+
+Chourdakis, Gerasimos, Schneider, David & Uekermann, Benjamin 2023 OpenFOAM-preCICE: Coupling OpenFOAM with external solvers for multi-physics simulations. OpenFOAM ® Journal 3, 1–25. 
+
+Clevert, Djork-Arn´ e, Unterthiner, Thomas & Hochreiter, Sepp 2015 Fast and accurate deep network learning by exponential linear units (elus). arXiv preprint arXiv:1511.07289 4 (5), 11. 
+
+Deng, Nan, Noack, Bernd R., Cornejo Maceda, Guy Y. & Pastur, Luc R. 2025 Nonlinear dynamics of the actuated fluidic pinball — steady, periodic, and chaotic regimes. Chaos, Solitons & Fractals 193 , 116075. 
+
+Deng, Nan, Noack, Bernd R., Morzy ´ nski, Marek & Pastur, Luc R. 2020 Low-order model for successive bifurcations of the fluidic pinball. Journal of Fluid Mechanics 884 , A37. 
+
+Eivazi, Hamidreza, Le Clainche, Soledad, Hoyas, Sergio & Vinuesa, Ricardo 2022 Towards extraction of orthogonal and parsimonious non-linear modes from turbulent flows. Expert Systems with Applications 
+
+202 , 117038. 
+
+Fresca, Stefania, Dede’, Luca & Manzoni, Andrea 2021 A comprehensive deep learning-based approach to reduced order modeling of nonlinear time-dependent parametrized PDEs. Journal of Scientific Computing 
+
+87 (2), 61. 
+
+Fresca, Stefania & Manzoni, Andrea 2022 POD-DL-ROM: Enhancing deep learning-based reduced order models for nonlinear parametrized PDEs by proper orthogonal decomposition. Computer Methods in Applied Mechanics and Engineering 388 , 114181. 
+
+Fukagata, Koji & Fukami, Kai 2025 Compressing fluid flows with nonlinear machine learning: mode decomposition, latent modeling, and flow control. Fluid Dynamics Research 57 (4), 041401. 
+
+Fukami, Kai, Murata, Takaaki, Zhang, Kai & Fukagata, Koji 2021 Sparse identification of nonlinear dynamics with low-dimensionalized flow representations. Journal of Fluid Mechanics 926 , A10. 
+
+Fukami, Kai, Nakamura, Taichi & Fukagata, Koji 2020 Convolutional neural network based hierarchical autoencoder for nonlinear mode decomposition of fluid field data. Physics of Fluids 32 (9), 095110. 
+
+Garcia, Xavier, Mir ´ o, Arnau, Su ´ arez, Pol, Alc ´ antara- ´ Avila, Francisco, Rabault, Jean, Font, Bernat, Lehmkuhl, Oriol & Vinuesa, Ricardo 2025 Deep-reinforcement-learning-based separation control in a two-dimensional airfoil. International Journal of Heat and Fluid Flow 116 , 109913. 
+
+Glezer, Ari & Amitay, Michael 2002 Synthetic jets. Annual Review of Fluid Mechanics 34 (Volume 34, 2002), 503–529. 
+
+Greenblatt, David & Wygnanski, Israel J. 2000 The control of flow separation by periodic excitation. 
+
+Progress in Aerospace Sciences 36 (7), 487–545. 
+
+Gupta, Priyam, Schmid, Peter, Sipp, Denis, Sayadi, Taraneh & Rigas, Georgios 2025 Mori–Zwanzig latent space Koopman closure for nonlinear autoencoder. Proceedings of the Royal Society A: Mathematical, Physical and Engineering Sciences 481 (2313), 20240259. 
+
+Higgins, Irina, Matthey, Loic, Pal, Arka, Burgess, Christopher, Glorot, Xavier, Botvinick, Matthew, Mohamed, Shakir & Lerchner, Alexander 2017 beta-VAE: Learning basic visual concepts with a constrained variational framework. In International Conference on Learning Representations .
+
+Hinton, G. E. & Salakhutdinov, R. R. 2006 Reducing the dimensionality of data with neural networks. 
+
+Science 313 (5786), 504–507. 
+
+Hochreiter, Sepp & Schmidhuber, J ¨ urgen 1997 Long short-term memory. Neural Computation 9 (8), 1735– 1780. 
+
+Kaiser, Eurika, Kutz, J Nathan & Brunton, Steven L 2018 Sparse identification of nonlinear dynamics for model predictive control in the low-data limit. Proceedings of the Royal Society A 474 (2219), 20180335. 
+
+Kingma, Diederik P. & Ba, Jimmy 2014 Adam: A method for stochastic optimization. arXiv preprint arXiv:1412.6980 .
+
+Lecun, Y., Bottou, L., Bengio, Y. & Haffner, P. 1998 Gradient-based learning applied to document recognition. Proceedings of the IEEE 86 (11), 2278–2324. 
+
+30 Compactness versus forecast accuracy in controlled wake-flow ROMs 
+
+Littlewood, RP & Passmore, Martin A 2012 Aerodynamic drag reduction of a simplified squareback vehicle using steady blowing. Experiments in fluids 53 (2), 519–529. 
+
+Liu, Zhecheng, Beckers, Diederik & Eldredge, Jeff D 2025 Model-based reinforcement learning for control of strongly disturbed unsteady aerodynamic flows. AIAA Journal pp. 1–21. 
+
+Lusch, Bethany, Kutz, J. Nathan & Brunton, Steven L. 2018 Deep learning for universal linear embeddings of nonlinear dynamics. Nature Communications 9 (1), 4950. 
+
+Marra, Luigi, Maceda, Guy Y Cornejo, Meil ´ an-Vila, Andrea, Guerrero, Vanesa, Rashwan, Salma, Noack, Bernd R, Discetti, Stefano & Ianiro, Andrea 2024 a Actuation manifold from snapshot data. 
+
+Journal of Fluid Mechanics 996 , A26. 
+
+Marra, Luigi, Meil ´ an-Vila, Andrea & Discetti, Stefano 2024 b Self-tuning model predictive control for wake flows. Journal of Fluid Mechanics 983 , A26. 
+
+Maulik, Romit, Lusch, Bethany & Balaprakash, Prasanna 2021 Reduced-order modeling of advection-dominated systems with recurrent neural networks and convolutional autoencoders. Physics of Fluids 33 (3). 
+
+McArthur, Damien, Burton, David, Thompson, Mark & Sheridan, John 2016 On the near wake of a simplified heavy vehicle. Journal of Fluids and Structures 66 , 293–314. 
+
+McNally, Jonathan, Fernandez, Erik, Robertson, Gregory, Kumar, Rajan, Taira, Kunihiko, Alvi, Farrukh, Yamaguchi, Yoshihiro & Murayama, Kei 2015 Drag reduction on a flat-back ground vehicle with active flow control. Journal of Wind Engineering and Industrial Aerodynamics 145 , 292–303. 
+
+Menier, Emmanuel, Bucci, Michele Alessandro, Yagoubi, Mouadh, Mathelin, Lionel & Schoenauer, Marc 2023 CD-ROM: Complemented Deep-Reduced Order Model. Computer Methods in Applied Mechanics and Engineering 410 , 115985. 
+
+Mezi´ c, Igor 2013 Analysis of fluid flows via spectral properties of the Koopman operator. Annual Review of Fluid Mechanics 45 (1), 357–378. 
+
+Murata, Takaaki, Fukami, Kai & Fukagata, Koji 2020 Nonlinear mode decomposition with convolutional neural networks for fluid dynamics. Journal of Fluid Mechanics 882 , A13. 
+
+Noack, Bernd R., Afanasiev, Konstantin, Morzy ´ nski, Marek, Tadmor, Gilead & Thiele, Frank 2003 A hierarchy of low-dimensional models for the transient and post-transient cylinder wake. Journal of Fluid Mechanics 497 , 335–363. 
+
+Noack, Bernd R, Papas, Paul & Monkewitz, Peter A 2005 The need for a pressure-term representation in empirical Galerkin models of incompressible shear flows. Journal of Fluid Mechanics 523 , 339–365. 
+
+¨Ozalp, Elise & Magri, Luca 2025 Stability analysis of chaotic systems in latent spaces. Nonlinear Dynamics 
+
+113 , 13791–13806. 
+
+Pecora, Louis M. & Carroll, Thomas L. 1990 Synchronization in chaotic systems. Phys. Rev. Lett. 64 ,821–824. 
+
+Rawlings, James B., Mayne, David Q. & Diehl, Moritz M. 2017 Model Predictive Control: Theory, Computation, and Design , 2nd edn. Nob Hill Publishing. 
+
+Robledo, Isaac, Alfaro, Juan, Duro, V´ ıctor, Solera-Rico, Alberto, Castellanos, Rodrigo & Sanmiguel Vila, Carlos 2026 Reducing base drag on road vehicles using pulsed jets optimized by hybrid genetic algorithms. Physics of Fluids 38 (4), 047109. 
+
+Rosenstein, Michael T., Collins, James J. & De Luca, Carlo J. 1993 A practical method for calculating largest Lyapunov exponents from small data sets. Physica D: Nonlinear Phenomena 65 (1), 117–134. 
+
+Rowley, Clarence W, Mezi´ c, Igor, Bagheri, Shervin, Schlatter, Philipp & Henningson, Dan S 2009 Spectral analysis of nonlinear flows. Journal of fluid mechanics 641 , 115–127. 
+
+Shams, Mosayeb & Elsheikh, Ahmed H. 2023 Gym-precice: Reinforcement learning environments for active flow control. SoftwareX 23 , 101446. 
+
+Sirovich, Lawrence 1987 Turbulence and the dynamics of coherent structures. Part I. Coherent structures. 
+
+Quarterly of applied mathematics 45 (3), 561–571. 
+
+Solera-Rico, Alberto, Sanmiguel Vila, Carlos & Discetti, Stefano 2025 A framework for realisable data-driven active flow control using model predictive control applied to a simplified truck wake. arXiv preprint arXiv:2510.11600 .
+
+Solera-Rico, Alberto, Sanmiguel Vila, Carlos, G ´ omez-L ´ opez, Miguel, Wang, Yuning, Almashjary, Abdulrahman, Dawson, Scott TM & Vinuesa, Ricardo 2024 𝛽 -variational autoencoders and transformers for reduced-order modelling of fluid flows. Nature Communications 15 (1), 1361. 
+
+Storms, Bruce L., Ross, James C., Heineck, James T., Walker, Stephen M., Driver, David M., Zilliac, Gregory G. & Bencze, Daniel P. 2001 An experimental study of the ground transportation system (gts) model in the nasa ames 7 by 10 ft wind tunnel. Tech. Rep. NASA/TM-2001-209621. NASA Ames Research Center. 
+
+Su ´ arez, Pol, Alc ´ antara- ´ Avila, Francisco, Rabault, Jean, Mir ´ o, Arnau, Font, Bernat, Lehmkuhl, 
+
+31 A. Solera-Rico, P. Garc´ ıa-Caspue˜ nas, C. Sanmiguel Vila and S. Discetti 
+
+Oriol & Vinuesa, Ricardo 2025 Flow control of three-dimensional cylinders transitioning to turbulence via multi-agent reinforcement learning. Communications Engineering 4 (1), 113. 
+
+Taira, Kunihiko, Brunton, Steven L., Dawson, Scott T. M., Rowley, Clarence W., Colonius, Tim, McKeon, Beverley J., Schmidt, Oliver T., Gordeyev, Stanislav, Theofilis, Vassilios & Ukeiley, Lawrence S. 2017 Modal analysis of fluid flows: an overview. AIAA Journal 55 (12), 4013–4041. 
+
+Wang, Zhiyuan, Tirelli, Iacopo, Discetti, Stefano & Ianiro, Andrea 2026 Information decomposition for disentangled and interpretable manifold learning of fluid flows via variational autoencoders. Chinese Journal of Aeronautics p. 104342. 
+
+Yang, Sunwoong, Vinuesa, Ricardo & Kang, Namwoo 2025 Model-agnostic AI framework with explicit time integration for long-term fluid dynamics prediction. Journal of Computational Design and Engineering 
+
+12 (10), 133–153. 
+
+Zhao, Tianyi, Zheng, Yingzhe, Gong, Jinlong & Wu, Zhe 2022 Machine learning-based reduced-order modeling and predictive control of nonlinear processes. Chemical Engineering Research and Design 179 ,435–451. 
+
+Zhu, Yin, Sun, Qiangqiang, Xiao, Dandan, Yao, Jie & Mao, Xuerui 2024 Compressed neural networks for reduced order modeling. Physics of Fluids 36 (5), 057121. 
+
+32
