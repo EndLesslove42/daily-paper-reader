@@ -1,0 +1,2304 @@
+Title: Active Learning for Data-Efficient Calibration of Stochastic Simulation Models
+
+URL Source: https://arxiv.org/pdf/2607.28874v1
+
+Published Time: Mon, 03 Aug 2026 00:15:04 GMT
+
+Number of Pages: 50
+
+Markdown Content:
+# Active Learning for Data-Efficient Calibration of Stochastic Simulation Models 
+
+¨Ozge S¨ urer 1,* 1Farmer School of Business, Miami University, Oxford, OH 45056, USA 
+
+> *
+
+Corresponding author can be reached at surero@miamioh.edu 
+
+August 3, 2026 
+
+Abstract 
+
+Simulation-based calibration aims to infer unknown parameters of complex simulation models by aligning model outputs with real-world observations. When simulation runs are compu-tationally expensive, statistical emulators trained on simulation data are used to efficiently approximate the model. An intelligent, adaptive selection of simulation inputs for building the emulator can substantially improve the efficiency of the calibration process. This task is partic-ularly challenging for stochastic simulations with noisy outputs, since both selecting new input locations (exploration) and allocating repeated runs at existing inputs (replication) are essen-tial for efficiently learning the input-output relationship. In this paper, we introduce an active learning framework that adaptively balances exploration and replication for data-efficient cal-ibration. Our uncertainty-aware acquisition criterion targets learning the posterior density of the unknown simulation parameters, and we derive two corresponding forms of the acquisition function for exploration and replication. Building on these, we propose a strategy that, at each stage of the sequential design, chooses between exploration and replication to most effectively reduce the uncertainty in the estimate of the posterior density of the simulation parameters. Experiments on synthetic benchmarks and a real epidemiological model demonstrate that our approach significantly improves learning of the posterior distribution of the simulation param-eters while reducing the number of required simulations, making it well-suited for expensive stochastic simulation settings. 
+
+Keywords: acquisition, inverse problem, emulation, sequential design, uncertainty quantification arXiv:2607.28874v1 [stat.ME] 30 Jul 2026 1 Introduction 
+
+Simulation models are widely used to analyze complex systems, particularly when real-world experimen-tation is infeasible or costly. In many domains, such as epidemiology, climate science, and manufacturing, stochastic simulation models are essential to capture inherent randomness in system behavior. These models typically take controllable design inputs and user-defined model parameters (also referred to as calibration parameters) to generate outputs that represent the system. Although the simulation model parameters are not directly observable physical quantities, they govern how the simulation model reproduces real-world behav-ior and therefore support reliable prediction, scenario analysis, and decision-making in regimes where real-world data are limited or sparse. Calibration (Sung and Tuo 2024) aims to infer such unknown parameters that align simulation outputs with observed data from real-world or field experiments. Unlike deterministic simulation models, stochastic models yield different outputs when evaluated repeatedly at the same input due to inherent randomness, known as intrinsic (aleatoric) uncertainty. This makes calibration particularly challenging when simulations are both computationally expensive and noisy, as many evaluations may be required to estimate the underlying response accurately. In the Bayesian paradigm (Kennedy and O’Hagan 2001), calibration yields a posterior distribution over the unknown simulation model parameters, combining prior knowledge with information from observed data. Under the assumption of a well-specified simulation model, learning this posterior distribution allows the simulation model to reproduce real-world behavior in distribution, while explicitly quantifying uncertainty in both parameter estimates and downstream predic-tions. This uncertainty-aware inference is essential in practice, as it enables principled risk assessment and decision support in the presence of variability and limited observations. When simulation runs are expensive, surrogate models are frequently employed to replace direct evalua-tions of the simulation model (Gramacy 2020). Gaussian process (GP) models are widely used as surrogates for deterministic models due to their ability to provide predictions with associated uncertainty (Rasmussen and Williams 2005). While GPs can be extended to emulate stochastic simulation models, these extensions face additional complexity due to non-constant intrinsic variance across inputs (Baker et al. 2022). In this work, we consider the widely used setting of Gaussian simulation noise. Within this framework, stochas-tic kriging (SK) is a commonly adopted approach for emulating the relationship between inputs and noisy outputs (Ankenman et al. 2009). A practical limitation of SK is that it requires a separate GP model and 
+
+2replicated observations at each input to estimate the input-dependent noise (i.e., intrinsic variance). To al-leviate this issue, Binois et al. (2018) introduced heteroskedastic GP (hetGP) models that jointly model the mean and noise variance without requiring a fixed replication level. While several alternative methods for modeling input-dependent noise have also been proposed (e.g., Kersting et al. 2007, L´ azaro-Gredilla and Titsias 2011), we adopt the hetGP model in this work primarily because it provides integrated inference for both the mean and noise variance together with an accessible software implementation. Constructing a surrogate model requires a design, which refers to the selection of input locations at which the simulation model is evaluated. For deterministic simulation models, designs are often constructed using space-filling strategies (Santner et al. 2018) that aim to cover the input space with distinct input points. A common strategy for handling input-dependent noise in stochastic models is replication, in which the simulation model is evaluated multiple times at the same input location. Replication enables estimation of intrinsic uncertainty and can also improve emulator accuracy and reduce emulator construction costs by averaging outputs. Accordingly, designs for emulating stochastic models typically combine the selection of distinct input locations with replication to account for input-dependent intrinsic noise. These design strategies often build on those used for deterministic simulations—for example, employing space-filling methods to choose distinct input locations and assigning a fixed number of replicates to each. However, such designs may be suboptimal for calibration tasks, especially in high-dimensional settings, because they are constructed without reference to how well simulation outputs align with observed data. As a result, such designs may fail to sufficiently explore regions of the input space that are most informative for calibration. Moreover, determining the number of replicates at each input requires careful consideration, as an effective replication strategy should account for variability within the calibration region of interest. To address these challenges, we propose a design strategy that targets input locations near the (unknown) calibration region of interest and allocates an appropriate number of replicates per location using active learning to facilitate efficient posterior inference for the simulation model parameters. Active learning, also referred to as sequential design in simulation and statistics, offers key advantages over traditional one-shot approaches where all input locations are selected in advance (see, e.g., Lam and Notz (2008)). At the core of active learning is an acquisition function, which quantifies the expected benefit of evaluating the simulation model at a specific input and guides the adaptive selection of new input points. Starting from an initial set of simulation data, additional inputs are chosen sequentially by leveraging information gained from prior runs. 
+
+3Active learning is frequently applied to optimization tasks where the objective is to identify an optimizer (Frazier 2018, Jalali et al. 2017). In the context of calibration, this often corresponds to finding the maximum a posteriori estimate, which may result in sampling primarily near the mode of the posterior. However, in this work, our goal is to learn the entire posterior distribution of the unknown simulation model parameters that align simulation outputs with real-world observations. Active learning is also widely used to build globally accurate surrogate models, particularly when the goal is to approximate the full input–output relationship of a complex simulation model rather than identify a single optimum. To support the construction of globally accurate surrogate models, the integrated mean squared prediction error (IMSE) is a commonly used acquisition criterion. IMSE quantifies the predictive uncertainty of an emulator across the entire input space, making it well-suited for general-purpose emulation. For instance, Ankenman et al. (2009) propose a two-stage design strategy for building accurate SK models: the first stage allocates a fixed number of replicates to a Latin hypercube design, while the second stage determines the optimal replication levels to minimize IMSE. Extending this idea, Chen and Zhou (2015) and Chen and Zhou (2017) develop sequential IMSE-based approaches that dynamically balance exploration of new inputs and exploitation through additional replication at existing points. In their framework, each active learning iteration is constrained by a fixed simulation budget, and the key decision is whether to assign replications to existing design points or introduce a new one. More recently, Binois et al. (2019) use the hetGP emulator in a fully sequential setting, acquiring one simulation at a time and choosing between replicating an existing input or sampling a new one based on IMSE minimization. Although active learning with stochastic simulation models is known to enhance global prediction accu-racy of emulators, relatively little research has addressed criteria specifically tailored for calibration tasks, where global prediction is not the primary goal. In recent work, S¨ urer (2026) propose a batch sequential ap-proach that uses an acquisition function based on the aggregated posterior variance over the parameter space to efficiently learn the posterior of the unknown simulation model parameters. Their setting focused on stochastic simulation models that, when run at a given parameter, return high-dimensional outputs evaluated over a fixed set of design inputs. As a result, only the parameters serve as inputs to the simulation model, and acquisition functions are formulated to select a batch of parameters for either replication or exploration. However, many stochastic simulation models are functions of both unknown parameters and design inputs, with the latter also being part of the real-world (field) data collection process. In such cases, field experi-
+
+4ments are performed at a fixed set of design inputs—referred to here as field data design inputs—and the corresponding field observations are used for parameter calibration. In this work, we propose a novel ac-quisition function for stochastic simulation models that enables the sequential selection of input pairs, each comprising a parameter and a design input, to reduce uncertainty in the estimate of the posterior density of the simulation parameters. A related approach is presented in S¨ urer (2025), which considers an active learning strategy for selecting parameter-design input pairs to minimize the total uncertainty in the posterior estimate of the model param-eters. Their framework is developed for deterministic simulation models, where repeated evaluations at the same input yield identical outputs. Consequently, replication decisions are not considered, and the approach relies on GP emulators tailored to deterministic simulations, with each acquisition stage focused only on exploring new regions of the input space. In contrast, the proposed work addresses stochastic simulation models with intrinsic, input-dependent variability in the outputs. We model this heteroskedastic uncertainty using a hetGP emulator and explicitly account for the trade-off between exploration of new input locations and replication at existing locations. This leads to two distinct forms of the acquisition criterion, corre-sponding to exploration and replication, which are essential for efficient posterior learning in the presence of simulation noise. To choose between exploration and replication, we further propose a strategy that en-courages replication by leveraging its advantages from both design and computational perspectives. The proposed design balances exploration and exploitation by selecting simulation inputs that align with field data inputs near the parameter region of interest (exploration), while increasing replication in noisier regions to better capture the signal–noise relationship (exploitation). The remainder of the paper is organized as follows. Section 2 reviews the calibration and emulation framework and introduces the sequential design setting. Section 3 details the proposed acquisition function and its two forms for exploration and replication, and discusses strategies to guide the sequential selection of simulation inputs. Experimental results are reported in Section 4, and concluding remarks are provided in Section 5. 
+
+52 Background 
+
+# 2.1 Problem setting 
+
+Let x = ( x1, . . . , x q)⊤ ∈ X ⊂ Rq denote the vector of design inputs, and let ϑϑϑ = ( ϑ1, . . . , ϑ p)⊤ ∈
+
+Θ ⊂ Rp denote the vector of input parameters. The simulation model ζ(·) takes both the design input x
+
+and the parameter ϑϑϑ as input and returns an output. For notational simplicity, define z =
+
+
+
+x⊤, ϑ ϑϑ⊤⊤
+
+as the combined simulation input vector of dimension q + p. We denote the expected value of the stochastic simulation output at input z by η(z) = E[ζ(z)] . The expected output cannot be observed directly; instead, we only have access to noisy realizations of the simulation output. The simulation output is modeled as the sum of this expected output and a zero-mean noise term: 
+
+ζ(z) = η(z) + ν, ν ∼ N (0 , r (z)) ,
+
+where the noise ν has input-dependent variance r(z). In this work, we assume heteroskedastic simulation noise, where the variance of the noise, r(z), depends on the input z. However, our results are equally applicable in the homoskedastic setting, where the noise level is constant across inputs and the problem is generally simpler. In such cases, the surrogate model can learn the constant variance, and the design may assign a uniform number of replicates at all input points. A design input x is common to both the simulation model and the field experiment. To study the physical system, field experiments are conducted at d specific design inputs, where d denotes the total number of field observations. These field data design inputs are denoted xo
+
+> 1
+
+, . . . , xod ∈ X . The observed field data 
+
+y = ( y(xo
+
+> 1
+
+), . . . , y (xod)) ⊤ are used to estimate the unknown calibration parameter θθθ = ( θ1, . . . , θ p)⊤ ∈ Θ,which aligns the simulation model with the observed data y. Define the input vector zoj =
+
+
+
+xoj ⊤, θ θθ⊤⊤
+
+as the combination of the field data design input and the calibration parameter. The relationship between the field data and the simulation model is formulated using the following statistical model 
+
+y(xoj ) = η(zoj ) + ϵ, ϵ ∼ N  0, σ 2 , (1) where ϵ represents the residual error. Our design approach operates under the assumption of a well-specified 
+
+6simulation model that, together with θθθ, governs the expected field data. However, in many real-world ap-plications, even a best-tuned simulation model may not fully represent the physical system. Incorporating a discrepancy term, as formalized in the Kennedy and O’Hagan (KOH, Kennedy and O’Hagan (2001)) calibration framework, allows for more flexible modeling of the gap between simulation outputs and field data. While the modular approach (Bayarri et al. 2009,0) can be adopted as in the case of deterministic simulation models (S¨ urer 2025), the combined variability arising from noisy simulation outputs, model dis-crepancy, and observational noise can lead to more severe identifiability challenges for stochastic models (Brynjarsd´ ottir and O’Hagan 2014, Plumlee 2017, Tuo and Wu 2015). Extending the proposed acquisition function to jointly account for noisy simulation outputs and model discrepancy is an important direction for future work. In this work, we focus on Bayesian calibration, a form of calibration that quantifies uncertainty in both model parameters and predictions. This is achieved by combining prior knowledge—expressed through a known closed-form prior distribution p (θθθ) on the parameters—with field data information captured via a likelihood function p (y | θθθ) based on the simulation model. The resulting posterior p(θθθ | y) represents the updated probability of the parameters, reflecting how well they align with both the prior information and the observed data. According to Bayes’ rule, the posterior density is expressed as follows 
+
+p (θθθ | y) = p (y | θθθ) p (θθθ)
+
+R
+
+> Θ
+
+p  y | θθθ′ p  θθθ′ dθθθ′ ∝ ˜p (θθθ | y) = p (y | θθθ) p (θθθ) . (2) Based on the model in (1), the likelihood is given by 
+
+p (y | θθθ) = (2 π)−d/ 2|ΣΣΣ|−1/2 exp 
+
+
+
+− 12 (y − ηηη (θθθ)) ⊤ ΣΣΣ−1 (y − ηηη (θθθ)) 
+
+
+
+, (3) where ηηη (θθθ) = ( η (zo
+
+> 1
+
+) , . . . , η (zod)) ⊤ is the vector of expected model outputs at the field data design inputs, and ΣΣΣ is a diagonal covariance matrix with diagonal entries equal to σ2. In this work, the intrinsic simulation variance r(·) and the field-data variance σ2 are treated as distinct quantities, similar to the formulation in Yuan and Ng (2013). However, in some applications, portions of the variability observed in the field data may arise from the same stochastic mechanisms represented within the simulation model, in which case alternative formulations may be more appropriate. In the proposed adaptive design procedure, the field-data 
+
+7covariance ΣΣΣ is treated as a known input. When ΣΣΣ is unknown, one may instead specify or estimate it using replicated field observations, domain information, or an auxiliary statistical model, and then proceed conditionally on that estimate. The estimation of ΣΣΣ itself is outside the scope of the present work and may require additional modeling assumptions, particularly in settings where replicated field observations are unavailable. Markov chain Monte Carlo (MCMC) methods are widely used in Bayesian calibration to sample from the posterior distribution (Gilks et al. 1995). Since the normalizing constant in (2), R
+
+> Θ
+
+p  y | θθθ′ p  θθθ′ dθθθ′, is independent of θθθ and often intractable, MCMC typically operates on the unnormalized posterior ˜p(θθθ | y),which represents the posterior up to a constant. In this work, we adopt a similar perspective, focusing on learning the shape of the posterior without explicitly computing the normalizing constant. Following prior work Kandasamy et al. (2015), Kandasamy et al. (2017), J¨ arvenp¨ a¨ a et al. (2019), J¨ arvenp¨ a¨ a et al. (2021), S¨ urer et al. (2024), we treat the unnormalized posterior as the quantity of interest and quantify uncertainty in its estimation. Although one could instead define uncertainty over the normalized posterior, doing so would require discretizing the parameter space Θ, which is computationally intensive. To remain tractable, our strategy targets regions with high unnormalized posterior values, which determine the overall shape of the posterior. For brevity, we refer to the unnormalized posterior simply as “the posterior” throughout the paper. Overall, we summarize the key settings under which our sequential design is constructed: (i) A design input is shared by both the simulation model and the field experiment, with field data observed at a finite set of such inputs. (ii) The simulation model exhibits input-dependent noise, which is modeled using a hetGP surrogate (Section 2.3; see also the discussion of homoscedastic noise above). (iii) There exists a calibration parameter value that aligns the expected simulation model output with the field observations. (iv) Replication of simulation evaluations at the same input locations is a modeling choice that helps distinguish signal from intrinsic simulation noise. To automatically balance exploration and replication, we further propose strategies (Section 3.2). (v) New simulation runs are acquired sequentially, one at a time, as part of the adaptive data collection procedure (Section 2.2). 
+
+82.2 Adaptive design for efficient data collection 
+
+Throughout this paper, we use subscript indices with z (e.g., zi) to denote input locations included in the proposed design. Let z1, . . . , znt represent the nt distinct input locations selected by stage t of the design process. At each input zi, the simulation model is evaluated ai times, producing replicate outputs ζ(zi)ℓ
+
+for ℓ = 1 , . . . , a i. The adaptive procedure begins with an initial design, denoted by D1 = {(zi, ζ (zi)ℓ) : 
+
+ℓ = 1 , . . . , a i, i = 1 , . . . , n 1}, which includes n1 unique input locations, each evaluated with ai replicates. The initial design can be generated using Latin hypercube sampling (LHS) (Kleijnen 2009), allocating a fixed number of replicates to each point. At each stage t = 1 , . . . , T , the simulation dataset Dt is used to train an emulator (Section 2.3) and to guide input selection through the proposed acquisition function (Section 3). We derive two closed-form expressions to calculate this acquisition function: one for sampling from unexplored regions and one for allocating an additional replicate to previously evaluated input locations (Section 3.1). The proposed adaptive design balances exploration of the input space with exploitation of promising regions through an automated strategy to enable more efficient posterior learning (Section 3.2). Once a new simulation is performed at the selected input, the dataset is updated to Dt+1 = {(zi, ζ (zi)ℓ) : 
+
+ℓ = 1 , . . . , a i, i = 1 , . . . , n t+1 } to add the new data point. This adaptive process continues for the T stages, iteratively refining the posterior inference by incorporating simulation data in the most informative regions for the calibration task. 
+
+# 2.3 Gaussian process regression with replication 
+
+At stage t, the simulation model has been evaluated at nt unique input locations, z1, . . . , znt . The vector 
+
+aaat = ( a1, . . . , a nt )⊤ records the number of replicates at each input. One way to model stochastic simulation outputs is to treat all individual evaluations ζ(zi)ℓ, for ℓ = 1 , . . . , a i and i = 1 , . . . , n t, as independent observations of a GP. This full-sample formulation places a GP prior on the mean function η(·) and directly models the entire set of ntP
+
+> i=1
+
+ai simulation outputs. However, this approach can be computationally expensive, as the cost of GP inference scales cubically with the number of simulation data points. To alleviate this, we adopt an aggregated formulation that models only the nt unique input locations, us-ing the sample means and variances of replicates to inform both the mean function and the input-dependent noise. This approach significantly reduces computational complexity—from cubic in the total number of 
+
+9simulation outputs to cubic in the number of unique input locations—while preserving the predictive prop-erties of the full model. Importantly, it has been shown that the predictive distributions under the full and aggregated formulations are equivalent under Gaussian assumptions (Ankenman et al. 2009, Binois et al. 2018). At each location zi, we use the sample mean  
+
+> aiP
+> ℓ=1
+> ζ(zi)ℓ
+> ai
+
+of the ai replicates as the observed response. The covariance structure between two input locations is defined by the kernel function kt(·, ·) = τtct(·, ·), where 
+
+τt is the scaling parameter and ct(·, ·) represents the correlation function. Common choices for ct(·, ·)
+
+include the Gaussian and Mat´ ern kernels (Rasmussen and Williams 2005, Santner et al. 2018). In this study, we adopt the Gaussian kernel in a separable form, expressed as ct(zi, zi′ ) = 
+
+> q+p
+
+Q
+
+> ι=1
+
+exp 
+
+
+
+− (zi,ι −zi′,ι )2
+
+> 2ρt,ι
+
+
+
+.This formulation allows for independent scaling across dimensions, governed by the lengthscales ρρρt =(ρt, 1, . . . , ρ t,q +p)⊤ in each dimension. The choice of kernel function does not affect the fundamental rea-soning behind our proposed acquisition function, and our implementation supports different kernel options for users to choose from. Let Kt be an nt ×nt covariance matrix, where the (i, i ′)th entry is given by kt(zi, zi′ ) for 1 ≤ i, i ′ ≤ nt.Under the GP prior, the vector of expected outputs, ηηηt = ( η(z1), . . . , η (znt )) ⊤, follows a multivariate normal (MVN) distribution with mean 0 and covariance matrix Kt, i.e., ηηηt ∼ MVN (0, Kt). The cross-kernel evaluations between a new input z and the nt previously evaluated inputs z1, . . . , znt are collected in the vector kt(z) = ( kt (z, z1) , . . . , k t (z, znt )) ⊤. The sample means of simulation outputs are stored in ¯ζζζt =
+
+ 
+
+> a1P
+> ℓ=1
+> ζ(z1)ℓ
+> a1
+
+, . . . ,  
+
+> an tP
+> ℓ=1
+> ζ(znt)ℓ
+> ant
+
+
+
+> ⊤
+
+. Using the conditional properties of the MVN distribution, the predictive equations at z are characterized by the mean mt(z) and variance ς2 
+
+> t
+
+(z) such that 
+
+mt(z) = kt(z)⊤Kt(aaat)−1¯ζζζt and ς2 
+
+> t
+
+(z) = kt(z, z) − kt(z)⊤Kt(aaat)−1kt(z), where 
+
+Kt(aaat) = Kt + V(aaat) and V(aaat) = diag 
+
+ r(z1)
+
+a1
+
+, . . . , r(znt )
+
+ant
+
+
+
+.
+
+(4) We note that an emulator is constructed at each stage t using the simulation dataset Dt. The kernel hyper-parameters (the scaling parameter τt and the lengthscales ρρρt) are obtained by optimizing the likelihood at each stage using Dt. Indexing the hyperparameters by t (and hence the kernel function kt(·, ·), the correla-tion function ct(·, ·), and the covariance matrix Kt) reflects their dependence on the dataset Dt. While the 
+
+10 equations above assume that the intrinsic noise variance function r(zi) is known, this is rarely the case in practice. To derive the two expressions of the acquisition function for exploration and replication in Sec-tion 3.1, we assume r(zi) is known; the inference procedure is discussed in Section 3.3. As a result, at each stage t, the total number of kernel hyperparameters does not increase with t (e.g., a single scaling param-eter τt and q + p lengthscales in ρρρt, along with additional hyperparameters for the intrinsic noise variance function inferred following the procedure described in Section 3.3). 
+
+# 3 Acquisition Criterion: Integrated Variance 
+
+Simulation evaluations are guided by an acquisition function, evaluated either for exploration of new inputs or for replication at existing input locations. At each stage t, the choice between exploration and replication is made to reduce overall uncertainty in the posterior estimate. The corresponding analytical expressions are detailed in Section 3.1. To guide the acquisition process, we make use of both the expectation Eηηη(θθθ)|D t [˜ p(θθθ |
+
+y)] and variance Vηηη(θθθ)|D t [˜ p(θθθ | y)] of the unnormalized posterior density ˜p(θθθ | y) at each parameter θθθ.The expectation serves as a surrogate for the posterior density, while the variance quantifies the uncertainty in this estimate. We build a hetGP emulator as in Section 2.3 to model the simulation output using the dataset Dt. The quantities Eηηη(θθθ)|D t [˜ p(θθθ | y)] and Vηηη(θθθ)|D t [˜ p(θθθ | y)] are then obtained by propagating the predictive uncertainty of this emulator into the estimation of ˜p(θθθ | y). These two quantities form the basis of the acquisition function proposed in the following section. The expressions are derived by extending Lemma 3.1 from S¨ urer (2025). Specifically, we replace the deterministic simulation model output with the expected value of the output from the stochastic simulation model. The resulting expressions are: 
+
+Eηηη(θθθ)|D t [˜ p (θθθ | y)] = fN (y; μμμt (θθθ) , ΣΣΣ + St (θθθ)) p (θθθ) , and (5) 
+
+Vηηη(θθθ)|D t [˜ p (θθθ | y)] = 
+
+ 12dπd/ 2|ΣΣΣ|1/2 fN
+
+
+
+y; μμμt (θθθ) , 12ΣΣΣ + St (θθθ)
+
+
+
+− (fN (y; μμμt (θθθ) , ΣΣΣ + St (θθθ))) 2
+
+p (θθθ)2 . (6) Here, μμμt (θθθ) = ( mt (zo
+
+> 1
+
+) , . . . , m t (zod)) ⊤ denotes the vector of predictive means at the observed field data inputs, where each zoj =
+
+
+
+xoj ⊤, θ θθ⊤⊤
+
+combines the jth field input xoj with the parameter value θθθ. The predictive covariance matrix St (θθθ) captures the emulator’s uncertainty, where the jth diagonal entry is the 
+
+11 variance ς2 
+
+> t
+
+(zoj ), and the (j, j ′)th off-diagonal entry is the predictive covariance given by cov t(zoj , zoj′ ) = 
+
+kt(zoj , zoj′ ) − kt(zoj )⊤Kt(aaat)−1kt(zoj′ ). In the above expressions, fN (a; b, C) denotes the probability den-sity function of a multivariate normal distribution with mean b and covariance matrix C, evaluated at the point a.
+
+# 3.1 Expressions for Exploration and Replication 
+
+During stage t, the simulation dataset Dt = {(zi, ζ (zi)ℓ) : ℓ = 1 , . . . , a i, i = 1 , . . . , n t} is used to build an emulator, which is then used to define the acquisition function. Let zc denote a candidate input considered by the acquisition function. In the exploration case, the candidate corresponds to a previously unobserved input, denoted ˘z, such that ˘z /∈ { z1, . . . , znt } and zc = ˘ z. In the replication case, the candidate input matches one of the existing inputs, i.e., zc = zk for some k ∈ { 1, . . . , n t}, where zk is the kth previously selected unique input. We propose selecting an input that minimizes overall uncertainty in the posterior estimate to facilitate learning the posterior distribution. At each stage, we measure the value of evaluating the simulation model at a candidate input zc via the following integrated variance (IVAR) criterion 
+
+IVAR( zc) = 
+
+Z
+
+> θθθ∈Θ
+
+Eζc|D t
+
+
+
+Vηηη(θθθ)|D ct [˜ p(θθθ | y)] 
+
+
+
+dθ θθ. (7) The simulation dataset Dct includes the current simulation data Dt along with a candidate input and its unob-served output. For exploration (i.e., zc = ˘ z), this takes the form Dct = Dt ∪ (˘ z, ˘ζ), where ˘ζ := ζ(˘ z) denotes the unknown simulation output at a new input ˘z. For replication (i.e., zc = zk), the dataset is augmented as 
+
+Dct = Dt ∪(zk, ζ k), where ζk := ζ(zk) is an additional unseen replicate at an existing input zk. In both cases, the expectation is taken with respect to unknown output ζc—that is, ζc = ˘ζ for exploration and ζc = ζk
+
+for replication—which remains random given the simulation dataset Dt. The IVAR criterion is designed to learn the overall shape of the posterior density of model parameters by minimizing the aggregated variance of the posterior over the parameter space. Regions of negligible posterior density contribute very little to the total variance, whereas regions near the calibration region of interest exhibit higher posterior variance. The acquisition selects inputs that most effectively reduce this total uncertainty, favoring those near the high posterior-variance regions. This guides the acquisition toward the calibration region while avoiding areas 
+
+12 where the posterior is negligible, even if the emulator’s predictive variance is large there. Overall, this strat-egy ensures that the posterior is closely approximated and predictive uncertainty is reduced where it matters most. We now present the computation of IVAR( zc) for the two cases zc = ˘ z and zc = zk. Exploration is crucial for directing efforts toward the calibration region of interest by carefully selecting unique inputs 
+
+z1, . . . , znt . Without exploration, computational resources would be wasted by replicating model evalua-tions outside the region of interest. The next result is used to compute IVAR( zc) for the case zc = ˘ z, with the derivation provided in Appendix A.1. 
+
+Lemma 3.1. Suppose zc = ˘ z. The surrogate model is assumed to be a GP emulator with input-dependent noise variance, and its predictive mean and variance are given by the SK equations in (4) . Let ˘ϕϕϕt(θθθ) be the d × d matrix with jth diagonal element cov t(zoj ,˘z)2  
+
+> ς2
+> t(˘ z)+ r(˘ z)
+
+and (j, j ′)th element cov t(zoj ,˘z)cov t(zoj′ ,˘z)  
+
+> ς2
+> t(˘ z)+ r(˘ z)
+
+. IVAR(˘ z) is computed via 
+
+Z
+
+> θθθ∈Θ
+
+p(θθθ)2
+
+ fN
+
+ y; μμμt(θθθ), 12ΣΣΣ + St(θθθ)
+
+2dπd/ 2|ΣΣΣ|1/2 −
+
+fN
+
+
+
+y; μμμt(θθθ), 12
+
+
+
+ΣΣΣ + St(θθθ) + ˘ϕϕϕt(θθθ)
+
+ 
+
+2dπd/ 2 ΣΣΣ + St(θθθ) − ˘ϕϕϕt(θθθ) 1/2
+
+ dθ θθ. (8) While exploration expands coverage of the calibration region of interest to capture overall model be-havior, replication improves statistical efficiency by enhancing signal-to-noise distinction and providing computational benefits. The next lemma establishes the derivation of IVAR( zc) for the case zc = zk, with the full derivation provided in Appendix A.2. 
+
+Lemma 3.2. Suppose zc = zk. The surrogate model is assumed to be a GP emulator with input-dependent noise variance, and its predictive mean and variance are given by the SK equations in (4) . Let ϕϕϕkt (θθθ) be a d×
+
+d matrix with the (j, j ′)th element k⊤ 
+
+> t
+
+(zoj )Bkkt(zoj′ ), where Bk = (Kt(aaat)−1).,k (Kt(aaat)−1)k,.    
+
+> ak(ak+1) /r (zk)−(Kt(aaat)−1)k,k
+
+. Define a size 
+
+d vector μμμkt (θθθ) with the jth element Eζk |D t
+
+h
+
+mt+1 (zoj )
+
+i
+
+, for j = 1 , . . . , d . Define a d × d covariance matrix 
+
+ΓΓΓkt (θθθ) with the jth diagonal element Vζk |D t
+
+h
+
+mt+1 (zoj )
+
+i
+
+and (j, j ′)th element Cζk |D t
+
+h
+
+mt+1 (zoj ), m t+1 (zoj′ )
+
+i
+
+.
+
+13 IVAR( zk) is computed via 
+
+Z
+
+> θθθ∈Θ
+
+p(θθθ)2
+
+ fN
+
+
+
+y; μμμkt (θθθ), 12ΣΣΣ + St(θθθ) − ϕϕϕkt (θθθ) + Γ ΓΓkt (θθθ)
+
+
+
+2dπd/ 2|ΣΣΣ|1/2
+
+−
+
+fN
+
+
+
+y; μμμkt (θθθ), 12
+
+
+
+ΣΣΣ + St(θθθ) − ϕϕϕkt (θθθ)
+
+
+
++ Γ ΓΓkt (θθθ)
+
+
+
+2dπd/ 2|ΣΣΣ + St(θθθ) − ϕϕϕkt (θθθ)|1/2
+
+ dθ θθ. (9) Computing the IVAR criterion for both exploration, as given in (8), and exploitation, as shown in (9), involves integration over the parameter space Θ. One approach to approximating high-dimensional integrals is to sum over uniformly distributed reference grids, as demonstrated in S¨ urer et al. (2024) and S¨ urer (2025). However, as the dimensionality p increases, the reference grid size must also increase, resulting in a higher computational cost for acquiring each additional point. In this study, we use importance sampling (IS) to approximate the integral. Using the IS estimator, we approximate IVAR( zc) via 
+
+IVAR( zc) = 
+
+Z
+
+> θθθ∈Θ
+
+p(θθθ)2gt (θθθ, zc) dθ θθ ≈
+
+> s
+
+X
+
+> l=1
+
+ωlp
+
+
+
+θθθl2
+
+gt
+
+
+
+θθθl, zc
+
+, (10) where gt(θθθ, zc) denotes the expression inside the large brackets in (8) when zc = ˘ z, and in (9) when zc = zk.The importance weights ωl are given by 
+
+ωl = 1
+
+p
+
+
+
+θθθl2
+
+Vηηη(θθθl)|D t
+
+h
+
+˜p
+
+
+
+θθθl | y
+
+i / sX
+
+> l′=1
+
+1
+
+p
+
+
+
+θθθl′ 2
+
+Vηηη 
+
+> 
+> θθθl′
+> |D t
+
+h
+
+˜p
+
+
+
+θθθl′
+
+| y
+
+i , (11) where θθθl ∼ q(·) for l = 1 , . . . , s . The importance distribution q(·) is proportional to the square of the prior multiplied by the variance of the posterior, that is, q(·) ∝ p
+
+
+
+θθθl2
+
+Vηηη(θθθl)|D t
+
+h
+
+˜p
+
+
+
+θθθl | y
+
+i 
+
+. Since a single evaluation is unlikely to alter the variance surface significantly, and the expected variance is expected to remain similar to the current variance surface, this choice of importance distribution is reasonable. If the prior is proper and bounded (i.e., p(θθθ) < ∞ and R
+
+> θθθ∈Θ
+
+p(θθθ)dθ θθ = 1 ), then q(·) defines a valid probability den-sity function, aside from the normalization constant. Since the normalizing constant of q(·) is not available, we normalize the weights as shown in (11). To approximate the high-dimensional integrals, we obtain s
+
+samples from q(·) using MCMC with burn-in and thinning. We identify the input that minimizes the IVAR criterion for exploration and replication separately by 
+
+14 solving min 
+
+> zc∈L t
+
+IVAR( zc), where Lt is a discrete set of candidate inputs. In the replication case, Lt consists of previously evaluated simulation inputs, z1, . . . , znt , and the candidate replicate is the one that minimizes the IVAR criterion. In the exploration case, we generate a discrete candidate set using LHS to mitigate the challenges of direct optimization and select the point that minimizes IVAR as the candidate new point. In the following section, we discuss strategies for choosing between the candidate replicate and the candidate new point (i.e., between exploitation and exploration) at a given stage t.
+
+Figure 1: Illustrative example of a simulation model η(z) = sin(10 x − 5ϑ), where x ∈ [0 , 1] ,
+
+ϑ ∈ [0 , 1] , and z = ( x, ϑ )⊤. The left panel visualizes η(z) over the input space (x, ϑ ), while the middle panel depicts the variance r(z) of the intrinsic uncertainty. The field data is generated as 
+
+y(xo) = η(zo) + ϵ, where ϵ ∼ N(0 , 0.1) and zo = ( xo, θ = 0 .5) ⊤. Green dotted lines indicate the locations of the field data design inputs. In the right panel, circle markers show 100 replicates of the simulation model across values of x at θ = 0 .5, and the dashed line indicates the corresponding expected value. 
+
+Before combining these decisions within the proposed procedure, we illustrate IVAR( zc) separately for the two cases: zc = ˘ z (exploration) and zc = zk (replication), using the example in Figure 1. We similarly illustrate the corresponding exploration and replication forms for the IMSE acquisition function, enabling a direct comparison between the two criteria. In this example, field data is collected at four design inputs. The input region on the right exhibits higher noise than the region on the left. We begin with the exploration case. The procedure is initialized with 20 LHS samples from the input domain [0 , 1] × [0 , 1] , each with five replicates ( n1 = 20 and a1 = · · · = an1 = 5 ). It then sequentially acquires 50 new points ( T = 50 ) using 
+
+IVAR(˘ z) to explore the input space. At each stage, a candidate set Lt of 1,000 LHS samples is generated from the same input domain, which is then evaluated to decide which point to acquire next. The top row of Figure 2 visualizes the points acquired by IVAR and IMSE for exploration. The black curve is added to Figure 2 to show the true likelihood as a function of θ, highlighting the parameter region of interest. Under 
+
+15 Figure 2: Illustration of points acquired using the IVAR (left) and IMSE (right) exploration (top) and replication (bottom) cases. Cyan markers indicate the initial sample points, while blue mark-ers represent the acquired points, with numbers denoting replicates. The green dotted lines in-dicate the field data design inputs, xo 
+
+> 1
+
+= 0 .11 , xo 
+
+> 2
+
+= 0 .33 , xo 
+
+> 3
+
+= 0 .67 , and xo 
+
+> 4
+
+= 0 .89 , with the observations generated as y(xoj ) = η(zoj ) + ϵ, where ϵ ∼ N(0 , 0.1) and zoj = ( xoj , θ = 0 .5) ⊤.The black curve depicts the true likelihood function corresponding to the observed field-data vec-tor (−0.98 , 0.74 , −0.85 , 0.11) ⊤, assuming full knowledge of the relationship between x, θ, and 
+
+E[y(x)] .
+
+the assumption of a uniform prior, the posterior is determined entirely by this likelihood. IMSE distributes points across the entire input space to construct an accurate approximation of the simulation model. In contrast, IVAR concentrates sampling around the field data locations in the design input space, while in the parameter space, it favors regions with higher likelihood to refine posterior learning. Since uncertainty is greater on the right side, more points are acquired from that region. We next consider the replication case using an initial 10 ×10 grid in the input space, with each point hav-ing two replicates. We then sequentially acquire 50 additional replicates using IVAR( zk) to perform repli-cation. The bottom row of Figure 2 visualizes the points acquired by IVAR and IMSE for replication. IMSE favors locations with higher intrinsic uncertainty to ensure broad coverage of uncertain regions. However, because it does not account for the calibration objective, it spreads samples across the entire parameter space 
+
+16 and neglects the inputs on the left, as these do not correspond to regions of high uncertainty. In contrast, IVAR prioritizes the parameter region of interest and the field data design points and allocates more repli-cates to areas of higher uncertainty to improve statistical efficiency. We note that the top and bottom rows in Figure 2 use different initial designs purely to illustrate the behavior of the exploration and replication cases. Specifically, the exploration panel uses a smaller, space-filling initial design to allow the acquisition function to cover the region of interest, while the replication panel employs a more structured grid to clearly illustrate how additional replicates are allocated once the input space is already well-explored. In practice, the proposed methods do not require different initial designs. However, exploration without replication may fail to adequately reduce uncertainty in key regions, while replication without exploration risks overlook-ing important areas. This motivates our sequential framework, which adaptively balances exploration and replication at each stage, as described in the following section. 
+
+# 3.2 Choosing Between Exploration and Replication 
+
+Section 3.1 introduces the IVAR acquisition function and derives two analytical expressions for evaluating it in the exploration and replication cases. This section discusses how to effectively balance exploration and replication within the adaptive design framework. At stage t, the decision must be made whether to explore a new input or replicate an existing one. A straightforward approach is to independently identify the inputs that minimize IVAR(˘ z) for exploration and IVAR( zk) for replication, then select the one with the lowest IVAR value. However, this myopic selection strategy fails to account for the impact of future choices on current selections. To address this, we adopt a lookahead procedure inspired by Binois et al. (2019), which incorporates future decision-making considerations. The lookahead procedure determines the decision at the current stage by anticipating the choices made over the next h stages, for which there are multiple possible strategies. In contrast to the myopic strategy discussed above, which tends to prioritize exploring new points over replication, our approach is inherently biased toward replication. With a lookahead horizon of h, the procedure considers h + 1 possible paths, each evaluating a sequence of decisions spanning the current stage and the subsequent h stages. In each path, the initial decision is either to replicate or explore. If the initial decision is exploration, the remaining 
+
+h stages are set to replication. Conversely, if the initial step is replication, the procedure determines at which future stage exploration should be introduced. Since there are h distinct ways to introduce exploration, each 
+
+17 of these h remaining paths selects a new point at a different future stage. Within a path, the decision on which point to select is guided by either IVAR(˘ z) or IVAR( zk). The integrated variance is computed at the end of the horizon h for each path, and the path with the lowest uncertainty is chosen to determine the current decision. If the selected path begins with a new point, exploration is performed at stage t. Otherwise, replication is chosen. Since replication is the initial decision for h out of the h + 1 paths, a longer planning horizon inherently promotes replication. For h = 0 , the procedure chooses either exploration or replication, depending on which option most reduces uncertainty. For h = −1, it defaults to exploration. 
+
+20,049 
+
+k = 4 
+
+k = 3 
+
+k = 8 
+
+˘z = (0 .32 , 0.44) 
+
+13,979 
+
+˘z = (0 .32 , 0.44) 
+
+k = 21 
+
+12,385 
+
+˘z = (0 .32 , 0.44) 
+
+k = 21 
+
+k = 21 
+
+11,594 
+
+˘z = (0 .32 , 0.44) 
+
+k = 21 
+
+k = 21 
+
+k = 21 
+
+11,145 
+
+Figure 3: Illustration of the lookahead procedure with h = 3 . Each node represents a selected input, and the dashed node indicates the step where exploration occurs. For terminating nodes, the second line displays the associated IVAR value. 
+
+Figure 3 illustrates the lookahead procedure using the example from Figure 1. We begin with the same initial design used in the top-row example of Figure 2, consisting of n1 = 20 unique inputs. The total posterior uncertainty at the root node of Figure 3 is 20,049. At stage t = 1 , with a lookahead horizon of h = 3 , we evaluate four possible paths, each beginning with either replication or exploration. The first path follows an explore–replicate–replicate–replicate decision sequence. If a new point is selected in the first step, the remaining three stages choose replication at that same location, indexed as k = 21 .Since this point is near the field data design input and within the parameter region of interest, initially 
+
+18 exploring this region and then exploiting it improves posterior learning. The remaining three paths follow these decision sequences: (1) replicate-explore-replicate-replicate, (2) replicate-replicate-explore-replicate, and (3) replicate-replicate-replicate-explore. Among the four paths, the one that begins with exploration results in the lowest uncertainty (11,145). Consequently, the procedure selects exploration at stage t = 1 .The horizon h can either remain fixed throughout the procedure or be selected based on available com-putational resources, as larger values of h incur higher costs. Alternatively, h can be adjusted dynamically to align with evolving design goals. In this work, we introduce two approaches for setting h at each stage, indexing it by stage t to enable adaptive adjustments. The first approach aims to regulate the ratio of unique inputs to total collected outputs. Let ρ denote the target ratio. We refer to this approach as the target-based scheme, where the horizon ht is updated dynamically based on the observed ratio. Specifically, 
+
+ht+1 =
+
+
+
+ht + 1 , if ntntP
+
+> i=1
+> ai
+
+> ρ and a new point is chosen, 
+
+max {ht − 1, −1}, if ntntP
+
+> i=1
+> ai
+
+< ρ and a replicate is chosen, 
+
+ht, otherwise .
+
+(12) This scheme ensures that when the ratio exceeds the target ρ, the horizon increases to encourage more replication, whereas if the ratio falls below ρ, the horizon decreases, promoting more exploration. The second approach adjusts the horizon h based on a replication criterion that minimizes the total posterior variance (TOTVAR) as a function of the replicates aaat, where 
+
+TOTVAR( aaat) = 
+
+Z
+
+> θθθ∈Θ
+
+Vηηη(θθθ)|D t [˜ p (θθθ|y)] dθ θθ =
+
+Z
+
+> θθθ∈Θ
+
+ f (θθθ)2dπd/ 2|ΣΣΣ|1/2 − g (θθθ)2
+
+
+
+p (θθθ)2 dθ θθ, 
+
+with f (θθθ) = fN
+
+
+
+y; μμμt (θθθ) , 12ΣΣΣ + St(θθθ)
+
+
+
+and g(θθθ) = fN (y; μμμt (θθθ) , ΣΣΣ + St(θθθ)) .
+
+The allocation criterion proposed by S¨ urer (2026) was originally developed for the batch-sequential setting to determine an optimal allocation of replicates for high-dimensional stochastic simulation outputs. In this study, we adapt it to our setting, as further detailed in Appendix A.3. According to this criterion, the optimal 
+
+19 budget allocation a∗ 
+
+> i
+
+should be 
+
+a∗ 
+
+> i
+
+∝ pCi(aaat), i = 1 , . . . , n t, where (13) 
+
+Ci(aaat) = 
+
+Z
+
+> θθθ∈Θ
+
+f (θθθ)2dπd/ 2|ΣΣΣ|1/2
+
+
+
+− 12 Tr 
+
+ ˙N(θθθ)−1Mi(θθθ)
+
+
+
++ 12 h(θθθ)⊤ ˙N(θθθ)−1Mi(θθθ) ˙N(θθθ)−1h(θθθ)
+
+
+
+− 2g(θθθ)2
+
+
+
+− 12 Tr  N(θθθ)−1Mi(θθθ) + 12 h(θθθ)⊤N(θθθ)−1Mi(θθθ)N(θθθ)−1h(θθθ)
+
+ !
+
+p(θθθ)2dθ θθ, 
+
+with ˙N(θθθ) = 0 .5Σ ΣΣ+ St(θθθ), N(θθθ) = Σ ΣΣ+ St(θθθ), h(θθθ) = y −μμμt(θθθ), and Mi(θθθ) is a d×d matrix with (j, j ′)th element −r(zi)k⊤ 
+
+> t
+
+(zoj )Kt(aaat)−1J(i,i )Kt(aaat)−1kt(zoj′ ). J(i,i ) is a nt ×nt matrix with one in the (i, i )th entry and zeros elsewhere. At stage t, we determine the proposed allocations following (13), assuming that ntP
+
+> i=1
+
+ai
+
+simulation evaluations are feasible. We then compare the optimal allocation a∗ 
+
+> i
+
+with the actual ai. If the number of replicates exceeds a∗ 
+
+> i
+
+, the horizon is reduced to promote exploration; otherwise, it is increased to encourage replication, following the rule below: 
+
+ht+1 ∼ Uniform {a′
+
+> 1
+
+, . . . , a ′ 
+
+> nt
+
+} with a′ 
+
+> i
+
+= max {0, a ∗ 
+
+> i
+
+− ai}. (14) We refer to this approach as the adaptive scheme. 
+
+# 3.3 Inference 
+
+Our derivations thus far assume that the intrinsic variance r(·) is known. In practice, however, r(·) is unknown and must be estimated for any input. Following Binois et al. (2018), we employ hetGP to model the log variances, log Λt, as the mean output of a GP on latent variables, ∆t = ( δ1, . . . , δ nt )⊤. The inverse covariance matrix is given by Kt(aaat)−1 = τ −1 
+
+> t
+
+(CCCt + A−1 
+
+> t
+
+Λt)−1, where the (i, i ′)th entry of CCCt
+
+is defined as ct(zi, zi′ ) for 1 ≤ i, i ′ ≤ nt, and At = diag( a1, . . . , a nt ). The GP prior on the latent variables, ∆t ∼ MVN  0, τ gt
+
+ CCCgt + gtA−1
+
+> t
+
+ , implies that log Λt = CCCgt
+
+ CCCgt + gtA−1
+
+> t
+
+−1 ∆t. Here, CCCgt
+
+is the correlation matrix based on a Gaussian kernel with lengthscale parameters ρρρgt , while gt > 0 and τ gt
+
+denote the nugget and scaling parameters, respectively. Inference requires estimating ρρρt, ρρρgt , ∆t, and gt,with the scaling parameters τt and τ gt determined via plug-in maximum likelihood estimation. The joint log-likelihood is then optimized using its gradient with respect to these parameters, as described in Binois 
+
+20 et al. (2018). For our experiments, we implement our design procedure using the hetGPy (O’Gara et al. 2025) Python package to construct emulators. 
+
+# 4 Experiments 
+
+Section 4.1 assesses the performance on synthetic simulation models. Section 4.2 focuses on an application with an epidemiological simulation model. The proposed sequential approach is implemented in the Python package Parallel Uncertainty Quantification (PUQ), accessible at https://github.com/parallelUQ/, along with example scripts for reproducibility. 
+
+# 4.1 Benchmark with Synthetic Simulation Models 
+
+We assess the performance of the proposed sequential method using the IVAR criterion across a range of synthetic simulation models. As a baseline, we consider the sequential design of Binois et al. (2019), which relies on the IMSE criterion. In calibration settings, another common objective is to learn the field observations throughout the design space. Motivated by this goal, we include an additional benchmark, denoted IMSE y, which selects inputs to minimize the aggregated predictive uncertainty when predicting field observations. Appendix A.4 provides the definitions of IMSE and IMSE y, along with the corresponding exploration and replication cases. The first example, adapted from Ranjan et al. (2011), features a two-dimensional design input x =(x1, x 2)⊤ ∈ [0 , 1] 2 (q = 2 ) and a one-dimensional calibration parameter ϑ ∈ [0 , 1] (p = 1 ). The second example is based on the Park function (Park 1991, Surjanovic and Bingham 2013), with a two-dimensional design input x = ( x1, x 2)⊤ ∈ [0 , 1] 2 and a two-dimensional calibration parameter ϑϑϑ = ( ϑ1, ϑ 2)⊤ ∈ [0 , 1] 2
+
+(q = 2 , p = 2 ). Full details on the data generation mechanisms are provided in Appendix A.4. In addition, we compare performance using modified versions of three widely studied functions—unimodal, bimodal, and Branin—chosen for their varying number of modes in the parameter space: one, two, and three, respec-tively. These additional results are described in Appendix A.5. They serve as controlled benchmarks for evaluating the proposed strategy under posterior distributions with distinct geometries, including unimodal, multimodal, and non-identifiable structures. To assess performance, we impose distinct intrinsic variance structures for each example. In all examples, we assume a uniform prior over the input space. Appendix A.6 
+
+21 provides further discussion of replication and its importance for heteroscedastic noise estimation. To initialize the sequential procedure, we draw an initial sample of size n1 = 30 using LHS over the joint input space [X , Θ] , with each point replicated 5 times. The procedure then continues for a total of 
+
+T = 200 acquisitions, starting from the 150 initial points, resulting in a total of 350 inputs. For exploration, at each stage, a candidate set Lt of size |L t| = 300 is constructed from two equal halves. The first half (150 points) is independently sampled via LHS over the joint space [X , Θ] to encourage exploration of the entire input space. The second half (150 points) is designed to emphasize the exploitation of the observed field locations. To do this, 150 parameter values are generated via LHS in the parameter space Θ, and 150 field data design inputs are created depending on the example. For the first two examples, the 150 points are approximately evenly distributed across the four observed field locations in a randomized fashion (each location receives either 37 or 38 replicates, with the specific assignment varying across stages) and then randomly shuffled, yielding a 150 × 2 matrix in X -space. For the subsequent examples in Appendix A.5, all 150 points are allocated to the single observed field location ( 150 × 1 matrix). Each field design input is then paired with one of the sampled parameter values, resulting in 150 candidate inputs. For replication, the candidate set is Lt = {z1, . . . , znt }.We assess performance across 30 independent experimental replications. In each replication, all meth-ods (IVAR, IMSE, and IMSE y) share the same initial design to ensure a fair comparison. For each example, the observed field data are generated according to (1) using a data-generating calibration parameter θθθ = θθθ∗.This parameter is held constant across all 30 experimental replications within a given example to ensure that differences in performance are attributable to the acquisition strategy rather than variability in the data-generating mechanism (see Appendix A.4 for the specific values of θθθ∗). To evaluate accuracy, we compute the mean absolute difference (MAD) between the estimated posterior ˆpt(θθθ | y) and true posterior ˜p(θθθ | y)
+
+over a reference set of calibration parameters. Specifically, we draw a reference set of calibration param-eters, Θref , of size 1000 from the true posterior distribution. At each stage t, we calculate the MAD as 
+
+MAD t = 1 
+
+> |Θref |
+
+P
+
+> θθθ∈Θref
+
+|˜p(θθθ | y) − ˆpt(θθθ | y)|. Here, ˆpt(θθθ | y) is the unnormalized posterior estimate at stage 
+
+t obtained using the emulator built from the data Dt, which is computed via Eηηη(θθθ)|D t [˜ p (θθθ | y)] in (5). We note that while posterior inference is invariant to multiplicative normalizing constants, the proposed cri-terion is designed to assess emulator fidelity to the target unnormalized surface, since inaccuracies in the emulator estimates of the simulation mean and intrinsic noise variance propagate directly to this quantity. To 
+
+22 complement MAD, we compute a Kullback–Leibler (KL)-type measure KL t = − 1 
+
+> |Θref |
+
+P
+
+> θθθ∈Θref
+
+log ˆ pt(θθθ | y)
+
+which approximates the KL divergence between the true posterior and its estimate up to an additive con-stant, and quantifies how well the estimated posterior assigns probability mass to points drawn from the true posterior. The KL results are reported in Appendix A.4. To characterize acquisition behavior, Table 1 summarizes the width of the acquired inputs and the coverage of the data-generating calibration parameters for each acquisition strategy and example. For each experimental replicate, we compute the upper and lower 
+
+α = 0 .10 quantiles of each acquired input and report the average width across replicates. For the calibration parameters, we also assess whether the interval includes the data-generating value and report both marginal and joint coverage, averaged over 30 replicates. 
+
+Table 1: Coverage and width of empirical (1 − α) quantile intervals for the acquired calibration parameters and design inputs.                                                                                                                 
+
+> 1st example ( q= 2 , p = 1 )2nd example ( q= 2 , p = 2 )IMSE IMSE yIVAR IMSE IMSE yIVAR
+> hParameter Cov. Width Cov. Width Cov. Width Cov. Width Cov. Width Cov. Width adapt ϑ11.00 0.99 1.00 0.42 1.00 0.13 1.00 0.99 1.00 0.37 1.00 0.89 target ϑ11.00 0.98 1.00 0.36 1.00 0.14 1.00 0.97 1.00 0.39 1.00 0.88 adapt ϑ2–1.00 0.98 1.00 0.33 1.00 0.51 target ϑ2–1.00 0.97 1.00 0.35 1.00 0.53 adapt Joint –1.00 –1.00 –1.00 –target Joint –1.00 –1.00 –1.00 –
+> hDesign input Width Width adapt x10.99 0.99 0.68 0.98 0.98 0.76 target x10.98 0.98 0.68 0.97 0.97 0.77 adapt x20.99 0.98 0.68 0.99 0.98 0.78 target x20.98 0.98 0.68 0.97 0.97 0.78
+
+To approximate the integrals in (10), we apply importance sampling using s = 100 samples from the parameter space. Specifically, we generate samples from the importance distribution using the emcee Python package (Foreman-Mackey et al. 2013). We discard the first 100 iterations as burn-in and thin the chains by retaining every 20th sample to reduce autocorrelation. We use a target-based scheme with a ratio ρ = 0 .2
+
+(i.e., an average of 5 replicates per unique input) and an adaptive scheme to determine the horizon ht, as described in Section 3.2. The left panels of Figures 4 and 7 show the MAD values, averaged over 30 experimental replicates, for different acquisition functions in the first and second examples, respectively. The right panels show the 
+
+23 Figure 4: Comparison of acquisition functions for the first example. 
+
+Figure 5: Illustration of acquired parameters (top row) and design inputs (bottom row) selected using IVAR (left), IMSE (middle), and IMSE y (right) for the first example. The magenta dashed line (top) indicates the data-generating parameter θ∗ = 0 .50 , while the background color (bottom) illustrates the intrinsic variance r(·) across the design input space at θ∗ = 0 .50 . Cyan cross markers (bottom) indicate the design input locations at which the field data are observed. 
+
+proportion of input locations that were repeated 1, 2, 3, 4, or at least 5 times over T = 200 stages, also averaged over 30 replicates. Figures 5 and 8 illustrate the acquired calibration parameters and design inputs from a single replicate of the first and second examples, respectively, under the IVAR, IMSE, and IMSE y
+
+criteria with the target-based scheme. For the first example, the left panel of Figure 6 shows how the horizon evolves across stages under the target-based and adaptive schemes using the IVAR criterion, while the right panel shows the ratio of unique inputs to the total design size. 
+
+24 Figure 6: The left panel shows the evolution of the horizon over stages, where thin dotted lines represent an individual experimental replicate and thick lines indicate the median across 30 repli-cates for both the adaptive and target-based schemes. The right panel shows the ratio of unique input locations to the total number of acquired inputs, averaged over 30 replicates. 
+
+Figure 7: Comparison of acquisition functions for the second example. 
+
+Overall, the IVAR acquisition function consistently achieves superior posterior inference compared to IMSE and IMSE y. The IMSE criterion, designed to construct globally accurate emulators, prioritizes cov-erage of the entire input space. Consequently, it often selects points near the domain boundaries and over-samples regions with high predictive uncertainty. However, this emphasis on emulator fidelity comes at the cost of insufficient coverage in the calibration region of interest. This behavior is further reflected in Table 1, which shows that IMSE produces the widest spread of acquired inputs, consistent with its global emphasis. The IMSE y criterion selects inputs near the maximum likelihood estimate of the calibration parameters while simultaneously attempting to cover the entire design input space to accurately learn the field observations. As a result, it produces a wide spread across the design input space, but a narrow width among the acquired parameters, as shown in Table 1. However, this localized focus around the point es-timate can be limiting in examples with multimodal posteriors—such as the bimodal and Branin cases in Appendix A.5—where IMSE y often identifies a single mode and then predominantly exploits that region. 
+
+25 Figure 8: Illustration of acquired parameters (top row) and design inputs (bottom row) selected using IVAR (left), IMSE (middle), and IMSE y (right) for the second example. Cyan markers de-note the initial sample points, and blue markers denote the acquired points. The magenta cross (top) indicates the data-generating parameter θθθ∗ = (0 .50 , 0.50) ⊤, while the cyan cross (bottom) indicates the design input locations at which the field data are observed. Contours represent the true posterior density for reference. In the top row, the background color represents the aggregated intrinsic variance over the field data design inputs. In the bottom row, the background color repre-sents the intrinsic variance r(·) across the design input space at θθθ∗.
+
+As a result, other high-posterior regions remain underexplored. In contrast, IVAR strategically targets re-gions around the field data design inputs and promotes a more balanced and focused exploration of the parameter space. By sampling not only in areas of peak posterior density but also in regions with moderate and lower density, IVAR enhances learning of the posterior distribution more effectively than strategies that either overexplore or focus too narrowly. In summary, the objective of IVAR is not point identification of a single true data-generating parameter, but rather to efficiently learn the shape of the posterior distribution that reflects uncertainty given the available field data. When field observations are weakly informative or when the simulation model structure or field configuration induces symmetry, the resulting posterior may be multimodal or non-identifiable—as in the unimodal, bimodal, and Branin examples. IVAR is designed to adaptively allocate simulation effort to these posterior-supported regions as much as the field data allow, rather than forcing a unique estimate when identifiability is not warranted. In applications where domain knowledge constrains the parameter space, such information can be incorporated through the prior distribu-
+
+26 tion, which in turn steers IVAR away from scientifically implausible regions. The target-based scheme tends to replicate input locations more frequently than the adaptive scheme. As shown in Figure 6, its median horizon gradually increases until around stage t = 100 . This pattern suggests that the horizon increases to encourage more replication to satisfy the target ratio. In contrast, the adaptive scheme—owing to its stochastic nature—exhibits more abrupt, stage-to-stage fluctuations in the horizon. Although its median horizon remains relatively stable and below 5 over 200 stages, individual replicates occasionally exceed h = 10 , reflecting variability in decision-making. The more structured progression of the target-based scheme enables it to achieve the desired target ratio earlier. Meanwhile, the adaptive scheme maintains a higher ratio of unique parameter values relative to the total design size, indicating greater exploratory behavior. 
+
+# 4.2 Application to an Epidemiological Simulation Model 
+
+We demonstrate the proposed sequential procedure using a discrete compartmental model commonly em-ployed in epidemiology to simulate the spread of infectious diseases. These models, particularly during the COVID-19 pandemic, have offered critical insights into transmission dynamics and the effects of in-terventions such as social distancing, mask usage, and vaccination (Yang et al. 2021). The Susceptible-Infected-Recovered (SIR) model serves as a foundational example. In this model, the infection rate controls the transition from the susceptible (S) to the infected (I) compartment, while the removal rate governs the shift from the infected (I) to recovered (R). Given specific values for these rates, the SIR model tracks the evolution of susceptible, infected, and recovered populations over time. In the SIR model, the calibration parameter is two-dimensional, ϑϑϑ = ( ϑ1, ϑ 2)⊤ with p = 2 , where ϑ1 ∈
+
+[0 .1, 0.3] represents the infection rate and ϑ2 ∈ [0 .05 , 0.15] represents the removal rate. Each parameter is rescaled to the [0 , 1] interval and assigned a uniform prior. The design input vector is defined as x =(x1, x 2)⊤ ∈ [0 , 1] 2, where x1 and x2 are normalized design inputs corresponding to the initial numbers of susceptible ( S0) and infected individuals ( I0), respectively; thus, x has dimension q = 2 . The design input x
+
+is linearly mapped to integer-valued initial conditions of the stochastic SIR model, with S0 ∈ [200 , 250] ∩ N
+
+and I0 ∈ [0 , 100] ∩ N. The total population size ( M ) is fixed at M = 350 , and the remainder of the population is assigned to the recovered compartment (i.e., R0 = M − S0 − I0). For a given simulation input 
+
+27 z =
+
+
+
+x⊤, ϑ ϑϑ⊤⊤
+
+, the model returns the average number of infected individuals over a simulation horizon of 75 time units. Data are generated according to the model in (1), with the true calibration parameter set to θθθ = θθθ∗. We use θθθ∗ as the midpoint of prior ranges. For field data design inputs, we use the normalized design locations xo 
+
+> 1
+
+= (0 .04 , 0.98) ⊤, xo 
+
+> 2
+
+= (0 .24 , 0.24) ⊤, xo 
+
+> 3
+
+= (0 .74 , 0.74) ⊤, and xo 
+
+> 4
+
+= (0 .98 , 0.04) ⊤.Since the expected simulation output η(·) is unknown, we perform 1000 independent replications of the model and use the sample mean as an estimate of the expected value to generate the observed field data. 
+
+Figure 9: Comparison of different acquisition functions for the SIR model. 
+
+Figure 10: Illustration of the acquired parameters selected using IVAR (left), IMSE (center), and IMSE y (right). Contours represent the true posterior density ˜p(θθθ | y) as a reference, while the background color indicates the intrinsic noise aggregated over the field data design inputs. The magenta marker indicates the data-generating parameter θθθ∗.
+
+We generate an initial sample of size n1 = 40 using LHS, with 5 replications per point, and acquire 
+
+T = 200 inputs. A candidate set Lt of size 400 is constructed following the same procedure as in Sec-tion 4.1. We also set s = 100 and ρ = 0 .2, consistent with Section 4.1. The IVAR, IMSE, and IMSE y
+
+criteria are each repeated 30 times, with average MAD values reported in Figure 9. In addition to eval-uating overall posterior prediction accuracy with MAD, we also consider MAD y and MAD n, defined 
+
+28 as, MAD yt = 1 
+
+> d|Θref |
+> d
+
+P
+
+> j=1
+
+P
+
+> θθθ∈Θref
+
+η(zoj ) − mt(zoj ) and MAD nt = 1 
+
+> d|Θref |
+> d
+
+P
+
+> j=1
+
+P
+
+> θθθ∈Θref
+
+r(zoj ) − ˆrt(zoj ) , where 
+
+zoj =
+
+
+
+xoj ⊤, θ θθ⊤⊤
+
+, and mt(·) and ˆrt(·) represent the mean and noise estimates at stage t predicted by the associated emulator. The two plots on the right-hand side of Figure 9 display MAD y and MAD n at the final stage of the procedure, obtained across 30 replicates. Figure 10 visualizes the parameters acquired using the target-based scheme for a single experimental replicate. Table 2 summarizes the width of the empirical 
+
+(1 −α) quantile interval of the acquired inputs and reports the proportion of experimental replicates in which this interval contains the data-generating parameter. By collecting inputs near the field data design points and within the parameter region of interest, IVAR more effectively predicts both the average simulation output and the associated noise in this critical region, outperforming alternative approaches. As a result, it enables more efficient and accurate posterior learning. While IVAR encourages sampling around the most likely regions of the calibration parameters, it also goes beyond this objective to learn the full shape of the posterior distribution. By avoiding over-localization around the parameter estimate, it exhibits a balanced behavior—reflected in the intermediate interval widths of the acquired parameters in Table 2 and the spread of points in Figure 10—that enables exploration beyond a single mode through sampling of moderate- and lower-density posterior regions. Consistent with the findings in Section 4.1, the target-based horizon scheme increases the number of replications across all methods. 
+
+Table 2: Width of empirical (1 − α) quantile intervals of acquired inputs and marginal and joint coverage of the data-generating calibration parameters for the SIR model.                                                      
+
+> IMSE IMSE yIVAR Metric Input adapt target adapt target adapt target Width ϑ10.99 0.97 0.51 0.50 0.84 0.81
+> ϑ20.98 0.97 0.33 0.35 0.46 0.44
+> x10.98 0.97 0.98 0.98 0.95 0.94
+> x20.98 0.97 0.98 0.97 0.96 0.95 Coverage ϑ11.00 1.00 0.97 0.93 1.00 1.00
+> ϑ21.00 1.00 1.00 1.00 1.00 1.00 Joint 1.00 1.00 0.97 0.93 1.00 1.00
+
+29 5 Conclusion 
+
+This work highlights the advantages of IVAR-based sequential design for efficient posterior learning in simulation-based calibration tasks. By strategically allocating samples near the field data inputs and within the parameter region of interest, IVAR improves the accuracy of predictions for both simulation means and noise levels in this critical region. As a result, it outperforms alternative approaches in posterior learning. Additionally, we propose two lookahead strategies to balance exploration and replication. The target-based strategy can be considered when greater replication is desirable, although the most suitable choice may vary depending on the application. This work opens several avenues for future research. One important direction is to examine the role of the initial design. While our framework is initialized with a space-filling design to ensure broad coverage of the input space and avoid imposing strong assumptions about where information is most valuable, the proposed acquisition strategy adaptively prioritizes field data design input locations. The preference for these locations could then be incorporated into the initial or subsequent designs. Assessing the impact of different initial designs on performance remains an important area for future investigation. The proposed IVAR criterion relies on marginalizing the Gaussian likelihood over the Gaussian predictive distribution of the emulator. As a potential extension, one could consider deriving the uncertainty on the log-posterior scale and then transforming back via exponentiation. Developing the IVAR criterion under this log-posterior formulation would be an interesting direction for future work, allowing a systematic comparison between density-scale and log-density-scale acquisition strategies. A further promising direction is to extend the pro-posed IVAR-based design criterion to settings with non-Gaussian noise. While the definition of the IVAR criterion in (7) does not rely on Gaussian assumptions, the analytical derivations and closed-form expres-sions currently rely on Gaussianity of both simulation and field observations; adapting these derivations to alternative noise models is another line of future development. An additional avenue is the integration of the acquisition function into joint designs for field and simulation experiments, where careful coordina-tion is crucial to maximize the use of limited experimental resources. Extending the proposed IVAR-based acquisition strategy to select multiple inputs per stage (batch acquisitions) is another important direction, particularly for expensive simulation models, as it enables parallel evaluations and can reduce overall wall-clock time. Investigating how to construct effective batches that balance exploration and replication, while 
+
+30 managing their computational cost, remains an important avenue for future research. 
+
+# Acknowledgement 
+
+We gratefully acknowledge the computing resources provided on Bebop, a high-performance computing cluster operated by the Laboratory Computing Resource Center at Argonne National Laboratory. 
+
+# Disclosure of Interest 
+
+No potential competing interest was reported by the author. 
+
+# Data Availability Statement 
+
+The data that support the findings of this study are openly available in the Python software package Parallel Uncertainty Quantification (PUQ) at https://github.com/parallelUQ/. 
+
+# Funding 
+
+This work was supported by the National Science Foundation (NSF) under Grants OAC 2004601 and PHY 2402275. 
+
+# References 
+
+Ankenman, B., Nelson, B. L., and Staum, J. (2009). Stochastic kriging for simulation metamodeling. 
+
+Operations Research , 58:371–382. Baker, E., Barbillon, P., Fadikar, A., Gramacy, R. B., Herbei, R., Higdon, D., Huang, J., Johnson, L. R., Ma, P., Mondal, A., Pires, B., Sacks, J., and Sokolov, V. (2022). Analyzing stochastic computer models: A review with opportunities. Statistical Science , 37:64 – 89. Bayarri, M. J., Berger, J. O., and Liu, F. (2009). Modularization in Bayesian analysis, with emphasis on analysis of computer models. Bayesian Analysis , 4(1):119–150. 
+
+31 Bayarri, M. J., Berger, J. O., Paulo, R., Sacks, J., Cafeo, J. A., Cavendish, J., Lin, C.-H., and Tu, J. (2007). A framework for validation of computer models. Technometrics , 49(2):138–154. Binois, M., Gramacy, R. B., and Ludkovski, M. (2018). Practical heteroscedastic Gaussian process modeling for large simulation experiments. Journal of Computational and Graphical Statistics , 27(4):808–821. Binois, M., Huang, J., Gramacy, R. B., and Ludkovski, M. (2019). Replication or exploration? Sequential design for stochastic simulation experiments. Technometrics , 61(1):7–23. Brynjarsd´ ottir, J. and O’Hagan, A. (2014). Learning about physical parameters: the importance of model discrepancy. Inverse Problems , 30(11):114007. Chen, X. and Zhou, Q. (2015). Sequential experimental designs for stochastic kriging. In Tolk, A., Yil-maz, L., Diallo, S., and Ryzhov, I., editors, Proceedings of the 2014 Winter Simulation Conference, WSC 2014 , Proceedings - Winter Simulation Conference, pages 3821–3832. Institute of Electrical and Electronics Engineers Inc. Publisher Copyright: © 2014 IEEE.; 2014 Winter Simulation Conference, WSC 2014 ; Conference date: 07-12-2014 Through 10-12-2014. Chen, X. and Zhou, Q. (2017). Sequential design strategies for mean response surface metamodeling via stochastic kriging with adaptive exploration and exploitation. European Journal of Operational Re-search , 262:575–585. Foreman-Mackey, D., Hogg, D. W., Lang, D., and Goodman, J. (2013). emcee: The MCMC Hammer. 
+
+Publications of the Astronomical Society of the Pacific , 125(925):306. Frazier, P. I. (2018). Bayesian Optimization , chapter 11, pages 255–278. Gilks, W. R., Richardson, S., and Spiegelhalter, D. J. (1995). Markov Chain Monte Carlo in Practice (1st ed.) . Chapman and Hall/CRC. Gramacy, R. B. (2020). Surrogates: Gaussian Process Modeling, Design, and Optimization for the Applied Sciences . CRC Press ; Taylor & Francis Group, New York, NY. Jalali, H., Van Nieuwenhuyse, I., and Picheny, V. (2017). Comparison of kriging-based algorithms for simu-lation optimization with heterogeneous noise. European Journal of Operational Research , 261(1):279– 301. J¨ arvenp¨ a¨ a, M., Gutmann, M. U., Pleska, A., Vehtari, A., and Marttinen, P. (2019). Efficient acquisition rules for model-based approximate Bayesian computation. Bayesian Analysis , 14(2). 
+
+32 J¨ arvenp¨ a¨ a, M., Gutmann, M. U., Vehtari, A., and Marttinen, P. (2021). Parallel Gaussian process surrogate Bayesian inference with noisy likelihood evaluations. Bayesian Analysis , 16(1):147 – 178. Kandasamy, K., Schneider, J., and P´ oczos, B. (2015). Bayesian active learning for posterior estima-tion. In Proceedings of the 24th International Conference on Artificial Intelligence , IJCAI’15, page 3605–3611. AAAI Press. Kandasamy, K., Schneider, J., and P´ oczos, B. (2017). Query efficient posterior estimation in scientific experiments via bayesian active learning. Artificial Intelligence , 243:45–56. Kennedy, M. C. and O’Hagan, A. (2001). Bayesian calibration of computer models. Journal of the Royal Statistical Society. Series B (Statistical Methodology) , 63(3):425–464. Kersting, K., Plagemann, C., Pfaff, P., and Burgard, W. (2007). Most likely heteroscedastic Gaussian process regression. In Proceedings of the 24th International Conference on Machine Learning , ICML ’07, page 393–400, New York, NY, USA. Association for Computing Machinery. Kleijnen, J. P. (2009). Kriging metamodeling in simulation: A review. European Journal of Operational Research , 192(3):707–716. Lam, C. Q. and Notz, W. I. (2008). Sequential adaptive designs in computer experiments for response surface model fit. Statistics and Applications , 6(1):207–233. Lartaud, P., Humbert, P., and Garnier, J. (2025). Solving Bayesian inverse problems using Gaussian process regression with goal-oriented active learning. Technometrics , 0(0):1–14. L´ azaro-Gredilla, M. and Titsias, M. K. (2011). Variational heteroscedastic Gaussian process regression. In 
+
+Proceedings of the 28th International Conference on International Conference on Machine Learning ,ICML’11, page 841–848, Madison, WI, USA. Omnipress. O’Gara, D., Binois, M., Garnett, R., and Hammond, R. A. (2025). hetGPy: Heteroskedastic Gaussian process modeling in Python. Journal of Open Source Software , 10(106):7518. Park, J. S. (1991). Tuning Complex Computer Codes to Data and Optimal Designs . PhD thesis, University of Illinois at Urbana-Champaign. Plumlee, M. (2017). Bayesian calibration of inexact computer models. Journal of the American Statistical Association , 112(519):1274–1285. Ranjan, P., Lu, W., Bingham, D., Reese, S., Williams, B. J., Chou, C.-C., Doss, F., Grosskopf, M., and 
+
+33 Holloway, J. P. (2011). Follow-up experimental designs for computer models and physical processes. 
+
+Journal of Statistical Theory and Practice , 5(1):119–136. Rasmussen, C. E. and Williams, C. K. I. (2005). Gaussian Processes for Machine Learning (Adaptive Computation and Machine Learning) . The MIT Press. Santner, T. J., Williams, B. J., and Notz, W. I. (2018). The Design and Analysis of Computer Experiments .Springer Series in Statistics. Springer New York : Imprint: Springer, New York, NY, 2nd ed. 2018 edition. Sung, C.-L. and Tuo, R. (2024). A review on computer model calibration. WIREs Computational Statistics ,16(1):e1645. S¨ urer, O. (2025). Simulation experiment design for calibration via active learning. Journal of Quality Technology , 57(1):16–34. S¨ urer, O. (2026). Batch sequential experimental design for calibration of stochastic simulation models. 
+
+Technometrics , 68(1):1–13. S¨ urer, O., Plumlee, M., and Wild, S. M. (2024). Sequential Bayesian experimental design for calibration of expensive simulation models. Technometrics , 66(2):157–171. Surjanovic, S. and Bingham, D. (2013). Virtual library of simulation experiments: Test functions and data sets. https://www.sfu.ca/˜ssurjano/index.html . [Online; accessed 06-June-2024]. Tuo, R. and Wu, C. F. J. (2015). Efficient calibration for imperfect computer models. The Annals of Statistics , 43(6):2331 – 2352. Yang, H., S¨ urer, O., Duque, D., Morton, D. P., Singh, B., Fox, S. J., Pasco, R., Pierce, K., Rathouz, P., Valencia, V., Du, Z., Pignone, M., Escott, M. E., Adler, S. I., Johnston, S. C., and Meyers, L. A. (2021). Design of COVID-19 staged alert systems to ensure healthcare capacity with minimal closures. Nature Communications , 12(1):3767. Yuan, J. and Ng, S. H. (2013). A sequential approach for stochastic computer model calibration and predic-tion. Reliability Engineering & System Safety , 111:273–286. 
+
+34 A Appendix 
+
+# A.1 Proof of Lemma 3.1 
+
+To compute the criterion, we first establish general results for GPs. Recall that mt(z) and ς2 
+
+> t
+
+(z) refer to the emulator mean and variance for any z at stage t. Let ς2
+
+> t+1
+
+(z) denote the variance after observing a (hypo-thetical) simulation data point (˘ z, ˘ζ). Given this hypothetical observation, we can express the covariance matrix as 
+
+Kt+1 (aaat+1 ) = 
+
+ Kt(aaat) kt(˘ z)
+
+kt(˘ z)⊤ kt(˘ z, ˘z) + r (˘ z)
+
+ , (15) where aaat+1 = ( a1, . . . , a nt , 1) ⊤. The inverse of Kt+1 (aaat+1 ) is obtained using the partitioned inverse for-mula as 
+
+Kt+1 (aaat+1 )−1 = ˘l
+
+ Kt(aaat)−1˘l−1 + Kt(aaat)−1kt(˘ z)kt(˘ z)⊤Kt(aaat)−1 −Kt(aaat)−1kt(˘ z)
+
+−kt(˘ z)⊤Kt(aaat)−1 1
+
+
+
+where ˘l =  ς2 
+
+> t
+
+(˘ z) + r(˘ z)−1. Substituting Kt+1 (aaat+1 )−1 into the variance expression gives 
+
+ς2
+
+> t+1
+
+(z) = kt(z, z) −
+
+h
+
+kt(z)⊤, k t(z, ˘z)
+
+i
+
+Kt+1 (aaat+1 )−1
+
+ kt(z)
+
+kt(z, ˘z)
+
+
+
+= ς2 
+
+> t
+
+(z) − cov t(z, ˘z)2
+
+ς2 
+
+> t
+
+(˘ z) + r(˘ z) .
+
+(16) Similarly, for the covariance function, we have 
+
+cov t+1 (z, z′) = cov t(z, z′) − cov t(z, ˘z)cov t(z′, ˘z)
+
+ς2 
+
+> t
+
+(˘ z) + r(˘ z) . (17) 
+
+35 By following an analogous argument for the mean function, we arrive at 
+
+mt+1 (z) = 
+
+h
+
+kt(z)⊤, k t(z, ˘z)
+
+i
+
+Kt+1 (aaat+1 )−1
+
+
+
+¯ζζζt
+
+˘ζ
+
+
+
+= mt(z) + cov t(z, ˘z)
+
+ς2 
+
+> t
+
+(˘ z) + r(˘ z)
+
+˘ζ − mt(˘ z)
+
+
+
+.
+
+(18) The expectation, variance, and covariance of (18) are given by 
+
+E˘ζ|D t [mt+1 (z)] = mt(z), V˘ζ|D t [mt+1 (z)] = cov t(z, ˘z)2
+
+ς2 
+
+> t
+
+(˘ z) + r(˘ z) , and 
+
+C˘ζ|D t [mt+1 (z), m t+1 (z′)] = cov t(z, ˘z)cov t(z′, ˘z)
+
+ς2 
+
+> t
+
+(˘ z) + r(˘ z) .
+
+(19) Using the distribution ˘ζ | D t ∼ N  mt(˘ z), ς 2 
+
+> t
+
+(˘ z) + r(˘ z) and the transformation in (18), we obtain 
+
+mt+1 (z) | D t ∼ N 
+
+
+
+mt(z), cov t(z, ˘z)2
+
+ς2 
+
+> t
+
+(˘ z) + r(˘ z)
+
+
+
+. (20) Extending this result to the multivariate case, (20) implies 
+
+μμμt+1 (θθθ) | D t ∼ MVN 
+
+
+
+μμμt(θθθ), ˘ϕϕϕt(θθθ)
+
+
+
+, (21) where μμμt (θθθ) = ( mt (zo
+
+> 1
+
+) , . . . , m t (zod)) ⊤ denotes the vector of predictive means at the field data design inputs and ˘ϕϕϕt(θθθ) is a d × d covariance matrix. The jth diagonal entry of ˘ϕϕϕt(θθθ) is cov t(zoj ,˘z)2  
+
+> ς2
+> t(˘ z)+ r(˘ z)
+
+and the off-diagonal (j, j ′)th entry is cov t(zoj ,˘z)cov t(zoj′ ,˘z)  
+
+> ς2
+> t(˘ z)+ r(˘ z)
+
+.To derive IVAR(˘ z) in (7), we first compute the expectation E˘ζ|D t
+
+
+
+Vηηη(θθθ)|D ct [˜ p(θθθ | y)] 
+
+
+
+, where Dct = Dt
+
+∪(˘ z, ˘ζ). Using the identity Vηηη(θθθ)|D ct [˜ p(θθθ | y)] = Vηηη(θθθ)|D ct [˜ p(y | θθθ)] p(θθθ)2 and the derivation from (6), we obtain Vηηη(θθθ)|D ct [˜ p(y | θθθ)] as 
+
+12dπd/ 2|ΣΣΣ|1/2 fN
+
+
+
+y; μμμt+1 (θθθ), 12ΣΣΣ + St+1 (θθθ)
+
+
+
+−  fN
+
+ y; μμμt+1 (θθθ), ΣΣΣ + St+1 (θθθ) 2 .
+
+We have St+1 (θθθ) = St(θθθ) − ˘ϕϕϕt(θθθ) as implied by (16) and (17), and note that St+1 (θθθ) does not depend 
+
+36 on ˘ζ. Substituting St+1 (θθθ) with St(θθθ) − ˘ϕϕϕt(θθθ) and applying (21), we obtain E˘ζ|D t
+
+
+
+Vηηη(θθθ)|D ct [˜ p(y | θθθ)] 
+
+Z 12dπd/ 2|ΣΣΣ|1/2 fN
+
+
+
+y; μμμt+1 (θθθ), 12ΣΣΣ + St(θθθ) − ˘ϕϕϕt(θθθ)
+
+
+
+fN
+
+
+
+μμμt+1 (θθθ); μμμt(θθθ), ˘ϕϕϕt(θθθ)
+
+
+
+dμ μμt+1 (θθθ)
+
+−
+
+Z 
+
+fN
+
+
+
+y; μμμt+1 (θθθ), ΣΣΣ + St(θθθ) − ˘ϕϕϕt(θθθ)
+
+ 2
+
+fN
+
+
+
+μμμt+1 (θθθ); μμμt(θθθ), ˘ϕϕϕt(θθθ)
+
+
+
+dμ μμt+1 (θθθ).
+
+(22) The remainder of the proof follows the approach in S¨ urer et al. (2024), which we include here for completeness. To simplify notation, we omit the dependence on θθθ in μμμt(θθθ) and μμμt+1 (θθθ). By defining 
+
+L := 12ΣΣΣ + St(θθθ) − ˘ϕϕϕt(θθθ), M := Σ ΣΣ + St(θθθ) − ˘ϕϕϕt(θθθ), and setting a1 := 2−dπ−d/ 2|ΣΣΣ|−1/2 
+
+> (2 π)d|L˘ϕϕϕt(θθθ)|1/2
+
+, a2 := (2 π)−3d/ 2 
+
+> |M˘ϕϕϕt(θθθ)M|1/2
+
+,and assuming that L and M are invertible, (22) is equivalently expressed as 
+
+a1
+
+Z
+
+exp 
+
+
+
+− 12
+
+ y − μμμt+1 
+
+⊤ L−1  y − μμμt+1 
+
+ +  μμμt+1 − μμμt
+
+⊤ ˘ϕϕϕt(θθθ)−1  μμμt+1 − μμμt
+
+
+
+dμ μμt+1 
+
+− a2
+
+Z
+
+exp 
+
+
+
+− 12
+
+
+
+2  y − μμμt+1 
+
+⊤ M−1  y − μμμt+1 
+
+ +  μμμt+1 − μμμt
+
+⊤ ˘ϕϕϕt(θθθ)−1  μμμt+1 − μμμt
+
+
+
+dμ μμt+1 .
+
+(23) Defining v := μμμt − μμμt+1 and z := y − μμμt, we can write (23) in matrix notation as 
+
+= 12dπd/ 2|ΣΣΣ|1/2
+
+Z
+
+fN
+
+ vz
+
+ ; 0,
+
+
+
+˘ϕϕϕt(θθθ) −˘ϕϕϕt(θθθ)
+
+−˘ϕϕϕt(θθθ) L + ˘ϕϕϕt(θθθ)
+
+ dv
+
+− 12dπd/ 2|M|1/2
+
+Z
+
+fN
+
+ vz
+
+ ; 0,
+
+
+
+˘ϕϕϕt(θθθ) −˘ϕϕϕt(θθθ)
+
+−˘ϕϕϕt(θθθ) 12 M + ˘ϕϕϕt(θθθ)
+
+ dv.
+
+(24) Marginalizing over v yields E˘ζ|D t
+
+
+
+Vηηη(θθθ)|D ct [˜ p(y | θθθ)] 
+
+
+
+as 
+
+fN
+
+ y; μμμt(θθθ), 12ΣΣΣ + St(θθθ)
+
+2dπd/ 2|ΣΣΣ|1/2 −
+
+fN
+
+
+
+y; μμμt(θθθ), 12
+
+
+
+ΣΣΣ + St(θθθ) + ˘ϕϕϕt(θθθ)
+
+ 
+
+2dπd/ 2|ΣΣΣ + St(θθθ) − ˘ϕϕϕt(θθθ)|1/2 . (25) Substituting (25) into the definition of the IVAR criterion, 
+
+Z
+
+> θθθ∈Θ
+
+E˘ζ|D t
+
+
+
+Vηηη(θθθ)|D ct [˜ p(θθθ | y)] 
+
+
+
+dθ θθ, yields (8). 
+
+37 A.2 Proof of Lemma 3.2 
+
+We begin with the derivation of the variance ς2
+
+> t+1
+
+(z) after observing the hypothetical replicate (zk, ζ k). Let 
+
+aaat+1 be the nt × 1 vector of replicates after adding this data point into the simulation dataset such that 
+
+aaat+1 = aaat + ek. Here, ek is an nt × 1 vector with all entries zero except for the kth element, which is one. We can write 
+
+Kt+1 (aaat+1 ) = Kt(aaat) − diag 
+
+
+
+0, . . . , 0, r(zk)
+
+ak(ak + 1) , 0, . . . , 0
+
+
+
+= Kt(aaat) + u1u⊤ 
+
+> 2
+
+, with u1 = − r(zk)
+
+ak
+
+ek and u2 = 1
+
+ak + 1 ek.
+
+(26) The Sherman-Morrison formula gives the matrix inverse Kt+1 (aaat+1 )−1 as 
+
+Kt+1 (aaat+1 )−1 =
+
+
+
+Kt(aaat) + u1u⊤
+
+> 2
+
+−1
+
+= Kt(aaat)−1 + Bk (27) where Bk = (Kt(aaat)−1).,k (Kt(aaat)−1)k,.    
+
+> ak(ak+1) /r (zk)−(Kt(aaat)−1)k,k
+
+. Plugging (27) into the variance definition gives 
+
+ς2
+
+> t+1
+
+(z) = kt(z, z) − kt(z)⊤Kt+1 (aaat+1 )−1kt(z)= ς2 
+
+> t
+
+(z) − kt(z)⊤Bkkt(z).
+
+(28) Following the same logic, we derive cov t+1 (z, z′) as 
+
+cov t+1 (z, z′) = kt(z, z′) − kt(z)⊤Kt+1 (aaat+1 )−1kt(z′)= cov t(z, z′) − kt(z)⊤Bkkt(z′).
+
+(29) Likewise, the updated emulator mean mt+1 (z) is 
+
+mt+1 (z) = kt(z)⊤Kt+1 (aaat+1 )−1
+
+
+
+¯ζζζt + ek
+
+ζk − ¯ζk
+
+ak + 1 
+
+
+
+= mt(z) + kt(z)⊤
+
+ Kt(aaat)−1 + Bk
+
+ ek
+
+ζk − ¯ζk
+
+ak + 1 + Bk¯ζζζt
+
+
+
+.
+
+(30) Here, ¯ζk denotes kth entry of ¯ζζζt.Using the predictive distribution ζk | D t ∼ N  mt(zk), ς 2 
+
+> t
+
+(zk) + r(zk) and the transformation in (30), 
+
+38 we have mt+1 (z) | D t ∼ N  Eζk |D t [mt+1 (z)] , Vζk |D t [mt+1 (z)]  where 
+
+Eζk |D t [mt+1 (z)] = mt(z) + 
+
+h
+
+kt(z)⊤  Kt(aaat)−1 + Bk
+
+i
+
+> k
+
+mt(zk) − ¯ζk
+
+ak + 1 + kt(z)⊤Bk¯ζζζt,
+
+Vζk |D t [mt+1 (z)] = ς2 
+
+> t
+
+(zk) + r(zk)(ak + 1) 2
+
+h
+
+kt(z)⊤  Kt(aaat)−1 + Bk
+
+i2 
+
+> k
+
+.
+
+Let μμμt+1 (θθθ) = ( mt+1 (zo
+
+> 1
+
+), . . . , m t+1 (zod)) ⊤ denote the vector of predictive means at the field data design in-puts after observing the hypothetical data point (zk, ζ k). Let μμμkt (θθθ) be a vector with entries Eζk |D t
+
+h
+
+mt+1 (zoj )
+
+i
+
+,for j = 1 , . . . , d . Define a d×d covariance matrix ΓΓΓkt (θθθ), where the jth diagonal element is Vζk |D t
+
+h
+
+mt+1 (zoj )
+
+i
+
+,and the (j, j ′)th element—denoted the covariance Cζk |D t
+
+h
+
+mt+1 (zoj ), m t+1 (zoj′ )
+
+i
+
+—is given by 
+
+ς2 
+
+> t
+
+(zk) + r(zk)(ak + 1) 2
+
+h
+
+kt(zoj )⊤  Kt(aaat)−1 + Bk
+
+i
+
+> k
+
+h Kt(aaat)−1 + Bk
+
+⊤ kt(zoj′ )
+
+i 
+
+> k
+
+.
+
+In the multivariate setting, we then obtain 
+
+μμμt+1 (θθθ) |D t ∼ MVN 
+
+
+
+μμμkt (θθθ), ΓΓΓkt (θθθ)
+
+
+
+. (31) To derive IVAR( zk), we begin by computing the expectation Eζk |D t
+
+
+
+Vηηη(θθθ)|D ct [˜ p(θθθ | y)] 
+
+
+
+, where Dct =
+
+Dt ∪ (zk, ζ k). We compute the variance Vηηη(θθθ)|D ct [˜ p(θθθ | y)] = Vηηη(θθθ)|D ct [˜ p(y | θθθ)] p(θθθ)2, where, according to (6), the term Vηηη(θθθ)|D ct [˜ p(y | θθθ)] is given by 
+
+12dπd/ 2|ΣΣΣ|1/2 fN
+
+
+
+y; μμμt+1 (θθθ), 12ΣΣΣ + St+1 (θθθ)
+
+
+
+−  fN
+
+ y; μμμt+1 (θθθ), ΣΣΣ + St+1 (θθθ) 2 .
+
+Let ϕϕϕkt (θθθ) be a d × d matrix with the (j, j ′)th element k⊤ 
+
+> t
+
+(zoj )Bkkt(zoj′ ). Then, from (28) and (29), we have St+1 (θθθ) = St(θθθ) − ϕϕϕkt (θθθ). Substituting St+1 (θθθ) with St(θθθ) − ϕϕϕkt (θθθ) and using (31), we arrive at the following expression for Eζk |D t
+
+
+
+Vηηη(θθθ)|D ct [˜ p(y | θθθ)] 
+
+
+
+:
+
+Z 12dπd/ 2|ΣΣΣ|1/2 fN
+
+
+
+y; μμμt+1 (θθθ), 12ΣΣΣ + St(θθθ) − ϕϕϕkt (θθθ)
+
+
+
+fN
+
+
+
+μμμt+1 (θθθ); μμμkt (θθθ), ΓΓΓkt (θθθ)
+
+
+
+dμ μμt+1 (θθθ)
+
+−
+
+Z 
+
+fN
+
+
+
+y; μμμt+1 (θθθ), ΣΣΣ + St(θθθ) − ϕϕϕkt (θθθ)
+
+ 2
+
+fN
+
+
+
+μμμt+1 (θθθ); μμμkt (θθθ), ΓΓΓkt (θθθ)
+
+
+
+dμ μμt+1 (θθθ).
+
+(32) For brevity, we omit the dependence on θθθ in μμμkt (θθθ) and μμμt+1 (θθθ). Let L := 12ΣΣΣ + St(θθθ) − ϕϕϕkt (θθθ), M := 
+
+39 ΣΣΣ + St(θθθ) − ϕϕϕkt (θθθ), and define a1 := 2−dπ−d/ 2|ΣΣΣ|−1/2  
+
+> (2 π)d|LΓΓΓkt(θθθ)|1/2
+
+, a2 := (2 π)−3d/ 2  
+
+> |MΓΓΓkt(θθθ)M|1/2
+
+. Assuming L and M are invertible, we rewrite (32) as 
+
+a1
+
+Z
+
+exp 
+
+
+
+− 12
+
+ y − μμμt+1 
+
+⊤ L−1  y − μμμt+1 
+
+ +
+
+
+
+μμμt+1 − μμμkt
+
+⊤
+
+ΓΓΓkt (θθθ)−1 
+
+μμμt+1 − μμμkt
+
+ 
+
+dμ μμt+1 
+
+− a2
+
+Z
+
+exp 
+
+
+
+− 12
+
+
+
+2  y − μμμt+1 
+
+⊤ M−1  y − μμμt+1 
+
+ +
+
+
+
+μμμt+1 − μμμkt
+
+⊤
+
+ΓΓΓkt (θθθ)−1 
+
+μμμt+1 − μμμkt
+
+ 
+
+dμ μμt+1 .
+
+(33) Setting v := μμμkt − μμμt+1 and z := y − μμμkt , we express (33) in matrix form as 
+
+= 2−dπ−d/ 2|ΣΣΣ|−1/2
+
+(2 π)d|LΓΓΓkt (θθθ)−1|1/2
+
+Z
+
+exp 
+
+− 12
+
+ vz
+
+ 
+
+> T
+
+ L−1 + Γ ΓΓkt (θθθ)−1 L−1
+
+L−1 L−1
+
+ vz
+
+ dv
+
+− (2 π)−3d/ 2
+
+2d/ 2|M|1/2 12 MΓΓΓkt (θθθ) 1/2
+
+Z
+
+exp 
+
+− 12
+
+ vz
+
+ 
+
+> T
+
+ 2M−1 + Γ ΓΓkt (θθθ)−1 2M−1
+
+2M−1 2M−1
+
+ vz
+
+ dv
+
+= 12dπd/ 2|ΣΣΣ|1/2
+
+Z
+
+fN
+
+ vz
+
+ ; 0,
+
+ ΓΓΓkt (θθθ) −ΓΓΓkt (θθθ)
+
+−ΓΓΓkt (θθθ) L + Γ ΓΓkt (θθθ)
+
+ dv
+
+− 12dπd/ 2|M|1/2
+
+Z
+
+fN
+
+ vz
+
+ ; 0,
+
+ ΓΓΓkt (θθθ) −ΓΓΓkt (θθθ)
+
+−ΓΓΓkt (θθθ) 12 M + Γ ΓΓkt (θθθ)
+
+ dv.
+
+Marginalizing over v yields Eζk |D t
+
+
+
+Vηηη(θθθ)|D ct [˜ p(y | θθθ)] 
+
+
+
+as 
+
+fN
+
+
+
+y; μμμkt (θθθ), 12ΣΣΣ + St(θθθ) − ϕϕϕkt (θθθ) + Γ ΓΓkt (θθθ)
+
+
+
+2dπd/ 2|ΣΣΣ|1/2 −
+
+fN
+
+
+
+y; μμμkt (θθθ), 12
+
+
+
+ΣΣΣ + St(θθθ) − ϕϕϕkt (θθθ)
+
+
+
++ Γ ΓΓkt (θθθ)
+
+
+
+2dπd/ 2|ΣΣΣ + St(θθθ) − ϕϕϕkt (θθθ)|1/2 .
+
+(34) Combining (34) with the definition of IVAR( zk),
+
+Z
+
+> θθθ∈Θ
+
+p(θθθ)2Eζk |D t
+
+
+
+Vηηη(θθθ)|D ct [˜ p(y | θθθ)] 
+
+
+
+dθ θθ, yields the ex-pression in (9). 
+
+40 A.3 Allocation Rule for Adaptive Scheme 
+
+The goal is to solve the following mathematical program optimally: 
+
+min 
+
+> aaat
+
+TOTVAR( aaat) (35a) 
+
+> nt
+
+X
+
+> i=1
+
+ai ≤ N, (35b) 
+
+ai ∈ Z+, ∀i = 1 , . . . , n t. (35c) By relaxing the integrality constraint in (35c), the Lagrangian L(aaat) is formulated as: 
+
+L(aaat) = TOTVAR( aaat) + λ N −
+
+> nt
+
+X
+
+> i=1
+
+ai
+
+!
+
+.
+
+The first-order optimality conditions are as follows 
+
+∂L (aaat)
+
+∂a i
+
+= ∂TOTVAR( aaat)
+
+∂a i
+
+− λ = 0 , i = 1 , . . . , n t.
+
+We have 
+
+∂TOTVAR( aaat)
+
+∂a i
+
+= 12dπd/ 2|ΣΣΣ|1/2
+
+Z
+
+> θθθ∈Θ
+
+∂f (θθθ)
+
+∂a i
+
+p(θθθ)2dθ θθ − 2
+
+Z
+
+> θθθ∈Θ
+
+g(θθθ) ∂g (θθθ)
+
+∂a i
+
+p(θθθ)2dθ θθ, 
+
+where 
+
+∂f (θθθ)
+
+∂a i
+
+= f (θθθ) ∂ log f (θθθ)
+
+∂a i
+
+and ∂g (θθθ)
+
+∂a i
+
+= g(θθθ) ∂ log g(θθθ)
+
+∂a i
+
+.
+
+Let ˙N(θθθ) = 0 .5Σ ΣΣ + St(θθθ), N(θθθ) = Σ ΣΣ + St(θθθ), and h(θθθ) = y −μμμt(θθθ). By computing the partial derivatives, we obtain: 
+
+∂ log f (θθθ)
+
+∂a i
+
+= − 12
+
+∂ log | ˙N(θθθ)|
+
+∂a i
+
+− 12 h(θθθ)⊤ ∂ ˙N(θθθ)−1
+
+∂a i
+
+h(θθθ),∂ log g(θθθ)
+
+∂a i
+
+= − 12
+
+∂ log |N(θθθ)|
+
+∂a i
+
+− 12 h(θθθ)⊤ ∂N(θθθ)−1
+
+∂a i
+
+h(θθθ).
+
+(36) 
+
+41 Using ∂ log |Y| 
+
+> ∂x
+
+= Tr  Y−1 ∂Y
+
+> ∂x
+
+ and ∂Y−1 
+
+> ∂x
+
+= −Y−1 ∂Y 
+
+> ∂x
+
+Y−1, we rewrite (36) as 
+
+∂ log f (θθθ)
+
+∂a i
+
+= − 12 Tr ˙N(θθθ)−1 ∂ ˙N(θθθ)
+
+∂a i
+
+!
+
++ 12 h(θθθ)⊤ ˙N(θθθ)−1 ∂ ˙N(θθθ)
+
+∂a i
+
+˙N(θθθ)−1h(θθθ),∂ log g(θθθ)
+
+∂a i
+
+= − 12 Tr 
+
+
+
+N(θθθ)−1 ∂N(θθθ)
+
+∂a i
+
+
+
++ 12 h(θθθ)⊤N(θθθ)−1 ∂N(θθθ)
+
+∂a i
+
+N(θθθ)−1h(θθθ),
+
+(37) where ∂ ˙N(θθθ) 
+
+> ∂a i
+
+= ∂N(θθθ) 
+
+> ∂a i
+
+= ∂St(θθθ) 
+
+> ∂a i
+
+.Recall that the jth diagonal element of St(θθθ) is ς2 
+
+> t
+
+(zoj ), and the (j, j ′)th off-diagonal element is given by cov t(zoj , zoj′ ), where zoj =
+
+
+
+xoj ⊤, θ θθ⊤⊤
+
+for j = 1 , . . . , d . We begin by deriving the expression for the derivative of the variance 
+
+∂ς 2 
+
+> t
+
+(zoj )
+
+∂a i
+
+= −k⊤ 
+
+> t
+
+(zoj ) ∂Kt(aaat)−1
+
+∂a i
+
+kt(zoj ) where 
+
+∂Kt(aaat)−1
+
+∂a i
+
+= −Kt(aaat)−1 ∂Kt(aaat)
+
+∂a i
+
+Kt(aaat)−1 and ∂∂a i
+
+Kt(aaat) = − r(zi)
+
+a2
+
+> i
+
+J(i,i ),
+
+which results in 
+
+∂ς 2 
+
+> t
+
+(zoj )
+
+∂a i
+
+= − r(zi)
+
+a2
+
+> i
+
+k⊤ 
+
+> t
+
+(zoj )Kt(aaat)−1J(i,i )Kt(aaat)−1kt(zoj ).
+
+Similarly, the derivative of the covariance function yields 
+
+∂cov t(zoj , zoj′ )
+
+∂a i
+
+= − r(zi)
+
+a2
+
+> i
+
+k⊤ 
+
+> t
+
+(zoj )Kt(aaat)−1J(i,i )Kt(aaat)−1kt(zoj′ ). (38) Let Mi(θθθ) be a d×d matrix, where the (j, j ′)th element is given by −r(zi)k⊤ 
+
+> t
+
+(zoj )Kt(aaat)−1J(i,i )Kt(aaat)−1kt(zoj′ ).Plugging Mi(θθθ) into (37) and then solving first-order optimality conditions completes the proof. 
+
+# A.4 Details of Experiments 
+
+This section details the experimental setups for the synthetic functions described in Section 4.1. The first and second examples are adapted from Ranjan et al. (2011) and Park (1991), respectively, to illustrate calibration settings in which the field inputs and calibration parameters interact. Figure 11 provides a visual reference for the noise variance r(·) and the expected value of the simulation output η(·) for both examples. For the first example with p = 1 and q = 2 , the expected simulation output is given by η(z) = (30 + 5 × x1 × sin(5 x1))(6 × ϑ + 1 + exp( −5x2)) and the noise variance is r(z) = 200 ϑ × fN (x; b, C)
+
+42 Figure 11: Illustration of the noise variance r(·) (color shading) and the expected value of the simulation output η(·) (contour lines) across design input values. The left panel corresponds to the first example evaluated at θ∗ = 0 .50 , while the right panel corresponds to the second example evaluated at θθθ∗ = (0 .50 , 0.50) ⊤.
+
+with b = (0 .25 , 0) ⊤ and C = 0 .2I2. The observed field data point is generated as y(xoj ) = η(zoj ) + ϵ,for j = 1 , 2, 3, 4, where xo 
+
+> 1
+
+= (0 .2, 0.2) ⊤, xo 
+
+> 2
+
+= (0 .2, 0.8) ⊤, xo 
+
+> 3
+
+= (0 .8, 0.2) ⊤, xo 
+
+> 4
+
+= (0 .8, 0.8) ⊤ and 
+
+θ∗ = 0 .50 , and ϵ ∼ N(0 , 10) .For the second example with p = 2 and q = 2 , the expected simulation output is given by η(z) = 
+
+> ϑ1
+> 2
+
+r 
+
+1 + (x1+ϑ22)x2
+
+> ϑ21
+
+− 1
+
+
+
++( ϑ1+3 x2) exp (1 + sin( ϑ2)) and the noise variance is r(z) = 0 .05+0 .05 η(z).The observed field data point is generated as y(xoj ) = η(zoj ) + ϵ, for j = 1 , 2, 3, 4, where xo 
+
+> 1
+
+= (0 .2, 0.2) ⊤,
+
+xo 
+
+> 2
+
+= (0 .2, 0.8) ⊤, xo 
+
+> 3
+
+= (0 .8, 0.2) ⊤, xo 
+
+> 4
+
+= (0 .8, 0.8) ⊤ and θθθ∗ = (0 .50 , 0.50) ⊤, and ϵ ∼ N(0 , 0.5) .We now provide the details of the acquisition functions included in our benchmark study in Section 4. To compute the IMSE at a given candidate input, we construct an emulator of the simulation model at each stage following the procedure described in Section 2.3. The next input is selected to minimize the total uncertainty of the emulator. Specifically, at stage t, we quantify the value of evaluating the simulation model at a candidate input zc using the following IMSE criterion: IMSE (zc) = 
+
+Z
+
+> z∈Z
+
+ς2
+
+> t+1
+
+(z)dz. (39) Analogous to the proposed IVAR criterion, we evaluate the IMSE in two distinct settings corresponding to exploration and replication. For exploration, when the candidate input corresponds to a new location, 
+
+43 zc = ˘ z, the IMSE criterion is given by (see (16) for the derivation of ς2
+
+> t+1
+
+(z))IMSE (˘ z) = 
+
+Z
+
+> z∈Z
+
+
+
+ς2 
+
+> t
+
+(z) − cov t(z, ˘z)2
+
+ς2 
+
+> t
+
+(˘ z) + r(˘ z)
+
+
+
+dz. (40) For replication, when the candidate input coincides with an existing design point, zc = zk, the IMSE criterion becomes (see (28) for the derivation of ς2
+
+> t+1
+
+(z))IMSE (zk) = 
+
+Z
+
+> z∈Z
+
+
+
+ς2 
+
+> t
+
+(z) − kt(z)⊤Bkkt(z)
+
+
+
+dz. (41) We use the IMSE implementation provided in the Python package hetGPy (O’Gara et al. 2025). While IMSE targets global uncertainty reduction of the emulator over the joint design–parameter space, IMSE y
+
+focuses on reducing predictive uncertainty of the field observations across the design space at the current parameter estimate. At each stage t, we first obtain the maximum likelihood estimate ˆθθθt of the parameter, and then evaluate the uncertainty conditional on this estimate. In practice, this is implemented by replacing 
+
+Z in (39)–(41) with ˜Zt, defined as ˜Zt =
+
+
+
+z =
+
+
+
+x⊤, ϑ ϑϑ⊤⊤
+
+∈ Z : ϑϑϑ = ˆθθθt
+
+
+
+.In addition to the MAD results presented in Sections 4.1–4.2, Figure 12 summarizes performance using a Kullback–Leibler (KL)-type measure computed for all examples and acquisition functions. Smaller values of this metric indicate that the estimated posterior assigns higher density to points drawn from the true posterior, reflecting a closer match and more accurate learning of the posterior distribution. 
+
+Figure 12: KL-based comparison of different acquisition functions for three test problems: the first example, the second example, and the SIR function. 44 A.5 Additional Experiments 
+
+We also evaluate performance using modified versions of three widely studied benchmark functions—unimodal, bimodal (J¨ arvenp¨ a¨ a et al. (2019), Lartaud et al. (2025), S¨ urer et al. (2024)), and Branin (Surjanovic and Bingham 2013)—to examine how our approach handles different posterior shapes. These three functions originally depend on two calibration parameters. To introduce a field dimension while preserving the pos-terior structure induced by the calibration parameters, we add a linear term in the design input x. In all examples, observed field data are generated according to (1), with the calibration parameters set to the data-generating value θθθ = θθθ∗, as specified below. Figure 13 illustrates the noise variance r(·) and the expected simulation output η(·) for the unimodal, bimodal, and Branin test functions. 
+
+Figure 13: Illustration of the noise variance r(·) (color shading) and the expected value of the simulation output η(·) (contour lines) across parameter values at the field data design input xo =0.50 for the unimodal (left), bimodal (middle), and Branin (right) functions. 
+
+For the unimodal function with p = 2 and q = 1 , the expected simulation output is given by η(z) = 0.26 ×
+
+
+
+(−10 + ϑ1 × 20) 2 + ( −10 + ϑ2 × 20) 2
+
+−0.48 ×(−10 + ϑ1 × 20) ×(−10 + ϑ2 × 20)+(2 ×x−1) 
+
+and the noise variance is r(z) = 0 .01 + ( ϑ21 + ϑ22) × 2. The observed field data point is generated as 
+
+y(xo) = η(zo) + ϵ, where xo = 0 .5, and θθθ∗ = (0 .5, 0.5) ⊤, and ϵ ∼ N(0 , 0.1) .For the bimodal function with p = 2 and q = 1 , the expected simulation output is given by η(z) = exp 
+
+
+
+− (ϑ1−0.35) 2+( ϑ2−0.35) 2
+
+> 0.15 2
+
+
+
++ exp 
+
+
+
+− (ϑ1−0.65) 2+( ϑ2−0.65) 2
+
+> 0.15 2
+
+
+
++ (2 × x − 1) and the noise variance is 
+
+r(z) = 0 .1 × fN (ϑϑϑ; b, C) with b = (0 .85 , 0.85) ⊤ and C = 0 .05 I2. The observed field data point is generated as y(xo) = η(zo) + ϵ, where xo = 0 .5, and θθθ∗ = (0 .35 , 0.35) ⊤, and ϵ ∼ N(0 , 0.05) .For the Branin function with p = 2 and q = 1 , the expected simulation output is given by η(z) = 
+
+ 15 × ϑ2 − 5.14π2 (−5 + 15 × ϑ1)2 + 5 
+
+> π
+
+(−5 + 15 × ϑ1) − 62 + 10  1 − 18π
+
+ cos( −5 + 15 × ϑ1) + 10 + (2 ×
+
+x − 1) and the noise variance is r(z) = 0 .1 + (15 − 0.1) × 11+exp( −10 ×(ϑ2−0.5)) . The observed field data 
+
+45 Table 3: Width of empirical (1 − α) quantile intervals of acquired inputs and marginal and joint coverage of the data-generating calibration parameters. 
+
+Coverage Width 
+
+h Bimodal Branin Unimodal Bimodal Branin Unimodal IMSE  adapt ϑ1 1.00 1.00 1.00 ϑ1 0.95 0.98 0.99 target ϑ1 1.00 0.83 1.00 ϑ1 0.89 0.94 0.97 adapt ϑ2 1.00 1.00 1.00 ϑ2 0.95 0.98 0.99 target ϑ2 1.00 1.00 1.00 ϑ2 0.89 0.91 0.97 adapt Joint 1.00 1.00 1.00 x 0.98 0.98 0.99 target Joint 1.00 0.83 1.00 x 0.95 0.94 0.97 IMSE y adapt ϑ1 0.87 0.63 1.00 ϑ1 0.21 0.57 0.40 target ϑ1 0.80 0.77 1.00 ϑ1 0.20 0.68 0.40 adapt ϑ2 0.87 0.87 1.00 ϑ2 0.21 0.57 0.41 target ϑ2 0.83 0.87 1.00 ϑ2 0.19 0.62 0.39 adapt Joint 0.87 0.63 1.00 x 0.98 0.97 0.98 target Joint 0.80 0.73 1.00 x 0.97 0.96 0.97 IVAR  adapt ϑ1 1.00 1.00 1.00 ϑ1 0.69 0.93 0.52 target ϑ1 1.00 1.00 1.00 ϑ1 0.66 0.92 0.51 adapt ϑ2 1.00 1.00 1.00 ϑ2 0.68 0.97 0.53 target ϑ2 1.00 1.00 1.00 ϑ2 0.65 0.95 0.50 adapt Joint 1.00 1.00 1.00 x 0.17 0.06 0.07 target Joint 1.00 1.00 1.00 x 0.21 0.06 0.09 
+
+point is generated as y(xo) = η(zo) + ϵ, where xo = 0 .5, and θθθ∗ = (0 .96 , 0.16) ⊤, and ϵ ∼ N(0 , 5) .Figure 14 summarizes performance across the unimodal, bimodal, and Branin functions, reporting both the MAD values and the corresponding distribution of replication counts. Table 3 summarizes the widths of the empirical (1 − α) quantile intervals for the acquired inputs and their associated coverage rates. To complement the MAD results, Figure 15 reports a KL-type measure computed across all examples and acquisition functions. Finally, Figure 16 displays the parameters acquired by each criterion for a single replicate of these examples. 
+
+46 Figure 14: Comparison of different acquisition functions for the unimodal (left), bimodal (middle), and Branin (right) functions. 
+
+Figure 15: KL-based comparison of different acquisition functions for three test problems: uni-modal, bimodal, and Branin functions. 47 Figure 16: Illustration of the acquired parameters selected using IVAR (left), IMSE (center), and IMSE y (right) for the unimodal (top), bimodal (middle), and Branin (bottom) functions. Cyan markers indicate the initial sample points, and blue markers indicate the acquired parameters. Contours represent the true posterior density ˜p(θθθ | y) as a reference, while the background color indicates the intrinsic noise at the field data design input. The magenta marker indicates the data-generating parameter θθθ∗.48 A.6 Impact of Replication and Noise Modeling 
+
+This section investigates the importance of replication and heteroscedastic noise estimation from both in-ferential and computational perspectives. The analysis uses two synthetic examples: the first example with a one-dimensional parameter space in Section 4.1 and the second example based on the Branin function in Appendix A.5. We compare the proposed approach with two homoscedastic GP (homGP) benchmarks, namely those with replication and without replication. In the former, we replace the hetGP in the proposed framework with a homGP, assuming an intrinsic noise variance that is independent of the input (i.e., r(·) in (4) is no longer input-dependent and is replaced by a single scalar value for all zi). In the latter, only the exploration component of IVAR is used with homGP, and no replication is performed. For the methods with replications, we use the target-based scheme with a ratio ρ = 0 .20 .Performance is assessed across 30 independent experimental replications for a total of T = 200 ac-quisitions, similar to the setting presented in Section 4.1. In addition to MAD, we evaluate how well each criterion estimates the expected simulation output and intrinsic noise at the field data input locations via 
+
+MAD y and MAD n, as defined in Section 4.2. In addition, we record the time required to build the emu-lators at each stage. Figure 17 shows the final-stage values of MAD, computation time (seconds), MAD n,and MAD y.
+
+Figure 17: Comparison of the proposed procedure (bottom line) with homGP with replication (middle line) and homGP without replication (top line), shown for the one-dimensional example (top row) and the Branin function (bottom row). Circle markers show the mean across replications, with error lines indicating ± one standard error. 49 The proposed procedure achieves the lowest MAD values and the most accurate estimates of both the mean response and intrinsic noise. The hetGP emulator is slightly more time-consuming than homGP with replication due to the additional estimation of the noise structure; however, this cost is negligible com-pared to the substantially higher build time in the no-replication scenario, where the absence of replication results in a much larger number of unique input locations and, consequently, a more expensive emulator construction. Overall, modeling heteroscedastic noise enables accurate characterization of input-dependent uncertainty, while replication improves inference and substantially reduces emulator training time. 
+
+50

@@ -6,44 +6,41 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-02
-- 运行时间：2026-08-02 20:15:40 UTC
+- 最新运行日期：2026-08-03
+- 运行时间：2026-08-03 21:49:30 UTC
 - 运行状态：成功
 - 本次总论文数：7
-- 精读区：0
-- 速读区：7
+- 精读区：1
+- 速读区：6
 
 ### 今日简报（AI）
-今日共速读7篇论文，聚焦AI气象与时空建模，暂无精读。  
-最值得关注的是实时风场重建（仅需局地观测）与可解释低秩区域温度场模拟，均获7分推荐。  
-建议后续可精读这两篇高分工作，深入理解其方法对气象预测的实际价值。
-- 详情：[/202608/02/README](/202608/02/README)
+今日精读聚焦长程自回归神经算子的历史增强训练，另速读物理信息神经网络、仿真参数估计与主动学习三篇。最值得关注的是HERO方法在长程预测中的历史信息复用，及特征交互建模对神经算子的物理一致性提升。若想快速入门，建议优先看HERO一文的方法对比，其余可作为算子学习的补充背景。
+- 详情：[/202608/03/README](/202608/03/README)
 
 ### 精读区论文标签
-- 本次无精读推荐。
+1. [HERO: History-Enriched Rollout Training for Long-Horizon Autoregressive Neural Operators](/202608/03/2607.29135v1-hero-history-enriched-rollout-training-for-long-horizon-autoregressive-neural-operators)  
+   标签：评分：8.0/10、query:aqac
+   evidence：长时程自回归神经算子训练方法，直接提升时变偏微分方程代理模型的精度
 
 ### 速读区论文标签
-1. [Zhinv: Real-time hub-height wind field reconstruction using only local sparse observations](/202608/02/2607.25298v1-zhinv-real-time-hub-height-wind-field-reconstruction-using-only-local-sparse-observations)  
+1. [Feature Interaction Modeling for Physics-Informed Neural Networks and Neural Operators](/202608/03/2607.28762v1-feature-interaction-modeling-for-physics-informed-neural-networks-and-neural-operators)  
    标签：评分：7.0/10、query:aqac
-   evidence：端到端深度学习由稀疏不规则观测重建高分辨率风场，可直接迁移到空气质量数据同化与代理场重建。
-2. [An Interpretable Low-Rank State-Space Model for Multi-Horizon Simulation of Large-Scale Regional Temperature Fields](/202608/02/2607.27160v1-an-interpretable-low-rank-state-space-model-for-multi-horizon-simulation-of-large-scale-regional-temperature-fields)  
-   标签：评分：7.0/10、query:aqac
-   evidence：可解释低秩状态空间区域温度场替代模型，可迁移至空气质量替代建模
-3. [Can Deep Generative Models Reproduce Non-Stationary Gaussian Random Fields?](/202608/02/2607.25929v2-can-deep-generative-models-reproduce-non-stationary-gaussian-random-fields)  
+   evidence：特征交互模块增强物理信息神经网络与神经算子，用于参数化偏微分方程
+2. [Simulation-based parameter estimation via a combination of embedded normalizing flows and implied empirical probabilities under moment restrictions](/202608/03/2607.25026v1-simulation-based-parameter-estimation-via-a-combination-of-embedded-normalizing-flows-and-implied-empirical-probabilities-under-moment-restrictions)  
    标签：评分：6.0/10、query:aqac
-   evidence：评估深度生成模型能否再现非平稳空间随机场的均值与协方差结构，对空气质量生成式代理模型与不确定性评估有直接参考价值。
-4. [A Cartesian Grid Method for Advection-Diffusion Equations with Robin Boundary Conditions on Moving Domains](/202608/02/2607.26341v1-a-cartesian-grid-method-for-advection-diffusion-equations-with-robin-boundary-conditions-on-moving-domains)  
+   evidence：面向物理系统仿真模型的参数估计框架，可应用于化学传输模型校准与资料同化
+3. [Active Learning for Data-Efficient Calibration of Stochastic Simulation Models](/202608/03/2607.28874v1-active-learning-for-data-efficient-calibration-of-stochastic-simulation-models)  
    标签：评分：6.0/10、query:aqac
-   evidence：针对对流扩散方程与Robin边界条件的数值方法，是化学传输模型的核心PDE
-5. [Benchmarking ConvLSTM for One-Day-Ahead IMDAA Rainfall-Field Prediction across Four Indian Cities](/202608/02/2607.26581v1-benchmarking-convlstm-for-one-day-ahead-imdaa-rainfall-field-prediction-across-four-indian-cities)  
+   evidence：统计代理模型近似昂贵随机仿真，主动学习校准，可迁移至空气质量/化学传输模型代理
+4. [Structured Neural Chaos: An Adaptive Surrogate Modeling Framework for Functional Uncertainty Quantification and Global Sensitivity Analysis](/202608/03/2607.28903v1-structured-neural-chaos-an-adaptive-surrogate-modeling-framework-for-functional-uncertainty-quantification-and-global-sensitivity-analysis)  
    标签：评分：6.0/10、query:aqac
-   evidence：深度学习大气场预测并结合数据同化，可迁移至空气质量预测
-6. [Skillful forecasting of offshore winds from satellite scatterometer constellations](/202608/02/2607.27152v1-skillful-forecasting-of-offshore-winds-from-satellite-scatterometer-constellations)  
+   evidence：面向昂贵模拟器的代理建模框架，适用于空气质量模型仿真
+5. [Learning Structural Eigenmodes with Modal Operator Network (ModalONet)](/202608/03/2607.28926v1-learning-structural-eigenmodes-with-modal-operator-network-modalonet)  
    标签：评分：6.0/10、query:aqac
-   evidence：利用卫星散斑观测的时空不规则样本进行深度学习临近预报，方法可迁移到空气质量预报与同化。
-7. [Adaptive Nyström for Gaussian Process Regression](/202608/02/2607.27427v1-adaptive-nystrm-for-gaussian-process-regression)  
+   evidence：基于DeepONet与LNO的神经算子代理学习，用于模态恢复
+6. [Freeze, Then Select: Structured Field Adapters and Stability-Validated Weak Selection for PDE Discovery from Sparse Observations](/202608/03/2607.29665v1-freeze-then-select-structured-field-adapters-and-stability-validated-weak-selection-for-pde-discovery-from-sparse-observations)  
    标签：评分：6.0/10、query:aqac
-   evidence：可扩展的高斯过程回归代理模型，支持自适应地标选择，可直接用于环境代理建模
+   evidence：从稀疏观测中利用稳定性验证弱选择方法发现PDE，可用于环境输运方程建模
 
 
 <div class="dpr-home-promo-card">

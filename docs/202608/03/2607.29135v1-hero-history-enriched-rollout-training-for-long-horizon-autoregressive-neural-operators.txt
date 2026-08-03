@@ -1,0 +1,1602 @@
+Title: HERO: History-Enriched Rollout Training for Long-Horizon Autoregressive Neural Operators
+
+URL Source: https://arxiv.org/pdf/2607.29135v1
+
+Published Time: Mon, 03 Aug 2026 00:34:31 GMT
+
+Number of Pages: 20
+
+Markdown Content:
+# HERO: History-Enriched Rollout Training for Long-Horizon Autoregressive Neural Operators 
+
+# Jiaquan Zhang 
+
+School of Computer Science and Engineering, UESTC Chengdu, China 
+
+# Shuxu Chen 
+
+Electronics and Information Convergence Engineering, KHU Yongin-si, Korea 
+
+# Haifan Meng 
+
+School of Computer Science and Engineering, UESTC Chengdu, China 
+
+# Yi Lu 
+
+Department of Mathematical Sciences, UOL Liverpool, England 
+
+# Zhihan Lyu 
+
+School of Computer Science and Technology, XDU Shanxi, China 
+
+# Fan Mo 
+
+School of Mechanical and Electrical Engineering, UESTC Chengdu, China 
+
+# Wei Dong 
+
+College of Computer and Information Engineering, XAUAT Xi’an, China 
+
+# Yang Yang 
+
+School of Computer Science and Engineering, UESTC Chengdu, China 
+
+# Chaoning Zhang 
+
+School of Computer Science and Engineering, UESTC Chengdu, China 
+
+## Abstract 
+
+Neural operators provide fast surrogates for time-dependent par-tial differential equations (PDEs) by applying a learned evolution operator recursively to its own predictions, but this autoregres-sive rollout feeds every prediction error back as input, so local errors accumulate. Existing rollout-training strategies reduce the mismatch between training inputs and self-generated states, yet their supervision still measures only the absolute discrepancy from the ground-truth trajectory. Such supervision is therefore uninfor-mative about whether the operator has overcome the long-horizon failure behaviors it exhibited earlier during optimization. We pro-pose history-enriched rollout training (HERO), which augments conventional absolute trajectory supervision with relative supervi-sion derived from the model’s optimization history. HERO ranks detached candidate rollouts from a periodically refreshed lagged operator, the current model, and a perturbed input by rollout error, spectral discrepancy, energy drift, and error growth, and selects the strongest failure trajectory as reference. This reference enters a margin-based objective as a fixed comparison baseline, induc-ing a bounded, sample-dependent reweighting of the ground-truth rollout gradient rather than an independent gradient direction, which we further analyze theoretically. Experiments on nine PDE benchmarks with spectral and attention-based backbones show that HERO consistently improves long-horizon accuracy, stable rollout length, and out-of-distribution robustness at no inference-time cost. These results indicate that history-enriched relative supervision is effective for stabilizing long-horizon autoregressive prediction.  
+
+> Permission to make digital or hard copies of all or part of this work for personal or classroom use is granted without fee provided that copies are not made or distributed for profit or commercial advantage and that copies bear this notice and the full citation on the first page. Copyrights for components of this work owned by others than the author(s) must be honored. Abstracting with credit is permitted. To copy otherwise, or republish, to post on servers or to redistribute to lists, requires prior specific permission and/or a fee. Request permissions from permissions@acm.org.
+> Conference acronym ’XX, Woodstock, NY
+> ©2018 Copyright held by the owner/author(s). Publication rights licensed to ACM. ACM ISBN 978-1-4503-XXXX-X/2018/06 https://doi.org/XXXXXXX.XXXXXXX
+
+## CCS Concepts 
+
+• Computing methodologies → Neural networks .
+
+ACM Reference Format: 
+
+Jiaquan Zhang, Shuxu Chen, Haifan Meng, Yi Lu, Zhihan Lyu, Fan Mo, Wei Dong, Yang Yang, and Chaoning Zhang. 2018. HERO: History-Enriched Rollout Training for Long-Horizon Autoregressive Neural Operators. In 
+
+Proceedings of Make sure to enter the correct conference title from your rights confirmation email (Conference acronym ’XX). ACM, New York, NY, USA, 20 pages. https://doi.org/XXXXXXX.XXXXXXX 
+
+## 1 Introduction 
+
+During autoregressive inference, each prediction is fed back as in-put, repeatedly propagating local errors and shifting the rollout away from the training distribution [ 30 , 34 ]. Nonlinear, multiscale, and repeated spectral dynamics can amplify these deviations, caus-ing spectral distortion and eventual rollout instability [ 18 , 26 , 32 , 34 ]. Low one-step error therefore does not guarantee accurate and sta-ble long-horizon rollouts [ 32 , 34 ]. For chaotic systems, long-term statistical fidelity must be evaluated separately from pointwise one-step accuracy [ 29 , 44 ]. Existing approaches mitigate this mis-match by exposing the operator to self-generated states during training, including multi-step rollout training, push-forward strate-gies, differentiable-solver strategies, and recurrent operator train-ing [ 4 , 49 , 51 ]. These rollout-training strategies reduce the mismatch between training and inference inputs by modifying the states en-countered during training, while their objectives remain grounded in discrepancies between predicted and reference trajectories rather than an explicitly history-enriched failure reference [ 4, 49 , 51 ]. Such supervision measures how far the current rollout deviates from the target evolution, but does not explicitly reveal whether its long-horizon error growth or previously observed failure patterns persist [32–34]. To illustrate this limitation, we compare the standard Fourier neural operator (FNO) with its push-forward variant (FNO-PF), which propagates model-generated states into subsequent steps and updates the operator on the resulting rollout errors. As shown in Figure 1, FNO-PF delays the onset of degradation relative to FNO but retains a similar long-horizon growth trend. Exposure to self-generated states therefore improves long-horizon prediction, yet arXiv:2607.29135v1 [cs.LG] 31 Jul 2026 Conference acronym ’XX, June 03–05, 2018, Woodstock, NY Zhang et al. 
+
+absolute supervision still cannot indicate whether the operator has overcome the failure behaviors it produced earlier during optimiza-tion. The model’s optimization history provides a natural source of comparative information for addressing this supervision gap. We treat parameter states saved at earlier optimization stages as histori-cal checkpoints; each checkpoint defines a complete autoregressive operator whose long-horizon rollout is evaluated from the same initial conditions. Comparing these rollouts against the final opera-tor (Figure 2) shows that a checkpoint’s relative quality depends on the rollout horizon and does not improve monotonically with training: some checkpoints stay competitive over the initial steps but fall behind at longer horizons, whereas others differ in their transition times and error-growth patterns. Historical checkpoints are therefore not uniformly weaker copies of the final operator; each retains a distinct long-horizon failure behavior. Moreover, as the current operator improves, a fixed historical trajectory becomes too easy to outperform, reducing the contribution of the relative objective. These observations motivate adapting the reference to both the rollout behavior and the current optimization stage. We propose a history-enriched rollout training framework (HERO) that supplements conventional ground-truth trajectory regression with relative long-horizon supervision. Instead of relying on a fixed historical checkpoint, HERO dynamically constructs up to three detached candidate trajectories from a periodically refreshed lagged operator, the current rollout, and an optional locally perturbed in-put. It evaluates their rollout error, spectral discrepancy, energy deviation, and error-growth behavior, and selects an informative failure trajectory as the comparison reference. The current oper-ator is then optimized both to match the ground-truth evolution and to outperform the selected reference through a margin-based objective. The selected reference is used only as a detached com-parison baseline and introduces no independent gradient direction. Instead, the relative objective induces a bounded, sample-dependent reweighting of the current ground-truth rollout gradient. We char-acterize this mechanism through a covariance decomposition of the aggregated update direction and establish conditional finite-step reachability of a prescribed long-horizon risk region under explicit regularity and alignment conditions. HERO is architecture agnostic, and all reference-construction components are used only during training, leaving the inference-time architecture and cost unchanged. The main contributions are summarized as follows: (i) We pro-pose HERO, an architecture-agnostic history-enriched rollout train-ing framework that converts dynamically selected long-horizon fail-ure behaviors into relative supervision while retaining conventional ground-truth trajectory regression. (ii) We characterize the opti-mization mechanism induced by stop-gradient reference trajecto-ries. The reference applies a bounded, sample-dependent reweight-ing to the ground-truth rollout gradients rather than introducing an independent distillation direction. We further derive a covariance decomposition of the aggregated update direction and establish conditional finite-step reachability of a prescribed long-horizon risk region. (iii) We conduct experiments on nine PDE benchmarks spanning one-, two-, and three-dimensional dynamics with spec-tral and attention-based backbones. The results show that HERO consistently improves long-horizon rollout accuracy, stability, and out-of-distribution robustness over strong autoregressive-training baselines without increasing inference-time cost. 
+
+## 2 Related Work 
+
+Rollout-based training reduces the train–test mismatch of autore-gressive neural operators [ 23 , 28 ] by exposing the model to self-generated states, through push-forward and temporal bundling [ 4 ], differentiable solver-in-the-loop correction [ 49 ], recursive graph simulators [ 37 , 43 ], unrolling taxonomies [ 21 , 33 ], and recurrent operators [ 51 ]; yet their supervision measures only the absolute discrepancy from the ground-truth trajectory. A complementary direction stabilizes long horizons through spectral and structural design [ 16 , 18 , 26 , 32 , 34 ] or long-term statistical constraints [ 17 , 29 ,44 ], but modifies the operator or objective rather than supervising against the model’s own failures. HERO addresses this comple-mentary gap, leaving the inference-time operator unchanged and using dynamically selected historical failure trajectories to super-vise whether the current rollout improves over previously observed failure behavior. The complete introduction of related works is in Appendix A. 
+
+## 3 Motivation 
+
+This section presents two observations motivating HERO: predic-tion errors accumulate substantially over long autoregressive roll-outs, and historical checkpoints exhibit distinct horizon-dependent behaviors. These findings motivate complementing absolute trajec-tory supervision with history-enriched relative supervision. 
+
+## 3.1 Long-Horizon Error Accumulation 
+
+Figure 1 compares FNO, FNO-PF, and HERO over 200-step free autoregressive rollouts from the same test initial conditions. The three methods remain relatively close during the initial interval, but their errors separate substantially as the rollout horizon in-creases. FNO exhibits rapid error accumulation. FNO-PF delays part of the degradation, yet retains a similar long-range growth trend. In contrast, HERO maintains lower error and slower am-plification throughout the medium- and long-horizon rollout. Fig-ure 1 shows the ground-truth and predicted fields at step 100 for a representative test trajectory. The FNO and FNO-PF predictions exhibit clear phase, amplitude, and local oscillatory errors, whereas HERO more closely preserves the spatial structure of the ground-truth field. These results show that short-horizon accuracy and exposure to self-generated states do not by themselves eliminate long-horizon degradation. Absolute supervision measures the dis-crepancy between the current rollout and the ground truth, but does not explicitly indicate whether the operator has overcome failure behaviors produced earlier during optimization. 
+
+## 3.2 Distinct Rollout Behaviors across Training Checkpoints 
+
+Each intermediate checkpoint defines a complete autoregressive op-erator and therefore induces its own long-horizon rollout behavior. Figure 2 compares checkpoints saved at training steps 4000, 6000, and 8000 with Final HERO. All checkpoints are evaluated from the same test initial conditions using 200-step free autoregressive rollouts. HERO: History-Enriched Rollout Training for Long-Horizon Autoregressive Neural Operators Conference acronym ’XX, June 03–05, 2018, Woodstock, NY 
+
+Figure 1: Short-horizon accuracy versus long-horizon rollout stability of FNO, FNO-PF, and HERO. (a) Mean normalized root-mean-square error (nRMSE) over 200-step free autore-gressive rollouts from the same test initial conditions. (b) Ground-truth and predicted fields at step 100 for a represen-tative test trajectory selected using a predefined criterion 
+
+Figure 2: Relative rollout-error landscape across training checkpoints over 200-step free autoregressive rollouts. Each row shows the base-10 logarithmic ratio between the rollout error of a historical checkpoint and that of Final HERO. The bottom row corresponds to Final HERO and is identically zero. Dashed lines mark rollout steps 40, 100, and 160. 
+
+For checkpoint 𝑠 , the mean relative error at rollout step 𝑡 is 
+
+𝐸 𝑠 (𝑡 ) = 1
+
+𝑁 test 
+
+> 𝑁 test
+
+∑︁ 
+
+> 𝑖 =1
+
+ˆ𝑢 (𝑖 ) 
+
+> 𝑠,𝑡
+
+− 𝑢 (𝑖 ) 
+
+> 𝑡 2
+
+𝑢 (𝑖 )  
+
+> 𝑡 2
+
++ 𝜀 , (1) where 𝑁 test is the number of test trajectories, ˆ𝑢 (𝑖 ) 
+
+> 𝑠,𝑡
+
+and 𝑢 (𝑖 ) 
+
+> 𝑡
+
+are the predicted and ground-truth states for trajectory 𝑖 at rollout step 
+
+𝑡 , respectively, and 𝜀 > 0 is a numerical-stability constant. We compare each checkpoint with Final HERO through the base-10 logarithmic ratio 
+
+Δ𝑠 (𝑡 ) = log 10 
+
+ 𝐸 𝑠 (𝑡 ) + 𝜀 𝐸 Final (𝑡 ) + 𝜀 
+
+
+
+, (2) where 𝐸 Final (𝑡 ) is the corresponding error of Final HERO. Positive values of Δ𝑠 (𝑡 ) indicate a larger rollout error than Final HERO, negative values indicate a smaller error, and values near zero indi-cate comparable errors. Stacking Δ𝑠 (𝑡 ) across checkpoints yields the relative error landscape in Figure 2. The horizontal axis repre-sents the rollout step, while the vertical axis represents the train-ing checkpoint. The color scale is centered at zero, and the Final-HERO row is identically zero. The landscape shows that the relative quality of a checkpoint depends on the rollout horizon and does not improve monotonically throughout training. Some historical checkpoints remain competitive during the initial rollout steps but become substantially less accurate as the rollout continues. Dif-ferent checkpoints also exhibit distinct transition times and error-growth patterns. Historical checkpoints are therefore not merely uniformly weaker versions of the final model; they retain different long-horizon error-propagation behaviors. These observations motivate dynamic history-enriched supervi-sion. Historical rollouts can provide informative failure references, but a fixed checkpoint can become stale, whereas an excessively frequent refresh provides little contrast. HERO therefore maintains a controlled training lag, evaluates candidate rollouts using long-horizon diagnostics, and uses the selected trajectory to complement conventional absolute supervision. 
+
+## 4 Method 
+
+Figure 3 gives an overview of HERO. From a shared input context, the current operator produces the rollout to be optimized while the lagged and perturbed branches produce detached candidates; the diagnostics then rank these candidates into a failure reference, which meets the current rollout in a margin comparison that is added to the absolute rollout loss. 
+
+## 4.1 Problem Formulation 
+
+Consider a class of time-dependent PDEs defined on a spatial do-main Ω ⊆ R𝑑 . The state variable is denoted by 𝑢 (x, 𝑡 ) ∈ R𝑐 𝑢 for 
+
+x ∈ Ω, where 𝑐 𝑢 is the number of physical channels. At the discrete time point 𝑡 𝑛 = 𝑛 Δ𝑡 , we denote the spatial state by 𝑢 𝑛 = 𝑢 (· , 𝑡 𝑛 ).Let 𝐻 denote the number of most recent states provided to the operator at each prediction step. The input context at time step 𝑛 
+
+is defined as 𝑧 𝑛 = (𝑢 𝑛 −𝐻 +1, . . . , 𝑢 𝑛 ; 𝜇 ), where 𝜇 denotes condition-ing information that may influence the underlying dynamics, such as equation parameters, external forcing, boundary conditions, or geometric information. We consider a differentiable time-stepping operator 𝐺 𝜃 , parameterized by trainable parameters 𝜃 , that maps the current context to a one-step prediction, namely 𝐺 𝜃 : 𝑧 𝑛 ↦ → ˆ𝑢 𝑛 +1.To generate a length-𝐾 autoregressive rollout, the operator is re-cursively applied to its own predictions. For notational consistency, we initialize ˆ𝑢 𝑗 = 𝑢 𝑗 for 𝑗 = 𝑛 − 𝐻 + 1, . . . , 𝑛 . For each rollout step 
+
+𝑘 = 1, . . . , 𝐾 , the subsequent state is generated as 
+
+ˆ𝑢 𝑛 +𝑘 = 𝐺 𝜃 ( ˆ𝑢 𝑛 +𝑘 −𝐻 , . . . , ˆ𝑢 𝑛 +𝑘 −1; 𝜇 ) . (3) The predicted trajectory is denoted by 𝜏 𝜃 = ( ˆ𝑢 𝑛 +1, . . . , ˆ𝑢 𝑛 +𝐾 ), and the corresponding ground-truth trajectory is denoted by 𝜏 ★ =
+
+(𝑢 𝑛 +1, . . . , 𝑢 𝑛 +𝐾 ).HERO is agnostic to the internal architecture of 𝐺 𝜃 . It only re-quires the base operator to support differentiable one-step predic-tion and recursive rollout. HERO therefore modifies the training procedure without changing the inference-time architecture. 
+
+## 4.2 Absolute Rollout Supervision 
+
+Given the predicted trajectory 𝜏 𝜃 and the corresponding ground-truth trajectory 𝜏 ★, we first define a trajectory-level discrepancy. This discrepancy serves as both the conventional absolute supervi-sion and a common measure for evaluating the current and candi-date trajectories against the same ground-truth trajectory. Let X denote the discrete state space induced by the chosen spa-tial discretization. For two states 𝑣, 𝑤 ∈ X , we define the normalized Conference acronym ’XX, June 03–05, 2018, Woodstock, NY Zhang et al. 
+
+Figure 3: Overview of the HERO training framework. A lagged operator, refreshed every 𝑅 steps, supplies one of three detached candidate rollouts, ranked by rollout, spectral, energy, and error-growth diagnostics to select the failure reference 𝜏 − . The absolute rollout loss is combined with a margin objective driving the current trajectory error below the reference error. 
+
+state error as 
+
+𝑑 X (𝑣, 𝑤 ) = ∥𝑣 − 𝑤 ∥X
+
+∥𝑤 ∥X + 𝜀 , (4) where 𝜀 > 0 is a constant for numerical stability. The spatial norm is defined as 
+
+∥𝑣 ∥2 
+
+> X
+
+=
+
+> 𝑁 𝑥
+
+∑︁ 
+
+> 𝑖 =1
+
+𝜔 𝑖 ∥𝑣 (x𝑖 )∥ 22. (5) Here, 𝑁 𝑥 is the number of spatial sampling points x𝑖 , ∥ · ∥ 2 denotes the Euclidean norm over the 𝑐 𝑢 physical channels, and 𝜔 𝑖 ≥ 0
+
+is the discrete integration weight associated with the 𝑖 -th spatial point. On a regular grid, the weights are uniform. On irregular grids, finite-element meshes, or point clouds, they may represent cell volumes, nodal areas, or quadrature weights. For any length-𝐾 
+
+trajectory 𝜏 = (𝑣 1, . . . , 𝑣 𝐾 ), we define its distance from the ground-truth trajectory as 
+
+𝐷 (𝜏, 𝜏 ★) = 1
+
+𝐾 
+
+> 𝐾
+
+∑︁ 
+
+> 𝑘 =1
+
+𝑑 X (𝑣 𝑘 , 𝑢 𝑛 +𝑘 ) . (6) Applying this distance to the current rollout gives the absolute rollout objective 
+
+Lroll = E(𝑧 𝑛 ,𝜏 ★ ) [𝐷 (𝜏 𝜃 , 𝜏 ★)] . (7) The expectation is taken over sampled input contexts 𝑧 𝑛 and their corresponding ground-truth trajectories 𝜏 ★.The objective Lroll anchors the current rollout to the reference PDE evolution. However, it evaluates the current trajectory only through its absolute discrepancy from 𝜏 ★ and does not explicitly measure improvement over structured long-horizon behaviors pro-duced during optimization. HERO therefore supplements the abso-lute objective with history-enriched relative supervision. 
+
+## 4.3 History-Enriched Relative Supervision 
+
+To provide the missing comparative signal, HERO compares the ground-truth error of the current rollout with that of a dynamically selected, model-generated failure trajectory. Let 𝑠 denote the optimization iteration and let 𝜃 𝑠 denote the cur-rent parameters before the parameter update at iteration 𝑠 . Relative reference construction starts at iteration 𝑠 0. For a sampled context 
+
+𝑧 𝑛 , the iteration-indexed current rollout is defined as 
+
+𝜏 𝜃 𝑠 = Rollout  𝐺 𝜃 𝑠 , 𝑧 𝑛 , 𝐾  . (8) Here, Rollout (𝐺, 𝑧, 𝐾 ) denotes the length-𝐾 autoregressive rollout of operator 𝐺 initialized from context 𝑧 . Thus, 𝜏 𝜃 𝑠 is the optimization-iteration-specific form of the trajectory 𝜏 𝜃 defined above. The de-pendence of subsequent trajectory notation on 𝑠 and 𝑛 is omitted when no ambiguity arises. HERO constructs the relative supervision in five stages: 1) up-dating a lagged operator when the refresh condition is satisfied, 2) generating candidate rollouts, 3) computing trajectory diagnostics, 4) scoring and selecting a failure trajectory, and 5) constructing the relative objective. The lagged operator is updated periodically, whereas the remain-ing stages are performed at each relative-training iteration. These stages correspond to the main operations in Algorithm 1. 
+
+1) Lagged Operator: HERO maintains the current operator 𝐺 𝜃 𝑠 
+
+and a lagged operator 𝐺 ¯𝜃 𝑠 . The current operator is updated by gradient descent, whereas the lagged operator is periodically copied from the current operator and remains frozen between refreshes. HERO: History-Enriched Rollout Training for Long-Horizon Autoregressive Neural Operators Conference acronym ’XX, June 03–05, 2018, Woodstock, NY 
+
+Let 𝑅 be a positive integer denoting the refresh interval. For 
+
+𝑠 ≥ 𝑠 0, the lagged parameters are updated as 
+
+¯𝜃 𝑠 =
+
+
+
+sg (𝜃 𝑠 ), 𝑠 = 𝑠 0,
+
+sg (𝜃 𝑠 ), 𝑠 > 𝑠 0 and (𝑠 − 𝑠 0) mod 𝑅 = 0,
+
+¯𝜃 𝑠 −1, otherwise ,
+
+(9) where sg (·) denotes the stop-gradient operator. After each refresh, 
+
+𝐺 ¯𝜃 𝑠 remains frozen until the next refresh and receives no backprop-agated gradient. Given the same input context 𝑧 𝑛 , the lagged operator generates 
+
+𝜏 lag = Rollout 
+
+
+
+𝐺 ¯𝜃 𝑠 , 𝑧 𝑛 , 𝐾 
+
+
+
+. (10) The lagged rollout is used only as a comparison reference. HERO does not train the current operator to reproduce or imitate 𝜏 lag .Updating the lagged operator at every iteration would make the current and lagged rollouts nearly identical, whereas keeping it fixed throughout training would produce an increasingly stale ref-erence. Periodic refresh maintains a controlled optimization delay between the two operators. 
+
+2) Candidate Rollouts: HERO constructs up to three candidate rollouts: a detached version of the current rollout, a rollout from the lagged operator, and a rollout generated by the current operator from a locally perturbed input context. (i) The self-reference is obtained by detaching the current rollout: 
+
+𝜏 self = sg  𝜏 𝜃 𝑠 
+
+ . (11) For a deterministic base operator, 𝜏 self and 𝜏 𝜃 𝑠 are numerically iden-tical, but gradients propagate only through 𝜏 𝜃 𝑠 . The self-reference therefore provides a fixed representation of the current rollout for comparison. (ii) The lagged candidate is the rollout 𝜏 lag generated by the frozen lagged operator. Since the lagged operator receives no backpropagated gradient, 𝜏 lag provides a detached reference from an earlier optimization state. (iii) The perturbed candidate evaluates the current operator near the original input context. Let 𝜁 ∼ 𝑝 𝜁 
+
+denote a random perturbation variable. The operator P𝜁 perturbs only the state-history component of 𝑧 𝑛 and leaves the conditioning information 𝜇 unchanged. The perturbed rollout is 
+
+𝜏 pert = sg Rollout  𝐺 𝜃 𝑠 , P𝜁 (𝑧 𝑛 ), 𝐾  . (12) The perturbation preserves the basic scale and boundary structure of the input so that P𝜁 (𝑧 𝑛 ) remains in a local neighborhood of the original context. On regular grids, P𝜁 may be implemented as a weak spectral perturbation. On irregular grids or point clouds, it may use local smoothing, neighborhood jitter, or a graph-spectral perturbation. When all three branches are enabled, the active candidate set is 
+
+C = 𝜏 lag , 𝜏 pert , 𝜏 self . (13) If no suitable perturbation is available, 𝜏 pert is removed from C. The number of active candidates is 𝑀 = |C| , with 𝑀 ≥ 2 because the lagged and self-reference branches remain active. For subsequent evaluation, we fix a deterministic enumeration of the active candi-dates and denote them by 𝜏 (1) , . . . , 𝜏 (𝑀 ) . The enumeration follows the priority 𝜏 lag ≻ 𝜏 pert ≻ 𝜏 self , with unavailable branches omitted. All active candidates are detached from the computation graph and are used only for reference selection. 
+
+3) Trajectory Diagnostics: This stage evaluates the long-horizon behavior of each candidate and determines which trajectory pro-vides the strongest measured failure reference. For each candidate 
+
+𝑗 = 1, . . . , 𝑀 , its length-𝐾 trajectory is 𝜏 ( 𝑗 ) = (𝑣 ( 𝑗 ) 
+
+> 1
+
+, . . . , 𝑣 ( 𝑗 ) 
+
+> 𝐾
+
+).HERO computes scalar diagnostics that measure the overall roll-out error, spectral-amplitude mismatch, quadratic-energy drift, and temporal error growth. These quantities are used only to rank the candidates. The same numerical-stability constant 𝜀 > 0 is used throughout. The overall rollout error is 
+
+𝐸 ( 𝑗 ) 
+
+> roll
+
+= 𝐷 
+
+
+
+𝜏 ( 𝑗 ) , 𝜏 ★
+
+
+
+. (14) This diagnostic measures the average state-space discrepancy be-tween the candidate trajectory and the ground-truth trajectory over the rollout horizon. When a spatial spectral transform is available, the spectral-amplitude discrepancy is 
+
+𝐸 ( 𝑗 ) 
+
+> spec
+
+= 1
+
+𝐾 
+
+> 𝐾
+
+∑︁ 
+
+> 𝑘 =1
+
+F [ 𝑣 ( 𝑗 ) 
+
+> 𝑘
+
+] − |F [ 𝑢 𝑛 +𝑘 ]| 1
+
+∥|F [ 𝑢 𝑛 +𝑘 ]|∥ 1 + 𝜀 . (15) Here, F denotes the spatial spectral transform applied indepen-dently to each physical channel, | · | denotes the elementwise mag-nitude, and ∥ · ∥ 1 is taken over all spectral coefficients and physical channels. This diagnostic measures whether the candidate assigns incorrect amplitudes to the spatial modes. If no suitable spectral transform is available, this diagnostic is omitted or replaced by one defined in an appropriate spectral basis. To measure global amplitude drift, HERO uses the quadratic state-energy proxy 
+
+E ( 𝑢 ) =
+
+> 𝑁 𝑥
+
+∑︁ 
+
+> 𝑖 =1
+
+𝜔 𝑖 ∥𝑢 (x𝑖 )∥ 22 . (16) This quantity equals the squared spatial norm defined above and is used as an energy proxy rather than a PDE-specific conserved energy. The corresponding energy drift is 
+
+𝐸 ( 𝑗 ) 
+
+> energy
+
+= 1
+
+𝐾 
+
+> 𝐾
+
+∑︁ 
+
+> 𝑘 =1
+
+E ( 𝑣 ( 𝑗 ) 
+
+> 𝑘
+
+) − E ( 𝑢 𝑛 +𝑘 )
+
+E ( 𝑢 𝑛 +𝑘 ) + 𝜀 . (17) This diagnostic measures global amplitude loss, excessive dissipa-tion, and abnormal energy growth. Let 𝑒 ( 𝑗 ) 
+
+> 𝑘
+
+= 𝑑 X (𝑣 ( 𝑗 ) 
+
+> 𝑘
+
+, 𝑢 𝑛 +𝑘 ) denote the state error of candidate 𝑗 at rollout step 𝑘 . For 𝐾 ≥ 2, the error-growth diagnostic is 
+
+𝐸 ( 𝑗 ) 
+
+> growth
+
+= 1
+
+𝐾 − 1 
+
+> 𝐾 −1
+
+∑︁ 
+
+> 𝑘 =1
+
+max 
+
+
+
+0, 𝑒 ( 𝑗 ) 
+
+> 𝑘 +1
+
+− 𝑒 ( 𝑗 )
+
+> 𝑘
+
+
+
+. (18) This diagnostic accumulates only positive error increments and therefore measures how strongly the prediction error grows along the rollout. All candidate trajectories are detached before these diagnostics are computed. Consequently, the diagnostic values are used only for candidate ranking and reference selection, and no gradient is propagated through them. 
+
+4) Candidate Scoring and Selection: HERO uses the trajectory diagnostics to score the active candidates and select the candidate that exhibits the strongest measured long-horizon failure. Let DConference acronym ’XX, June 03–05, 2018, Woodstock, NY Zhang et al. 
+
+denote the set of active diagnostics. When all four diagnostics are available, it is defined as 
+
+D = {roll , spec , energy , growth } . (19) Diagnostics that are not applicable to the current dataset are re-moved from D.Because the diagnostics have different numerical scales, HERO normalizes each diagnostic across the 𝑀 active candidates within the same training sample. For each 𝑞 ∈ D and 𝑗 = 1, . . . , 𝑀 , the normalized diagnostic is 
+
+e𝐸 ( 𝑗 ) 
+
+> 𝑞
+
+= 𝐸 ( 𝑗 ) 
+
+> 𝑞
+
+− min 1≤ℓ ≤𝑀 𝐸 (ℓ )
+
+> 𝑞
+
+max 1≤ℓ ≤𝑀 𝐸 (ℓ ) 
+
+> 𝑞
+
+− min 1≤ℓ ≤𝑀 𝐸 (ℓ ) 
+
+> 𝑞
+
++ 𝜀 . (20) This normalization maps each diagnostic to [0, 1] across the active candidates and avoids introducing separate diagnostic-weighting hyperparameters. HERO computes the score of candidate 𝑗 as the average normalized diagnostic, 𝑆 ( 𝑗 ) = 1
+
+> | D |
+
+Í𝑞 ∈ D e𝐸 ( 𝑗 ) 
+
+> 𝑞
+
+(21). A larger score indicates stronger failure behavior across the active diag-nostics. HERO selects the highest-scoring candidate, indexed by 
+
+𝑗 ★ = arg max 1≤ 𝑗 ≤𝑀 𝑆 ( 𝑗 ) . If multiple candidates attain the same max-imum, HERO selects the first one according to the fixed candidate order defined above. The selected candidate is used as the failure reference: 
+
+𝜏 − = 𝜏 ( 𝑗 ★ ) . (22) The selected 𝜏 − is therefore a model-generated trajectory that ex-hibits the strongest measured failure behavior among the active candidates. The diagnostics determine which candidate is selected, whereas the relative objective compares the selected trajectory with the current rollout using the common trajectory distance 𝐷 . The diagnostic values and candidate scores are not backpropagated. 
+
+5) Relative Objective: HERO converts the selected failure trajec-tory 𝜏 − into a relative improvement signal. The current trajectory error is 𝑑 cur = 𝐷 (𝜏 𝜃 𝑠 , 𝜏 ★), while the selected reference error is 
+
+𝑑 fail = sg [𝐷 (𝜏 −, 𝜏 ★)] . The stop-gradient operation treats the se-lected trajectory as a fixed comparison reference, so gradients prop-agate only through the current rollout. HERO encourages the current rollout to outperform the selected reference by a margin 𝑚 > 0, corresponding to 𝑑 cur + 𝑚 ≤ 𝑑 fail . We implement this requirement using the smooth margin loss 
+
+ℓrel = 1
+
+𝛽 log (1 + exp (𝛽 [𝑑 cur − 𝑑 fail + 𝑚 ])) . (23) where 𝛽 > 0 controls the sharpness of the transition around the margin. The loss assigns a larger penalty when the current rollout has not outperformed the reference by the required margin and decreases as the margin is satisfied. Averaging the sample-level loss over the training distribution gives the relative supervision objective 
+
+Lrel = E(𝑧 𝑛 ,𝜏 ★ ) [ℓrel ] . (24) When the perturbed branch is enabled, the expectation also includes the randomness of 𝜁 .
+
+## 4.4 Training Objective 
+
+HERO introduces relative supervision only after the operator has learned a basic time-stepping model. Reference construction is en-abled at iteration 𝑠 0, while the relative-supervision weight increases from zero over a warmup period. Let 𝑊 ∈ N+ denote the warmup length and let 𝜆 max ≥ 0 denote the maximum relative-supervision weight. At optimization iteration 𝑠 , the weight is 
+
+𝜆 𝑠 = 𝜆 max clip 
+
+ 𝑠 − 𝑠 0
+
+𝑊 , 0, 1
+
+
+
+, (25) where clip (𝑥, 𝑎, 𝑏 ) = min (max (𝑥, 𝑎 ), 𝑏 ). Thus, 𝜆 𝑠 = 0 for 𝑠 ≤ 𝑠 0,increases from zero to 𝜆 max over the following 𝑊 iterations, and remains equal to 𝜆 max afterward. The complete training objective is 
+
+Ltotal = Lroll + 𝜆 𝑠 Lrel . (26) The absolute term learns the reference PDE evolution, while the relative term encourages the current rollout to improve upon the selected failure trajectory. 
+
+## 5 Experiments 5.1 Experimental Setup 
+
+Backbones and baselines. We build every method on two back-bones: FNO , a spectral neural operator, and Transolver , an attention-based neural operator with Physics-Attention [ 50 ]. On each back-bone we compare one-step supervised training, push-forward train-ing (PF), PDE-Refiner (Refine), recurrent operator training (RNO), and HERO, denoting variants by Backbone -Strategy (e.g., FNO-PF) [ 4 , 32 , 51 ]. PF and RNO are closest to HERO, since all three train on self-generated states yet supervise only the absolute dis-crepancy from the ground truth, whereas Refine corrects the output itself; HERO keeps ground-truth rollout regression and adds rel-ative supervision against a dynamically history-enriched failure reference. Full baseline descriptions are given in Appendix C.1.1. 
+
+Benchmarks. We evaluate on nine PDE benchmarks spanning 1D, 2D, and 3D dynamics (Table 4); APEBench supplies the task definitions, while PDEBench provides complementary scientific-machine-learning benchmark coverage [ 21 , 47 ]: Dispersion [ 22 ], Burgers [ 6 ], KdV [ 22 ], and Kuramoto–Sivashinsky (KS) [ 24 , 45 ]in 1D; Anisotropic Diffusion [ 11 ], Kolmogorov Flow [ 35 ], and De-caying Turbulence (Navier–Stokes) [ 36 ] in 2D; and Swift Hohen-berg [ 46 ] and Unbalanced Advection in 3D [ 10 ]. Together they cover dispersion, nonlinear transport, dissipative chaos, forced and decaying turbulence, pattern formation, and multi-directional ad-vection, stressing phase, spectral, energy, and stability behavior over long rollouts. All benchmarks use periodic boundaries and a single scalar channel, with 50 training and 30 test trajectories and 200 -step free autoregressive rollouts. Governing equations and coefficients are given in Appendix C.1.2. 
+
+Metrics. For evaluation trajectory 𝑗 and rollout step 𝑡 , the per-step normalized RMSE is nRMSE ( 𝑗 ) 
+
+> 𝑡
+
+= ∥ ˆ𝑢 ( 𝑗 ) 
+
+> 𝑡
+
+− 𝑢 ( 𝑗 ) 
+
+> 𝑡
+
+∥2/(∥ 𝑢 ( 𝑗 ) 
+
+> 𝑡
+
+∥2 +
+
+𝜀 ), with 𝜀 > 0 a numerical-stability constant. We report the set-averaged nRMSE@ 1 and nRMSE@ 100 (one-step and 100 -step ac-curacy; lower is better), the geometric-mean rollout error (GM 100 )
+
+GM100 ( 𝑗 ) = exp 
+
+ 1100 
+
+Í100   
+
+> 𝑡 =1
+
+log  nRMSE ( 𝑗 ) 
+
+> 𝑡
+
++ 𝜀 
+
+, (27) reported as its validation- and test-set means (Val/Test mean GM100; lower is better), and the mean stable step 1
+
+> 𝑀
+
+Í𝑗 𝑆 ( 𝑗 ) with 𝑆 ( 𝑗 ) =
+
+max {𝑇 ∈ [ 1, 100 ] | nRMSE ( 𝑗 ) 
+
+> 𝑡
+
+≤ 𝜏 ∀ 𝑡 ≤ 𝑇 } and 𝜏 = 0.1 (higher is better). Val mean GM100 is used for checkpoint selection. The detailed metrics descriptions are given in Appendix C.1.3 HERO: History-Enriched Rollout Training for Long-Horizon Autoregressive Neural Operators Conference acronym ’XX, June 03–05, 2018, Woodstock, NY 
+
+Implementation. Each task provides 50 training trajectories of length 51 and 30 test trajectories of length 201; at test time every model rolls out 200 steps from the first frame. All methods share the backbone, data split, optimizer, and evaluation protocol, and use a 𝐾 pf = 5 push-forward base; HERO adds the relative objective Lrel , giving Ltotal = Lroll + 𝜆 𝑠 Lrel . Across all tasks HERO uses 𝐾 = 5, 𝑠 0 = 4000 , 𝑅 = 2000 , 𝑊 = 2000 , 𝜆 max = 0.02 , 𝑚 =
+
+0.02 , 𝛽 = 5.0, and candidate set C = {𝜏 lag , 𝜏 pert , 𝜏 self }; reference construction is confined to training and adds no inference-time cost. We optimize with AdamW (learning rate 10 −3, warm-up– cosine schedule, 2000 warm-up steps, 10 000 total steps, batch size 
+
+20 ), and report test results at the checkpoint with the best Val mean GM100. Backbone architectures per dimension and further details are given in Appendix C.1.4. We fix the start step 𝑠 0 = 4000 
+
+and the refresh interval 𝑅 = 2000 of (9) for all tasks: this pair introduces relative supervision once the backbone has acquired a stable one-step evolution while leaving 6000 steps of history-enriched reweighting, and it refreshes the lagged operator ¯𝜃 𝑠 often enough to avoid a stale reference without collapsing it onto the current operator 𝜃 𝑠 . A sensitivity analysis of both hyperparameters is given in Appendix C.3. 
+
+## 5.2 Main Results 
+
+Table 1 reports the mean performance on six PDE benchmarks spanning one-, two-, and three-dimensional systems. The com-plete results on all nine benchmarks, including the remaining three benchmarks and the corresponding standard deviations over five seeds, are provided in Tables 9 and 10 in Appendix C.2. Across both the main and additional benchmarks, HERO consistently im-proves FNO and Transolver. On the six main benchmarks, HERO achieves the best result within each backbone family for all re-ported metrics. On FNO, HERO reduces nRMSE@100 from 0.541 to 
+
+0.153 on Burgers, from 1.131 to 0.640 on KS, from 1.868 to 0.521 on anisotropic diffusion, and from 13 .629 to 4.101 on NS. Compared with the strongest non-HERO strategy, it reduces nRMSE@100 by 33 .7% –35 .8% across the six benchmarks. Similarly, on Tran-solver, HERO reduces nRMSE@100 by 33 .6% –36 .7% relative to the strongest competing strategy. The improvements in nRMSE@100 and Stable step are substantially larger than those in nRMSE@1. For example, HERO increases the stable rollout length from 35 .6 to 81 .7
+
+steps on Burgers and from 8.2 to 26 .6 steps on anisotropic diffusion. These results indicate that HERO primarily suppresses long-horizon error accumulation rather than merely improving one-step fitting, while its consistent gains on both backbones demonstrate archi-tectural generality. Because reference construction is confined to training, HERO leaves the deployed operator identical to its back-bone; a measured comparison of parameter count, inference latency, memory, and training throughput is reported in Appendix C.4. 
+
+## 5.3 Ablation Study 
+
+To examine which part of the history-enriched design produces the long-horizon gain, we conduct component-level ablations on the 2D Navier–Stokes benchmark. All variants share the FNO backbone, data split, optimizer, evaluation protocol, and the 𝐾 pf = 5 push-forward absolute objective; only two factors are modified: whether the relative objective Lrel is active, and which branches remain 
+
+Table 1: Main results on six PDE benchmarks.  
+
+> Method Val GM 100
+
+↓ 
+
+> Test GM 100
+
+↓ 
+
+> nRMSE @1
+
+↓ 
+
+> nRMSE @100
+
+↓ 
+
+> Stable step
+
+↑                                                                                                                                                                                                                                                                                                            
+
+> Burgers (1D)
+> FNO 0.473 0.526 0.0429 0.541 35.6 FNO-PF 0.218 0.208 0.0180 0.236 68.0 FNO-Ref. 0.407 0.457 0.0368 0.495 40.4 FNO-RNO 0.293 0.311 0.0249 0.335 55.0 FNO-HERO 0.147 0.138 0.0168 0.153 81.7
+> Trans. 0.487 0.537 0.0478 0.618 31.2 Trans.-PF 0.449 0.505 0.0422 0.562 35.5 Trans.-Ref. 0.428 0.483 0.0401 0.535 38.7 Trans.-RNO 0.384 0.434 0.0362 0.494 41.4 Trans.-HERO 0.250 0.281 0.0341 0.327 49.3
+> Kuramoto–Sivashinsky (1D)
+> FNO 0.511 0.578 0.0190 1.131 43.8 FNO-PF 0.401 0.451 0.0179 0.972 44.7 FNO-Ref. 0.469 0.528 0.0159 1.064 46.4 FNO-RNO 0.458 0.515 0.0181 1.009 43.6 FNO-HERO 0.257 0.283 0.0150 0.640 53.3
+> Trans. 0.611 0.695 0.0250 1.284 37.6 Trans.-PF 0.501 0.571 0.0211 1.163 41.8 Trans.-Ref. 0.498 0.572 0.0190 1.238 42.4 Trans.-RNO 0.477 0.538 0.0201 1.099 42.6 Trans.-HERO 0.321 0.361 0.0181 0.715 49.2
+> Anisotropic Diffusion (2D)
+> FNO 0.713 0.825 0.0875 1.868 8.2 FNO-PF 0.655 0.754 0.0716 1.355 12.9 FNO-Ref. 0.567 0.652 0.0611 0.786 20.7 FNO-RNO 0.692 0.778 0.0846 0.925 9.7 FNO-HERO 0.363 0.415 0.0571 0.521 26.6
+> Trans. 1.168 1.358 0.0799 2.968 8.1 Trans.-PF 0.965 1.111 0.0696 2.172 13.0 Trans.-Ref. 0.803 0.943 0.0692 1.835 14.7 Trans.-RNO 0.892 1.048 0.0751 2.099 10.4 Trans.-HERO 0.537 0.626 0.0652 1.185 18.2
+> Navier–Stokes (2D)
+> FNO 2.322 2.915 0.0449 13.629 17.6 FNO-PF 1.441 1.682 0.0349 6.271 22.3 FNO-Ref. 1.959 2.330 0.0402 9.888 18.1 FNO-RNO 1.788 2.141 0.0388 7.829 20.7 FNO-HERO 0.931 1.058 0.0325 4.101 26.5
+> Trans. 3.075 3.825 0.0301 18.084 20.3 Trans.-PF 2.400 2.974 0.0278 12.438 24.3 Trans.-Ref. 2.169 2.591 0.0280 10.974 23.1 Trans.-RNO 2.224 2.704 0.0291 11.438 22.5 Trans.-HERO 1.423 1.687 0.0262 7.012 25.8
+> Swift–Hohenberg (3D)
+> FNO 0.603 0.678 0.0788 0.941 13.4 FNO-PF 0.514 0.581 0.0607 0.843 20.4 FNO-Ref. 0.552 0.619 0.0642 0.871 19.6 FNO-RNO 0.520 0.596 0.0662 0.850 19.5 FNO-HERO 0.341 0.381 0.0570 0.541 27.7
+> Trans. 0.821 0.912 0.1079 1.286 5.3 Trans.-PF 0.686 0.782 0.0914 1.126 5.9 Trans.-Ref. 0.633 0.713 0.0823 1.004 11.3 Trans.-RNO 0.652 0.739 0.0860 1.064 7.6 Trans.-HERO 0.404 0.450 0.0780 0.667 15.0
+> Unbalanced Advection (3D)
+> FNO 2.311 2.647 0.0869 7.204 6.4 FNO-PF 1.833 2.121 0.0748 5.546 10.0 FNO-Ref. 2.017 2.317 0.0776 6.086 7.8 FNO-RNO 1.697 1.931 0.0791 4.833 9.0 FNO-HERO 1.101 1.244 0.0702 3.185 12.7
+> Trans. 2.723 3.106 0.0731 7.777 9.8 Trans.-PF 2.096 2.426 0.0736 6.122 10.3 Trans.-Ref. 1.901 2.201 0.0713 5.319 9.6 Trans.-RNO 1.784 2.079 0.0742 5.015 10.6 Trans.-HERO 1.197 1.389 0.0673 3.175 12.1
+
+Stable step denotes the mean number of stable rollout steps. 
+
+in the candidate set C in (13) . FNO and FNO-PF are the one-step and push-forward baselines ( 𝜆 max = 0). Self-relative and Lag-only HERO restrict C to {𝜏 self } and {𝜏 lag }, so the reference is fixed rather than selected. HERO w/o Lag , w/o Pert , and w/o Self each drop one branch from the default set, whereas HERO w/o Relative keeps candidate construction and diagnostics but sets 𝜆 𝑠 = 0 in (26). Conference acronym ’XX, June 03–05, 2018, Woodstock, NY Zhang et al. 
+
+Table 2: Component-level ablation of HERO on the 2D Navier–Stokes benchmark                                                   
+
+> Variant Val GM100 ↓
+> Test GM100 ↓
+> nRMSE @1 ↓
+> nRMSE @100 ↓
+> Stable step ↑
+> FNO 2.322 2.915 0.0449 13 .629 17 .6
+> FNO-PF 1.441 1.682 0.0349 6.271 22 .3
+> Self-relative 1.327 1.574 0.0343 5.714 23 .6
+> Lag-only HERO 1.168 1.346 0.0336 4.873 24 .8
+> HERO w/o Lag 1.205 1.397 0.0335 5.026 24 .5
+> HERO w/o Pert 1.061 1.221 0.0329 4.527 25 .4
+> HERO w/o Self 1.024 1.178 0.0331 4.381 25 .7
+> HERO w/o Relative 1.425 1.664 0.0348 6.198 22 .5
+> Full HERO 0.931 1.058 0.0325 4.101 26 .5
+
+Table 2 reports the ablation results. HERO w/o Relative per-forms at the level of FNO-PF (Test GM100: 1.664 vs. 1.682 ), confirm-ing that candidate construction and diagnostics contribute nothing by themselves and that the gain comes from the relative gradi-ent. Activating it reduces Test GM100 from 1.664 to 1.058 and nRMSE@100 from 6.198 to 4.101 , approximately 36 .4% and 33 .8% ,while nRMSE@1 changes only from 0.0348 to 0.0325 , showing that relative supervision acts on error accumulation rather than on one-step fitting. Self-relative improves over FNO-PF but remains far from Full HERO (1.574 vs. 1.058 ), since a reference drawn from the current parameters provides little contrast, and Lag-only HERO re-covers only part of the gap ( 1.346 ) with a fixed-lag reference. Among the reduced candidate sets, HERO w/o Lag degrades most ( 1.397 ), whereas w/o Pert (1.221 ) and w/o Self (1.178 ) lose less; although 
+
+w/o Self comes closest overall, its shorter stable horizon ( 25 .7 vs. 
+
+26 .5) localizes the residual difference in late-rollout stability. Overall, these results show that the long-horizon gain of HERO arises from relative supervision against a dynamically history-enriched failure reference, with the lagged branch and diagnostic-based selection both necessary for the full effect. 
+
+## 5.4 Out-of-Distribution Generalization 
+
+To test whether HERO remains stable outside the training regime, we conduct zero-shot evaluation on the 2D Kolmogorov flow. All models are trained at 𝜈 = 1.00 × 10 −2, 𝐴 𝑓 = 1.0, and 𝑁 = 64 2, then evaluated without fine-tuning under i) parameter shifts to 𝜈 = 6.67 ×
+
+10 −3 or 𝐴 𝑓 = 1.50 and ii) resolution shifts to 96 2 or 128 2. All methods use the same initial conditions and rollout protocol. We report GM 100 , nRMSE@200, and the mean stability horizon (MSH). Table 3 reports that HERO achieves the lowest error and longest stability horizon under all four shifts. Under parameter extrapolation, HERO reduces GM 100 from 1.487 to 0.742 for lower viscosity and from 
+
+1.603 to 0.809 for stronger forcing relative to FNO. Compared with FNO-PF, the strongest baseline, HERO reduces GM 100 by 37 .9% and 
+
+38 .6% , respectively, while approximately doubling MSH. HERO also maintains its advantage under resolution extrapolation. At 96 2 and 
+
+128 2, it reduces GM 100 from 1.274 to 0.654 and from 1.361 to 0.704 
+
+relative to FNO, respectively. Compared with FNO-PF, these values correspond to reductions of 37 .2% and 37 .5% , while MSH increases from 1.9 to 3.5 and from 1.6 to 3.0. These results indicate that HERO 
+
+Table 3: Zero-shot out-of-distribution generalization on the 2D Kolmogorov flow under parameter and resolution shift                                                                                                   
+
+> Method GM 100 ↓nRMSE@200 ↓MSH ↑
+> Parameter :𝜈 =6.67 ×10 −3,𝐴 𝑓 =1.0,𝑁 =64 2
+> FNO 1.487 2.286 1.2
+> FNO-PF 1.194 1.936 1.7
+> FNO-RNO 1.266 2.044 1.5
+> FNO-HERO 0.742 1.211 3.1
+> Parameter :𝜈 =1.00 ×10 −2,𝐴 𝑓 =1.50 ,𝑁 =64 2
+> FNO 1.603 2.472 1.0
+> FNO-PF 1.318 2.127 1.4
+> FNO-RNO 1.374 2.216 1.3
+> FNO-HERO 0.809 1.336 2.7
+> Resolution :𝜈 =1.00 ×10 −2,𝐴 𝑓 =1.0,𝑁 =96 2
+> FNO 1.274 1.754 1.3
+> FNO-PF 1.041 1.493 1.9
+> FNO-RNO 1.096 1.572 1.7
+> FNO-HERO 0.654 0.946 3.5
+> Resolution :𝜈 =1.00 ×10 −2,𝐴 𝑓 =1.0,𝑁 =128 2
+> FNO 1.361 1.967 1.1
+> FNO-PF 1.126 1.681 1.6
+> FNO-RNO 1.187 1.774 1.5
+> FNO-HERO 0.704 1.058 3.0
+
+suppresses long-horizon error accumulation under unseen physical parameters and spatial resolutions. 
+
+## 6 Conclusion 
+
+HERO introduced history-enriched rollout training for long-horizon autoregressive neural operators. Instead of relying only on abso-lute trajectory error, HERO compares the current rollout with dy-namically selected failure trajectories from earlier optimization states and converts this comparison into a margin-based relative objective. Experiments across nine PDE benchmarks with spectral and attention-based backbones showed consistent improvements in long-horizon accuracy, stable rollout length, and out-of-distribution robustness, without changing the inference-time architecture or cost. Ablation studies further confirmed that the gains arise from rel-ative supervision and that the lagged branch and diagnostic-based reference selection are necessary for the full improvement. These results indicate that optimization history provides an effective train-ing signal for suppressing autoregressive error accumulation in neural PDE surrogates. 
+
+## 7 Limitations and Ethical Considerations 
+
+This work uses only simulated PDE data and does not involve human subjects, personal information, or privacy-sensitive content. The current evaluation focuses on the PDE benchmarks and backbone architectures. HERO also introduces additional training-time computation for candidate rollout construction and reference selection, while leaving the inference-time architecture and cost unchanged. 
+
+## 8 Generative AI Usage 
+
+Generative AI was used only for language editing. HERO: History-Enriched Rollout Training for Long-Horizon Autoregressive Neural Operators Conference acronym ’XX, June 03–05, 2018, Woodstock, NY 
+
+## References 
+
+[1] Samy Bengio, Oriol Vinyals, Navdeep Jaitly, and Noam Shazeer. 2015. Scheduled Sampling for Sequence Prediction with Recurrent Neural Networks. In Advances in Neural Information Processing Systems , Vol. 28. [2] Yoshua Bengio, Jérôme Louradour, Ronan Collobert, and Jason Weston. 2009. Curriculum learning. In Proceedings of the 26th Annual International Conference on Machine Learning (Montreal, Quebec, Canada) (ICML ’09) . Association for Computing Machinery, New York, NY, USA, 41–48. doi:10.1145/1553374.1553380 [3] Boris Bonev, Thorsten Kurth, Christian Hundt, Jaideep Pathak, Maximilian Baust, Karthik Kashinath, and Anima Anandkumar. 2023. Spherical Fourier Neural Operators: Learning Stable Dynamics on the Sphere. In Proceedings of the 40th International Conference on Machine Learning (Proceedings of Machine Learning Research, Vol. 202) , Andreas Krause, Emma Brunskill, Kyunghyun Cho, Barbara Engelhardt, Sivan Sabato, and Jonathan Scarlett (Eds.). PMLR, 2806–2823. https: //proceedings.mlr.press/v202/bonev23a.html [4] Johannes Brandstetter, Daniel E. Worrall, and Max Welling. 2022. Message Passing Neural PDE Solvers. In The Tenth International Conference on Learning Representations, ICLR 2022, Virtual Event, April 25-29, 2022 .[5] Steven L Brunton, Bernd R Noack, and Petros Koumoutsakos. 2020. Machine learning for fluid mechanics. Annual review of fluid mechanics 52, 1 (2020), 477–508. [6] J.M. Burgers. 1948. A Mathematical Model Illustrating the Theory of Turbulence. Advances in Applied Mechanics, Vol. 1. Elsevier, 171–199. doi:10.1016/S0065-2156(08)70100-5 [7] Qianying Cao, Somdatta Goswami, and George Em Karniadakis. 2024. Laplace neural operator for solving differential equations. Nature Machine Intelligence 6, 6 (2024), 631–640. doi:10.1038/s42256-024-00844-4 [8] Shuhao Cao. 2021. Choose a Transformer: Fourier or Galerkin. In Advances in Neural Information Processing Systems , Vol. 34. [9] Wuyang Chen, Jialin Song, Pu Ren, Shashank Subramanian, Dmitriy Morozov, and Michael W. Mahoney. 2024. Data-Efficient Operator Learning via Unsupervised Pretraining and In-Context Learning. In Advances in Neural Information Processing Systems , Vol. 37. [10] R. Courant, K. Friedrichs, and H. Lewy. 1928. Über die partiellen Differen-zengleichungen der mathematischen Physik. Math. Ann. 100, 1 (1928), 32–74. doi:10.1007/BF01448839 [11] Adolf Fick. 1855. Ueber diffusion. Annalen der physik 170, 1 (1855), 59–86. [12] Gaurav Gupta, Xiongye Xiao, and Paul Bogdan. 2021. Multiwavelet-based Op-erator Learning for Differential Equations. In Advances in Neural Information Processing Systems , Vol. 34. 24048–24062. https://proceedings.neurips.cc/paper/ 2021/hash/c9e5c2b59d98488fe1070e744041ea0e-Abstract.html [13] Zhongkai Hao, Chang Su, Songming Liu, Julius Berner, Chengyang Ying, Hang Su, Anima Anandkumar, Jian Song, and Jun Zhu. 2024. DPOT: Auto-Regressive Denoising Operator Transformer for Large-Scale PDE Pre-Training. In Proceed-ings of the 41st International Conference on Machine Learning (Proceedings of Machine Learning Research, Vol. 235) , Ruslan Salakhutdinov, Zico Kolter, Kather-ine Heller, Adrian Weller, Nuria Oliver, Jonathan Scarlett, and Felix Berkenkamp (Eds.). PMLR, 17616–17635. https://proceedings.mlr.press/v235/hao24d.html [14] Zhongkai Hao, Zhengyi Wang, Hang Su, Chengyang Ying, Yinpeng Dong, Song-ming Liu, Ze Cheng, Jian Song, and Jun Zhu. 2023. GNOT: A General Neu-ral Operator Transformer for Operator Learning. In Proceedings of the 40th International Conference on Machine Learning (Proceedings of Machine Learn-ing Research, Vol. 202) , Andreas Krause, Emma Brunskill, Kyunghyun Cho, Bar-bara Engelhardt, Sivan Sabato, and Jonathan Scarlett (Eds.). PMLR, 12556–12569. https://proceedings.mlr.press/v202/hao23c.html [15] Maximilian Herde, Bogdan Raonić, Tobias Rohner, Roger Käppeli, Roberto Moli-naro, Emmanuel de Bézenac, and Siddhartha Mishra. 2024. Poseidon: Efficient Foundation Models for PDEs. In Advances in Neural Information Processing Sys-tems , Vol. 37. [16] Yunfei Huang and David S. Greenberg. 2025. Geometric and Physical Constraints Synergistically Enhance Neural PDE Surrogates. In Forty-second International Conference on Machine Learning, ICML 2025, Vancouver, BC, Canada, July 13-19, 2025 , Vol. 267. [17] Ruoxi Jiang, Peter Y Lu, Elena Orlova, and Rebecca Willett. 2023. Training neural operators to preserve invariant measures of chaotic attractors. In Advances in Neural Information Processing Systems , Vol. 36. 27645–27669. [18] Ruoxi Jiang, Xiao Zhang, Karan Jakhar, Peter Y Lu, Pedram Hassanzadeh, Michael Maire, and Rebecca Willett. 2025. Hierarchical implicit neural emulators. In 
+
+Advances in Neural Information Processing Systems , Vol. 38. 73718–73751. [19] George Em Karniadakis, Ioannis G. Kevrekidis, Lu Lu, Paris Perdikaris, Sifan Wang, and Liu Yang. 2021. Physics-informed machine learning. Nature Reviews Physics 3 (2021), 422–440. doi:10.1038/s42254-021-00314-5 [20] Dmitrii Kochkov, Jamie A. Smith, Ayya Alieva, Qing Wang, Michael P. Bren-ner, and Stephan Hoyer. 2021. Machine learning–accelerated computational fluid dynamics. Proceedings of the National Academy of Sciences 118, 21 (2021), e2101784118. doi:10.1073/pnas.2101784118 [21] Felix Koehler, Simon Niedermayr, Rüdiger Westermann, and Nils Thuerey. 2024. APEBench: A benchmark for autoregressive neural emulators of PDEs. In Ad-vances in Neural Information Processing Systems , Vol. 37. 120252–120310. [22] D. J. Korteweg and G. de Vries. 1895. XLI. On the change of form of long waves advancing in a rectangular canal, and on a new type of long stationary waves. The London, Edinburgh, and Dublin Philosophical Magazine and Journal of Science 39, 240 (1895), 422–443. arXiv:https://doi.org/10.1080/14786449508620739 doi:10.1080/14786449508620739 [23] Nikola Kovachki, Zongyi Li, Burigede Liu, Kamyar Azizzadenesheli, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. 2023. Neural operator: Learning maps between function spaces with applications to pdes. Journal of Machine Learning Research 24, 89 (2023), 1–97. [24] Yoshiki Kuramoto. 1978. Diffusion-Induced Chaos in Reac-tion Systems. Progress of Theoretical Physics Supplement 64 (02 1978), 346–367. arXiv:https://academic.oup.com/ptps/article-pdf/doi/10.1143/PTPS.64.346/5293041/64-346.pdf doi:10.1143/PTPS.64.346 [25] Alex Lamb, Anirudh Goyal, Ying Zhang, Saizheng Zhang, Aaron Courville, and Yoshua Bengio. 2016. Professor Forcing: A New Algorithm for Training Recurrent Networks. In Advances in Neural Information Processing Systems , Vol. 29. [26] Jiayi Li, Penghao Jiang, Hira Saleem, Zhaonan Wang, Piotr Koniusz, and Flora D Salim. 2026. SGNO: Spectral Generator Neural Operators for Stable Long Horizon PDE Rollouts. arXiv preprint arXiv:2602.18801 (2026). [27] Zongyi Li, Daniel Zhengyu Huang, Burigede Liu, and Anima Anandkumar. 2023. Fourier Neural Operator with Learned Deformations for PDEs on Gen-eral Geometries. Journal of Machine Learning Research 24, 388 (2023), 1–26. http://jmlr.org/papers/v24/23-0064.html [28] Zongyi Li, Nikola Kovachki, Kamyar Azizzadenesheli, Burigede Liu, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. 2021. Fourier neural operator for parametric partial differential equations. In International Conference on Learning Representations . https://openreview.net/forum?id=c8P9NQVtmnO [29] Zongyi Li, Miguel Liu-Schiaffini, Nikola Kovachki, Kamyar Azizzadenesheli, Burigede Liu, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. 2022. Learning chaotic dynamics in dissipative systems. In Advances in Neural Information Processing Systems , Vol. 35. 16768–16781. [30] Zijie Li, Dule Shu, and Amir Barati Farimani. 2023. Scalable transformer for pde surrogate modeling. In Advances in Neural Information Processing Systems , Vol. 36. 28010–28039. [31] Zongyi Li, Hongkai Zheng, Nikola Kovachki, David Jin, Haoxuan Chen, Burigede Liu, Kamyar Azizzadenesheli, and Anima Anandkumar. 2024. Physics-Informed Neural Operator for Learning Partial Differential Equations. ACM/IMS Journal of Data Science 1, 3, Article 9 (May 2024), 27 pages. doi:10.1145/3648506 [32] Phillip Lippe, Bas Veeling, Paris Perdikaris, Richard Turner, and Johannes Brand-stetter. 2023. Pde-refiner: Achieving accurate long rollouts with neural pde solvers. In Advances in Neural Information Processing Systems , Vol. 36. 67398–67433. [33] Bjoern List, Li-Wei Chen, Kartik Bali, and Nils Thuerey. 2025. Differentiability in unrolled training of neural physics simulators on transient dynamics. Computer Methods in Applied Mechanics and Engineering 433 (2025), 117441. [34] Michael McCabe, Peter Harrington, Shashank Subramanian, and Jed Brown. 2023. Towards Stability of Autoregressive Neural Operators. Trans. Mach. Learn. Res. 
+
+2023 (2023). https://openreview.net/forum?id=RFfUUtKYOG [35] L.D. Meshalkin and Ia.G. Sinai. 1961. Investigation of the stability of a stationary solution of a system of equations for the plane movement of an incompressible viscous liquid. Journal of Applied Mathematics and Mechanics 25, 6 (1961), 1700– 1705. doi:10.1016/0021-8928(62)90149-1 [36] CLMH Navier et al . 1823. Mémoire sur les lois du mouvement des fluides. Mé-moires de l’Académie Royale des Sciences de l’Institut de France 6, 1823 (1823), 389–440. [37] Tobias Pfaff, Meire Fortunato, Alvaro Sanchez-Gonzalez, and Peter W. Battaglia. 2021. Learning Mesh-Based Simulation with Graph Networks. In 9th International Conference on Learning Representations, ICLR 2021, Virtual Event, Austria, May 3-7, 2021 .[38] M. Raissi, P. Perdikaris, and G.E. Karniadakis. 2019. Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. J. Comput. Phys. 378 (2019), 686–707. doi:10.1016/j.jcp.2018.10.045 [39] Bogdan Raonić, Roberto Molinaro, Tim De Ryck, Tobias Rohner, Francesca Bar-tolucci, Rima Alaifari, Siddhartha Mishra, and Emmanuel de Bézenac. 2023. Con-volutional Neural Operators for robust and accurate learning of PDEs. In Advances in Neural Information Processing Systems , Vol. 36. [40] Stephan Rasp, Peter D. Dueben, Sebastian Scher, Jonathan A. Weyn, Said Mouata-did, and Nils Thuerey. 2020. WeatherBench: A Benchmark Data Set for Data-Driven Weather Forecasting. Journal of Advances in Modeling Earth Systems 12 (2020), e2020MS002203. doi:10.1029/2020MS002203 [41] Mengye Ren, Wenyuan Zeng, Bin Yang, and Raquel Urtasun. 2018. Learning to Reweight Examples for Robust Deep Learning. In Proceedings of the 35th International Conference on Machine Learning (Proceedings of Machine Learning Research, Vol. 80) , Jennifer Dy and Andreas Krause (Eds.). PMLR, 4334–4343. https://proceedings.mlr.press/v80/ren18a.html Conference acronym ’XX, June 03–05, 2018, Woodstock, NY Zhang et al.                           
+
+> [42] Stephane Ross, Geoffrey Gordon, and Drew Bagnell. 2011. A Reduction of Im-itation Learning and Structured Prediction to No-Regret Online Learning. In
+> Proceedings of the Fourteenth International Conference on Artificial Intelligence and Statistics (Proceedings of Machine Learning Research, Vol. 15) , Geoffrey Gordon, David Dunson, and Miroslav Dudík (Eds.). PMLR, Fort Lauderdale, FL, USA, 627–635. https://proceedings.mlr.press/v15/ross11a.html [43] Alvaro Sanchez-Gonzalez, Jonathan Godwin, Tobias Pfaff, Rex Ying, Jure Leskovec, and Peter Battaglia. 2020. Learning to simulate complex physics with graph networks. In International conference on machine learning . PMLR, 8459–8468. [44] Yair Schiff, Zhong Yi Wan, Jeffrey B. Parker, Stephan Hoyer, Volodymyr Kuleshov, Fei Sha, and Leonardo Zepeda-Núñez. 2024. DySLIM: Dynamics Stable Learning by Invariant Measure for Chaotic Systems. In Forty-first International Conference on Machine Learning, ICML 2024, Vienna, Austria, July 21-27, 2024 , Vol. 235. 43649– 43684. [45] G.I. Sivashinsky. 1977. Nonlinear analysis of hydrodynamic instability in laminar flames—I. Derivation of basic equations. Acta Astronautica 4, 11 (1977), 1177–1206. doi:10.1016/0094-5765(77)90096-0 [46] J. Swift and P. C. Hohenberg. 1977. Hydrodynamic fluctuations at the convective instability. Phys. Rev. A 15 (Jan 1977), 319–328. Issue 1. doi:10.1103/PhysRevA.15. 319 [47] Makoto Takamoto, Timothy Praditia, Raphael Leiteritz, Dan MacKinlay, Francesco Alesiani, Dirk Pflüger, and Mathias Niepert. 2022. PDEBENCH: An Extensive Benchmark for Scientific Machine Learning. In Advances in Neural Information Processing Systems , Vol. 35. [48] Alasdair Tran, Alexander Mathews, Lexing Xie, and Cheng Soon Ong. 2023. Factorized Fourier Neural Operators. In The Eleventh International Conference on Learning Representations .https://openreview.net/forum?id=tmIiMPl4IPa [49] Kiwon Um, Robert Brand, Yun Raymond Fei, Philipp Holl, and Nils Thuerey. 2020. Solver-in-the-loop: Learning from differentiable physics to interact with iterative pde-solvers. In Advances in Neural Information Processing Systems , Vol. 33. 6111–6122. [50] Haixu Wu, Huakun Luo, Haowen Wang, Jianmin Wang, and Mingsheng Long. 2024. Transolver: A Fast Transformer Solver for PDEs on General Geometries. In
+> International Conference on Machine Learning .[51] Zaijun Ye, Chen-Song Zhang, and Wansheng Wang. 2025. Recurrent Neural Operators: Stable Long-Term PDE Prediction. arXiv preprint arXiv:2505.20721
+> (2025). [52] Yaofeng Desmond Zhong, Biswadip Dey, and Amit Chakraborty. 2020. Symplectic ode-net: Learning hamiltonian dynamics with control. In International Conference on Learning Representations .https://openreview.net/forum?id=ryxmb1rKDS
+
+## A Related Works A.1 Rollout Training with Self-Generated States 
+
+Neural operators learn mappings between function spaces and provide efficient surrogate models for parameterized PDEs [ 23 ]. The FNO parameterizes global integral kernels in the Fourier do-main and is widely used as a backbone for time-dependent PDE modeling [ 28 ]. Other operator families use multiwavelet bases, Fourier- or Galerkin-style attention, and factorized Fourier lay-ers [ 8, 12 , 48 ]. Learned spatial deformations, spherical representa-tions, and Laplace-domain modeling adapt operators to different geometries or dynamics [ 3 , 7, 27 ]. Continuous convolutions and attention-based neural operators provide further architectural al-ternatives [ 14 , 39 ]. Physics-informed methods encode governing-equation constraints in neural surrogates [ 19 , 31 , 38 ]. Pretrain-ing and foundation-model approaches instead emphasize transfer across PDEs and data efficiency [ 9, 13 , 15 ]. When a local evolution operator is recursively applied to its own predictions, local errors enter subsequent inputs and accumulate throughout the rollout. Rollout-based training reduces this train–test mismatch by expos-ing the model to self-generated states. Message Passing Neural PDE Solvers combine temporal bundling with push-forward train-ing [ 4], whereas Solver-in-the-Loop couples learned corrections with differentiable numerical solvers during multi-step optimiza-tion [ 49 ]. Graph-based simulators similarly improve autoregressive robustness through recursive training and perturbations of training states [ 37 , 43 ]. APEBench organizes related strategies into one-step learning, supervised unrolling, diverted-chain training, and differentiable solver interaction [ 21 ]. List et al. distinguish the ef-fect of exposure to model-induced states from that of long-term gradients [ 33 ], while recurrent neural operators directly train on recursively generated predictions [ 51 ]. More generally, scheduled sampling and Professor Forcing reduce the teacher-forcing/free-running mismatch in sequence modeling, while DAgger aggre-gates on-policy data to address covariate shift in imitation learn-ing [ 1, 25 , 42 ]. Curriculum learning and example reweighting also adapt training signals, but do not construct a relative target from an explicitly selected historical rollout [ 2 , 41 ]. These methods align training more closely with autoregressive inference, but their super-vision predominantly measures the absolute discrepancy between the current rollout and the ground-truth trajectory. Such objectives penalize the current prediction error without comparing it against long-horizon failure behaviors produced earlier during optimiza-tion. HERO complements this absolute supervision with a relative objective constructed from dynamically selected failure trajectories in the model’s optimization history. 
+
+## A.2 Long-Horizon Structural and Statistical Stability 
+
+A complementary line of research controls long-horizon degra-dation through spectral modeling, architectural constraints, and structure-preserving objectives. McCabe et al. connect autoregres-sive instability to aliasing and spectral sensitivity [ 34 ], while PDE-Refiner improves the representation of low-amplitude frequency components through iterative refinement [ 32 ]. The Spectral Gen-erator Neural Operator constrains repeatedly propagated spectral dynamics [ 26 ], and hierarchical implicit neural emulators intro-duce multiscale representations of future states to improve tem-poral coherence [ 18 ]. Geometric and physical constraints further encode symmetry and conservation structure into neural PDE sur-rogates [ 16 ]. Physics-informed formulations impose governing-equation residuals, whereas structure-preserving approaches can encode geometric invariants in learned dynamical systems [ 19 , 38 ,52 ]. For dissipative chaotic systems, where long-term pointwise tracking is limited by sensitivity to initial conditions, prior work in-stead targets dissipative behavior and long-term statistics. Existing methods constrain learned dynamics on the attractor [ 29 ], preserve invariant measures through optimal-transport and contrastive ob-jectives [ 17 ], or introduce scalable measure-matching regulariza-tion [ 44 ]. At the broader application scale, fluid simulation and data-driven weather forecasting motivate evaluating multi-step tra-jectories and forecast lead times alongside one-step error [ 5 , 20 , 40 ]. These approaches improve long-horizon behavior through operator design, iterative refinement, auxiliary representations, or prede-fined physical and statistical constraints. HERO addresses a comple-mentary supervision problem: it leaves the inference-time operator unchanged and uses training-only references from the model’s optimization history to measure whether the current rollout has improved over previously observed failure behavior. HERO: History-Enriched Rollout Training for Long-Horizon Autoregressive Neural Operators Conference acronym ’XX, June 03–05, 2018, Woodstock, NY 
+
+Algorithm 1 History-Enriched Relative Supervision in HERO 
+
+Require: Current operator 𝐺 𝜃 𝑠 , lagged parameters ¯𝜃 𝑠 −1, current rollout 𝜏 𝜃 𝑠 , input context 𝑧 𝑛 , ground-truth trajectory 𝜏 ★, and active diagnostics D
+
+Ensure: Relative loss ℓrel and updated lagged parameters ¯𝜃 𝑠 
+
+Stage 1: Update the lagged operator  
+
+> 1:
+
+Refresh or retain ¯𝜃 𝑠 according to Eq. (9). 
+
+Stage 2: Construct candidate rollouts  
+
+> 2:
+
+Construct the detached self-reference and the lagged rollout according to Eqs. (11) and (10).  
+
+> 3:
+
+Add the perturbed rollout defined in Eq. (12) when the pertur-bation branch is enabled.  
+
+> 4:
+
+Form the active candidate set C and enumerate its members as 
+
+𝜏 (1) , . . . , 𝜏 (𝑀 ) .
+
+Stage 3: Evaluate candidate trajectories  
+
+> 5:
+
+for 𝑗 = 1, . . . , 𝑀 do  
+
+> 6:
+
+Compute the active rollout, spectral, energy, and error-growth diagnostics defined in Eqs. (14)–(18).  
+
+> 7:
+
+end for 
+
+Stage 4: Score candidates and select a failure reference  
+
+> 8:
+
+Normalize each diagnostic across the active candidates using Eq. (20).  
+
+> 9:
+
+Compute the aggregate candidate scores using Eq. (21).  
+
+> 10:
+
+Select the highest-scoring candidate and set it as the failure reference 𝜏 − .
+
+Stage 5: Construct the relative objective  
+
+> 11:
+
+Compute the current and reference errors relative to 𝜏 ★. 
+
+> 12:
+
+Compute the sample-level relative loss using Eq. (23).  
+
+> 13:
+
+return ℓrel and ¯𝜃 𝑠 
+
+## B Method B.1 Gradient Flow Analysis 
+
+HERO separates reference construction from parameter optimiza-tion. Within the relative branch, the current rollout 𝜏 𝜃 𝑠 is the only differentiable trajectory. All active candidate trajectories, together with the diagnostic values, candidate scores 𝑆 ( 𝑗 ) , selected failure reference 𝜏 − , and reference error 𝑑 fail , are detached from the com-putation graph. Consequently, gradients do not propagate through the lagged operator, perturbed branch, diagnostic computation, or candidate-selection procedure. For the sample-level relative loss, the detached reference satisfies 
+
+∇𝜃 𝑠 𝑑 fail = 0. Its gradient is therefore 
+
+∇𝜃 𝑠 ℓrel = 𝜎 (𝛽 [𝑑 cur − 𝑑 fail + 𝑚 ]) ∇ 𝜃 𝑠 𝑑 cur , (28) where 𝜎 (𝑥 ) = 1/( 1 + exp (− 𝑥 )) is the logistic sigmoid. The relative objective therefore does not optimize the selected failure trajectory or any candidate branch. It scales the gradient that moves the current rollout toward the ground-truth trajectory by a factor in (0, 1). This factor approaches one when the margin is strongly violated and decreases as the current rollout outperforms the selected reference. The trajectory diagnostics determine which candidate is used for comparison, but do not introduce separate gradients into the parameter update. 
+
+## B.2 Theoretical Analysis 
+
+Every historical component of HERO is detached from the computa-tional graph: candidate trajectories, diagnostic scores, and reference-selection operations are all evaluated under stop-gradient, so model parameters receive gradients only through the current rollout. The historical reference therefore supplies no backpropagation direction of its own, and its influence on training enters through a different channel. That channel is a task-dependent activation weight, which rescales each task gradient by a bounded factor determined by how the current rollout compares with its selected reference. HERO thus modifies the relative contributions of different tasks to the aggre-gated update direction rather than the direction of any individual task gradient. This reweighting view organizes the analysis into three steps: i) we establish the task-level gradient reweighting form of HERO and bound its modulation factor, ii) we decompose the first-order effect of the reweighting on the long-horizon risk into a uniform scaling term and a covariance correction, and iii) we convert a uniform long-horizon descent margin into a finite-step entry guarantee for a prescribed long-horizon sublevel set. 
+
+B.2.1 Long-Horizon Trajectory Risk. Let S denote the physical task space, equipped with a probability measure 𝜌 . A task 𝑞 ∈ S may encode an initial condition, equation parameter, external forcing, boundary condition, or geometric configuration. Let 𝜃 ∈ R𝑝 denote the model parameters, and let 𝑋 be a real Hilbert space representing the physical state space. For a task 𝑞 , the model-generated trajectory over the time inter-val [0,𝑇 ] is denoted by b𝑢 𝑞 𝜃 ∈ 𝐶 ([ 0,𝑇 ]; 𝑋 ), and the corresponding reference trajectory is denoted by 𝑢 𝑞 ∈ 𝐶 ([ 0,𝑇 ]; 𝑋 ). Given a con-tinuous nonnegative state discrepancy 𝑑 : 𝑋 × 𝑋 → R≥0, the trajectory loss for task 𝑞 over the temporal horizon 𝑇 is defined as 
+
+ℓ𝑇 (𝑞, 𝜃 ) = 1
+
+𝑇 
+
+∫ 𝑇 
+
+> 0
+
+𝑑 
+
+b𝑢 𝑞 𝜃 (𝑡 ), 𝑢 𝑞 (𝑡 )
+
+
+
+d𝑡 . (29) The discrepancy 𝑑 is not required to satisfy all axioms of a mathe-matical metric. For instance, when 𝑑 is a normalized relative error, 
+
+ℓ𝑇 should be interpreted as a trajectory discrepancy functional. Let 𝑇 tr denote the rollout horizon used during training and let 𝑇 𝐿 
+
+denote the long-horizon evaluation window, with 𝑇 tr ≤ 𝑇 𝐿 . The task-level training loss is ℓtr (𝑞, 𝜃 ) := ℓ𝑇 tr (𝑞, 𝜃 ), whereas the population-level long-horizon risk is 
+
+𝐽 𝐿 (𝜃 ) =
+
+∫
+
+> S
+
+ℓ𝑇 𝐿 (𝑞, 𝜃 ) 𝜌 (d𝑞 ). (30) For a prescribed tolerance 𝜖 > 0, define the long-horizon sublevel set 
+
+G𝜖 = 𝜃 ∈ R𝑝 : 𝐽 𝐿 (𝜃 ) ≤ 𝜖 . (31) The set G𝜖 contains all model parameters satisfying the prescribed long-horizon performance criterion. It is not required to be convex, connected, bounded, or associated with a unique minimizer. Throughout the analysis, 𝐽 𝐿 and ℓtr (𝑞, ·) are differentiable, and all task-level gradients appearing under the integral with respect to 𝜌 are integrable. 
+
+B.2.2 Historical-Reference-Induced Relative Activation. At iteration 
+
+𝑘 , HERO constructs a collection of candidate trajectories from the current operator, a periodically lagged operator, and locally per-turbed rollouts. A diagnostic and selection procedure identifies a Conference acronym ’XX, June 03–05, 2018, Woodstock, NY Zhang et al. 
+
+task-dependent reference trajectory, denoted by e𝑢 𝑞 𝑘 . The selected reference trajectory is treated as a constant during the current parameter update. Its trajectory loss is 
+
+𝑏 𝑘 (𝑞 ) = 1
+
+𝑇 tr 
+
+∫ 𝑇 tr 
+
+> 0
+
+𝑑 
+
+e𝑢 𝑞 𝑘 (𝑡 ), 𝑢 𝑞 (𝑡 )
+
+
+
+d𝑡, (32) with 
+
+∇𝜃 𝑏 𝑘 (𝑞 ) = 0. (33) For a prescribed relative margin 𝑚 > 0, define 
+
+ℎ𝑘 (𝑞, 𝜃 ) = ℓtr (𝑞, 𝜃 ) − 𝑏 𝑘 (𝑞 ) + 𝑚. (34) The quantity ℎ𝑘 (𝑞, 𝜃 ) is positive when the current rollout has not yet achieved an improvement of at least 𝑚 relative to the selected reference. The smooth relative trajectory loss is defined by 
+
+ℓrel ,𝑘 (𝑞, 𝜃 ) = 1
+
+𝛽 log (1 + exp (𝛽ℎ 𝑘 (𝑞, 𝜃 ))) , (35) where 𝛽 > 0 controls the sharpness of the transition around the relative-margin boundary. Using (33), differentiation of (35) gives 
+
+∇𝜃 ℓrel ,𝑘 (𝑞, 𝜃 ) = 𝛼 𝑘 (𝑞, 𝜃 )∇ 𝜃 ℓtr (𝑞, 𝜃 ), (36) where 
+
+𝛼 𝑘 (𝑞, 𝜃 ) = 𝜎 (𝛽ℎ 𝑘 (𝑞, 𝜃 )) ∈ ( 0, 1), (37) and 𝜎 (𝑧 ) = (1 + exp (− 𝑧 )) −1 is the sigmoid function. The coefficient 𝛼 𝑘 (𝑞, 𝜃 ) represents the relative activation level of task 𝑞 . When the current trajectory fails to satisfy the required relative margin, 𝛼 𝑘 approaches one. When the current trajectory already substantially outperforms the selected reference, 𝛼 𝑘 ap-proaches zero. Near the relative-margin boundary, 𝛼 𝑘 provides a smooth interpolation between these regimes. Let 𝜆 𝑘 ≥ 0 denote the relative-loss coefficient at iteration 𝑘 . The task-level HERO objective is 
+
+ℓ𝐻,𝑘 (𝑞, 𝜃 ) = ℓtr (𝑞, 𝜃 ) + 𝜆 𝑘 ℓrel ,𝑘 (𝑞, 𝜃 ). (38) Define the task-level training gradient as 𝑔 (𝑞, 𝜃 ) = ∇𝜃 ℓtr (𝑞, 𝜃 ). Com-bining (36) and (38) yields 
+
+∇𝜃 ℓ𝐻,𝑘 (𝑞, 𝜃 ) = 𝑤 𝑘 (𝑞, 𝜃 )𝑔 (𝑞, 𝜃 ), (39) where 
+
+𝑤 𝑘 (𝑞, 𝜃 ) = 1 + 𝜆 𝑘 𝛼 𝑘 (𝑞, 𝜃 ). (40) Since 𝛼 𝑘 (𝑞, 𝜃 ) ∈ ( 0, 1) and 𝜆 𝑘 ≥ 0, the task weight is bounded as 
+
+1 ≤ 𝑤 𝑘 (𝑞, 𝜃 ) ≤ 1 + 𝜆 𝑘 , where the inequalities are strict for 𝜆 𝑘 > 0.Equation (39) shows that the historical reference does not di-rectly introduce an additional task-level backpropagation direction. Instead, it induces a bounded task-dependent modulation of the current rollout gradient. Because different tasks generally produce different activation levels, HERO changes their relative contribu-tions to the aggregated update. The exact scalar-reweighting form in (39) applies when the base rollout objective and the current-trajectory term in the relative objective are both given by ℓtr . If a distinct base objective Lbase is used, the task-level gradient takes the form ∇𝜃 Lbase + 𝜆 𝑘 𝛼 𝑘 ∇𝜃 ℓtr ,which is not, in general, a scalar multiple of a single task gradient. 
+
+B.2.3 Aggregated HERO Update Direction. The population negative-gradient direction associated with standard trajectory training is 
+
+𝑑 0 (𝜃 ) = −
+
+∫
+
+> S
+
+𝑔 (𝑞, 𝜃 ) 𝜌 (d𝑞 ). (41) The corresponding HERO direction at iteration 𝑘 is 
+
+𝑑 𝐻 𝑘 (𝜃 ) = −
+
+∫
+
+> S
+
+𝑤 𝑘 (𝑞, 𝜃 )𝑔 (𝑞, 𝜃 ) 𝜌 (d𝑞 ). (42) The parameter update is 
+
+𝜃 𝑘 +1 = 𝜃 𝑘 + 𝜂𝑑 𝐻 𝑘 (𝜃 𝑘 ), (43) where 𝜂 > 0 is the learning rate. To characterize whether a task gradient contributes to reducing the long-horizon risk, define the long-horizon usefulness of task 𝑞 
+
+as 
+
+𝑎 (𝑞, 𝜃 ) = ⟨∇ 𝐽 𝐿 (𝜃 ), 𝑔 (𝑞, 𝜃 )⟩ . (44) If 𝑎 (𝑞, 𝜃 ) > 0, then the task-level negative-gradient direction −𝑔 (𝑞, 𝜃 )
+
+is a first-order descent direction for 𝐽 𝐿 .Define the mean activation 
+
+𝛼 𝑘 (𝜃 ) =
+
+∫
+
+> S
+
+𝛼 𝑘 (𝑞, 𝜃 ) 𝜌 (d𝑞 ), (45) the mean task usefulness 
+
+𝑎 (𝜃 ) =
+
+∫
+
+> S
+
+𝑎 (𝑞, 𝜃 ) 𝜌 (d𝑞 ), (46) and the covariance between relative activation and long-horizon usefulness: 
+
+Cov 𝜌 (𝛼 𝑘 , 𝑎 ) =
+
+∫
+
+> S
+
+(𝛼 𝑘 (𝑞, 𝜃 ) − 𝛼 𝑘 (𝜃 )) × ( 𝑎 (𝑞, 𝜃 ) − 𝑎 (𝜃 )) 𝜌 (d𝑞 ). (47) This covariance quantifies whether HERO assigns larger activation weights to tasks whose training gradients provide stronger first-order descent contributions to the long-horizon risk. 
+
+Proposition B.1 (Historical-reference-induced correction of the long-horizon descent component). For any parameter vector 𝜃 and iteration 𝑘 , the HERO direction satisfies 
+
+∇𝐽 𝐿 (𝜃 ), 𝑑 𝐻 𝑘 (𝜃 ) = (1 + 𝜆 𝑘 𝛼 𝑘 (𝜃 )) ∇𝐽 𝐿 (𝜃 ), 𝑑 0 (𝜃 )
+
+− 𝜆 𝑘 Cov 𝜌 (𝛼 𝑘 , 𝑎 ). (48) 
+
+Proof. Using (42), (40), and (44), 
+
+∇𝐽 𝐿 , 𝑑 𝐻 𝑘 = −
+
+∫
+
+> S
+
+(1 + 𝜆 𝑘 𝛼 𝑘 ) 𝑎 𝜌 (d𝑞 )
+
+= −𝑎 − 𝜆 𝑘 
+
+∫
+
+> S
+
+𝛼 𝑘 𝑎 𝜌 (d𝑞 ).
+
+(49) The covariance identity gives 
+
+∫
+
+> S
+
+𝛼 𝑘 𝑎 𝜌 (d𝑞 ) = 𝛼 𝑘 𝑎 + Cov 𝜌 (𝛼 𝑘 , 𝑎 ). (50) Moreover, from (41), 
+
+∇𝐽 𝐿 , 𝑑 0 = −𝑎. (51) Substituting (50) and (51) into (49) yields (48). □HERO: History-Enriched Rollout Training for Long-Horizon Autoregressive Neural Operators Conference acronym ’XX, June 03–05, 2018, Woodstock, NY 
+
+Proposition B.1 separates the first-order long-horizon effect of HERO into two components. The first term, (1 + 𝜆 𝑘 𝛼 𝑘 ) ∇𝐽 𝐿 , 𝑑 0 ,corresponds to a uniform scaling of the standard training direction. The second term, −𝜆 𝑘 Cov 𝜌 (𝛼 𝑘 , 𝑎 ), is the correction induced by nonuniform task reweighting. When Cov 𝜌 (𝛼 𝑘 , 𝑎 ) > 0, tasks with larger long-horizon useful-ness receive, on average, larger activation weights. The covari-ance term then contributes an additional negative component to 
+
+∇𝐽 𝐿 , 𝑑 𝐻 𝑘 , thereby increasing the first-order descent contribution of the aggregated HERO update relative to uniform gradient scaling. To separate the nonuniform reweighting effect from the global magnitude change, define the scale-normalized HERO direction 
+
+e𝑑 𝐻 𝑘 (𝜃 ) = 𝑑 𝐻 𝑘 (𝜃 )
+
+1 + 𝜆 𝑘 𝛼 𝑘 (𝜃 ) . (52) Since the denominator is strictly positive, e𝑑 𝐻 𝑘 and 𝑑 𝐻 𝑘 have the same geometric direction. Proposition B.1 implies 
+
+D
+
+∇𝐽 𝐿 , e𝑑 𝐻 𝑘 
+
+E
+
+= ∇𝐽 𝐿 , 𝑑 0
+
+− 𝜆 𝑘 
+
+1 + 𝜆 𝑘 𝛼 𝑘 
+
+Cov 𝜌 (𝛼 𝑘 , 𝑎 ).
+
+(53) Equation (53) isolates the first-order contribution produced exclu-sively by task-dependent reweighting. A positive covariance is not guaranteed solely by the form of the relative objective. The lagged reference, perturbed candidate con-struction, and diagnostic selection mechanism determine whether the induced activation weights are positively associated with task-level long-horizon usefulness. 
+
+Corollary B.2 (Preservation and enhancement of a stan-dard first-order descent trend). Suppose that, in a parameter region of interest, the standard training direction satisfies 
+
+∇𝐽 𝐿 (𝜃 ), 𝑑 0 (𝜃 ) ≤ − 𝛾 0, 𝛾 0 > 0, (54) 
+
+and 
+
+Cov 𝜌 (𝛼 𝑘 , 𝑎 ) ≥ 𝑐 𝑘 , 𝑐 𝑘 ≥ 0. (55) 
+
+Then 
+
+∇𝐽 𝐿 , 𝑑 𝐻 𝑘 ≤ − ( 1 + 𝜆 𝑘 𝛼 𝑘 ) 𝛾 0 − 𝜆 𝑘 𝑐 𝑘 
+
+≤ − 𝛾 0 − 𝜆 𝑘 𝑐 𝑘 . (56) 
+
+Proof. The result follows directly by substituting (54) and (55) into (48). □
+
+Corollary B.2 shows that a nonnegative covariance preserves an existing first-order long-horizon descent trend. A strictly positive covariance provides an additional first-order descent margin. 
+
+Corollary B.3 (Correction of a locally adverse standard direction). Suppose that, in a parameter region of interest, 
+
+∇𝐽 𝐿 (𝜃 ), 𝑑 0 (𝜃 ) ≤ 𝐵 𝑘 , 𝐵 𝑘 ≥ 0, (57) 
+
+and Cov 𝜌 (𝛼 𝑘 , 𝑎 ) ≥ 𝑐 𝑘 . Then 
+
+∇𝐽 𝐿 , 𝑑 𝐻 𝑘 ≤ ( 1 + 𝜆 𝑘 𝛼 𝑘 ) 𝐵 𝑘 − 𝜆 𝑘 𝑐 𝑘 . (58) 
+
+If 𝜆 𝑘 > 0 and 
+
+𝜆 𝑘 𝑐 𝑘 > (1 + 𝜆 𝑘 𝛼 𝑘 ) 𝐵 𝑘 , (59) 
+
+then ∇𝐽 𝐿 , 𝑑 𝐻 𝑘 < 0.
+
+Proof. Equation (58) follows from Proposition B.1. Condition (59) makes the right-hand side of (58) strictly negative. □
+
+Since 0 < 𝛼 𝑘 < 1, a more conservative sufficient condition is 
+
+𝜆 𝑘 𝑐 𝑘 > (1 + 𝜆 𝑘 )𝐵 𝑘 . (60) Corollary B.3 shows that even when the standard short-horizon training direction has a locally adverse first-order effect on the long-horizon risk, sufficiently strong positive covariance can make the aggregated HERO direction a long-horizon descent direction. 
+
+B.2.4 Mini-Batch Form. Consider a mini-batch B = {𝑞 1, . . . , 𝑞 𝐵 }.For each task, define 
+
+𝑔 𝑖 = 𝑔 (𝑞 𝑖 , 𝜃 ), 𝛼 𝑖 = 𝛼 𝑘 (𝑞 𝑖 , 𝜃 ), 𝑎 𝑖 = ⟨∇ 𝐽 𝐿 (𝜃 ), 𝑔 𝑖 ⟩ . (61) The empirical standard and HERO directions are 
+
+b𝑑 0 = − 1
+
+𝐵 
+
+> 𝐵
+
+∑︁ 
+
+> 𝑖 =1
+
+𝑔 𝑖 , b𝑑 𝐻 𝑘 = − 1
+
+𝐵 
+
+> 𝐵
+
+∑︁ 
+
+> 𝑖 =1
+
+(1 + 𝜆 𝑘 𝛼 𝑖 ) 𝑔 𝑖 . (62) Define the empirical means 
+
+𝛼 B = 1
+
+𝐵 
+
+> 𝐵
+
+∑︁ 
+
+> 𝑖 =1
+
+𝛼 𝑖 , 𝑎 B = 1
+
+𝐵 
+
+> 𝐵
+
+∑︁ 
+
+> 𝑖 =1
+
+𝑎 𝑖 , (63) and the empirical covariance 
+
+dCov B (𝛼, 𝑎 ) = 1
+
+𝐵 
+
+> 𝐵
+
+∑︁ 
+
+> 𝑖 =1
+
+(𝛼 𝑖 − 𝛼 B ) ( 𝑎 𝑖 − 𝑎 B ) . (64) The same algebraic decomposition gives 
+
+D
+
+∇𝐽 𝐿 , b𝑑 𝐻 𝑘 
+
+E
+
+= (1 + 𝜆 𝑘 𝛼 B )
+
+D
+
+∇𝐽 𝐿 , b𝑑 0 E
+
+− 𝜆 𝑘 dCov B (𝛼, 𝑎 ).
+
+(65) Thus, the population-level mechanism in Proposition B.1 also ap-plies directly to finite mini-batches: nonuniform relative activation changes the aggregated gradient through an empirical covariance correction. 
+
+B.2.5 Finite-Step Entry into the Long-Horizon Sublevel Set. The preceding analysis characterizes how historical-reference-induced reweighting modifies the first-order long-horizon descent compo-nent. The following result establishes finite-step entry into G𝜖 when this descent contribution remains uniformly nondegenerate outside the target set. 
+
+Theorem B.4 (Finite-step entry under uniform long-hori-zon descent). Assume that G𝜖 ≠ ∅, and consider the HERO iteration 
+
+𝜃 𝑘 +1 = 𝜃 𝑘 + 𝜂𝑑 𝐻 𝑘 (𝜃 𝑘 ). (66) 
+
+Before the first entry into G𝜖 , suppose that the following conditions hold: 
+
+(1) The gradient of 𝐽 𝐿 is 𝐿 -Lipschitz continuous along every update segment 𝜃 𝑘 + 𝑡𝜂𝑑 𝐻 𝑘 (𝜃 𝑘 ) : 𝑡 ∈ [ 0, 1] .
+
+(2) There exists 𝛾 𝜖 > 0 such that 
+
+∇𝐽 𝐿 (𝜃 𝑘 ), 𝑑 𝐻 𝑘 (𝜃 𝑘 ) ≤ − 𝛾 𝜖 . (67) (3) There exists 𝐷 𝜖 < ∞ such that 𝑑 𝐻 𝑘 (𝜃 𝑘 ) 2 ≤ 𝐷 𝜖 .Conference acronym ’XX, June 03–05, 2018, Woodstock, NY Zhang et al. 
+
+If the learning rate satisfies 
+
+0 < 𝜂 ≤ 𝛾 𝜖 
+
+𝐿𝐷 2
+
+> 𝜖
+
+, (68) 
+
+then the parameter sequence enters G𝜖 after finitely many iterations. Define the first-entry time 𝜏 𝐻 (𝜖 ) = inf {𝑘 ≥ 0 : 𝜃 𝑘 ∈ G 𝜖 }. Then 
+
+𝜏 𝐻 (𝜖 ) ≤ 
+
+ 2 [𝐽 𝐿 (𝜃 0) − 𝜖 ]+
+
+𝜂𝛾 𝜖 
+
+
+
+, (69) 
+
+where [𝑥 ]+ = max {𝑥, 0}.
+
+Proof. Suppose that 𝜃 𝑘 ∉ G𝜖 . By the 𝐿 -smoothness of 𝐽 𝐿 along the update segment, 
+
+𝐽 𝐿 (𝜃 𝑘 +1) ≤ 𝐽 𝐿 (𝜃 𝑘 ) + ⟨∇ 𝐽 𝐿 (𝜃 𝑘 ), 𝜃 𝑘 +1 − 𝜃 𝑘 ⟩+ 𝐿 
+
+2 ∥𝜃 𝑘 +1 − 𝜃 𝑘 ∥22 . (70) Using (66), 𝜃 𝑘 +1 − 𝜃 𝑘 = 𝜂𝑑 𝐻 𝑘 (𝜃 𝑘 ). Therefore, 
+
+𝐽 𝐿 (𝜃 𝑘 +1) ≤ 𝐽 𝐿 (𝜃 𝑘 ) + 𝜂 ∇𝐽 𝐿 (𝜃 𝑘 ), 𝑑 𝐻 𝑘 (𝜃 𝑘 )
+
++ 𝐿𝜂 2
+
+2 𝑑 𝐻 𝑘 (𝜃 𝑘 ) 22 .
+
+(71) Applying (67) and the bound 𝑑 𝐻 𝑘 (𝜃 𝑘 ) 2 ≤ 𝐷 𝜖 yields 
+
+𝐽 𝐿 (𝜃 𝑘 +1) ≤ 𝐽 𝐿 (𝜃 𝑘 ) − 𝜂𝛾 𝜖 + 𝐿𝜂 2𝐷 2
+
+> 𝜖
+
+2 . (72) By (68), 𝐿𝜂 2𝐷 2 
+
+> 𝜖
+
+/2 ≤ 𝜂𝛾 𝜖 /2. Hence, as long as 𝜃 𝑘 ∉ G𝜖 ,
+
+𝐽 𝐿 (𝜃 𝑘 +1) ≤ 𝐽 𝐿 (𝜃 𝑘 ) − 𝜂𝛾 𝜖 
+
+2 . (73) Assume that the parameter sequence remains outside G𝜖 for the first 𝑁 iterations. Summing (73) gives 
+
+𝐽 𝐿 (𝜃 𝑁 ) ≤ 𝐽 𝐿 (𝜃 0) − 𝑁𝜂𝛾 𝜖 
+
+2 . (74) For 
+
+𝑁 ≥ 2 [𝐽 𝐿 (𝜃 0) − 𝜖 ]+
+
+𝜂𝛾 𝜖 
+
+, (75) equation (74) implies 𝐽 𝐿 (𝜃 𝑁 ) ≤ 𝜖 , and therefore 𝜃 𝑁 ∈ G 𝜖 . This contradicts the assumption that the sequence remains outside G𝜖 .Consequently, the first-entry time is finite and satisfies (69). □
+
+B.2.6 Scope of the Theoretical Results. Theorem B.4 is a conditional finite-step entry result rather than an unconditional convergence guarantee. First, the theorem establishes the first entry of the parameter sequence into G𝜖 . It does not establish that G𝜖 is invariant under subsequent updates, that the sequence remains permanently inside the set, or that the parameters converge to a unique point. Such conclusions require additional conditions inside the target region. Second, Proposition B.1 characterizes the method-specific effect of historical-reference-induced task reweighting. Theorem B.4, by contrast, applies a standard smoothness-based descent argument once a uniform long-horizon descent margin has been established. Third, a positive covariance alone does not imply the existence of a uniform constant 𝛾 𝜖 > 0. Finite-step entry additionally requires that the long-horizon descent contribution remain nondegenerate before reaching G𝜖 .Fourth, the analysis is expressed in terms of population gradi-ents or empirical mini-batch gradients. Practical optimization may additionally involve random candidate perturbations, finite-batch noise, momentum, and adaptive preconditioning. The theoretical re-sults therefore characterize the idealized gradient-level mechanism induced by historical rollout references. The covariance correc-tion is nonetheless an empirically accessible quantity rather than a purely formal device, since ∇𝐽 𝐿 can be approximated by the mean long-horizon task gradient on a finite validation task set, and the association between relative activation and long-horizon usefulness can then be measured directly through Corr (𝛼 𝑖 , 𝑎 𝑖 ).Taken together, the analysis identifies bounded task reweighting, rather than any additional backpropagation direction, as the chan-nel through which historical rollout references act on long-horizon training. 
+
+## C Experiments C.1 Experimental Setup 
+
+C.1.1 Baselines and Backbones. Backbones. To assess whether HERO is architecture agnostic, we instantiate every method on two structurally different neural operators. FNO is the standard spectral operator for PDE surrogate learning: it parameterizes the integral kernel in the Fourier domain and applies spectral convolu-tions that retain only the low-frequency Fourier modes, modeling global spatial dependence directly in frequency space. Transolver is a Transformer-based neural solver whose Physics-Attention adap-tively partitions the discrete field into learnable slices and models interactions among these latent physical states rather than among all grid points, providing a global but non-spectral inductive bias. The two backbones thus probe complementary regimes—frequency-domain spectral convolution versus slice-level attention—and let us test whether HERO transfers from spectral neural operators to attention-based ones. Unless a suffix is appended, FNO and Tran-solver denote the base backbones trained with one-step supervision and no rollout-stabilization mechanism. 
+
+Comparison methods. All competing training strategies are applied on both backbones, yielding matched backbone–strategy pairs so that any difference is attributable to the training strategy rather than to the architecture. Beyond the one-step base models, we compare against three rollout-stabilization strategies. Push-forward 
+
+training (PF) unrolls the model on its own predictions during train-ing to close the gap between one-step teacher forcing and test-time free rollout: for a backbone 𝑓 𝜃 initialized at ˆ𝑢 𝑡 = 𝑢 𝑡 , it forms a 𝐾 pf -step self-rollout ˆ𝑢 𝑡 +𝑠 = 𝑓 𝜃 ( ˆ𝑢 𝑡 +𝑠 −1) for 𝑠 = 1, . . . , 𝐾 pf and minimizes 
+
+Lpf = 1
+
+𝐾 pf 
+
+> 𝐾 pf
+
+∑︁ 
+
+> 𝑠 =1
+
+ˆ𝑢 𝑡 +𝑠 − 𝑢 𝑡 +𝑠 22, (76) where ˆ𝑢 𝑡 +𝑠 and 𝑢 𝑡 +𝑠 are the predicted and ground-truth states at rollout offset 𝑠 . PDE-Refiner (Refine) instead targets the prediction itself, applying a multi-step refinement/denoising process that re-stores non-dominant spatial-frequency content lost during rollout, and thus tests whether output-side iterative correction alone stabi-lizes long-horizon prediction. RNO is a recurrent-training frame-work that recursively applies the operator to its own predictions so that training matches the autoregressive test-time dynamics, reducing exposure bias and long-horizon error amplification. We denote the resulting variants by Backbone -Strategy (e.g., FNO-PF, Transolver-Refine, FNO-RNO), and the HERO variants analogously by FNO-HERO and Transolver-HERO. HERO: History-Enriched Rollout Training for Long-Horizon Autoregressive Neural Operators Conference acronym ’XX, June 03–05, 2018, Woodstock, NY 
+
+Relation to HERO. PF and RNO are closest to HERO, as all three expose the operator to self-generated states during train-ing, yet both supervise only the absolute discrepancy from the ground truth. Refine differs along another axis, correcting the cur-rent output rather than using optimization history. In contrast, HERO keeps ground-truth rollout regression but adds relative su-pervision against a dynamically history-enriched failure reference, rewarding improvement over earlier failure behavior rather than mere closeness to the ground truth. 
+
+C.1.2 Benchmarks. We evaluate HERO on nine time-dependent PDE benchmarks, spanning 1D, 2D, and 3D dynamics and cover-ing dispersion, nonlinear transport, dissipative chaos, forced and decaying turbulence, pattern formation, and multi-directional ad-vection. All benchmarks use periodic boundary conditions and a single scalar state channel, and each dataset provides 50 training and 30 test trajectories; long-horizon behavior is assessed with 200 -step free autoregressive rollouts. The spatial dimension, domain, resolution, and time step of every benchmark are summarized in Table 4. The 1D benchmarks isolate phase- and spectrum-dominated fail-ure modes. The Dispersion equation governs waves whose wavenum-ber components propagate at different phase speeds, governed by 
+
+𝜕 𝑡 𝑢 = 𝛼 3 𝜕 𝑥𝑥𝑥 𝑢 with 𝛼 3 = 2.5 × 10 −4, where 𝛼 3 is the dispersion coefficient; this makes it a direct test of long-horizon phase con-sistency and frequency-domain structure. The Burgers equation couples nonlinear convection with viscous diffusion, governed by 
+
+𝜕 𝑡 𝑢 = 𝑎 2 𝜕 𝑥𝑥 𝑢 + 𝑏 1 𝑢 𝜕 𝑥 𝑢 with 𝑎 2 = 3.0 × 10 −4 and 𝑏 1 = −0.125 ,where 𝑎 2 is the diffusion coefficient and 𝑏 1 the convection coef-ficient; it probes long-horizon error accumulation under shock formation and dissipation. The KdV equation adds high-order sta-bilization to nonlinear dispersive transport, governed by 𝜕 𝑡 𝑢 =
+
+𝛿 𝑢 𝜕 𝑥 𝑢 + 𝛾 3 𝜕 𝑥𝑥𝑥 𝑢 + 𝛾 4 𝜕 𝑥𝑥𝑥𝑥 𝑢 with 𝛿 = −2.0, 𝛾 3 = −14 .0, and 
+
+𝛾 4 = −9.0, where 𝛿 is the nonlinear coefficient and 𝛾 3, 𝛾 4 the third-and fourth-order coefficients; it stresses long-horizon phase er-ror, amplitude drift, and solitary-wave structure preservation. The 
+
+Kuramoto–Sivashinsky (KS) equation is a canonical dissipative-chaotic system, 
+
+𝜕 𝑡 𝑢 = 𝑎 2 𝜕 𝑥𝑥 𝑢 + 𝑎 4 𝜕 𝑥𝑥𝑥𝑥 𝑢 + 𝑏 2 (𝜕 𝑥 𝑢 )2, (77) where 𝑎 2 = −1.0 drives long-wavelength instability, 𝑎 4 = −1.0
+
+provides high-order dissipation, and 𝑏 2 = −1.0 scales the gradient nonlinearity; its chaotic dynamics make it a stringent test of long-horizon error amplification and rollout stability. The 2D benchmarks emphasize energy- and structure-dominated behavior on diffusion and vorticity fields. Anisotropic Diffusion 
+
+evolves a scalar field with direction-dependent and cross-directional diffusion strengths, 
+
+𝜕 𝑡 𝑢 = ∇· ( D ∇𝑢 ), D =
+
+1.0 × 10 −3 5.0 × 10 −4
+
+5.0 × 10 −4 2.0 × 10 −3
+
+
+
+, (78) where D is the symmetric diffusion tensor; it tests whether the operator preserves directionally coupled smoothing and energy decay. Kolmogorov Flow models forced 2D incompressible vorticity dynamics, 
+
+𝜕 𝑡 𝜔 + v·∇ 𝜔 = 𝜈 Δ𝜔 − 𝛼 𝜔 + 𝑓 (x), (79) 
+
+Table 4: Configuration of the nine PDE rollout benchmarks 
+
+Benchmark Dim Domain Resolution Δ𝑡 
+
+Dispersion 1D [0, 1) 160 1.0 × 10 −3
+
+Burgers 1D [0, 1) 160 1.0 × 10 −1
+
+KdV 1D [0, 2𝜋 ) 160 1.0 × 10 −2
+
+KS 1D [0, 60 ) 160 1.0 × 10 −1
+
+Anisotropic Diff. 2D [0, 1)2 64 2 1.0 × 10 −1
+
+Kolmogorov Flow 2D [0, 2𝜋 )2 64 2 1.0 × 10 −1
+
+Decaying Turb. (NS) 2D [0, 1)2 64 2 1.0 × 10 −1
+
+Swift–Hohenberg 3D [0, 10 𝜋 )3 32 3 1.0 × 10 −1
+
+Unbalanced Adv. 3D [0, 1)3 32 3 1.0 × 10 −1
+
+Δ𝑡 denotes the time step. Resolution denotes 𝑁 𝑥 (1D), 𝑁 𝑥 × 𝑁 𝑦 
+
+(2D), or 𝑁 𝑥 ×𝑁 𝑦 ×𝑁 𝑧 (3D). where 𝜔 is the vorticity, v the associated velocity field, 𝜈 = 1.0 ×
+
+10 −2 the viscosity, 𝛼 the linear drag, and 𝑓 a fixed periodic forcing (injection mode 4, scale 1.0); the sustained energy injection and dissipation make it a test of long-horizon spectral balance. Decaying Turbulence is the unforced incompressible Navier–Stokes system in vorticity form, governed by 𝜕 𝑡 𝜔 + v·∇ 𝜔 = 𝜈 Δ𝜔 with ∇· v = 0
+
+and 𝜈 = 1.0 × 10 −4, where 𝜈 is the viscosity; it evaluates vortex transport, energy dissipation, and the stability of a freely decaying field. The 3D benchmarks stress spatial expressivity and stability in higher dimensions. Swift–Hohenberg is a reaction–diffusion pattern-formation model, 
+
+𝜕 𝑡 𝑢 = 𝑟 𝑢 − ( 𝑞 2 
+
+> 𝑐
+
++ Δ)2𝑢 + 𝑝 (𝑢 ), 𝑝 (𝑢 ) = 𝑢 2 − 𝑢 3, (80) where 𝑟 = 0.7 is the reactivity, 𝑞 𝑐 = 1.0 the critical wavenumber, and 𝑝 (𝑢 ) the local reaction polynomial; the emergent 3D patterns demand both spatial expressivity and long-horizon stability. Un-balanced Advection transports a scalar field with distinct per-axis velocities, governed by 𝜕 𝑡 𝑢 + c·∇ 𝑢 = 0 with c = (0.01 , −0.04 , 0.005 ),where c is the constant advection velocity; the differing magnitudes and signs across axes induce direction-dependent phase drift over long rollouts. 
+
+C.1.3 Evaluation Metrics. We evaluate all models under a common rollout protocol and report metrics that jointly capture one-step fidelity, long-horizon accuracy, and rollout stability over the first 100 
+
+autoregressive steps. All metrics build on the same per-step relative state error: for evaluation trajectory 𝑗 and rollout step 𝑡 , the per-step normalized RMSE is nRMSE ( 𝑗 ) 
+
+> 𝑡
+
+= ∥ ˆ𝑢 ( 𝑗 ) 
+
+> 𝑡
+
+− 𝑢 ( 𝑗 ) 
+
+> 𝑡
+
+∥2/(∥ 𝑢 ( 𝑗 ) 
+
+> 𝑡
+
+∥2 + 𝜀 ), the per-trajectory form of the mean relative error used in the motivation study (Eq. (1) ), where ˆ𝑢 ( 𝑗 ) 
+
+> 𝑡
+
+and 𝑢 ( 𝑗 ) 
+
+> 𝑡
+
+are the predicted and ground-truth states and 𝜀 > 0 is a numerical-stability constant. Field-level accuracy is summarized by the set-averaged per-step error nRMSE@ 𝑇 = 1
+
+> 𝑀
+
+Í𝑀 𝑗 =1 nRMSE ( 𝑗 ) 
+
+> 𝑇
+
+, which we report at two steps. nRMSE@ 1 isolates one-step prediction fidelity, whereas 
+
+nRMSE@ 100 measures accuracy after 100 autoregressive steps; a small nRMSE@ 1 together with a large nRMSE@ 100 therefore di-rectly exposes autoregressive error accumulation, phase drift, and high-frequency error growth, and lower values are better for both. Conference acronym ’XX, June 03–05, 2018, Woodstock, NY Zhang et al. 
+
+A single late-step value does not reflect the whole rollout, and autoregressive errors tend to grow multiplicatively. We therefore summarize the entire 100 -step trajectory with a geometric-mean error. For trajectory 𝑗 ,
+
+GM100 ( 𝑗 ) = exp 1100 
+
+> 100
+
+∑︁ 
+
+> 𝑡 =1
+
+log  nRMSE ( 𝑗 ) 
+
+> 𝑡
+
++ 𝜀 !
+
+, (81) where the logarithmic averaging measures relative error growth uniformly across the horizon rather than letting the largest late-step errors dominate. We report its split-level mean, Val mean GM100 =
+
+> 1
+> 𝑀 val
+
+Í𝑗 GM100 ( 𝑗 ) and Test mean GM100 = 1
+
+> 𝑀 test
+
+Í𝑗 GM100 ( 𝑗 ) , where the validation value drives model selection and early stopping and the test value is the reported long-horizon accuracy; lower is better, and a low Test mean GM100 indicates that the model stays accurate throughout the rollout rather than only at isolated steps. Error magnitude alone does not indicate when a rollout destabi-lizes, so we additionally report the horizon over which a prediction remains usable. With a relative-error threshold 𝜏 = 0.1, the stable horizon of trajectory 𝑗 is 
+
+𝑆 ( 𝑗 ) = max  𝑇 ∈ [ 1, 100 ] nRMSE ( 𝑗 ) 
+
+> 𝑡
+
+≤ 𝜏 ∀ 𝑡 ≤ 𝑇 , (82) where 𝜏 = 0.1 marks a 10% relative-error tolerance and 𝑆 ( 𝑗 ) is the last step up to which the error stays within this tolerance with-out interruption. The Mean stable step = 1
+
+> 𝑀
+
+Í𝑀 𝑗 =1 𝑆 ( 𝑗 ) averages this horizon over the evaluation set; higher is better, and a value ap-proaching 100 means that most trajectories remain stable across the full evaluation horizon. 
+
+C.1.4 Implementation Details. Protocol. We follow the APEBench task definitions and data splits. Each task provides 50 training trajectories of length 𝑇 train = 51 and 30 test trajectories of length 
+
+𝑇 test = 201 ; at test time every model is initialized from the first frame of a test trajectory and rolled out for 𝑇 eval = 200 autoregressive steps (Table 4). To keep the comparison fair, all compared methods use the same backbone, data split, optimizer, and evaluation protocol, and differ only in the training objective. The shared absolute supervision is a 𝐾 pf = 5 push-forward rollout (Eq. (76) ), so that every model is exposed to its own predicted intermediate states during training; HERO augments this with the relative objective Lrel (Eq. (24) ), giving the total objective Ltotal = Lroll + 𝜆 𝑠 Lrel (Eq. (26)). 
+
+HERO configuration. Unless stated otherwise, HERO uses a single set of defaults across all tasks: rollout horizon 𝐾 = 𝐾 pf = 5,start step 𝑠 0 = 4000 , refresh interval 𝑅 = 2000 , warm-up length 
+
+𝑊 = 2000 , maximum relative weight 𝜆 max = 0.02 , margin 𝑚 = 0.02 ,and sharpness 𝛽 = 5.0, together with the default candidate set 
+
+C = {𝜏 lag , 𝜏 pert , 𝜏 self }. Relative supervision is enabled after 𝑠 0 steps, and the relative weight 𝜆 𝑠 follows a linear warm-up from 0 to 𝜆 max 
+
+over the following 𝑊 steps. The candidate score is the within-candidate mean of the normalized diagnostics, without any ad-ditional diagnostic weighting; when a diagnostic does not apply to a given data form, it is removed from the active diagnostic set 
+
+D and the remaining diagnostics are averaged. The lagged oper-ator is initialized at step 𝑠 0 and refreshed every 𝑅 steps, and all candidate trajectories and diagnostic scores are computed without gradients. Because reference construction, candidate generation, and diagnostics are confined to training, HERO leaves the archi-tecture, parameter count, and inference procedure of its backbone unchanged and introduces no additional inference-time modules or parameters. 
+
+Optimization. We use the AdamW optimizer with an initial learning rate of 10 −3 and a warm-up–cosine schedule with 2000 
+
+warm-up steps, for a total of 10 000 steps at a batch size of 20 . All methods share the same random seed, train/validation/test split, and evaluation scripts. For each task we select the checkpoint with the best long-horizon validation metric (Val mean GM100) and report its performance on the test set. 
+
+Backbone configurations. We evaluate two backbones with per-dimension configurations summarized in Table 5. The Config 
+
+column reports each backbone’s core setting: for FNO, the number of retained low-frequency Fourier modes ( 28 in 1D, 8 × 8 in 2D, and 
+
+8 × 8 × 8 in 3D); for Transolver, its Physics-Attention token mixing. 
+
+Width is the channel width of FNO and the hidden dimension of Transolver, and Depth is the number of spectral layers of FNO and attention blocks of Transolver. The Heads and Slices columns describe Transolver’s Physics-Attention only and are marked “–” for FNO. All tasks of the same dimension share one configuration, and every training strategy—one-step, PF, Refine, RNO, and HERO— uses the identical backbone configuration, so that any performance difference is attributable to the training objective rather than to model capacity. 
+
+## C.2 Complete Benchmark Results 
+
+Tables 9 and 10 report the complete results on all nine PDE bench-marks (mean ± standard deviation over five seeds), grouped by spatial dimension, including the three benchmarks (Dispersion, KdV, and Kolmogorov) omitted from the main-text Table 1. HERO retains the same long-horizon advantage on all tasks. On the FNO backbone, it reduces nRMSE@100 from 0.425 to 0.246 on Dispersion, from 3.217 to 0.919 on KdV, and from 1.379 to 0.648 on Kolmogorov. Transolver-HERO further attains the lowest nRMSE@100 within the Transolver family on KdV and Kolmogorov, showing that the rollout improvement extends across both backbones. 
+
+## C.3 Hyperparameter Sensitivity 
+
+We analyze the two hyperparameters that govern the history-enriched mechanism on the 2D Navier–Stokes benchmark: the relative-training start step 𝑠 0 and the refresh interval 𝑅 of the lagged operator in (9) . In each study, only the analyzed hyperparameter varies and all remaining HERO settings, the backbone, and the evaluation protocol are held fixed, with 10 000 total optimization steps. FNO-PF is included as the absolute-supervision reference. 
+
+C.3.1 Relative-Training Start Step. Table 6 varies 𝑠 0, so that the relative objective is active over the interval [𝑠 0, 10 000 ], as listed in the relative-training interval column. Performance follows a clear interior optimum. At 𝑠 0 = 2000 the backbone has not yet formed a stable local time-stepping operator, the lagged rollout carries largely unstructured prediction error, and enabling the relative objective this early perturbs optimization: nRMSE@1 rises to 0.0339 and Test GM100 stays at 1.338 , better than FNO-PF but clearly behind the default. At 𝑠 0 = 4000 the reference is already informative while 6000 
+
+steps of relative reweighting remain, giving the lowest Test GM100 (1.067 ) and nRMSE@100 ( 4.124 ) and the longest stable horizon ( 25 .9). Increasing 𝑠 0 to 6000 improves the reference further and yields HERO: History-Enriched Rollout Training for Long-Horizon Autoregressive Neural Operators Conference acronym ’XX, June 03–05, 2018, Woodstock, NY 
+
+Table 5: Backbone architecture configurations. Each per-dimension configuration is shared across all tasks of that dimension and across all training strategies (one-step, PF, Refine, RNO, HERO); only the training objective differs.                                                        
+
+> Backbone Dim Applied tasks Config Width Depth Heads Slices FNO 1D Disp, Burgers, KdV, KS 28 28 1––FNO 2D AnisoDiff, Kolm, NS 8×820 1––FNO 3D SwiftH, UnbalAdv 8×8×845––Transolver 1D Disp, Burgers, KdV, KS Physics-Attn. 224 2464
+> Transolver 2D AnisoDiff, Kolm, NS Physics-Attn. 256 48128
+> Transolver 3D SwiftH, UnbalAdv Physics-Attn. 512 38256
+
+the best one-step error ( 0.0323 ), but the shortened relative phase leaves long-horizon behavior less corrected ( 1.142 Test GM100). At 
+
+𝑠 0 = 8000 only 2000 steps remain, the one-step error approaches FNO-PF, and both the long-horizon error and the stable horizon degrade toward push-forward training alone. 
+
+C.3.2 Lagged-Operator Refresh Interval. Table 7 varies 𝑅 with 𝑠 0 =
+
+4000 fixed, so the lagged operator is refreshed at steps 4000 , 4000 +
+
+𝑅, . . . until training ends, as listed in the effective refresh steps column. The same interior optimum appears. A short interval ( 𝑅 =
+
+500 , ten refreshes) keeps the lagged operator close to the current one, so the reference degenerates toward the self-reference and provides little contrast, giving the weakest HERO result ( 1.352 
+
+Test GM100). A long interval ( 𝑅 = 4000 , two refreshes) leaves the reference increasingly stale relative to the improving operator, weakening the effective activation of the margin objective ( 1.247 ). Intermediate intervals perform best, with 𝑅 = 1000 and 𝑅 = 2000 
+
+within 7% of each other on Test GM100 and 𝑅 = 2000 attaining the lowest long-horizon error ( 4.124 ) and the longest stable horizon (25 .9). Every configuration in both tables outperforms FNO-PF on all long-horizon metrics, so the effect of HERO does not depend on a narrow hyperparameter range. The two studies degrade for the same reason: the periodic-lag mechanism requires a reference that is neither too close to the current operator nor too far behind it, which is exactly the balance between reference relevance and historical contrast that motivates the design. 
+
+## C.4 Computational Cost 
+
+HERO adds candidate generation, diagnostics, and reference selec-tion to the training loop, so we quantify what this costs in practice. Table 8 compares all FNO variants under one protocol: the same 2D backbone, batch size, resolution, and hardware, with inference la-tency and peak memory measured over 200 -step free autoregressive rollouts and training throughput averaged over 1000 optimization steps after warm-up. HERO leaves the deployed model untouched. It shares the exact parameter count of the plain backbone ( 30 ,541 ), whereas Refine adds 
+
+376 parameters for its refinement head, and its inference latency matches the backbone to within 1.2% (0.509 vs. 0.503 ms/step), a gap of the same order as that of PF ( 0.505 ) and RNO ( 0.507 ) and therefore within measurement noise rather than an architectural cost. Refine is the only variant with a measurable inference overhead ( 0.553 
+
+ms/step, 9.9% ), since its iterative correction runs at test time. Peak memory follows the same pattern: HERO uses 67 .18 MB, 1.6% above the backbone and below Refine ( 69 .84 MB). The cost of HERO is therefore confined to training. Its throughput of 336 .92 steps/s is 
+
+4.4% below PF, the closest rollout baseline, and 10 .1% below one-step training, reflecting the additional lagged and perturbed rollouts and the diagnostic evaluation; the lagged operator is refreshed only every 𝑅 steps, so its contribution is amortized. HERO is nonetheless faster to train than Refine ( 328 .47 steps/s), which pays its overhead at both training and inference time. Read together with Table 2, a one-time training slowdown of a few percent buys a 33 .8% reduction in nRMSE@100, and none of it is charged to deployment. Conference acronym ’XX, June 03–05, 2018, Woodstock, NY Zhang et al. 
+
+Table 6: Sensitivity to the relative-training start step 𝑠 0 on the 2D Navier–Stokes benchmark. The relative objective is active over [𝑠 0, 10 000 ]; FNO-PF is the absolute-supervision reference. 
+
+Setting Relative-training interval Val GM100 ↓
+
+Test GM100 ↓
+
+nRMSE @1 ↓
+
+nRMSE @100 ↓
+
+Stable step ↑
+
+FNO-PF — 1.450 1.697 0.0350 6.306 22 .7
+
+HERO ( 𝑠 0=2000 ) 2000 –10 000 1.163 1.338 0.0339 4.917 24 .3
+
+HERO ( 𝑠 0=4000 ) 4000 –10 000 0.937 1.067 0.0326 4.124 25 .9
+
+HERO ( 𝑠 0=6000 ) 6000 –10 000 0.998 1.142 0.0323 4.386 25 .2
+
+HERO ( 𝑠 0=8000 ) 8000 –10 000 1.287 1.506 0.0342 5.714 23 .2
+
+Table 7: Sensitivity to the refresh interval 𝑅 at 𝑠 0 = 4000 on the 2D Navier–Stokes benchmark. FNO-PF is the absolute-supervision reference. 
+
+Setting Effective refresh steps Val GM100 ↓
+
+Test GM100 ↓
+
+nRMSE @1 ↓
+
+nRMSE @100 ↓
+
+Stable step ↑
+
+FNO-PF — 1.450 1.697 0.0350 6.306 22 .7
+
+HERO ( 𝑅 =500 ) 4000 , 4500 , . . . , 9500 1.176 1.352 0.0334 4.982 24 .1
+
+HERO ( 𝑅 =1000 ) 4000 , 5000 , . . . , 9000 0.991 1.139 0.0324 4.376 25 .3
+
+HERO ( 𝑅 =2000 ) 4000 , 6000 , 8000 0.937 1.067 0.0326 4.124 25 .9
+
+HERO ( 𝑅 =4000 ) 4000 , 8000 1.084 1.247 0.0331 4.641 24 .8
+
+Table 8: Parameter count, inference latency, peak memory, and training throughput of the FNO variants under a shared measurement protocol 
+
+Method #Params Infer (ms/step) ↓
+
+Peak mem (MB) ↓
+
+Train (steps/s) ↑
+
+FNO 30 ,541 0.503 66 .13 374 .79 
+
+FNO-PF 30 ,541 0.505 66 .28 352 .61 
+
+FNO-Ref. 30 ,917 0.553 69 .84 328 .47 
+
+FNO-RNO 30 ,541 0.507 66 .94 344 .26 
+
+FNO-HERO 30 ,541 0.509 67 .18 336 .92 HERO: History-Enriched Rollout Training for Long-Horizon Autoregressive Neural Operators Conference acronym ’XX, June 03–05, 2018, Woodstock, NY 
+
+Table 9: Complete results on the four 1D PDE benchmarks (mean ± standard deviation over five seeds). GM100 denotes the geometric-mean error over the 100-step rollout; Stable step denotes the mean number of stable rollout steps. Within each benchmark, the best value per column is shown in bold separately for the FNO and Transolver families. 
+
+Method Val GM100 ↓ Test GM100 ↓ nRMSE@1 ↓ nRMSE@100 ↓ Stable step ↑
+
+Dispersion (1D) 
+
+FNO 0.152 ± 0.005 0.166 ± 0.006 0.0048 ± 0.0001 0.425 ± 0.017 69 .7 ± 2.6
+
+FNO-PF 0.144 ± 0.004 0.160 ± 0.005 0.0045 ± 0.0001 0.402 ± 0.014 71 .3 ± 2.5
+
+FNO-Ref. 0.136 ± 0.004 0.148 ± 0.005 0.0040 ± 0.0001 0.381 ± 0.014 73 .5 ± 2.8
+
+FNO-RNO 0.141 ± 0.004 0.154 ± 0.005 0.0044 ± 0.0001 0.395 ± 0.015 72 .3 ± 2.4
+
+FNO-HERO 0.091 ± 0.002 0.097 ± 0.003 0.0038 ± 0.0001 0.246 ± 0.008 80 .8 ± 2.5
+
+Trans. 0.140 ± 0.004 0.150 ± 0.005 0.0041 ± 0.0001 0.394 ± 0.016 72 .1 ± 2.6
+
+Trans.-PF 0.134 ± 0.004 0.146 ± 0.005 0.0039 ± 0.0001 0.380 ± 0.015 72 .4 ± 2.7
+
+Trans.-Refine 0.139 ± 0.004 0.152 ± 0.005 0.0040 ± 0.0001 0.393 ± 0.015 71 .9 ± 2.7
+
+Trans.-RNO 0.136 ± 0.004 0.149 ± 0.005 0.0041 ± 0.0001 0.382 ± 0.014 71 .7 ± 2.6
+
+Trans.-HERO 0.087 ± 0.002 0.093 ± 0.003 0.0037 ± 0.0001 0.248 ± 0.009 81 .1 ± 2.2
+
+Burgers (1D) 
+
+FNO 0.473 ± 0.025 0.526 ± 0.028 0.0429 ± 0.0023 0.541 ± 0.030 35 .6 ± 4.4
+
+FNO-PF 0.218 ± 0.009 0.208 ± 0.009 0.0180 ± 0.0008 0.236 ± 0.012 68 .0 ± 4.4
+
+FNO-Ref. 0.407 ± 0.017 0.457 ± 0.023 0.0368 ± 0.0015 0.495 ± 0.031 40 .4 ± 4.2
+
+FNO-RNO 0.293 ± 0.014 0.311 ± 0.015 0.0249 ± 0.0011 0.335 ± 0.018 55 .0 ± 4.1
+
+FNO-HERO 0.147 ± 0.006 0.138 ± 0.007 0.0168 ± 0.0008 0.153 ± 0.007 81 .7 ± 4.0
+
+Trans. 0.487 ± 0.024 0.537 ± 0.032 0.0478 ± 0.0027 0.618 ± 0.042 31 .2 ± 5.1
+
+Trans.-PF 0.449 ± 0.019 0.505 ± 0.027 0.0422 ± 0.0018 0.562 ± 0.029 35 .5 ± 4.9
+
+Trans.-Refine 0.428 ± 0.021 0.483 ± 0.027 0.0401 ± 0.0019 0.535 ± 0.032 38 .7 ± 4.1
+
+Trans.-RNO 0.384 ± 0.016 0.434 ± 0.024 0.0362 ± 0.0016 0.494 ± 0.029 41 .4 ± 4.2
+
+Trans.-HERO 0.250 ± 0.011 0.281 ± 0.013 0.0341 ± 0.0016 0.327 ± 0.016 49 .3 ± 4.0
+
+KdV (1D) 
+
+FNO 0.088 ± 0.007 0.074 ± 0.006 0.0060 ± 0.0004 3.217 ± 0.281 46 .4 ± 6.4
+
+FNO-PF 0.055 ± 0.004 0.051 ± 0.004 0.0052 ± 0.0003 2.663 ± 0.202 48 .8 ± 5.6
+
+FNO-Ref. 0.060 ± 0.005 0.056 ± 0.004 0.0085 ± 0.0005 2.030 ± 0.174 46 .1 ± 5.9
+
+FNO-RNO 0.074 ± 0.006 0.069 ± 0.005 0.0109 ± 0.0007 1.438 ± 0.139 47 .5 ± 5.4
+
+FNO-HERO 0.036 ± 0.002 0.034 ± 0.002 0.0049 ± 0.0002 0.919 ± 0.071 60 .6 ± 5.2
+
+Trans. 0.659 ± 0.054 0.816 ± 0.080 0.0683 ± 0.0043 1.078 ± 0.101 16 .4 ± 6.1
+
+Trans.-PF 0.525 ± 0.039 0.681 ± 0.060 0.0552 ± 0.0033 0.906 ± 0.088 23 .4 ± 6.3
+
+Trans.-Refine 0.562 ± 0.040 0.735 ± 0.054 0.0599 ± 0.0033 0.977 ± 0.077 22 .1 ± 5.7
+
+Trans.-RNO 0.482 ± 0.037 0.613 ± 0.055 0.0582 ± 0.0040 0.819 ± 0.078 23 .6 ± 6.2
+
+Trans.-HERO 0.319 ± 0.020 0.401 ± 0.028 0.0516 ± 0.0026 0.528 ± 0.045 31 .8 ± 5.5
+
+Kuramoto–Sivashinsky (1D) 
+
+FNO 0.511 ± 0.029 0.578 ± 0.037 0.0190 ± 0.0011 1.131 ± 0.077 43 .8 ± 5.7
+
+FNO-PF 0.401 ± 0.022 0.451 ± 0.026 0.0179 ± 0.0009 0.972 ± 0.063 44 .7 ± 4.7
+
+FNO-Ref. 0.469 ± 0.024 0.528 ± 0.035 0.0159 ± 0.0009 1.064 ± 0.073 46 .4 ± 4.6
+
+FNO-RNO 0.458 ± 0.027 0.515 ± 0.036 0.0181 ± 0.0009 1.009 ± 0.070 43 .6 ± 4.6
+
+FNO-HERO 0.257 ± 0.012 0.283 ± 0.016 0.0150 ± 0.0007 0.640 ± 0.037 53 .3 ± 4.3
+
+Trans. 0.611 ± 0.036 0.695 ± 0.053 0.0250 ± 0.0014 1.284 ± 0.097 37 .6 ± 4.9
+
+Trans.-PF 0.501 ± 0.029 0.571 ± 0.042 0.0211 ± 0.0012 1.163 ± 0.086 41 .8 ± 4.6
+
+Trans.-Refine 0.498 ± 0.031 0.572 ± 0.033 0.0190 ± 0.0009 1.238 ± 0.080 42 .4 ± 4.5
+
+Trans.-RNO 0.477 ± 0.025 0.538 ± 0.032 0.0201 ± 0.0011 1.099 ± 0.081 42 .6 ± 5.3
+
+Trans.-HERO 0.321 ± 0.018 0.361 ± 0.023 0.0181 ± 0.0009 0.715 ± 0.040 49 .2 ± 4.5Conference acronym ’XX, June 03–05, 2018, Woodstock, NY Zhang et al. 
+
+Table 10: Complete results on the 2D and 3D PDE benchmarks (mean ± standard deviation over five seeds). GM100 denotes the geometric-mean error over the 100-step rollout; Stable step denotes the mean number of stable rollout steps. Within each benchmark, the best value per column is shown in bold separately for the FNO and Transolver families. 
+
+Method Val GM100 ↓ Test GM100 ↓ nRMSE@1 ↓ nRMSE@100 ↓ Stable step ↑
+
+Anisotropic Diffusion (2D) 
+
+FNO 0.713 ± 0.037 0.825 ± 0.057 0.0875 ± 0.0048 1.868 ± 0.120 8.2 ± 3.2
+
+FNO-PF 0.655 ± 0.036 0.754 ± 0.042 0.0716 ± 0.0035 1.355 ± 0.077 12 .9 ± 3.2
+
+FNO-Ref. 0.567 ± 0.030 0.652 ± 0.040 0.0611 ± 0.0033 0.786 ± 0.053 20 .7 ± 3.3
+
+FNO-RNO 0.692 ± 0.034 0.778 ± 0.049 0.0846 ± 0.0040 0.925 ± 0.054 9.7 ± 3.3
+
+FNO-HERO 0.363 ± 0.018 0.415 ± 0.019 0.0571 ± 0.0026 0.521 ± 0.034 26 .6 ± 2.9
+
+Trans. 1.168 ± 0.068 1.358 ± 0.080 0.0799 ± 0.0042 2.968 ± 0.207 8.1 ± 3.5
+
+Trans.-PF 0.965 ± 0.053 1.111 ± 0.068 0.0696 ± 0.0034 2.172 ± 0.157 13 .0 ± 3.6
+
+Trans.-Refine 0.803 ± 0.039 0.943 ± 0.058 0.0692 ± 0.0037 1.835 ± 0.119 14 .7 ± 2.9
+
+Trans.-RNO 0.892 ± 0.051 1.048 ± 0.064 0.0751 ± 0.0039 2.099 ± 0.150 10 .4 ± 3.4
+
+Trans.-HERO 0.537 ± 0.027 0.626 ± 0.034 0.0652 ± 0.0031 1.185 ± 0.066 18 .2 ± 2.6
+
+Kolmogorov Flow (2D) 
+
+FNO 0.979 ± 0.072 1.220 ± 0.100 0.4678 ± 0.0269 1.379 ± 0.106 1.2 ± 0.8
+
+FNO-PF 0.731 ± 0.053 1.002 ± 0.066 0.3402 ± 0.0166 1.255 ± 0.100 1.7 ± 0.8
+
+FNO-Ref. 0.743 ± 0.046 0.872 ± 0.066 0.3085 ± 0.0166 1.024 ± 0.090 2.6 ± 0.7
+
+FNO-RNO 0.804 ± 0.052 1.071 ± 0.087 0.3605 ± 0.0184 1.304 ± 0.100 1.5 ± 0.6
+
+FNO-HERO 0.477 ± 0.025 0.565 ± 0.035 0.2860 ± 0.0140 0.648 ± 0.048 3.4 ± 0.6
+
+Trans. 1.113 ± 0.074 1.452 ± 0.107 0.3107 ± 0.0186 2.078 ± 0.181 1.1 ± 0.7
+
+Trans.-PF 0.950 ± 0.063 1.183 ± 0.079 0.2951 ± 0.0189 1.566 ± 0.114 1.4 ± 0.7
+
+Trans.-Refine 0.648 ± 0.047 0.790 ± 0.053 0.2880 ± 0.0172 0.938 ± 0.072 2.9 ± 0.7
+
+Trans.-RNO 0.755 ± 0.053 0.952 ± 0.077 0.2987 ± 0.0151 1.131 ± 0.095 2.0 ± 0.7
+
+Trans.-HERO 0.417 ± 0.027 0.503 ± 0.031 0.2704 ± 0.0126 0.617 ± 0.050 3.7 ± 0.6
+
+Decaying Turbulence / Navier–Stokes (2D) 
+
+FNO 2.322 ± 0.157 2.915 ± 0.229 0.0449 ± 0.0028 13 .629 ± 1.077 17 .6 ± 3.8
+
+FNO-PF 1.441 ± 0.100 1.682 ± 0.128 0.0349 ± 0.0019 6.271 ± 0.498 22 .3 ± 3.5
+
+FNO-Ref. 1.959 ± 0.133 2.330 ± 0.166 0.0402 ± 0.0024 9.888 ± 0.910 18 .1 ± 4.0
+
+FNO-RNO 1.788 ± 0.107 2.141 ± 0.145 0.0388 ± 0.0020 7.829 ± 0.647 20 .7 ± 3.4
+
+FNO-HERO 0.931 ± 0.059 1.058 ± 0.062 0.0325 ± 0.0015 4.101 ± 0.323 26 .5 ± 3.4
+
+Trans. 3.075 ± 0.246 3.825 ± 0.343 0.0301 ± 0.0020 18 .084 ± 1.652 20 .3 ± 3.8
+
+Trans.-PF 2.400 ± 0.178 2.974 ± 0.221 0.0278 ± 0.0016 12 .438 ± 1.067 24 .3 ± 3.5
+
+Trans.-Refine 2.169 ± 0.155 2.591 ± 0.201 0.0280 ± 0.0014 10 .974 ± 0.864 23 .1 ± 3.4
+
+Trans.-RNO 2.224 ± 0.135 2.704 ± 0.213 0.0291 ± 0.0015 11 .438 ± 1.043 22 .5 ± 4.0
+
+Trans.-HERO 1.423 ± 0.091 1.687 ± 0.103 0.0262 ± 0.0012 7.012 ± 0.497 25 .8 ± 2.9
+
+Swift–Hohenberg (3D) 
+
+FNO 0.603 ± 0.036 0.678 ± 0.042 0.0788 ± 0.0043 0.941 ± 0.059 13 .4 ± 3.4
+
+FNO-PF 0.514 ± 0.026 0.581 ± 0.033 0.0607 ± 0.0027 0.843 ± 0.053 20 .4 ± 3.6
+
+FNO-Ref. 0.552 ± 0.031 0.619 ± 0.036 0.0642 ± 0.0031 0.871 ± 0.056 19 .6 ± 3.1
+
+FNO-RNO 0.520 ± 0.029 0.596 ± 0.031 0.0662 ± 0.0034 0.850 ± 0.053 19 .5 ± 3.1
+
+FNO-HERO 0.341 ± 0.014 0.381 ± 0.020 0.0570 ± 0.0025 0.541 ± 0.033 27 .7 ± 3.3
+
+Trans. 0.821 ± 0.043 0.912 ± 0.056 0.1079 ± 0.0054 1.286 ± 0.091 5.3 ± 4.1
+
+Trans.-PF 0.686 ± 0.033 0.782 ± 0.046 0.0914 ± 0.0042 1.126 ± 0.073 5.9 ± 3.4
+
+Trans.-Refine 0.633 ± 0.029 0.713 ± 0.040 0.0823 ± 0.0038 1.004 ± 0.061 11 .3 ± 3.6
+
+Trans.-RNO 0.652 ± 0.032 0.739 ± 0.046 0.0860 ± 0.0038 1.064 ± 0.067 7.6 ± 3.3
+
+Trans.-HERO 0.404 ± 0.017 0.450 ± 0.024 0.0780 ± 0.0032 0.667 ± 0.036 15 .0 ± 3.3
+
+Unbalanced Advection (3D) 
+
+FNO 2.311 ± 0.163 2.647 ± 0.175 0.0869 ± 0.0046 7.204 ± 0.606 6.4 ± 3.2
+
+FNO-PF 1.833 ± 0.123 2.121 ± 0.142 0.0748 ± 0.0040 5.546 ± 0.394 10 .0 ± 2.5
+
+FNO-Ref. 2.017 ± 0.115 2.317 ± 0.175 0.0776 ± 0.0043 6.086 ± 0.434 7.8 ± 2.6
+
+FNO-RNO 1.697 ± 0.115 1.931 ± 0.145 0.0791 ± 0.0038 4.833 ± 0.386 9.0 ± 2.5
+
+FNO-HERO 1.101 ± 0.055 1.244 ± 0.068 0.0702 ± 0.0029 3.185 ± 0.197 12 .7 ± 2.3
+
+Trans. 2.723 ± 0.192 3.106 ± 0.247 0.0731 ± 0.0041 7.777 ± 0.694 9.8 ± 3.1
+
+Trans.-PF 2.096 ± 0.145 2.426 ± 0.189 0.0736 ± 0.0041 6.122 ± 0.455 10 .3 ± 2.6
+
+Trans.-Refine 1.901 ± 0.116 2.201 ± 0.153 0.0713 ± 0.0039 5.319 ± 0.408 9.6 ± 2.8
+
+Trans.-RNO 1.784 ± 0.122 2.079 ± 0.156 0.0742 ± 0.0041 5.015 ± 0.387 10 .6 ± 2.9
+
+Trans.-HERO 1.197 ± 0.064 1.389 ± 0.088 0.0673 ± 0.0032 3.175 ± 0.249 12 .1 ± 2.3

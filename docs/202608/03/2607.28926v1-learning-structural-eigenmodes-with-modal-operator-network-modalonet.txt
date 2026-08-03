@@ -1,0 +1,551 @@
+Title: Learning Structural Eigenmodes with Modal Operator Network (ModalONet)
+
+URL Source: https://arxiv.org/pdf/2607.28926v1
+
+Published Time: Mon, 03 Aug 2026 00:22:33 GMT
+
+Number of Pages: 17
+
+Markdown Content:
+# Learning Structural Eigenmodes with Modal Operator Network (ModalONet) 
+
+Saad Waheed 1 Shabbir Ahmed 1
+
+# Abstract 
+
+Neural operators such as the deep operator net-work (DeepONet) and the Laplace neural operator (LNO) are effective surrogates, but they are al-most exclusively trained to reproduce the forward response of a system rather than its intrinsic struc-ture, such as the modal properties of a structural system. We introduce ModalONet, which puts op-erator learning to a different use such as recover-ing the modal basis namely: mode shapes, natural frequencies, and damping ratios of a dynamical system directly from its response field, with no eigensolver and no labeled modes. Our key obser-vation is that the DeepONet branch–trunk factor-ization is itself a learnable form of modal superpo-sition: the trunk supplies continuous, mesh-free mode shapes, while an LNO branch supplies the modal coordinates in pole–residue form, so that each learned pole yields a natural frequency and a damping ratio. Training uses the response field alone, under a composite loss of reconstruction, orthonormality, and temporal projection consis-tency. The degenerate (equal-frequency) modes are resolved by a separable trunk and a shared frequency parameter, with post-hoc log-envelope regression improves the damping ratio estimates. Across four structural systems, namely: simply supported and cantilever Euler–Bernoulli beams and rectangular and (degenerate) square Kirch-hoff plates, the ModalONet recovers the analyt-ical modal basis with modal assurance criterion (MAC) values of at least 0.998 for every mode shape, natural frequency errors within 5% , and damping ratio errors within 7% , demonstrating the potential of neural operators as accurate and interpretable tools for modal identification. 
+
+> 1
+
+Dynamical Systems and Signals Lab (DSSL), Department of Mechanical Engineering, South Dakota State University, Brook-ings, SD, USA. Correspondence to: Shabbir Ahmed <shab-bir.ahmed@sdstate.edu >.
+
+Preprint. August 3, 2026. 
+
+# 1. Introduction 
+
+The dynamic behavior of an engineered structure such as a bridge under traffic, an aircraft wing subjected to gust loading, or a turbine blade in operation is most naturally described by its modal parameters: the natural frequencies, damping ratios, and spatial mode shapes that characterize its vibration. For linear, proportionally damped systems, any structural response can be represented as a superposi-tion of the mode shapes, which thus constitute the natural coordinate basis of structural dynamics. Beyond governing resonance and transient response, these parameters serve as calibration targets in finite-element model updating and as damage-sensitive features in structural health monitoring (SHM), where shifts in natural frequencies and distortions of mode shapes are primary indicators of structural degrada-tion (Giurgiutiu, 2014; Ahmed and Kopsaftopoulos, 2025; Ahmed et al., 2025; Ahmed and Kopsaftopoulos, 2024). Re-covering these modal parameters from measured structural responses is therefore a fundamental inverse problem: the accuracy of downstream tasks such as model updating, dam-age detection, and response prediction depends directly on how faithfully they are identified. Classically, these modal parameters are obtained in one of two ways. The first solves the eigenproblem of a discretized finite-element model, which yields natural frequencies and mode shapes, and presupposes accurate geometry, material properties, and boundary conditions, requiring re-calibration whenever any of these change (Rizmi and Ahmed, 2026). The second identifies the modal parameters directly from measured vibration signals, following the methods of experi-mental or operational modal analysis (Ewins, 2000; Brincker et al., 2001; Peeters and De Roeck, 2001). A rich family of estimators has been developed for this purpose, spanning time-domain methods such as the eigensystem realization algorithm and stochastic subspace identification (Juang & Pappa, 1985; Peeters and De Roeck, 2001) and frequency-domain techniques such as frequency-domain decomposi-tion (Brincker et al., 2001). These methods are mature and highly successful across a wide range of engineering struc-tures. However, practical modal identification often involves user-dependent decisions, including model-order selection and the separation of physical modes from numerical or noise-induced modes. Furthermore, experimentally identi-fied mode shapes are naturally obtained as discrete vectors 1arXiv:2607.28926v1 [eess.SY] 31 Jul 2026 Learning Structural Eigenmodes with ModalONet 
+
+at measured degrees of freedom, requiring additional expan-sion procedures to obtain full-field representations. These limitations motivate data-driven approaches that learn modal representations directly from measured responses, recover continuous spatial mode shapes, and reduce reliance on manual identification steps. Data-driven decomposition methods offer a complemen-tary route for extracting coherent spatio-temporal patterns directly from measured responses. Proper orthogonal de-composition (POD) computes the spatial basis via singular-value decomposition that optimally captures the response energy in the mean-square sense (Berkooz et al., 1993). Dy-namic mode decomposition (DMD) extracts spatio-temporal modes associated with the eigenvalues of a best-fit linear evolution operator, yielding characteristic frequencies and growth or decay rates (Schmid, 2010). These methods have proven highly successful for reduced-order modeling, coherent-structure discovery, and, in the structural setting, damage-sensitive feature extraction. Their correspondence with the modal parameters, however, is conditional: POD modes approximate the structural mode shapes only under restrictive mass and excitation conditions (Feeny & Kap-pagantu, 1998), and DMD recovers them faithfully when the dynamics are linear and observed through displacement-proportional measurements, with accuracy degrading under noise, nonlinearity, or indirect observables such as raw video intensities. Previously, neural network–based models have been utilized to extract modal information from data. Bao et al. utilized a mechanics-informed neural network model to extract modal information from measured responses. The study processed the time-domain data with the short-time Fourier transform (STFT) to obtain a time-frequency representation, from which single source points (SSPs) were extracted and used as input to the network (Bao et al., 2024). Su et al. utilized a convolutional neural network to extract modal parameters, where uncertainty diagrams of the modal parameters, esti-mated by stochastic subspace identification, were used as input to the network (Su et al., 2020). Jian et al. utilized a graph neural network to identify modal parameters, using the power spectral density of the time-domain data as input (Jian et al., 2025b). Liu et al. used only time-domain data as input to the neural network and extracted the modal param-eters through a suitable choice of loss function (Liu et al., 2021). Liu et al. used a 1-D convolutional neural network coupled with a long short-term memory (LSTM) network, with time-domain signals obtained from video recordings of a vibrating structure as input (Liu et al., 2024b). Liu and Bao extended the mechanics-informed approach to the identification of closely spaced modes (Liu and Bao, 2025), and Lai et al. proposed neural modal ordinary differential equations, which embed modal structure in learned dynam-ics for high-dimensional monitored structures (Lai et al., 2022). Sadhu et al. reviewed output-only modal identifica-tion based on blind source separation (Sadhu et al., 2017), a family recently accelerated by AI-driven source separation for fast operational modal analysis (Hern ´andez-Gonz ´alez et al., 2024). As these methods rely on conventional neural network architectures, they may suffer from the requirement of fixed-length inputs and fixed geometry and boundary conditions. In many practical applications, however, modal parameters must be estimated for arbitrary geometries and boundary conditions, solely from time-domain data. Neural networks have also been utilized to solve eigenprob-lems; however, these methods assume that the operator is known. Ben-Shaul et al., Deng et al., and Han et al. de-veloped deep eigensolvers that recover the eigenfunctions of a given differential operator or kernel by minimizing a Rayleigh-quotient or residual objective (Ben-Shaul et al., 2023; Deng et al., 2022; Han et al., 2020). Recently, Yang et al. proposed a neural operator that predicts the Laplace– Beltrami eigenspace of a shape directly from its geometry (Yang et al., 2026). However, these methods solve the for-ward eigenproblem of an operator supplied in closed-form, which is the inverse of the problem of identifying modes from measured response, and they do not account for damp-ing. In contrast, operator learning has been developed to learn mappings between function spaces rather than fitting a sin-gle solution, which supplies the missing notion of transfer. Chen and Chen established a universal approximation theo-rem for operators (Chen and Chen, 1995), based on which Lu et al. proposed the deep operator network (DeepONet), which factorizes an operator into a branch network acting on the input function and a trunk network acting on the query coordinate (Lu et al., 2021). Li et al. proposed the Fourier neural operator, which parameterizes the operator in the spectral domain (Li et al., 2021), and Kovachki et al. devel-oped a general theory of neural operators (Kovachki et al., 2023). Raissi et al. introduced physics-informed training, in which the governing equations are embedded directly in the loss function (Raissi et al., 2019), Wang et al. extended this idea to operator learning (Wang et al., 2021), and Lu et al. reported fair comparisons across different operator families (Lu et al., 2022). These operators have been ap-plied to a wide range of problems. Goswami et al. applied a variational DeepONet to fracture mechanics (Goswami et al., 2022). He et al. trained an operator to predict the full-field response of structures under time-dependent loads (He et al., 2024), and Cao et al. predicted the motion of floating offshore structures (Cao et al., 2024b). De et al. and Goswami et al. addressed hysteretic and stochastic non-linear responses (De and Brewick, 2024; Goswami et al., 2025), Garg et al. assessed reliability under stochastic load-ing (Garg et al., 2022), Liu et al. learned causal responses of linear systems (Liu et al., 2024a), and Kaewnuratchada-2Learning Structural Eigenmodes with ModalONet 
+
+sorn et al. predicted bridge response for structural health monitoring (Kaewnuratchadasorn et al., 2024). However, in all these studies, the operator learns the forward solution, i.e., the mapping from excitation or parameters to response, and the modal structure, if present at all, remains an implicit by-product rather than an output of the network. To close this gap, we propose a neural operator whose out-put is the modal basis itself, recovered from response data without any eigensolver and without labeled modes. The key observation is structural: modal superposition, i.e., a finite sum of products of a temporal factor and a spatial factor, is exactly the form of the DeepONet branch–trunk output, and therefore a DeepONet trained to reconstruct a response field is already performing a modal decompo-sition. Two ingredients render its latent factors physical: spatial orthonormality of the trunk, which turns the spa-tial factors into continuous, mesh-free mode shapes, and a Laplace neural operator (LNO) branch (Cao et al., 2024a), whose pole–residue parameterization represents a damped modal coordinate exactly. Reading each learned pole as 
+
+−σi + jω d,i yields the natural frequency and damping ratio directly, so that a single architecture returns all three modal quantities at once. To the best of our knowledge, this is the first neural operator to recover the structural modal ba-sis from response data. The proposed method differs from population-based graph networks, which remain grid-bound and post-process frequency and damping (Jian et al., 2025a), and from neural eigensolvers, which require the operator in closed-form and target geometric, undamped spectra (Yang et al., 2026; Ben-Shaul et al., 2023). 
+
+Contributions. The main contributions of this work are as follows. (i) We recast modal identification as an operator learning problem, showing that the DeepONet branch–trunk factor-ization is a learnable form of modal superposition, and we use it to recover the full modal basis—mode shapes, natural frequencies, and damping ratios—from response data rather than a forward solution. (ii) We train the network in an unsupervised manner on response fields alone, using an orthonormality constraint and a temporal projection consistency term; we resolve de-generate equal-frequency modes via the separable trunk, a shared (tied) frequency parameter per degenerate group, and an assignment step; and we refine damping ratio post hoc by an SNR-weighted log-envelope regression on the modal projections. (iii) We validate the method on Euler–Bernoulli beams and Kirchhoff plates, recovering the analytical modal basis at MAC value at least 0.998 , including the degenerate square plate, with every latent dimension interpretable as a physical mode. 
+
+# 2. Method 
+
+2.1. Structural modal analysis 
+
+We consider small-amplitude vibration of linear elastic struc-tures, whose motion is governed by a linear partial differ-ential equation in space and time. For a slender beam of length l, bending stiffness EI , and mass per unit length 
+
+m = ρA , the transverse displacement w(x, t ) obeys the Euler–Bernoulli equation (Giurgiutiu, 2014) 
+
+EI ∂4w∂x 4 + m ∂2w∂t 2 = f (x, t ), (1) with f a distributed transverse load. For a thin (Kirchhoff) plate of thickness h, density ρ, and Poisson ratio ν, the transverse displacement obeys 
+
+D ∇4w + ρh ∂2w∂t 2 = 0 , D = Eh 3
+
+12(1 − ν2) , (2) with biharmonic operator ∇4 = ∂xxxx + 2 ∂xxyy + ∂yyyy 
+
+and flexural rigidity D (Giurgiutiu, 2014). Seeking free, time-harmonic motion w = ϕ(s)ejωt sep-arates space from time and reduces either equation to a spatial eigenproblem whose eigenpairs (ωi, ϕ i) are the nat-ural frequencies and mode shapes, selected by the boundary conditions. These eigenfunctions form a complete basis for the response, so any free vibration is a superposition of them, 
+
+w(s, t ) = 
+
+> ∞
+
+X
+
+> i=1
+
+qi(t) ϕi(s), (3) in which each mode shape ϕi(s) is a fixed spatial pattern and each modal coordinate qi(t) carries its time-varying amplitude. The eigenproblem determines each mode shape only up to an arbitrary scale, and distinct modes are mean-ingful only if they are mutually independent. We therefore impose the orthonormality condition 
+
+⟨ϕp, ϕ q ⟩ =
+
+Z
+
+> Ω
+
+ϕp(s) ϕq (s) d s = δpq , (4) which holds under the L2(Ω) inner product for a structure of uniform mass distribution, where the mass-weighted orthog-onality of the modes reduces to the unweighted L2 product (Giurgiutiu, 2014). Orthonormality decouples the equations of motion, so each modal coordinate is governed by an independent single-degree-of-freedom oscillator. Equations (1) and (2) are un-damped, whereas real structures dissipate energy; under the standard assumption of proportional (classical) damping, the mode shapes of the undamped problem also diagonalize the damping term, so each coordinate acquires its own modal damping ratio ζi while ϕi and ωi are unchanged (Ewins, 3Learning Structural Eigenmodes with ModalONet 
+
+l
+
+w = 0 , w ′′ = 0 w = 0 , w ′′ = 0 
+
+(a) 
+
+l
+
+w = 0 
+
+w′ = 0 
+
+w′′ = 0 , w ′′′ = 0 
+
+(b) 
+
+a
+
+b
+
+x
+
+y w = 0 on ∂Ω
+
+(c) 
+
+a
+
+a a = bω(2 ,1) = ω(1 ,2) 
+
+(d) 
+
+Figure 1. The four structural configurations studied here are shown: (a) simply supported beam; (b) cantilever beam; (c) rectangular SSSS plate ( a=1 .5, b=1 .0); (d) square SSSS plate ( a=b=1 .0), whose modes (2 , 1) and (1 , 2) are degenerate. Hatched symbols denote supports; in-figure annotations state the boundary conditions and dimensions of each case. 
+
+2000). The free response of mode i is then the decaying oscillation 
+
+qi(t) = Ai e−ζiωit cos( ωd,i t + φi) ,ωd,i = ωi
+
+q
+
+1 − ζ2 
+
+> i
+
+,
+
+(5) with amplitude Ai and phase φi fixed by the initial condi-tions and ωd,i the damped natural frequency. Equations (3) and (5) together state the structure we exploit throughout: a response field is a sum of products of a spatial factor and a decaying-oscillatory temporal factor. The eigenpairs themselves follow from the boundary con-ditions. For a uniform beam, Equation (1) gives ϕ′′′′ −
+
+γ4ϕ = 0 with γ4 = mω 2/EI , solved by a combina-tion of sin γx, cos γx, sinh γx, cosh γx . Three boundary-condition cases cover the four test systems used in this work. 
+
+Simply supported (pinned) beam. With w = ∂xx w = 0 at both ends, the analytical mode shapes and natural frequen-cies are 
+
+ϕn(x) = 
+
+q 2 
+
+> l
+
+sin nπx l , ωn =
+
+ nπ l
+
+2r EI m , (6) for n = 1 , 2, . . . (Giurgiutiu, 2014). 
+
+Cantilever (clamped–free) beam. With w = ∂xw = 0 
+
+at x = 0 and ∂xx w = ∂xxx w = 0 at x = l, the natural frequencies follow from the eigenvalues zn = γnl of the characteristic equation 
+
+cos z cosh z + 1 = 0 , zn ≈ 1.875 , 4.694 , 7.855 , . . . 
+
+(7) as ωn = z2
+
+> n
+
+pEI/ml 4, and the analytical mode shapes are 
+
+ϕn(x) = 1√l
+
+ cosh γnx − cos γnx
+
+− βn(sinh γnx − sin γnx) ,βn = cosh γnl + cos γnl
+
+sinh γnl + sin γnl ,
+
+(8) for n = 1 , 2, . . . (Giurgiutiu, 2014). Unlike the sinusoids of Equation (6), these shapes combine hyperbolic and trigono-metric terms, making them a stricter test of a learned spatial representation. 
+
+Simply supported rectangular plate (SSSS). With w = 0 
+
+and zero bending moment on all edges of an a × b plate, Equation (2) admits the analytical mode shapes and natural frequencies 
+
+ϕmn (x, y ) = 2√ab sin mπx a sin nπy b ,ωmn = π2
+
+q Dρh 
+
+ ma
+
+2
+
++
+
+ nb
+
+2
+
+, (9) for m, n = 1 , 2, . . . (Giurgiutiu, 2014), with each mode indexed by the number of half-waves m along x and n
+
+along y.A degenerate case arises when the plate is square ( a = b). The frequency in Equation (9) then depends on the indices only through m2 + n2, which is unchanged when m and n
+
+are exchanged, so a mode and its transpose share a single natural frequency—for example ω(2 ,1) = ω(1 ,2) because 
+
+22 + 1 2 = 1 2 + 2 2. The two shapes remain physically distinct, one carrying its half-waves along x and the other 4Learning Structural Eigenmodes with ModalONet 
+
+along y. Because they respond at the same frequency, how-ever, any linear combination of them is itself a valid mode at that frequency: the two patterns are free to mix into an ar-bitrarily rotated pair. The modal decomposition is therefore non-unique within the degenerate subspace, and response data alone cannot single out the aligned pair. This diffi-culty has no analogue in the forward-PDE setting and is a stringent test for any learned modal method. The boundary-value problems above yield the mode shapes and natural frequencies in closed form, but not the damp-ing ratios. Damping does not follow from the undamped eigenproblem: ζi is set by the assumed dissipation model or identified from measured responses, as is standard in modal testing (Ewins, 2000; Giurgiutiu, 2014). Each mode is there-fore characterized by the triple (ϕi, ω i, ζ i), of which the first two are known analytically for the four systems above and the third is prescribed when generating the response data (Section 3.1). In practice the expansion Equation (3) is truncated to the r
+
+lowest modes, which carry the observable energy. Recover-ing the modal basis then means identifying {(ϕi, ω i, ζ i)}ri=1 
+
+from a sampled response field X ∈ RT ×M (T time steps, 
+
+M spatial points), without access to the analytical modes above. Figure 1 summarizes the four configurations. 
+
+2.2. ModalONet From modal expansion to architecture. A DeepONet (Lu et al., 2021) represents an operator through a branch network b and a trunk network τ whose outputs combine as a sum of products, 
+
+G(t, s) = 
+
+> r
+
+X
+
+> i=1
+
+bi(t) τi(s), (10) a form that approximates continuous operators (Chen and Chen, 1995). In this work we assign the trunk to the spatial coordinate and the branch to time. Comparing Equation (10) with the modal expansion Equation (3) then reveals an exact correspondence: the trunk outputs τi(s) play the role of mode shapes, and the branch outputs bi(t) the role of modal coordinates. A DeepONet trained to reconstruct a response field is therefore already performing a decomposition of the form Equation (3); what it lacks is any reason for its factors to be the physical modes rather than one of the infinitely many alternative factorizations of the same field. We therefore adopt the branch–trunk product as a structured representation of the response and constrain each factor to its physical counterpart. The trunk then recovers the mode shapes, and the branch the modal coordinates—and, through the poles that generate them, the natural frequencies and damping ratios. The reconstructed field is 
+
+ˆx(t, s) = 
+
+> r
+
+X
+
+> i=1
+
+qi(t) ϕi(s) = q(t), ϕ (s) , (11) where the mode shapes ϕ(s) come from the modal trunk and the modal coordinates q(t) from the LNO branch, both described next and illustrated in Figure 2. 
+
+Modal trunk network. The trunk maps a spatial co-ordinate to the r mode-shape values at that point, s 7 →
+
+(ϕ1(s), . . . , ϕ r (s)) . Because it is a function of the coordi-nate rather than a vector tied to sensor locations, the re-covered shapes are continuous and mesh-free, and can be evaluated at any resolution. For 1-D domains the trunk is a single MLP. For 2-D domains we use a separable trunk, following Mandl et al., who factorize the trunk into per-coordinate sub-networks to break the curse of dimension-ality in physics-informed operator learning (Mandl et al., 2025): 
+
+ϕi(x, y ) = ψi(x) χi(y), (12) where ψi and χi are small MLPs acting on x and y sep-arately. Separability mirrors the product structure of the analytical plate modes Equation (9), and it also resolves the degeneracy identified in Section 2.1. A rotated mixture of two degenerate modes is in general not separable, so restricting the trunk to product form excludes such mixtures from its hypothesis space and steers the network toward the aligned pair. 
+
+Laplace neural operator branch. The branch supplies the temporal factors. We follow the LNO (Cao et al., 2024a), specialized here to free vibration. Rather than transforming a forcing input, the branch carries r learnable poles μi and residues βi, and evaluates 
+
+qi(t) = Re βi eμit , μi = −σi + j ω d,i , (13) which is the complex-exponential form of the classical free response Equation (5): the pole carries the decay rate 
+
+σi = ζiωi in its real part and the damped frequency ωd,i in its imaginary part, while the residue βi encodes the ampli-tude and phase. This parameterization is what makes the modal quantities readable. A generic MLP branch can only approximate a decaying oscillation, and a Fourier branch presumes a periodicity that a decaying signal does not pos-sess; the pole–residue form represents such a signal exactly and exposes the poles as native, trainable parameters (Cao et al., 2024a). Since each pole governs the dynamics of one mode, the natural frequency and damping ratio follow from it in closed form, with no separate identification stage: 
+
+ωi = |μi|, ζi = − Re μi
+
+|μi| , (14) the natural frequency is the pole magnitude, the damping ratio is the cosine of the pole’s angle to the negative real 5Learning Structural Eigenmodes with ModalONet 
+
+(a) 
+
+s
+
+t
+
+> coordinate
+> time
+
+P
+
+P
+
+Trunk net 
+
+separable ψi(x)χi(y)
+
+Laplace layer 
+
+(pole–residue) 
+
+ϕ(s)
+
+q(t)
+
+> mode shapes
+> modal coordinates
+
+⟨· , ·⟩ ˆx   
+
+> ˆx(t, s) = P
+> iqiϕi
+
+Modal basis (output) 
+
+ϕ1
+
+> ω1, ζ 1
+
+ϕ2
+
+> ω2, ζ 2
+
+ϕ3     
+
+> ω3, ζ 3
+> shapes ϕi+ frequency ωi+ damping ζi
+
+(b) 
+
+Laplace layer 
+
+v(t) L
+
+V (s)
+
+Kϕ(s)
+
+Pole–residue 
+
+> σ
+> jω
+
+×
+
+×
+
+×
+
+×  
+
+> X
+> i
+> βi
+> s−μi
+
+L−1 q(t)
+
+Figure 2. ModalONet architecture: (a) The trunk maps spatial coordinates to continuous mode shapes ϕi(s), and the LNO branch maps time to modal coordinates qi(t) in pole–residue form, exposing the poles μi = −σi + jω d,i ; their inner product reconstructs the field, from which the modal basis (mode shapes, frequencies, damping ratios) is read directly; (b) The general LNO Laplace layer of Cao et al. (2024a), which maps an input v(t) through a pole–residue transfer function Kϕ(s); our branch specializes this layer to free decay, retaining the learnable poles and residues without a forcing input. 
+
+axis, and |Im μi| recovers the damped frequency ωd,i . Two choices complete the branch. We parameterize σi = eηi >
+
+0, which pins every pole in the open left half-plane and so guarantees a decaying, stable response, and we initialize 
+
+{ωi} from an energy-ranked spectral decomposition of X
+
+that remains robust for closely spaced or weakly excited modes (Section 4.1). 
+
+2.3. Training objective 
+
+The operator is trained on the response field alone; the ana-lytical modes are never provided. The field is also consumed in raw form: X enters the objective exactly as sampled, and no spectral or time–frequency transform is applied to it at any stage of training. This departs from prevailing identification practice, in which the network or estimator ingests a derived representation—a short-time Fourier or wavelet transform, a power spectral density, or a covariance-driven state-space realization—rather than the measured record. Such transforms impose their own resolution trade-offs and stationarity assumptions, and they attenuate the decay information on which damping estimation depends. The one spectral computation in the method, the singular value decomposition used to initialize the pole frequencies (Section 2.2), runs once before training and never enters the loss, which is evaluated entirely on time-domain samples. The objective combines reconstruction with constraints that make the latent factors a modal basis, 
+
+L = Lrec + λoLorth + λnLnorm + λtLproj . (15) The reconstruction term is the field misfit Lrec = ∥ ˆX −
+
+X∥2 
+
+> F
+
+, which alone would be satisfied by any factorization of the response and therefore cannot single out the physical modes; the remaining three terms supply that selection. Let Φ = [ ϕ1 · · · ϕr ] ∈ RM ×r denote the trunk-output matrix and G = Φ ⊤diag(d s) Φ its discrete Gram matrix under the inner product Equation (4). Orthogonality and normalization penalties then enforce an orthonormal spatial basis, 
+
+Lorth = X
+
+> i̸=j
+
+G2 
+
+> ij
+
+, Lnorm = X
+
+> i
+
+(Gii − 1) 2. (16) Together these drive G → I, realizing Equation (4) dis-cretely: the off-diagonal term keeps distinct mode shapes from collapsing onto one another, while the diagonal term fixes the scale that the eigenproblem itself leaves arbitrary (Section 2.1). The temporal projection consistency term ties each mode shape to the data through its own time signature, energy-normalized, 
+
+Lproj = X
+
+> i
+
+ϕi − X⊤ qi/∥qi∥22
+
+ 22
+
+. (17) 6Learning Structural Eigenmodes with ModalONet            
+
+> X(t, s)ModalONet
+> trunk ϕi(s)·branch qi(t)
+> Composite loss L
+> Read poles
+> μi→(ωi, ζ i)
+> Match, align, refine ζi
+> Modal basis
+> {ϕi, ω i, ζ i}
+> Training loop (unsupervised) Modal extraction
+> ˆX
+> Adam update
+> after convergence
+> MAC
+
+Figure 3. Method overview. The response field drives the trunk and LNO branch; their reconstruction is scored by the composite loss function in Equation (15) and optimized over the training loop. After convergence, poles are read out, MAC-based Hungarian assignment and sign alignment order the modes, and a log-envelope regression refines damping ratios, yielding the modal basis {ϕi, ω i, ζ i}.
+
+Dividing by ∥qi∥22 rescales each mode’s projection by its own temporal energy. Without it, a briefly excited, fast-decaying mode contributes little to the time-averaged re-construction and drifts toward the dominant modes; with it, every mode receives a well-conditioned spatial gradi-ent regardless of how strongly it was excited. The weights 
+
+λo, λ n, λ t are fixed across all experiments; architectures and optimization settings are collected in Section 4.1. 
+
+Degenerate-mode resolution. 
+
+As described in Section 2.1, a square plate ( a = b) exhibits degenerate modes: the pair (2 , 1) /(1 , 2) shares a single nat-ural frequency, and any rotation of the two is an equally valid pair at that frequency. Degeneracy therefore poses two distinct problems, one temporal and one spatial. The tempo-ral problem is a genuine identifiability limit: two damped sinusoids at a common frequency sum to a signal contain-ing a single frequency, so no amount of response data can apportion a frequency split within the pair. Left free, the two poles resolve this indeterminacy arbitrarily and drift to two different, incorrect values. We therefore tie degenerate poles: modes whose SVD-initialized frequencies coincide within 2% share one learnable frequency, while damping remains per-mode, since degenerate modes may dissipate differently. The grouping is detected from the data and in-jects only the symmetry fact that the pair shares a frequency, never that frequency’s value; it thus removes a degree of freedom the data cannot constrain rather than adding super-vision. Systems without degeneracy form singleton groups and are unaffected. The spatial problem—the freedom to return a rotated mixture—is already prevented by the separable trunk Equa-tion (12). What remains after training is only an arbitrary ordering and sign of the recovered modes, which we re-move by pairing learned to analytical modes through the Hungarian assignment maximizing P 
+
+> i
+
+MAC π(i),i , where 
+
+MAC ij = ϕi, ϕ ref 
+
+> j
+> 2
+
+∥ϕi∥2 ∥ϕref  
+
+> j
+
+∥2 (18) is the modal assurance criterion under the inner product Equation (4), and by aligning signs with the corresponding 
+
+L2 cosine. MAC is the standard mode-shape agreement met-ric of experimental modal analysis: it is bounded in [0 , 1] 
+
+and sign-invariant, and, unlike Pearson correlation—whose mean removal manufactures spurious cross-correlation be-tween L2-orthogonal modes with nonzero domain means— it is mean-free, so it respects exactly the orthogonality en-forced by Equation (16). This matching step affects only labelling and orientation; it does not alter the recovered shapes, frequencies, or damping. 
+
+Damping refinement. The reconstruction loss constrains each decay rate σi only weakly, because the residue βi
+
+can absorb amplitude changes over the fitted window; pole damping is therefore biased low, most severely for the de-generate pair. We refine damping post hoc from quantities the model does pin down. Since the learned shapes are near-orthonormal, each modal coordinate is directly observable by spatial projection, 
+
+yi(t) = X(t, ·), ϕ i
+
+∥ϕi∥2 , (19) whose analytic (Hilbert) envelope decays as e−ζiωit. Aweighted linear regression of the log-envelope against time 
+
+Algorithm 1 ModalONet: training and extraction 
+
+Input: response field X ∈ RT ×M ; rank r; weights 
+
+λo, λ n, λ t
+
+Initialize {ωi} from the SVD of X; initialize trunk and branch parameters tie near-coincident initial frequencies (within 2% ) to one shared ω per degenerate group 
+
+for k = 1 to Nepochs do 
+
+ϕ ← trunk (s); q ← LNO branch (t)ˆX ← q ϕ ⊤
+
+form G; evaluate L via Equations (15) to (17) Adam step on trunk and branch parameters 
+
+end for 
+
+read poles μi: ωi = |μi|, ζi = −Re μi/|μi|
+
+pair to references by Hungarian assignment maximiz-ing P 
+
+> i
+
+MAC π(i),i Equation (18); align signs via the L2
+
+cosine refine ζi by SNR-weighted log-envelope regression on the modal projections Equation (19) 
+
+Output: modal basis {(ϕi, ω i, ζ i)}ri=1 
+
+7Learning Structural Eigenmodes with ModalONet 
+
+over the above-noise-floor window—with weights propor-tional to the squared envelope, since the log of a noisy enve-lope is heteroscedastic—gives ζi = −slope /ω i, a classical logarithmic-decrement estimate. Damping of degenerate modes remains identifiable in this way even though their frequency split is not: the pair shares a frequency, but their shapes are orthogonal, so the projection Equation (19) sep-arates their envelopes. Like the rest of the pipeline, the re-finement consumes only the raw field and quantities already learned. Algorithm 1 summarizes training and extraction, and Figure 3 depicts the pipeline. 
+
+# 3. Numerical Experiments 
+
+3.1. Setup 
+
+We evaluate four systems, each with r = 3 target modes: simply supported and cantilever Euler–Bernoulli beams, and SSSS Kirchhoff plates that are rectangular ( a=1 .5, b=1 .0)or square ( a=b=1 .0). For the plates the non-dimensional stiffness is set to pD/ρh = 0 .2; this fixes only the overall frequency scale, while the mode-frequency ratios , the scale-invariant physical quantities of Equation (9), are unaffected. Training data are modal-superposition response fields built from the analytical bases of Section 2.1: free-decay responses from random modal initial conditions, with per-mode amplitudes drawn uniformly from [0 .7, 1.3] 
+
+and phases from [0 , 2π), true damping ratios ζ =(0 .020 , 0.030 , 0.025) for modes 1–3 of every system, and beam properties non-dimensionalized to EI/m = 1 . Fields are sampled at T = 2 ,000 instants with step ∆t = 0 .005 (a 
+
+10 s record) on spatial grids of M = 30 (SS beam), M = 40 
+
+(cantilever), and 15 × 15 (rectangular and square plate) points. We corrupt the field with zero-mean i.i.d. Gaus-sian measurement noise of standard deviation σε = 0 .01 
+
+in these non-dimensional units—about 1% of the funda-mental’s peak modal amplitude, a signal-to-noise ratio of 
+
+≈30 ; the network observes only the noisy field X, never the analytical modes. Every system is trained with the settings of Section 4.1. We report the modal assurance criterion Equation (18) between each learned and analytical mode shape, the relative errors of the recovered natural frequencies and refined damping ratios, and the Gram matrix of the learned shapes. Synthetic data are a deliberate choice: because the generating modal basis is known in closed form, the recovered basis can be verified against an exact ground truth, and as no prior neural operator outputs a modal basis, this analytical eigen solution is the natural reference. 
+
+# 4. Results and Discussion 
+
+4.1. Implementation 
+
+The 1-D trunk is an MLP with three hidden layers of width 
+
+64 and tanh activations. In the separable 2-D trunk Equa-tion (12), each per-coordinate sub-network ψi, χ i has two hidden layers of width 64 . The branch holds r learnable poles and complex residues, with the decay rates parame-terized as σi = eηi to keep every pole in the left half-plane. Pole frequencies are initialized from a singular value decom-position of the response field: the first r temporal singular vectors are extracted, and the dominant peak of each of their spectra provides one frequency estimate. Initial frequencies that coincide within 2% are grouped and tied to a single shared parameter (Section 2.3). Trunk and branch are then trained jointly with Adam under a cosine-annealed learning rate (initial value 1.5 × 10 −3) for 15 ,000 iterations, with loss weights λo = 20 , λn = 2 , and λt = 10 held fixed across every system reported in this work. The damping refinement of Section 2.3 proceeds as fol-lows. The analytic envelope of each modal projection Equation (19) is smoothed; samples below four times the projected noise floor—estimated from the reconstruction residual—are discarded, as are the first and last 3% of the record, where the Hilbert transform is unreliable; and a weighted least-squares line with weights proportional to the squared envelope gives ˆζi = −slope /ω i. All runs use fixed random seeds and complete in minutes on a single CPU. Code and configurations will be released. 
+
+4.2. Mode-shape recovery 
+
+Mode shapes are the most demanding of the three modal quantities, since each is a function over the domain rather than a scalar. Figure 4 shows the simply supported beam, whose learned shapes match the analytical sin( nπx/l ) basis of Equation (6) at MAC ≥ 0.998 for all three modes. The cantilever in Figure 5 is a stricter test, because its shapes are the non-sinusoidal cosh − cos −β(sinh − sin) forms of Equation (8); they are recovered at MAC ≥ 0.999 , indi-cating that the trunk is not biased toward sinusoids by its architecture. Figure 6 turns to the two-dimensional cases. On the rect-angular plate (Figure 6a), the three non-degenerate modes 
+
+(1 , 1) , (2 , 1) , and (1 , 2) are recovered at MAC = 1 .000 to four decimals. The square plate (Figure 6b) is the degener-ate case of Section 2.1: the separable trunk returns the two members of the pair (2 , 1) /(1 , 2) individually rather than as a mixture, the assignment step supplies their order, and the MAC values are 0.999 , 1.000 , and 0.999 . Table 1 collects frequencies and damping ratios for all four systems. 8Learning Structural Eigenmodes with ModalONet     
+
+> Figure 4. Simply supported beam: analytical (solid) versus learned (dashed) mode shapes for the first three modes.
+> Figure 5. Cantilever beam: analytical versus learned mode shapes. The non-sinusoidal clamped–free shapes of Equation (8) are recovered at MAC ≥0.999 .
+
+4.3. Orthonormality of the learned basis 
+
+Accurate shapes do not by themselves guarantee a well-formed basis, and the Gram penalties Equation (16) act only on the trunk output, so whether they succeed is an empirical question. Figure 7 compares, for every system, the target Gram matrix (the identity) with the learned one. The learned matrices are diagonal to within a few thousandths: the re-covered shapes are individually normalized and mutually orthogonal, not merely a well-fitting spanning set. The Gram matrix is, however, an internal check—a rotated set of orthonormal modes would satisfy it equally well. Fig-ure 8 therefore reports the learned-versus-analytical MAC matrices Equation (18), which measure agreement with ground truth: a strong diagonal with near-zero off-diagonal entries confirms one-to-one alignment and no mode mixing. The two matrices are complementary—one certifies that the basis is well formed, the other that it is the correct basis— and Section 4.6 exhibits a case in which the first holds while the second fails. 
+
+4.4. Frequency and damping ratio recovery 
+
+The natural frequencies are read from the learned poles via Equation (14). Figure 9 compares analytical and learned frequencies for all twelve modes and reports the per-mode relative error. Every mode is recovered within 5% , and the non-degenerate modes within 2% . The square-plate pair is represented by a single tied pole (Section 2.3) and recovers its shared frequency to 4.9% . With two free poles the branch resolves the unidentifiable split arbitrarily, reporting two different and incorrect values ( 11 .1% and 4.9% in an untied run), the expected signature of a degree of freedom the data cannot constrain. The residual error on the shared value reflects the limited observability of a quickly decaying, equal-frequency pair under fixed measurement noise, not a split. The damping ratios read directly from the poles are markedly less reliable. The reconstruction loss is nearly insensitive to the decay rates σi, because the residues ab-sorb amplitude over the fitted window, so pole damping is biased low—mildly for well-observed beam modes, and severely for the degenerate pair, whose worst raw error reaches −97% .The log-envelope refinement of Section 2.3 corrects this from the data. The refined ratios in Table 1 have a worst-case error of −6.5% (square plate, mode (1 , 2) ), with nine of twelve modes within 2% of the target, and the refine-ment recovers distinct damping for the two degenerate 9Learning Structural Eigenmodes with ModalONet 
+
+# (a): Rectangular plate ( a=1 .5, b =1 .0)(b): Square plate ( a=b=1 .0)     
+
+> Figure 6. Plate mode shapes: analytical (top row of each panel) ver-sus learned (bottom row). The separable trunk separates the degen-erate square-plate pair rather than returning a mixture; Hungarian assignment fixes its order; the pair (2 ,1) /(1 ,2) is degenerate.
+
+modes—identifiable through their orthogonal shapes via Equation (19) even though their frequency split is not. For that pair, most of the residual is inherited rather than intrin-sic to the envelope fit: the regression estimates the product 
+
+ζiωi, so dividing by a shared frequency that sits 4.9% high biases ζi low by 4.6% —almost exactly the error observed for (2 , 1) (−4.6% ), and the bulk of that for (1 , 2) (−6.5% ). The square fundamental is a separate case: its frequency is accurate to 0.5% , so this mechanism accounts for only 
+
+−0.5% of its −3.8% deviation, which we attribute instead to the square plate’s larger overall reconstruction residual, roughly an order of magnitude above the other systems. Figure 10 summarizes damping recovery across all twelve modes: the refined ratios track the targets closely (panel a), and the per-mode error panel (panel b) contrasts the raw pole estimates—which range from near-exact on the well-observed fundamentals to −97% on the square-plate degen-erate pair—with the refinement, which brings every mode to within 6.5% . Figure 11 illustrates the mechanism on the hardest case (square plate, mode (1 , 2) ): the modal projec-tion Equation (19) and its Hilbert envelope (panel a), and the log-envelope with the SNR-weighted fit over the retained high-signal window (panel b), whose slope yields ˆζ = 0 .023 
+
+against a true 0.025 .                                                                
+
+> Table 1. Recovered modal basis. For each system and mode we report the analytical and learned natural frequency (rad/s) and the true and refined damping ratios, the latter obtained by the log-envelope regression of Equation (19). The square-plate pair shares one tied frequency. System Mode ωˆωζˆζ
+> SS beam 19.87 9.87 0.020 0.0200 239.5 39.1 0.030 0.0303 388.8 87.1 0.025 0.0254 Cantilever 13.52 3.52 0.020 0.0200 222.0 21.8 0.030 0.0303 361.7 60.5 0.025 0.0255 Rect. plate (1 ,1) 2.85 2.87 0.020 0.0201
+> (2 ,1) 5.48 5.40 0.030 0.0304
+> (1 ,2) 8.77 8.67 0.025 0.0253 Square plate (1 ,1) 3.95 3.97 0.020 0.0192
+> (2 ,1) 9.87 10.35 0.030 0.0286
+> (1 ,2) 9.87 10.35 0.025 0.0234
+
+4.5. Training behavior 
+
+Figure 12 shows the convergence of the four loss terms for each system on a log scale. The reconstruction and normalization terms fall steadily and then plateau. The orthogonality term is not monotone, and for a benign rea-son: at initialization the untrained trunk outputs are near zero, so every Gram entry—and hence Lorth —starts small; it rises sharply over the first few hundred iterations as the shapes grow toward unit norm, and is then driven back down. Its converged magnitude, rather than its trajectory, is what certifies the constraint, and the near-identity Gram matri-ces of Figure 7 confirm it. The temporal projection term Equation (17) falls to the noise floor as the modes settle, in-dicating that at convergence each learned shape is consistent with the field projected onto its own time signature. One fixed set of weights and a single schedule suffice for all four systems; no per-system tuning was required. 
+
+4.6. Ablation Study 
+
+Two components carry the method beyond a generic recon-structing DeepONet: the temporal projection term Equa-tion (17) and the separable trunk Equation (12). Figure 13 isolates each. Removing the projection term ( λt=0 ) leaves reconstruc-tion, orthogonality, and normalization intact, yet the beam’s faster-decaying modes degrade sharply: mode 3 falls from MAC 0.999 to 0.835 and mode 2 to 0.916 , while the slow mode 1 is unaffected (Figure 13a). This is the predicted fail-ure. Without energy normalization, a briefly excited mode contributes little to the time-averaged reconstruction loss and drifts toward the dominant mode. Replacing the separable trunk with a fully connected trunk 10 Learning Structural Eigenmodes with ModalONet 
+
+Figure 7. Gram matrices of the target (top row) and learned (bottom row) mode shapes for (a) a simply supported Euler–Bernoulli beam, (b) a cantilever beam, (c) a rectangular Kirchhoff plate, and (d) a square Kirchhoff plate. The identity Gram matrices of the target modes confirm orthonormality, while the learned Gram matrices demonstrate that ModalONet preserves this property with only negligible off-diagonal terms, even in the presence of degenerate modes. 
+
+Figure 8. Modal assurance criterion (MAC) matrices between the learned and analytical mode shapes for (a) a simply supported beam, (b) a cantilever beam, (c) a rectangular Kirchhoff plate, and (d) a square Kirchhoff plate. Strong diagonal entries and negligible off-diagonal values indicate accurate one-to-one correspondence between the learned and analytical modes, including the degenerate square-plate case. In contrast to the Gram matrices in Figure 7, which assess the internal orthonormality of the learned modal basis, the MAC matrices quantify agreement between the learned and analytical mode shapes. 
+
+of comparable capacity leaves the non-degenerate square-plate mode intact (MAC 1.000 ) but collapses the degener-ate pair to MAC 0.502 each (Figure 13b)—almost exactly 
+
+cos 2 45 ◦, the signature of a 45 ◦ rotated mixture. The joint network may return any linear combination within the de-generate subspace while still satisfying reconstruction and orthogonality, and this is exactly the case anticipated in Section 4.3: the learned Gram matrix remains near-identity while MAC collapses, so orthonormality alone cannot detect the failure. The tied frequency is unaffected ( 4.8% ), isolat-ing the collapse to the spatial factorization. Each component thus addresses a distinct failure, and both are necessary. 
+
+4.7. Interpretability of the recovered basis 
+
+Taken together, the preceding results establish that a neural operator can return a structural modal basis rather than a forward response. Across beams and plates, the method recovers mode shapes at MAC ≥ 0.998 (Figure 8), natural frequencies within 5% and refined damping ratios within 
+
+7% (Table 1 and Figures 9 and 10), on a learned basis that 11 Learning Structural Eigenmodes with ModalONet 
+
+Figure 9. Natural-frequency recovery across the four structural systems: (a) analytical and ModalONet-predicted natural frequencies for all twelve modes; (b) corresponding per-mode relative errors; all predicted frequencies satisfy the 5% error threshold (dashed line), with the largest error of 4.9% occurring for the degenerate (1,2) and (2,1) modes of the square Kirchhoff plate. 
+
+Figure 10. Damping-ratio recovery: (a) analytical (true) damping ratios and the log-envelope–refined ModalONet estimates for all twelve modes; (b) relative error (log scale) of the raw pole estimates (gray) and the refined estimates (red), with the dashed line indicating the 5% error threshold; the log-envelope refinement reduces the worst-case error from 97% to 6.5%, with nine of the twelve modes achieving errors below 2%. 
+
+Figure 11. Damping-ratio refinement for the degenerate (1 , 2) mode of the square Kirchhoff plate: (a) Modal projection yi(t) Equation (19) (blue) and its Hilbert envelope (red); (b) Logarithm of the envelope (red) together with the SNR-weighted least-squares linear fit (blue dashed); Shaded regions indicate samples excluded from the regression because of edge effects or amplitudes below the 4σε projected noise floor (gray dotted line). The fitted slope yields the refined damping-ratio estimate ˆζ = −slope /ˆω = 0 .023 .
+
+12 Learning Structural Eigenmodes with ModalONet 
+
+Figure 12. Training-loss convergence (log scale) for the four objective terms across the four structural systems: (a) simply supported Euler– Bernoulli beam, (b) cantilever beam, (c) rectangular Kirchhoff plate, and (d) square Kirchhoff plate; the reconstruction, orthogonality, normalization, and temporal projection losses all decrease steadily during training, with the temporal projection loss converging to the noise floor as the analytical modal basis is recovered. 
+
+Figure 13. Ablation study comparing the full ModalONet model and ablated variants using the per-mode modal assurance criterion (MAC): (a) removing the temporal projection loss primarily degrades recovery of the fast-decaying beam modes, while the slowest mode remains largely unaffected. (b) replacing the separable trunk with a non-separable architecture causes the degenerate (1 , 2) and (2 , 1) 
+
+square-plate modes to collapse into rotated mixtures (MAC ≈ 0.50 ≈ cos 2 45 ◦), whereas the non-degenerate (1 , 1) mode is recovered accurately. 
+
+13 Learning Structural Eigenmodes with ModalONet 
+
+is orthonormal to within a few thousandths (Figure 7). Two properties distinguish this representation from prior learned modal identification. First, the mode shapes are continuous functions of the spatial coordinate rather than vectors tied to a sensor grid, so they can be evaluated at any resolution, including at points where no measurement was taken. Second, frequency and damping are native pole pa-rameters obtained jointly with the shapes; the log-envelope regression that sharpens damping consumes only the learned shapes and the measured field, so no separate identification machinery is introduced at any stage. The consequence is that every latent dimension of the opera-tor is a physical mode, so the representation is interpretable and independently verifiable against theory—in contrast to forward operator-learning surrogates, whose latent factors may be accurate in aggregate yet carry no individual physi-cal meaning. The architectural choices that deliver this are load-bearing rather than incidental, as Section 4.6 confirms: removing either the temporal projection term or the separa-ble trunk degrades precisely the modes each was introduced to protect. 
+
+4.8. Limitations 
+
+Among the three modal quantities considered, natural fre-quencies and damping ratios are more challenging to esti-mate than the mode shapes. For exactly degenerate modes, the individual natural frequencies are not identifiable from response data. Instead, only the shared natural frequency and the associated two-dimensional modal subspace can be uniquely recovered. Accordingly, ModalONet assigns a single natural frequency to each degenerate pair, and the residual error reported in Figure 9 is computed with respect to this shared estimate. The adopted 2% grouping tolerance is appropriate for symmetry-induced exact degeneracy but may require adjustment for closely spaced, non-degenerate modes. Damping ratios are also only weakly constrained by the reconstruction objective. Although the post-hoc log-envelope refinement substantially improves estimation accu-racy, it assumes freely decaying responses with proportional damping and remains sensitive to errors in the estimated natural frequency, as illustrated by the square-plate example. The present study is limited to synthetic data and a con-trolled problem setting. All experiments use responses gen-erated by modal superposition under proportional damping with a known modal rank r. Practical applications involving measured responses present additional challenges, including non-proportional damping, correlated measurement noise, and model-order selection, which are beyond the scope of the present study. Furthermore, ModalONet is trained in-dependently for each structure. Consequently, each new system requires a separate optimization, and the current for-mulation exploits the DeepONet architecture primarily as a structured modal factorization rather than as a transferable operator across families of parameterized structures. Ex-tending the framework to learn transferable representations across varying geometries, materials, and boundary condi-tions represents a promising direction for future research. 
+
+# 5. Conclusion 
+
+This work introduced ModalONet, a neural operator that recasts modal identification as an operator-learning prob-lem, directly recovering the modal basis of a structure rather than its forward response. The formulation exploits the al-gebraic equivalence between the DeepONet branch–trunk decomposition and classical modal superposition, enabling the network to identify modal coordinates and mode shapes directly from sampled response fields. To ensure a phys-ically meaningful decomposition, ModalONet combines reconstruction with orthonormality and temporal projection constraints, while a Laplace branch provides closed-form estimates of natural frequencies and damping ratios. The framework requires only measured response fields for train-ing, without analytical mode shapes or conventional spectral and time–frequency preprocessing. Across four benchmark structural systems, ModalONet re-covered all twelve mode shapes with MAC values of at least 0.998 , preserved orthonormality to within 3 × 10 −3,estimated natural frequencies within 4.9% , and achieved damping-ratio errors below 6.5% following log-envelope refinement. Beyond these quantitative results, two broader observations emerged. First, orthonormality alone is insuffi-cient to guarantee correct modal recovery: a non-separable trunk preserved a nearly orthonormal basis while producing rotated mixtures of degenerate modes, highlighting the need to resolve eigenspace ambiguities explicitly. Second, the three modal quantities are not equally constrained by recon-struction. Whereas mode shapes and natural frequencies are accurately identified through the operator-learning formula-tion, reliable damping estimation benefits from a dedicated post-processing step. The current formulation is trained independently for each structure, using the DeepONet factorization as a structured modal representation rather than as a transferable operator across structural families. Extending the framework to pa-rameterized geometries, materials, and boundary conditions through conditioned neural operators represents a natural next step and would fully realize the advantages of operator learning. Future work will also focus on experimental val-idation using measured vibration data and on relaxing the assumptions discussed in Section 4.8, enabling ModalONet to address practical modal identification problems under realistic operating conditions. 14 Learning Structural Eigenmodes with ModalONet 
+
+# References 
+
+Yuequan Bao, Dawei Liu, and Hui Li. A mechanics-informed neural network method for structural modal identification. Mechanical Systems and Signal Process-ing , 216:111458, 2024. doi: 10.1016/j.ymssp.2024. 111458. Ido Ben-Shaul, Leah Bar, Dalia Fishelov, and Nir Sochen. Deep learning solution of the eigenvalue problem for differential operators. Neural Computation , 35(6):1100– 1134, 2023. doi: 10.1162/neco a 01583. Gal Berkooz, Philip Holmes, and John L. Lumley. The proper orthogonal decomposition in the analysis of turbu-lent flows. Annual Review of Fluid Mechanics , 25(1):539– 575, 1993. doi: 10.1146/annurev.fl.25.010193.002543. Rune Brincker, Lingmi Zhang, and Palle Andersen. Modal identification of output-only systems using frequency do-main decomposition. Smart Materials and Structures , 10 (3):441–445, 2001. doi: 10.1088/0964-1726/10/3/303. Qianying Cao, Somdatta Goswami, and George Em Karni-adakis. Laplace neural operator for solving differential equations. Nature Machine Intelligence , 6(6):631–640, 2024a. doi: 10.1038/s42256-024-00844-4. Qianying Cao, Somdatta Goswami, Tapas Tripura, Souvik Chakraborty, and George Em Karniadakis. Deep neural operators can predict the real-time response of floating offshore structures under irregular waves. Computers & Structures , 291:107228, 2024b. doi: 10.1016/j.compstruc. 2023.107228. Tianping Chen and Hong Chen. Universal approximation to nonlinear operators by neural networks with arbitrary acti-vation functions and its application to dynamical systems. 
+
+IEEE Transactions on Neural Networks , 6(4):911–917, 1995. doi: 10.1109/72.392253. Subhayan De and Patrick T. Brewick. A bi-fidelity Deep-ONet approach for modeling hysteretic systems under uncertainty. Applied Mathematical Modelling , 135:708– 728, 2024. doi: 10.1016/j.apm.2024.06.045. Zhijie Deng, Jiaxin Shi, and Jun Zhu. NeuralEF: Decon-structing kernels by deep neural networks. In Interna-tional Conference on Machine Learning (ICML) , pages 4976–4992. PMLR, 2022. David J. Ewins. Modal Testing: Theory, Practice and Appli-cation . Research Studies Press, 2nd edition, 2000. ISBN 978-0863802188. Feeny, B. F. and Kappagantu, R. On the physical interpre-tation of proper orthogonal modes in vibrations. Jour-nal of Sound and Vibration , 211(4):607–616, 1998. doi: 10.1006/jsvi.1997.1386. Shailesh Garg, Harshit Gupta, and Souvik Chakraborty. Assessment of DeepONet for time-dependent reliabil-ity analysis of dynamical systems subjected to stochastic loading. Engineering Structures , 270:114811, 2022. doi: 10.1016/j.engstruct.2022.114811. Victor Giurgiutiu. Structural Health Monitoring with Piezo-electric Wafer Active Sensors . Academic Press, Elsevier, Oxford, UK, 2nd edition, 2014. ISBN 978-0-12-418691-0. Somdatta Goswami, Minglang Yin, Yue Yu, and George Em Karniadakis. A physics-informed variational DeepONet for predicting crack path in quasi-brittle materials. Com-puter Methods in Applied Mechanics and Engineering ,391:114587, 2022. doi: 10.1016/j.cma.2022.114587. Somdatta Goswami, Dimitris G. Giovanis, Bowei Li, Sey-mour M. J. Spence, and Michael D. Shields. Neural opera-tors for stochastic modeling of nonlinear structural system response to natural hazards. Engineering Structures , 345: 121284, 2025. doi: 10.1016/j.engstruct.2025.121284. Jiequn Han, Jianfeng Lu, and Mo Zhou. Solving high-dimensional eigenvalue problems using deep neural net-works: A diffusion Monte Carlo like approach. Jour-nal of Computational Physics , 423:109792, 2020. doi: 10.1016/j.jcp.2020.109792. Junyan He, Shashank Kushwaha, Jaewan Park, Seid Koric, Diab Abueidda, and Iwona Jasiuk. Sequential deep op-erator networks (S-DeepONet) for predicting full-field solutions under time-dependent loads. Engineering Appli-cations of Artificial Intelligence , 127:107258, 2024. doi: 10.1016/j.engappai.2023.107258. Iv ´an A. Hern ´andez-Gonz ´alez, Enrique Garc ´ıa-Mac ´ıas, Gabriele Costante, and Filippo Ubertini. AI-driven blind source separation for fast operational modal analysis of structures. Mechanical Systems and Signal Processing ,211:111267, 2024. doi: 10.1016/j.ymssp.2024.111267. Xudong Jian, Kiran Bacsa, Gregory Duth ´e, and Eleni Chatzi. Modal decomposition and identification for a population of structures using physics-informed graph neural networks and transformers. Mechanical Sys-tems and Signal Processing , 241:113604, 2025a. doi: 10.1016/j.ymssp.2025.113604. Xudong Jian, Yutong Xia, Gregory Duth ´e, Kiran Bacsa, Wei Liu, and Eleni Chatzi. Using graph neural networks and frequency domain data for automated operational modal analysis of populations of structures. Data-Centric Engi-neering , 6:e45, 2025b. doi: 10.1017/dce.2025.10023. Juang, J.-N. and Pappa, R. S. An eigensystem realization algorithm for modal parameter identification and model 15 Learning Structural Eigenmodes with ModalONet 
+
+reduction. Journal of Guidance, Control, and Dynamics ,8(5):620–627, 1985. doi: 10.2514/3.20031. Chawit Kaewnuratchadasorn, Jiaji Wang, and Chul-Woo Kim. Neural operator for structural simulation and bridge health monitoring. Computer-Aided Civil and Infrastructure Engineering , 39(6):872–890, 2024. doi: 10.1111/mice.13105. Nikola Kovachki, Zongyi Li, Burigede Liu, Kamyar Aziz-zadenesheli, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. Neural operator: Learning maps be-tween function spaces with applications to PDEs. Journal of Machine Learning Research , 24(89):1–97, 2023. Zhilu Lai, Wei Liu, Xudong Jian, Kiran Bacsa, Limin Sun, and Eleni Chatzi. Neural modal ordinary differential equations: Integrating physics-based modeling with neu-ral ordinary differential equations for modeling high-dimensional monitored structures. Data-Centric Engi-neering , 3:e34, 2022. doi: 10.1017/dce.2022.35. Zongyi Li, Nikola Kovachki, Kamyar Azizzadenesheli, Burigede Liu, Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar. Fourier neural operator for para-metric partial differential equations. In International Conference on Learning Representations (ICLR) , 2021. doi: 10.48550/arXiv.2010.08895. Dawei Liu and Yuequan Bao. A mechanics-informed neural network method for structural modal identifi-cation: Application to closely spaced modes. Jour-nal of Sound and Vibration , 612:119154, 2025. doi: 10.1016/j.jsv.2025.119154. Dawei Liu, Zhiyi Tang, Yuequan Bao, and Hui Li. Machine-learning-based methods for output-only structural modal identification. Structural Control and Health Monitoring ,28(12):e2843, 2021. doi: 10.1002/stc.2843. Lizuo Liu, Kamaljyoti Nath, and Wei Cai. A causality-DeepONet for causal responses of linear dynamical sys-tems. Communications in Computational Physics , 35(5): 1194–1228, 2024a. doi: 10.4208/cicp.OA-2023-0078. Yingkai Liu, Ran Cao, Shaopeng Xu, and Lu Deng. A deep learning-based method for structural modal analysis using computer vision. Engineering Structures , 301:117285, 2024b. doi: 10.1016/j.engstruct.2023.117285. Lu Lu, Pengzhan Jin, Guofei Pang, Zhongqiang Zhang, and George Em Karniadakis. Learning nonlinear operators via DeepONet based on the universal approximation theorem of operators. Nature Machine Intelligence , 3(3):218–229, 2021. doi: 10.1038/s42256-021-00302-5. Lu Lu, Xuhui Meng, Shengze Cai, Zhiping Mao, Somdatta Goswami, Zhongqiang Zhang, and George Em Karni-adakis. A comprehensive and fair comparison of two neu-ral operators (with practical extensions) based on FAIR data. Computer Methods in Applied Mechanics and En-gineering , 393:114778, 2022. doi: 10.1016/j.cma.2022. 114778. Luis Mandl, Somdatta Goswami, Lena Lambers, and Tim Ricken. Separable physics-informed DeepONet: Break-ing the curse of dimensionality in physics-informed ma-chine learning. Computer Methods in Applied Mechanics and Engineering , 434:117586, 2025. doi: 10.1016/j.cma. 2024.117586. Bart Peeters and Guido De Roeck. Stochastic system identi-fication for operational modal analysis: A review. Journal of Dynamic Systems, Measurement, and Control , 123(4): 659–667, 2001. doi: 10.1115/1.1410370. Maziar Raissi, Paris Perdikaris, and George Em Karni-adakis. Physics-informed neural networks: A deep learn-ing framework for solving forward and inverse problems involving nonlinear partial differential equations. Jour-nal of Computational Physics , 378:686–707, 2019. doi: 10.1016/j.jcp.2018.10.045. Ayan Sadhu, Sriram Narasimhan, and J ´er ˆome Antoni. A review of output-only structural mode identification litera-ture employing blind source separation methods. Mechan-ical Systems and Signal Processing , 94:415–431, 2017. doi: 10.1016/j.ymssp.2017.03.001. Peter J. Schmid. Dynamic mode decomposition of numeri-cal and experimental data. Journal of Fluid Mechanics ,656:5–28, 2010. doi: 10.1017/S0022112010001217. Liang Su, Xin Huang, Ming-liang Song, and James Michael LaFave. Automatic identification of modal parameters for structures based on an uncertainty diagram and a convolutional neural network. Structures , 28:369–379, 2020. doi: 10.1016/j.istruc.2020.08.077. Sifan Wang, Hanwen Wang, and Paris Perdikaris. Learning the solution operator of parametric partial differential equations with physics-informed DeepONets. Science Advances , 7(40):eabi8605, 2021. doi: 10.1126/sciadv. abi8605. Zherui Yang, Tao Du, and Ligang Liu. Learning Lapla-cian eigenspace with mass-aware neural operators on point clouds. ACM Transactions on Graphics (Proc. SIG-GRAPH) , 2026. doi: 10.48550/arXiv.2605.24390. Shabbir Ahmed and Fotis Kopsaftopoulos. A functional series time-dependent framework for non-stationary 16 Learning Structural Eigenmodes with ModalONet 
+
+modeling and statistical damage diagnosis via ultra-sonic guided waves. Structural Health Monitoring ,14759217251369342, 2025. Shabbir Ahmed, Saman Farhangdoust, and Fu-Kuo Chang. Autoregressive model-based parameter correlation for state of charge and state of health of lithium-ion batteries using built-in piezoelectric transducer induced ultrasonic waves. Journal of Energy Storage , 114:115829, 2025. Shabbir Ahmed and Fotis Kopsaftopoulos. Active sens-ing ultrasonic guided wave-based damage diagnosis via stochastic stationary time-series models. Structural Health Monitoring , 23(4):2559–2595, 2024. R. K. B. M. Rizmi and Shabbir Ahmed. Vision-based structural damage identification in vibrating beams via dynamic mode decomposition. arXiv preprint , arXiv: 2605.02803, 2026. 17
