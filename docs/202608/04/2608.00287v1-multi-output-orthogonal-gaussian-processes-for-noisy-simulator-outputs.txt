@@ -1,0 +1,1389 @@
+Title: Multi-output Orthogonal Gaussian Processes for Noisy Simulator Outputs
+
+URL Source: https://arxiv.org/pdf/2608.00287v1
+
+Published Time: Tue, 04 Aug 2026 00:14:49 GMT
+
+Number of Pages: 32
+
+Markdown Content:
+# Multi-output Orthogonal Gaussian Processes for Noisy Simulator Outputs 
+
+Evan C. Barnett a and Moses Y.-H. Chan ba Department of Engineering Sciences and Applied Mathematics  
+
+> b
+
+Department of Industrial Engineering and Management Sciences Northwestern University, Evanston, Illinois, USA July 31, 2026 
+
+Abstract 
+
+Computer simulations can model physical processes but are often too expensive to produce enough runs for calibration, sensitivity analysis, prediction, and uncertainty quantification. As a result, statistical surrogates are frequently used as cheaper alter-natives that can be trained on a small number of simulation runs. Gaussian processes (GP) are well-suited as surrogates, as they provide flexible, nonlinear regression and closed-form uncertainty quantification. However, standard GPs are insufficient replace-ments for more complex simulators, such as stochastic or multi-output simulators. In addition, typical GPs also struggle to separate fitted regression coefficients from residual process variation. We introduce multi-output orthogonal Gaussian process (MOOGP) to tackle the problems mentioned above. This paper has three main contributions: (i) a definition of orthogonality for multi-output Gaussian processes, (ii) a construc-tion that enforces orthogonality by conditioning each covariance function, and (iii) a structured likelihood formulation that significantly improves computational scaling. In a trend-recovery illustrative example, MOOGP recovers the true trend while the non-orthogonalized counterpart fails to do so, to the extent it reverses the sign of the trend. Numerical experiments and an application in heavy-ion collision simulations further demonstrate the interpretability and predictive advantage of MOOGP. 
+
+Keywords: Gaussian processes, identifiability, surrogate modeling, stochastic emulator, multi-output emulation 
+
+# 1 Introduction 
+
+Computer simulations are essential tools for studying the dynamics of complex systems when direct experimentation is costly, slow, or only partially observable. A simulator mod-els the relationship between controllable inputs and outputs, which can be used to under-stand underlying behavior of the system and support design decisions. However, computer 1arXiv:2608.00287v1 [stat.ME] 31 Jul 2026 simulations are often computationally demanding to accurately represent the system of in-terest, for examples, in engineering design, nuclear physics, and climate modeling (Higdon et al., 2015; Phillips et al., 2021; Plumlee et al., 2021; Chan et al., 2024; Li et al., 2026). One setting in which these computational challenges arise is the Bayesian calibration and uncertainty quantification for a heavy-ion collision model (Phillips et al., 2021; Liyanage et al., 2023), our primary application considered in Section 5.2. In an application like this, only a limited number of simulator runs is feasible. This general statistical problem is well-researched in the computer experiments literature: A finite collection of simulator runs is selected, commonly using a space-filling design, and a statistical surrogate model is built to predict the simulator’s output (with uncertainty estimates) at untried inputs (Sacks et al., 1989; Santner et al., 2003; Gramacy, 2020; Joseph, 2026). Such surrogates enable prediction, sensitivity analysis, optimization, or calibration when these tasks can-not be performed directly through physical experimentation or computer simulation, for example, see Kennedy and O’Hagan (2001). Gaussian process (GP) models are widely used as statistical surrogates, also called emulators, for computer experiments because they provide flexible nonparametric (near) interpolation or smoothing and closed-form uncertainty quantification (Rasmussen and Williams, 2006; Gramacy, 2020). A standard GP combines a mean function (e.g., regres-sion) with a stochastic residual process. The mean function specifies the expected response, while the GP residual models the remaining variation. Modeling separate mean and residual components is attractive in engineering design and scientific discovery because the regres-sion terms in the mean function can encode low-order trends and provide interpretation, while the GP component preserves flexibility. However, it is not guaranteed that the mean and residual are learning mutually exclusive components, a failure illustrated in Figure 1, where the fitted trend of a conventional GP misses a known linear effect badly enough to reverse its sign. Because the GP residual is not constrained in any way with respect to the mean space by default, it can absorb variation lying in the span of the regression basis, which leaves the regression coefficients unidentifiable and their interpretation unreliable. Orthogonal GP models address this issue by constraining the GP residual to lie within the orthogonal complement of the regression space, so that the residual cannot absorb variation intended for the mean function (Plumlee and Joseph, 2018). 2The present work is motivated by a setting in which this identifiability problem arises together with two additional complications: noisy simulator evaluations and multidimen-sional outputs. In many modern simulation studies, the simulator output is not a single deterministic scalar. A run may return a time series, a spatial field, or several coupled physical quantities. Moreover, simulator evaluations are frequently stochastic, so repeated runs at the same input do not necessarily produce the same outputs (Baker et al., 2022). The randomness enters through two mechanisms. It may be intrinsic to the code, generated by pseudo-random draws, as in the agent-based epidemic models Fadikar et al. (2018) or in Monte Carlo solvers that approximate the solution of a deterministic differential equation by averaging random sample paths (Herbei and Berliner, 2014). Alternatively, it may be injected by randomizing inputs that the experimenter does not control, so that the reported output is a sample average over a distribution of those inputs (Marrel et al., 2012). In ei-ther case, uncertainty in the surrogate has at least two components: uncertainty about the mean function and irreducible simulation noise, whose magnitude can vary substantially across output components. Stochastic kriging and nugget-based GP models provide tools for scalar stochastic simulation (Ankenman et al., 2010; Gramacy and Lee, 2012; Binois et al., 2018), but they do not by themselves address cross-output dependence or ensure that regression coefficients are identifiable and interpretable. When a computer simulation produces multiple outputs for each input setting, the em-ulator must predict a response vector rather than a single scalar (Fricker et al., 2013). The simplest strategy to accomplish this is to fit independent scalar emulators to each output coordinate (Gu and Berger, 2016; O’Gara et al., 2025; S¨ urer et al., 2025), but this discards dependence among outputs and can misrepresent joint predictive uncertainty. Separable covariance models impose a Kronecker product between an input covariance and an output covariance, which produces substantial computational benefits but forces all output dimen-sions to share the same input-space correlation structure, e.g., see (Conti and O’Hagan, 2010; Hung et al., 2015). More flexible approaches use basis or latent-factor representa-tions, in which the high-dimensional output is expressed as a linear combination of lower-dimensional latent processes. Representative constructions include principal-component emulators for high-dimensional computer model output (Higdon et al., 2008; Liyanage et al., 2023; Chan et al., 2024), outer-product and Kronecker emulators (Rougier, 2008), latent-3factor and multi-task Gaussian processes (Teh et al., 2005; Bonilla et al., 2008), linear model of coregionalization and convolution-process constructions ( ´Alvarez and Lawrence, 2011), and more recent scalable multi-output GP formulations (Bruinsma et al., 2020). ´Alvarez et al. (2012), Liu et al. (2018), and Lartaud et al. (2022) give broader reviews of multi-output covariance construction. These methods share the central idea that output dependence can be learned through a structured covariance or latent representation, rather than an unrestricted covariance over all input-output pairs. This paper introduces the multi-output orthogonal Gaussian process (MOOGP), a sur-rogate model for noisy vector-valued simulator outputs. MOOGP represents the latent simulator response as the sum of a deterministic regression component and a multi-output GP residual. The residual is built from independent latent GPs mixed through an output basis, allowing the model to share information across output dimensions. The key difference from a standard multi-output GP is that the latent residual processes are orthogonalized with respect to the regression space. This prevents the residual process from absorbing vari-ation intended for the mean function, while retaining the dependence-sharing advantages of latent multi-output GP models. The main contributions of this work are threefold. First, we define a multi-output orthogonality condition that extends scalar orthogonal GP emulation to vector-valued stochastic processes. Second, we show how to enforce this condition within a multi-output GP by orthogonalizing the latent covariance functions. Third, we develop efficient compu-tational methods that exploit the low-rank output basis and covariance structure, making likelihood evaluation scalable. Separate numerical examples show the effect of orthogonal-ity on trend identification from the effect of output sharing on prediction. A controlled illustration example shows improved trend recovery under orthogonality, while a 2 × 2 ab-lation attributes the main predictive gain to output sharing. Subsequent benchmarks show that predictive differences between MOOGP and MOGP depend on the application. The proposed method is implemented in a PyPI-installable open-source package mooGP . The functionalities to reproduce the numerical results and figures in this paper are available at 
+
+https://github.com/evancbarnett/mooGP .The remainder of the paper is organized as follows. Section 2 reviews univariate, or-thogonal, and multi-output GP used for emulation. Section 3.1 introduces the setting and 4notations, Section 3.2 sets up the MOOGP model, and Section 3.3 defines the multi-output orthogonality condition and effective construction of the MOOGP covariance. Section 4 pro-vides the controlled illustration examples in trend recovery with orthogonality and analysis of improvement sources. Section 5 details the numerical experiments to compare MOOGP with modern surrogate methods in a multi-output borehole example and the heavy-ion collision application. Section 6 closes the paper with remarks. 
+
+# 2 Gaussian Processes Background 
+
+# 2.1 Univariate Gaussian process 
+
+Let X ⊂ Rd denote the input domain and suppose first that a simulator returns a scalar response. Given training inputs x1, . . . , xn, a standard GP emulator can be written as 
+
+y(x) = f (x) + ε, f (x) = g(x)⊤β + z(x), (1) where g(x) ∈ Rr is a vector of fixed regression functions, β ∈ Rr is a vector of regression coefficients, and z(·) ∼ GP (0 , c (·, ·; θ)) is a zero-mean Gaussian process. The error term ε
+
+represents observation error, simulation noise, or a nugget effect. For deterministic com-puter experiments, one often sets this term to zero or treats the nugget as a small numerical regularization. For stochastic simulations, ε represents intrinsic uncertainty and should be modeled as part of the predictive distribution (Ankenman et al., 2010; Gramacy and Lee, 2012). Let y = ( y(x1), . . . , y (xn)) ⊤, G = ( g(x1), . . . , g(xn)) ⊤, and C = ( c(xi, xj ; θ)) ni,j =1 .Assume that training errors are independent of the latent process and satisfy εi iid 
+
+∼ N (0 , τ 2)for i = 1 , . . . , n. Then 
+
+y | β, θ, τ 2 ∼ N (Gβ, C + τ 2In).
+
+Evaluating the resulting likelihood requires factorizing C + τ 2In, which costs O(n3) and is the standard bottleneck in exact GP inference. For a new input x′, prediction fol-lows from the conditional distribution of a multivariate normal vector. Writing c(x′) = (c(x′, x1; θ), . . . , c (x′, xn; θ)) ⊤, the predictive mean is the fitted regression trend plus a 5covariance-weighted residual correction, 
+
+E[y(x′) | y] = g(x′)⊤β + c(x′)⊤(C + τ 2In)−1(y − Gβ),
+
+with a corresponding predictive variance given by the usual Schur-complement formula. This structure explains the appeal of GP emulation: the same covariance model governs both smoothing and uncertainty quantification. It also reveals the source of mean–residual confounding. Both g(·)⊤β and z(·) contribute to the fitted function, and without additional restrictions, the GP residual is free to contain components that lie in the span of the regression basis. 
+
+# 2.2 Orthogonal Gaussian process 
+
+Orthogonal GP (Plumlee and Joseph, 2018) modifies the residual process in Equation (1) so that it cannot explain variation in the regression space G = span {g1, . . . , g r}. For scalar functions u, v ∈ L2(X ), define the inner product 
+
+⟨u, v ⟩ =
+
+Z
+
+> X
+
+u(x)v(x) dx.
+
+Let G⊥ = {u ∈ L2(X ) : ⟨u, ϕ ⟩ = 0 for all ϕ ∈ G} denote the orthogonal complement of G
+
+in L2(X ). The residual process is restricted to G⊥, so that ⟨gj , z ⟩ = 0 for each j = 1 , . . . , r 
+
+with probability one. Under mild regularity conditions, this can be achieved by replacing the original kernel c(·, ·; θ) with the conditioned kernel (Plumlee and Joseph, 2018) 
+
+c∗(x, x′; θ) = c(x, x′; θ) − h(x)⊤H−1h(x′), (2) where 
+
+h(x) = 
+
+Z
+
+> X
+
+c(x, ξ; θ)g(ξ) dξ, H =
+
+Z
+
+> X
+
+Z
+
+> X
+
+g(ξ)c(ξ, ξ′; θ)g(ξ′)⊤dξ dξ′.
+
+The resulting process has covariance c∗ and is orthogonal to G almost surely. This con-struction preserves the flexibility of the GP residual while assigning all variation in the regression space to the mean component. In the scalar-output setting, the result is a more identifiable decomposition between systematic trend and stochastic residual. MOOGP ex-tends this idea by imposing the same type of residual-space restriction on each component of a vector-valued stochastic process. 62.3 Multi-output Gaussian process 
+
+Now suppose the simulator has a latent response f (x) = ( f1(x), . . . , f p(x)) ⊤ ∈ Rp. Amulti-output GP specifies a joint distribution over all outputs and all input locations. The modeling challenge is to capture dependence both across the input space and across output dimensions without making inference too expensive. If each output is modeled independently, the joint predictive distribution factorizes across outputs and its covariance is block diagonal. This is computationally convenient but cannot represent cross-output dependence or correlated predictive uncertainty. At the other extreme, an unrestricted covariance over all n inputs and p output dimensions is highly flexible but difficult to parameterize, and working directly with it requires factorizing a dense np × np matrix at cost O(n3p3). Structured covariance models sit between these extremes. In a separable model, for any output dimensions ℓ, m ∈ { 1, . . . , p },Cov( fℓ(x), f m(x′)) = Σ ℓm c(x, x′),
+
+where c is a valid covariance kernel and Σ ∈ Rp×p is positive semidefinite and describes output dependence. For n training inputs, let F = ( f (x1), . . . , f (xn)) ⊤ ∈ Rn×p, and let vec( F) stack its output columns. With C = ( c(xi, xi′ )) ni,i ′=1 and Cov(vec( F)) = Σ ⊗ C,
+
+where ⊗ denotes the Kronecker product. This structure can be exploited for efficient linear algebra (Rougier, 2008). The main limitation is that all outputs share the same input correlation function. This can be too restrictive when different output coordinates vary over different input scales or represent different physical quantities (Fricker et al., 2013). Basis-representation and latent-factor models relax this restriction. Let z(x) ∈ Rq
+
+collect independent latent GPs, with 
+
+zk(·) ∼ GP (0 , c k(·, ·; θk)) , k = 1 , . . . , q, 
+
+where every ck is a valid covariance kernel. Let Ψ = ( ψ1, . . . , ψq) ∈ Rp×q be an output loading matrix. The residual process w(x) = Ψz(x) has cross-covariance Cov( w(x), w(x′)) = 
+
+> q
+
+X
+
+> k=1
+
+ψkψ⊤ 
+
+> k
+
+ck(x, x′). (3) This is the linear model of coregionalization form. It includes separable models as a special case but allows multiple latent correlation structures, each contributing a rank-one output 7covariance. When q < p , the model also acts as a dimension-reduction device, connecting it to principal-component and latent-basis emulators for high-dimensional outputs (Higdon et al., 2008; Paulo et al., 2012; Higdon et al., 2015; Liyanage et al., 2023; Chan et al., 2024). For noisy multi-output simulation, let B ∈ Rr×p denote the regression coefficient matrix. An observation model can then be written as 
+
+y(xi) = B⊤g(xi) + Ψz(xi) + εi, εi iid 
+
+∼ N p(0, Σε), Σε = diag( σ2
+
+> ϵ, 1
+
+, . . . , σ 2
+
+> ϵ,p
+
+),
+
+with every σ2 
+
+> ϵ,ℓ
+
+> 0. The implementation optionally partitions the ordered outputs into declared contiguous groups and constrains the variances to be equal within each group. Singleton groups, which allow a separate variance for each output, are the default. Let 
+
+Y = ( y(x1), . . . , y(xn)) ⊤. Under the stacking convention above, the covariance induced by Equation (3) is 
+
+KMOGP := Cov(vec( Y)) = 
+
+> q
+
+X
+
+> k=1
+
+ψkψ⊤ 
+
+> k
+
+⊗ Ck + Σε ⊗ In,
+
+where Ck = ( ck(xi, xi′ ; θk)) ni,i ′=1 . This is the baseline MOGP structure used in the proposed model. MOOGP keeps the same latent output representation and observation-error model, but replaces each Ck by a matrix C∗ 
+
+> k
+
+that is implied by an orthogonalized kernel c∗
+
+> k
+
+.Consequently, the model shares information across output dimensions through Ψ, accounts for simulation noise through Σε, and enforces an interpretable decomposition between the regression component and the multi-output residual process. 
+
+# 3 Multi-output orthogonal GP 
+
+# 3.1 Setting and notations 
+
+We seek a surrogate for a stochastic simulator whose output at an input x ∈ X ⊂ Rd
+
+is a noisy, vector response y(x) ∈ Rp. Suppose n simulator runs are available at inputs 
+
+x1, . . . , xn. The goals are to predict the latent response f (x) at untried inputs, identify the linear trend, and quantify simulation noise. We retain the multi-output notation of Section 2.3: regression functions g(·) ∈ Rr with coefficient matrix B, latent processes 
+
+z∗(·) ∈ Rq mixed through the loading matrix Ψ, and error covariance Σε. Throughout, i
+
+8and i′ index simulator runs, j indexes input coordinates, s indexes regression functions, k
+
+indexes latent components, and ℓ indexes outputs. The n runs are stacked row-wise into the input, data, regression, latent, and error matrices X ∈ Rn×d, Y ∈ Rn×p, G ∈ Rn×r, Z∗ ∈ Rn×q, and E ∈ Rn×p, whose i-th rows are x⊤ 
+
+> i
+
+, y(xi)⊤, g(xi)⊤, z∗(xi)⊤, and ε⊤ 
+
+> i
+
+, respectively. Each output column is centered at its training mean and divided by its training sample standard deviation, so Y denotes the standardized response throughout. We write In for the n × n identity matrix, |A| for the determinant of A, vec( A) for the column-stacking vectorization of A, and bdiag( ·) and diag( ·) denoting the constructing of block-diagonal and diagonal matrices. Our results rely on the Woodbury identities for the matrix inverse and determinant (Harville, 2008): For nonsingular R ∈ Rn×n, T ∈ Rp×p, and matrices S ∈ Rn×p, U ∈ Rp×n,(R + STU )−1 = R−1 − R−1S(T−1 + UR −1S)−1UR −1, (4) 
+
+|R + STU | = |R| | T| | T−1 + UR −1S|.
+
+# 3.2 Main model 
+
+The orthogonalized kernel c∗ 
+
+> k
+
+is constructed in Section 3.3. The MOOGP model is 
+
+y(x) = f (x) + ε, (5) 
+
+f (x) = B⊤g(x) + Ψz∗(x),z∗
+
+> k
+
+(·) ∼ GP (0 , c ∗
+
+> k
+
+(·, ·; θk)) , k = 1 , . . . , q. 
+
+Here, x ∈ X is the input, y(x) ∈ Rp is the observed output at x, f (x) ∈ Rp is the latent simulator response, and ε ∈ Rp is its observation error. For fixed model parameters, 
+
+z∗ 
+
+> 1
+
+, . . . , z ∗ 
+
+> q
+
+are mutually independent. At the training inputs, εi iid 
+
+∼ N p(0, Σε), for i =1, . . . , n, , where Σε = diag( σ21 , . . . , σ 2 
+
+> p
+
+) and σ2 
+
+> ℓ
+
+> 0 for every output. Thus, the outputs are conditionally independent given f (x). The response contains a deterministic regression term B⊤g(x) and a stochastic term 
+
+Ψz∗(x). MOOGP constrains these terms to be orthogonal using the condition in Sec-tion 3.3. The regression functions may contain first-order effects and interactions, as in Plumlee and Joseph (2018). The remaining variation is modeled with latent process vector 
+
+z∗(·) ∈ Rq and loading matrix Ψ = ( ψ1, . . . , ψq) ∈ Rp×q, where q ≤ p. 
+
+9Proposition 1 (Log-likelihood) . Under the model, i.e., Equation (5) , the data Y have a Gaussian log-likelihood 
+
+L(B, Θ, Ψ, Σε | X, Y) = const − 12 log |Ky| − 12
+
+  vec( Y) − μy
+
+⊤K−1
+
+> y
+
+  vec( Y) − μy
+
+,
+
+μy := ( Ip ⊗ G) vec( B), Ky := ( Ψ ⊗ In)C∗(Ψ⊤ ⊗ In) + Σε ⊗ In, (6) 
+
+where C∗ = bdiag( C∗
+
+> 1
+
+, . . . , C∗ 
+
+> q
+
+), C∗ 
+
+> k
+
+= ( c∗
+
+> k
+
+(xi, xi′ ; θk)) ni,i ′=1 , and Θ = ( θk)qk=1 collects all GP hyperparameters. Proof. The vectorized observation model is vec( Y) = ( Ip ⊗ G) vec( B) + ( Ψ ⊗ In) vec( Z∗) + vec( E).
+
+Its expectation and covariance are 
+
+E[vec( Y) | B, Θ, Ψ, Σε] = ( Ip ⊗ G) vec( B),
+
+Cov(vec( Y) | B, Θ, Ψ, Σε) = ( Ψ ⊗ In)C∗(Ψ⊤ ⊗ In) + Σε ⊗ In.
+
+The Gaussian log-likelihood follows because Y is a sum of Gaussian variables. 
+
+Proposition 2 (Predictive equations) . For any new input x′, define 
+
+c∗
+
+> k
+
+(x′) :=  c∗
+
+> k
+
+(xi, x′; θk)ni=1 , C∗ 
+
+> x′
+
+:= bdiag( c∗
+
+> 1
+
+(x′), . . . , c∗ 
+
+> q
+
+(x′)) ∈ Rnq ×q.
+
+The predictive equations are 
+
+E[y(x′) | X, Y; B, Θ, Ψ, Σε] = B⊤g(x′) + Ky′yK−1 
+
+> y
+
+(vec( Y) − μy), (7) Cov( y(x′) | X, Y; B, Θ, Ψ, Σε) = Ky′ − Ky′yK−1 
+
+> y
+
+Kyy ′ , (8) 
+
+K⊤ 
+
+> y′y
+
+= Kyy ′ := ( Ψ ⊗ In)C∗ 
+
+> x′
+
+Ψ⊤,
+
+Ky′ := Ψ diag(  c∗
+
+> k
+
+(x′, x′; θk)qk=1 )Ψ⊤ + Σε.
+
+Proof. To calculate the predictive mean and variance, we first look at the joint distribution between the training observations vec( Y) and the observation we would like to predict 
+
+y(x′). vec( Y)
+
+y(x′)
+
+ ∼ N 
+
+(Ip ⊗ G) vec( B)
+
+B⊤g(x′)
+
+ ,
+
+ Ky Kyy ′
+
+Ky′y Ky′
+
+
+
+We obtain the result by applying the conditional distribution results from Gaussian distri-butions, e.g., H¨ ardle and Hl´ avka (2015, ch. 5). 10 3.3 Orthogonality condition for multi-output processes 
+
+One of the main goals of the MOOGP is to simultaneously estimate the regression compo-nent B⊤g(x) and the stochastic residual process Ψz∗(x). Without an explicit constraint, the Gaussian process could absorb variation from the regression space, leading to unidentifi-ability of the regression coefficients (Plumlee and Joseph, 2018). As a result, any reasonable interpretation of the regression coefficients requires some condition to separate B⊤g(x) and 
+
+Ψz∗(x). We formalize this separation by requiring the stochastic residual process to lie in the orthogonal complement of the regression space over the entire input domain. This approach can be considered a natural extension of the method used in the scalar-output case (Plumlee and Joseph, 2018). 
+
+Definition 1 (Multi-output orthogonal Gaussian process) . Fix the regression basis g(·)
+
+and its span G. Given B ∈ Rr×p and a fixed, deterministic Ψ ∈ Rp×q, let z∗ 
+
+> 1
+
+, . . . , z ∗ 
+
+> q
+
+be mutually independent, mean-zero Gaussian processes, and set z∗(x) = ( z∗ 
+
+> 1
+
+(x), . . . , z ∗ 
+
+> q
+
+(x)) ⊤.Then w(x) := Ψz∗(x) ∈ Rp is a jointly Gaussian vector process. Let wℓ(x) denote the ℓ-th component of w(x). Define the multi-output Gaussian process 
+
+f (x) := B⊤g(x) + w(x).
+
+We say that f (·) is a multi-output orthogonal Gaussian process with regression space G if the stochastic process satisfies the orthogonality constraints ⟨gs, w ℓ⟩ = 0 for all s = 1 , . . . , r 
+
+and ℓ = 1 , . . . , p with probability one. Equivalently in matrix form, 
+
+Z
+
+> X
+
+g(x)w(x)⊤ dx = 0r×p w.p. 1. (9) To illustrate, take any function ϕ(·) ∈ G . It can be written as ϕ(x) = Prs=1 asgs(x) for some a ∈ Rr. Then, for each ℓ, ⟨ϕ, w ℓ⟩ = Prs=1 as⟨gs, w ℓ⟩ = 0. Thus, wℓ(·) ∈ G ⊥ almost surely for each ℓ = 1 , . . . , p . The condition in Equation (9) ensures that, for each output dimension, B⊤g(·) captures the portion of the response in G, while the Gaussian process captures only variation in G⊥.For each latent component k = 1 , . . . , q , let zk ∼ GP (0 , c k) be an GP where ck(·, ·; θk)11 is a bounded, continuous covariance function on X × X . Define Ak := R 
+
+> X
+
+g(ξ)zk(ξ) dξ. Let 
+
+hk(x) := 
+
+Z
+
+> X
+
+ck(x, ξ; θk) g(ξ) dξ ∈ Rr,
+
+Hk := 
+
+Z
+
+> X
+
+Z
+
+> X
+
+g(ξ) ck(ξ, ξ′; θk) g(ξ′)⊤ dξ dξ′ ∈ Rr×r. (10) Then Cov {zk(x), Ak} = hk(x), Cov( Ak) = Hk.
+
+Assuming each Hk is finite and positive definite, conditioning zk on Ak = 0 results in a mean-zero GP with covariance 
+
+c∗
+
+> k
+
+(x, x′; θk) := ck(x, x′; θk) − hk(x)⊤H−1 
+
+> k
+
+hk(x′). (11) The latent process z∗ 
+
+> k
+
+is defined to have this conditional law. 
+
+Lemma 1. Assume X ⊂ Rd is bounded, ck(·, ·; θk) is a bounded, continuous covariance function on X × X , gs ∈ L2(X ) for s = 1 , . . . , r , and the matrix Hk in Equation (10) exists and is positive definite. Then, the kernel c∗
+
+> k
+
+(·, ·; θk) defined in Equation (11) is positive semidefinite on X and hence a valid covariance function (Plumlee and Joseph, 2018). 
+
+Theorem 1. Under the assumptions of Lemma 1 for k = 1 , . . . , q , suppose in addition that g(·) is bounded on X . Let z∗ 
+
+> 1
+
+, . . . , z ∗ 
+
+> q
+
+be mutually independent, mean-zero Gaussian processes, with z∗ 
+
+> k
+
+having covariance c∗
+
+> k
+
+(·, ·; θk) defined in Equation (11) . Let Ψ be fixed and deterministic. Then: (i) Z
+
+> X
+
+g(x) z∗
+
+> k
+
+(x) dx = 0 ∈ Rr with probability one , k = 1 , . . . , q. 
+
+(ii) Let z∗(x) = ( z∗ 
+
+> 1
+
+(x), . . . , z ∗ 
+
+> q
+
+(x)) ⊤ and define w(x) = Ψz∗(x) ∈ Rp. Then w(·) satisfies 
+
+Z
+
+> X
+
+g(x) w(x)⊤ dx = 0r×p with probability one .
+
+Therefore, f (x) = B⊤g(x) + w(x) is a multi-output orthogonal Gaussian process, following Definition 1. 
+
+Appendix A gives the proof. The conditions for Theorem 1 are sufficient. In the next section, we show how the integrals in Equation (10) have an analytical form for specific choices of ck(·, ·), and how the latent-structure induces a covariance with efficient Kronecker forms, enabling the fast computation of Ky and c∗
+
+> k
+
+(·, ·). 12 3.4 Efficient computation of the covariance matrix 
+
+The MOOGP covariance in the log-likelihood can be written as 
+
+Ky =
+
+> q
+
+X
+
+> k=1
+
+ψkψ⊤ 
+
+> k
+
+⊗ C∗ 
+
+> k
+
++ Σε ⊗ In,
+
+where the orthogonalized blocks C∗ 
+
+> k
+
+enforce the multi-output orthogonality condition in Equation (9). The orthogonalized kernels c∗
+
+> k
+
+(·, ·; θk) from Theorem 1 enforce the orthogonality con-straint Equation (9), but their practical usefulness is limited if the method is computa-tionally inefficient. In particular, each evaluation of the marginal log-likelihood requires repeated construction of the covariance blocks C∗ 
+
+> k
+
+and repeated construction of variants of the output covariance K−1 
+
+> y
+
+and log |Ky|. Because Ky ∈ Rnp ×np , direct computation scales poorly. We therefore exploit the structure of C∗ 
+
+> k
+
+and Ky to improve computational efficiency. 
+
+# 3.4.1 Orthogonalized matrix calculations 
+
+For each latent component k = 1 , . . . , q , let Wk = ( hk(xi)⊤)ni=1 ∈ Rn×r, where hk(·)and Hk are defined in Equation (10). Then, the orthogonalized kernel c∗
+
+> k
+
+(·, ·) has the covariance matrix C∗ 
+
+> k
+
+= Ck − WkH−1 
+
+> k
+
+W⊤ 
+
+> k
+
+. For each evaluation of C∗
+
+> k
+
+, we must compute the high-dimensional integrals hk(·) and Hk. Without further simplification, evaluating these integrals would significantly hinder computation. We therefore follow the general procedure to convert hk(·) and Hk to a product of one-dimensional integrals, which is detailed in Plumlee and Joseph (2018). Assume X = Qdj=1 [aj , b j ], the covariance is separable, and each regression basis func-tion is a product of one-dimensional functions. Fubini’s theorem then reduces the high-dimensional integrals hk(·) and Hk to products of one-dimensional integrals. The imple-mentation maps each coordinate affinely to [ −1, 1] and uses 
+
+ck(x, x′; θk) = σ2 
+
+> k
+
+exp 
+
+−
+
+> d
+
+X
+
+> j=1
+
+(xj − x′ 
+
+> j
+
+)2
+
+ℓ2
+
+> kj
+
+ , gs(x) = Y
+
+> j∈J s
+
+xj ,
+
+where ℓkj > 0 and each Js is a subset of {1, . . . , d }. For this specification, only zeroth-and first-order one-dimensional Gaussian moments are required, and symmetry makes Hk
+
+diagonal. Appendix B provides the closed forms for hk(·), Hk, and c∗
+
+> k
+
+(·, ·). 13 3.4.2 Covariance matrix calculation 
+
+Although we have an efficient way to calculate C∗
+
+> k
+
+, direct inversion of Ky is still computa-tionally prohibitive with time complexity O(n3p3). We first apply the Woodbury identities (Equation (4)) in an attempt for further simplification. 
+
+K−1 
+
+> y
+
+= Σ−1 
+
+> ε
+
+⊗ In − (Σ−1 
+
+> ε
+
+Ψ ⊗ In)[ Ψ⊤Σ−1 
+
+> ε
+
+Ψ ⊗ In + C∗− 1]−1(Ψ⊤Σ−1 
+
+> ε
+
+⊗ In), (12) 
+
+|Ky| = |Σε ⊗ In| | C∗| | Ψ⊤Σ−1 
+
+> ε
+
+Ψ ⊗ In + C∗− 1| (13) In Equation (12), the first term requires inverting Σε, which is a p × p matrix. The other inverse involves Ψ⊤Σ−1 
+
+> ε
+
+Ψ ⊗ In + C∗− 1, an nq × nq matrix. This matrix remains too large for practical surrogate use. The following structure diagonalizes the q × q interaction term 
+
+Ψ⊤Σ−1 
+
+> ε
+
+Ψ. Let 
+
+Ψ = Σ 12 
+
+> ε
+
+Φ, Φ⊤Φ = D (14) where Σ1/2 
+
+> ε
+
+is the symmetric positive-definite square root of Σε, Σ−1/2 
+
+> ε
+
+is its inverse, Φ =(ϕ1, . . . , ϕq) ∈ Rp×q has mutually orthogonal columns, and D = diag( d1, . . . , d q). The square root exists because Σε is symmetric positive definite (Harville, 2008, ch. 21), and is immediate under the diagonal error model of Section 3.2. Let Y = USV ⊤ be its thin singular value decomposition, with singular values s1 ≥· · · ≥ sq > 0 and leading right singular vectors Vq = ( v1, . . . , vq). Setting 
+
+Φ = √n Vq diag( s−11 , . . . , s −1 
+
+> q
+
+), D = diag( ns −21 , . . . , ns −2 
+
+> q
+
+)satisfies Φ⊤Φ = D and is the choice used in the reported fits. The empirical basis Φ and D
+
+are treated as fixed plug-in quantities during optimization, and their estimation uncertainty is not propagated. The loading matrix Ψ varies with estimated parameters only through 
+
+Σ1/2 
+
+> ε
+
+.Under Equation (14), Ψ⊤Σ−1 
+
+> ε
+
+Ψ = D, and the nq × nq matrix in Equation (12) becomes block diagonal: 
+
+D ⊗ In + C∗− 1 = bdiag( d1In + C∗
+
+> 1−1
+
+, . . . , d qIn + C∗ 
+
+> q−1
+
+).
+
+Substituting this expression into Equation (12) yields 
+
+K−1 
+
+> y
+
+= Σ−1 
+
+> ε
+
+⊗ In −
+
+> q
+
+X
+
+> k=1
+
+Σ− 12 
+
+> ε
+
+ϕkϕ⊤ 
+
+> k
+
+Σ− 12 
+
+> ε
+
+⊗ (dkIn + C∗
+
+> k−1
+
+)−1. (15) 14 A similar simplification applies to Equation (13), resulting in 
+
+|C∗| D ⊗ In + C∗− 1 =
+
+> q
+
+Y
+
+> k=1
+
+|C∗
+
+> k
+
+| | dkIn + C∗
+
+> k−1
+
+| =
+
+> q
+
+Y
+
+> k=1
+
+In + dkC∗
+
+> k
+
+As a result of these reductions, each likelihood evaluation requires only q inversions of size 
+
+n × n, which is a significant improvement over O(n3p3) computations. 
+
+# 4 Numerical illustrations 
+
+The two synthetic examples separate trend identification from prediction. The first uses a data-generating function with a known low-order trend to evaluate the effect of orthogo-nality under uniform and clustered input designs. The second uses the multi-fidelity test functions of Forrester (2008) in a 2 × 2 ablation of orthogonality and output sharing. 
+
+# 4.1 Recovery of a known low-order trend 
+
+Most benchmark functions are not specified as the sum of a low-order trend and an or-thogonal deviation, so they do not provide target regression coefficients. The following construction provides such a target. Let X = [ −1, 1], let g(x) = (1 , x )⊤, and let G = span {1, x } be the corresponding regression space. Begin with s(x) = sin( −πx ). Its L2(X ) projection onto G is Π G s(x) = 
+
+−3x/π . Subtracting this projection and rescaling the residual to unit norm gives 
+
+w(x) := κ−1
+
+
+
+sin( −πx ) + 3xπ
+
+
+
+, κ2 = 1 − 6
+
+π2 , (16) which satisfies R 1 
+
+> −1
+
+w(x) dx = R 1 
+
+> −1
+
+x w (x) dx = 0, so w ∈ G ⊥. The p = 3 outputs are generated as 
+
+yℓ(x) = aℓ + bℓx
+
+| {z }
+
+> trend
+
++ αℓ w(x)
+
+| {z }
+
+> deviation
+
++εℓ, εℓ ∼ N (0 , σ 2 
+
+> ℓ
+
+), ℓ = 1 , 2, 3, (17) with a = (2 , 8, −3), b = (12 , −10 , 6), α = (2 .5, 2.0, 1.5), and σ = (0 .5, 0.4, 0.3). Because w ∈ G ⊥, the pair ( aℓ, b ℓ) gives the coefficients of the L2(X ) projection of the noise-free signal onto G. Thus, any difference between a fitted coefficient and ( aℓ, b ℓ) is attributable to estimation rather than ambiguity in the target trend. Inputs are generated 15 Figure 1: Trend recovery for the data-generating function in Equation (17) under the clustered design (top row) and uniform design (bottom row). Each output is a line plus a smooth deviation orthogonal to span {1, x }, so the solid black line is both the data-generating trend and the L2(X ) projection of the noise-free signal. One replication is shown. directly on [ −1, 1], and further input standardization is disabled, so the generator and MOOGP use the same fixed domain, basis, and Lebesgue measure. Two input designs are used. The uniform design is a one-dimensional Latin hypercube sample on [ −1, 1], which distributes points evenly over the domain. The clustered design applies the same stratified sampling on a logarithmic scale and then maps the points to [−1, 1]. This design concentrates points near x = 1 and leaves values near x = −1 sparsely covered. Such uneven coverage is common when runs accumulate in regions of interest rather than filling the domain. Each design contains n = 60 points. Three trend estimators are fit: MOOGP, the non-orthogonal MOGP obtained by replacing each c∗ 
+
+> k
+
+with ck, and ordinary least squares of y
+
+on g(x). Both GP models use g(x) = (1 , x )⊤ and q = p = 3. Orthogonalization is the only difference between them. Figure 1 shows one replication under each design, and Table 1 summarizes 100 replica-tions over independent designs and noise draws. The non-orthogonal MOGP trend differs 16 Table 1: Estimated slopes ˆbℓ for the function in Equation (17). Entries are means over 100 replications, with standard deviations across replications in parentheses. The final column reports the mean absolute error in the slope coefficients, (100 p)−1 P100 
+
+> r=1
+
+Ppℓ=1 |ˆbrℓ −bℓ|, over the replications and p = 3 outputs.                              
+
+> Design Model Output 1 Output 2 Output 3 Mean abs. error Clustered
+> MOOGP 12 .04 (0 .19) −10 .00 (0 .15) 5.98 (0 .12) 0.12 MOGP 17 .37 (1 .14) −4.61 (1 .57) 9.28 (0 .72) 4.68 Least squares 14 .72 (0 .19) −7.85 (0 .13) 7.61 (0 .11) 2.16
+> Uniform
+> MOOGP 11 .99 (0 .12) −9.99 (0 .09) 6.01 (0 .07) 0.07 MOGP 18 .01 (1 .11) −4.10 (1 .47) 9.81 (0 .70) 5.24 Least squares 12 .00 (0 .12) −9.99 (0 .09) 6.01 (0 .07) 0.07
+
+substantially from the target under both designs. Its mean estimated slope for output 1 is 17 .37, compared with the true value of 12, and its mean estimated slope for output 2 is −4.61, compared with the true value of −10. The mean absolute slope error is 4 .68 under the clustered design and 5 .24 under the uniform design. Thus, in this example, the confounding cannot be attributed to uneven domain coverage. It arises from allowing the latent covariance to contain components in the regression space. Least squares behaves differently. Under the uniform design, its mean absolute slope error is 0 .07. Under the clustered design, the error increases to 2 .16, although the slope signs remain correct. A linear trend estimator is biased by the component of w that its weighting of the data projects onto G. For least squares, this weighting corresponds to the empirical distribution of the design points. The relevant projection is therefore evaluated at the observed points rather than with respect to the Lebesgue measure on X .A space-filling design approximates this measure, with respect to which w is orthogonal, so the bias nearly vanishes. Under the clustered design, the mean slope of the discrete projection across replications is 1 .08. Multiplication by α predicts mean signed slope biases of (2 .70 , 2.16 , 1.62) across the three outputs, which agree with the observed biases to within 0.02. MOOGP remains close to the target under both designs, with mean absolute slope errors 17 of 0 .12 and 0 .07. Under the uniform design, its error is comparable to the least-squares error of 0 .07. Orthogonality prevents the latent covariance from representing components in the trend space, but it does not force a finite-sample generalized least-squares estimate from noisy data to equal the population L2(X ) projection. The experiment does not decompose the small remaining error by source. In this example, MOOGP estimates the trend jointly with the emulator and remains close to the target without requiring the input design to approximate the orthogonality measure. 
+
+# 4.2 Separating orthogonality and output sharing 
+
+Orthogonality separates the regression component from the residual process, whereas out-put sharing permits borrowing across correlated responses. A matched 2 × 2 ablation separates these effects using the multi-fidelity test functions of Forrester (2008). Consider 
+
+f (x) = ( f1(x), f 2(x), f 3(x)) ⊤, x ∈ [0 , 1], where 
+
+f1(x) = (6 x − 2) 2 sin(12 x − 4) ,f2(x) = 0 .5f1(x) + 5( x − 0.5) + 5 ,f3(x) = −0.8f1(x) − 5( x − 0.5) − 4.
+
+The outputs share a nonlinear component but have different linear trends. Independent Gaussian errors are added with covariance Σε = diag(10 , 1, 0.05). The four models are three independently fit scalar GPs, three independently fit scalar OGPs, MOGP, and MOOGP. Each scalar fit uses p = q = 1, and the joint models use p =
+
+q = 3. All models use g(x) = (1 , x )⊤, the same kernel family, and the same fitting procedure. The GP–OGP and MOGP–MOOGP comparisons therefore isolate orthogonality, while the independent–joint comparisons isolate output sharing. Uniform and clustered training designs contain n = 25 inputs, with the clustered design concentrating inputs near x = 1. The experiment uses 200 paired replications. Within each replication, all models and both designs are evaluated on the same independent uniform test set of size n′ = 500. All fits converged. The noise-free functions have different scales, so point prediction is measured by stan-18 Table 2: Forrester 2 × 2 ablation under uniform and clustered training designs. Entries are means over 200 paired replications. Lower values are preferred for sRRMSE, trend RMSE, and DSS joint ; coverage is assessed relative to 0 .95.                                      
+
+> Design Model sRRMSE Trend RMSE Coverage DSS joint
+> Uniform
+> Independent GP 0.27 1.94 0.94 4.64 Independent OGP 0.26 0.48 0.93 4.68 MOGP 0.21 1.72 0.92 5.56 MOOGP 0.22 0.48 0.92 5.61
+> Clustered
+> Independent GP 0.52 2.61 0.95 7.57 Independent OGP 0.51 1.46 0.93 7.78 MOGP 0.44 2.35 0.94 7.34 MOOGP 0.46 1.46 0.93 7.71
+
+dardized recovery RMSE. Let τ 2 
+
+> ℓ
+
+= R 10 {fℓ(x) − ¯fℓ}2 dx , where ¯fℓ = R 10 fℓ(x) dx . Then sRRMSE = 
+
+"
+
+1
+
+n′p
+
+> n′
+
+X
+
+> i=1
+> p
+
+X
+
+> ℓ=1
+
+ μpred ,ℓ (x′
+
+> i
+
+) − fℓ(x′
+
+> i
+
+)
+
+τℓ
+
+2#1/2
+
+.
+
+Trend RMSE is the integrated error between the fitted trend and the population L2[0 , 1] linear projection of each output. Marginal coverage and the multivariate Dawid–Sebastiani score, DSS joint , evaluate noisy test responses (Gneiting and Raftery, 2007). The latter uses the full pointwise output covariance; this covariance is diagonal for the independent models. Output sharing reduces sRRMSE under both designs and both orthogonality conditions. Relative to the corresponding independent model, the reduction is 23% for MOGP and 16% for MOOGP under the uniform design, and 16% and 10% under the clustered design. All four paired 95% confidence intervals exclude zero. The gain is concentrated in the noisiest output, for which sharing reduces sRRMSE by 20–27%. Sharing increases error for the lowest-noise output under the uniform design, indicating some negative transfer. Orthogonality substantially reduces trend RMSE in both the independent and joint com-parisons. In contrast, MOOGP has slightly higher sRRMSE than MOGP under both de-signs; the paired mean differences are 0 .006 with a 95% confidence interval of (0 .004 , 0.009) under the uniform design and 0 .023 with an interval of (0 .008 , 0.038) under the clustered 19 design. Clustering increases prediction error for every model, and MOGP has the lowest mean sRRMSE and joint DSS in that setting. MOOGP nevertheless retains a predictive advantage over independent OGP and recovers the population trend more accurately than MOGP. In this example, the ablation therefore attributes the main predictive gain to output sharing and the main trend-identification gain to orthogonality, with a modest predictive cost for combining the two. 
+
+# 5 Numerical experiment and application 
+
+# 5.1 Multi-output Borehole benchmark 
+
+The experiment uses a multi-output modification of the Borehole benchmark, which models water flow between two aquifers (Morris et al., 1993). Four simulator inputs are varied, and the adapted response is evaluated at p = 5 or 10 two-dimensional outputs. Independent Gaussian errors are added to both training and test responses. For each output, the error variance is 5% of the sample variance of its noise-free training response. Consequently, the reported RMSE and coverage evaluate prediction of future noisy observations. Training sizes are n ∈ { 50 , 100 , 250 , 1000 , 2500 }. Each ( n, p ) setting has five training-design replications paired across methods, and every replication has an independently gener-ated 800-run test design. For MOOGP, its non-orthogonal MOGP ablation, LCGP (Chan, 2023), and OILMM (Bruinsma et al., 2020), a common latent rank is selected from the columnwise standardized noisy training response as the smallest rank whose cumulative squared singular values exceed 99% of the total. PUQ fits independent heteroskedastic GPs through its multihetGP implementation (S¨ urer et al., 2025; Binois et al., 2018; O’Gara et al., 2025). All methods use a 1000-iteration limit. The runs were performed on a 32-vCPU AWS node with an Intel Xeon Platinum 8488C processor and 64 GiB of memory. Up to four fits ran concurrently, each pinned to four dedicated physical cores with a four-thread numerical-backend budget. Figure 2 compares test RMSE, empirical coverage of the marginal 95% prediction in-tervals, and training time. The paired MOOGP–MOGP comparison does not show a con-sistent predictive advantage from orthogonality. One of these two models has the lowest mean RMSE in every setting, and their errors become nearly indistinguishable at the largest 20 50 100 250 1000 2500 
+
+> 20
+> 40
+> 60
+> 80
+> 100
+> Test RMSE
+
+p = 5     
+
+> 50 100 250 1000 2500
+> 20
+> 40
+> 60
+> 80
+> 100
+
+p = 10             
+
+> 50 100 250 1000 2500
+> 0.82
+> 0.84
+> 0.86
+> 0.88
+> 0.90
+> 0.92
+> 0.94
+> 0.96
+> Empirical 95% coverage
+> 50 100 250 1000 2500
+> 0.82
+> 0.84
+> 0.86
+> 0.88
+> 0.90
+> 0.92
+> 0.94
+> 0.96
+> 50 100 250 1000 2500
+
+Training runs, n    
+
+> 10 0
+> 10 1
+> 10 2
+> 10 3
+> 10 4
+> Training time (s)
+> 50 100 250 1000 2500
+
+Training runs, n
+
+> 10 0
+> 10 1
+> 10 2
+> 10 3
+> 10 4
+
+MOOGP MOGP LCGP OILMM PUQ Figure 2: Borehole test performance across five paired replications for each ( n, p ) setting. Faint marks show individual replications; large marks and bars show the mean and ±1sample standard deviation. The dashed line marks the nominal 0 .95 coverage. Training size and training time use logarithmic scales. LCGP has no result for n = 2500 , p = 10. 21 training sizes. Both methods approach nominal coverage as n increases. OILMM is closer to nominal coverage in several small-sample settings but has substantially larger RMSE, while PUQ under-covers at small and intermediate training sizes. PUQ is fastest at n = 50, while LCGP is the fastest latent-factor method through 
+
+n = 250. LCGP was not run for n = 2500 , p = 10 after its n = 2500 , p = 5 fits required more than 22,000 seconds on average. OILMM is fastest at n = 1000 and 2500. MOOGP is slower than MOGP for large n and p, consistent with the additional orthogonality calculations. PUQ returns optimizer convergence warnings in most fits, which qualify its reported results. 
+
+# 5.2 Viscous anisotropic hydrodynamics application 
+
+Viscous anisotropic hydrodynamics (VAH) is a high-fidelity model used in Bayesian cali-bration of relativistic heavy-ion collisions (McNelis et al., 2018, 2021; Liyanage et al., 2023). The data analyzed here consist of 541 VAH runs for Pb-Pb collisions at √sNN = 2 .76 TeV, with 15 input parameters and 98 observables organized into 11 multiplicity, transverse-energy, mean-transverse-momentum, and flow-harmonic families (Liyanage et al., 2023). These dimensions make direct probabilistic calibration expensive and motivate a surro-gate that can predict the full response vector while retaining interpretable low-order input effects. All methods use the same deterministic five-fold partition. Each method’s native opti-mizer is configured with a maximum-iteration setting of 1000 .00, although iteration counts are not directly comparable across implementations. The latent rank is q = 5 where appli-cable. The MOOGP and MOGP trends contain an intercept and the 15 standardized main effects. MOOGP, MOGP, and LCGP use an 11-group diagonal-noise specification specified by the observable families; OILMM and PUQ do not expose an equivalent parameterization. The training for the VAH application is performed on an Apple-silicon MacBook Pro. For evaluation, prediction errors and marginal predictive standard deviations are divided by the corresponding sample standard deviation computed from the training outputs in each fold. Standardized RMSE, interval width, DSS per output, and coverage are then pooled over all 541 × 98 held-out scalar predictions, so each simulator run contributes once. Lower values are preferred except that coverage is assessed relative to 0 .95. Raw RMSE is omitted because the 98 observables have different physical scales. 22 Table 3 reports the pooled predictive metrics and fold-mean training times. Note that the timing results between the Borehole example and VAH application are not comparable due to different computational environments. PUQ has the lowest standardized RMSE, Table 3: Five-fold VAH cross-validation. Prediction metrics pool the held-out predictions, with output scales estimated from the corresponding training fold. Standardized RMSE, interval width, and DSS per output are better when smaller; coverage is assessed relative to 0 .95. Training time is the fold mean in seconds with sample standard deviation in parentheses.                               
+
+> Method sRMSE Coverage sWidth sDSS Time (SD) MOOGP 0.413 0.922 1.431 -0.758 87.7 (7.4) MOGP 0.439 0.928 1.568 -0.655 67.4 (9.5) LCGP 0.846 0.900 3.075 0.961 24.3 (4.8) OILMM 0.776 0.923 2.843 0.536 10.8 (2.8) PUQ 0.407 0.898 1.261 -0.963 1175.8 (87.6)
+
+narrowest intervals, and lowest DSS, but it under-covers and all five folds return optimizer convergence warnings. In this application, MOOGP has 6% lower standardized RMSE, 9% narrower intervals, and a lower DSS than MOGP, with slightly lower coverage and a longer training time. LCGP and OILMM are faster but have substantially worse standardized RMSE, width, and DSS. Figure 3 reports standardized RMSE and coverage for the 11 observable families. Within this cross-validation, MOOGP has lower standardized RMSE than MOGP in ten of the eleven groups and is most accurate for the three mean-pT families. Proton yield is the principal source of its undercoverage. PUQ is more accurate for the flow harmonics but under-covers in every group, while LCGP shows the greatest variation in coverage and the widest flow-harmonic intervals. Figure 4 compares the fold-mean standardized MOOGP coefficients with those from MOGP. Several estimated associations via the regression are stable across folds. The nor-malization parameter N is positively associated with multiplicity and transverse energy, while the nucleon width w is negatively associated with mean pT and the generalized-mean 23 0.4 0.6 0.8 1.0          
+
+> Standardized RMSE
+> dN ch /dη
+> dE T/dη
+> dN π/dy
+> dN K/dy
+> dN p/dy
+> ⟨pT⟩π
+> ⟨pT⟩K
+> ⟨pT⟩p
+> v2{2}
+> v3{2}
+> v4{2}
+> 0.850 0.875 0.900 0.925 0.950 0.975
+> Empirical 95% coverage
+> MOOGP MOGP LCGP OILMM PUQ
+
+Figure 3: VAH five-fold cross-validation by observable family. Each mark pools all held-out runs and every output in the indicated family after standardization by the corresponding training-fold output scale. Standardized RMSE is better when smaller. The dashed vertical line in the coverage panel marks the nominal value 0 .95. The groups contain 98 observables in total and are defined before model fitting. 24 N
+
+> p
+> w
+> dmin
+> σk
+> Tsw
+> Tη/s, kink
+> (η/s)kink
+> alow
+> ahigh
+> (ζ/s)max
+> Tζ
+> wζ
+> λζ
+> R
+
+MOOGP fold-mean standardized coefficient 
+
+> Nch
+> ET
+> Nπ
+> NK
+> Np
+> pT, π
+> pT, K
+> pT, p
+> v2
+> v3
+> v4
+
+VAH observables grouped by family 
+
+> N
+> p
+> w
+> dmin
+> σk
+> Tsw
+> Tη/s, kink
+> (η/s)kink
+> alow
+> ahigh
+> (ζ/s)max
+> Tζ
+> wζ
+> λζ
+> R
+
+MOOGP − MOGP fold-mean coefficient 
+
+> −1.5
+> −1.0
+> −0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> Coefficient
+> −0.3
+> −0.2
+> −0.1
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> Difference
+
+Figure 4: Standardized low-order trend coefficients for the VAH application. Rows are the 15 simulator inputs and columns are the 98 outputs, with vertical boundaries separating the 11 observable families. The upper panel shows the MOOGP fold mean; the lower panel shows the fold mean of MOOGP minus MOGP. Each panel has a separate symmetric color scale fixed at its largest absolute value. A black dot marks a coefficient whose sign is the same in at least four of the five folds. The intercept is omitted. 25 parameter p with central v2{2}. The largest stable MOOGP–MOGP differences involve the high-temperature shear-viscosity slope ahigh . While these fitted low-order associations should not be interpreted as causal physical effects and are specific to this set of VAH simulation data, the specific difference, most notably in ahigh and ( ζ/s )max , resulted from enforcing orthogonoality demonstrates interpretative quality of the proposed method. 
+
+# 6 Conclusion 
+
+We introduced the multi-output orthogonal Gaussian process model in this paper as an effective surrogate model for stochastic simulators. The model consists of a deterministic flexible regression mean and a multi-output GP residual, where the residual is constructed via independent latent GP components. The resulting model extends orthogonal GP to the vector-valued setting by restricting each latent component to lie in the orthogonal complement of the regression space. The numerical studies show when orthogonality matters. Under a well-spread space-filling design, MOOGP and its non-orthogonal counterpart perform comparably. The con-straint costs little when it is not needed. Under uneven input coverage, the non-orthogonal model lets the GP residual absorb variation belonging to the regression space, whereas MOOGP recovers the true trend and produces sharper predictions. The heavy-ion collision case study confirms that these gains persist at realistic scale, with a 98-dimensional output emulated through a low-dimensional latent basis, and the timing comparisons show the proposed computations remain competitive as the number of outputs grows. Follow-up studies are facilitated by this methodological development, including Bayesian parameter calibration of the VAH model. MOOGP can study structural interaction and higher-order regression terms in the physics model (Ehlers et al., 2026). Since the or-thogonalization decoupling identifies reliable trend coefficients and provides sharper pre-dictions, it can strengthen identifiability between parameters and any discrepancy terms within multi-output model calibration Kennedy and O’Hagan (2001); Plumlee (2017); Tuo (2019); Xie and Xu (2021). In our development, stationary covariance functions are primar-ily studied. Similar orthogonality conditions may be developed for other covariances that addresses the mean-regressing behavior or boundary information in GPs (Tan, 2018; Ding 26 et al., 2019; Joseph, 2025). Extensions to input-dependent noise, non-Gaussian outputs, and fully Bayesian hyperparameter inference would widen the class of stochastic simulators the model can serve. 
+
+# Disclosure statement 
+
+The authors report there are no competing interests to declare. 
+
+# Acknowledgments 
+
+The authors acknowledge the support from the National Science Foundation under Grant No. OAC-2004601. ECB acknowledges the additional support from the Northwestern Uni-versity Office of Undergraduate Research. The authors thank Dan Liyanage and Uli Heinz for approving the use of the heavy-ion collision simulation data analyzed in Section 5.2 and are grateful for the insightful physics discussions with Dan Liyanage and Sunil Jaiswal. This research was supported in part through the computational resources and staff con-tributions provided for the Quest high performance computing facility at Northwestern University, which is jointly supported by the Office of the Provost, the Office for Research, and Northwestern University Information Technology. 
+
+# Declaration of generative AI use 
+
+During the preparation of this manuscript, the authors used Claude (Anthropic, Claude Opus/Fable 5) and ChatGPT (OpenAI, GPT-5-sol) to check consistency of mathematical notation and writing style across sections, and to assist in writing plotting scripts for the figures. All outputs were reviewed, verified, and edited by the authors, who take full responsibility for the content of the publication. 
+
+# References 
+
+´Alvarez, M. A. and N. D. Lawrence (2011). Computationally efficient convolved multiple output gaussian processes. Journal of Machine Learning Research 12 (41), 1459–1500. ´Alvarez, M. A., L. Rosasco, and N. D. Lawrence (2012). Kernels for vector-valued functions: A review. Foundations and Trends in Machine Learning 4 (3), 195–266. 27 Ankenman, B., B. L. Nelson, and J. Staum (2010). Stochastic kriging for simulation meta-modeling. Operations Research 58 (2), 371–382. Baker, E., P. Barbillon, A. Fadikar, R. B. Gramacy, R. Herbei, D. Higdon, J. Huang, L. R. Johnson, P. Ma, A. Mondal, B. Pires, J. Sacks, and V. Sokolov (2022). Analyzing stochastic computer models: A review with opportunities. Statistical Science 37 (1), 64–89. Binois, M., R. B. Gramacy, and M. Ludkovski (2018). Practical heteroscedastic gaus-sian process modeling for large simulation experiments. Journal of Computational and Graphical Statistics 27 (4), 808–821. Bonilla, E. V., K. M. Chai, and C. K. I. Williams (2008). Multi-task gaussian process prediction. In J. C. Platt, D. Koller, Y. Singer, and S. Roweis (Eds.), Advances in Neural Information Processing Systems 20 , pp. 153–160. Curran Associates, Inc. Bruinsma, W., E. Perim, W. Tebbutt, S. Hosking, A. Solin, and R. Turner (2020). Scalable exact inference in multi-output gaussian processes. In H. Daum´ e III and A. Singh (Eds.), 
+
+Proceedings of the 37th International Conference on Machine Learning , Volume 119 of 
+
+Proceedings of Machine Learning Research , pp. 1190–1201. PMLR. Chan, M. Y.-H. (2023, 12). High-Dimensional Gaussian Process Methods for Uncertainty Quantification . Ph. D. thesis, Northwestern University, Evanston, IL. ProQuest Disser-tations and Theses, 30693493. Chan, M. Y.-H., M. Plumlee, and S. M. Wild (2024). Constructing a simulation surrogate with partially observed output. Technometrics 66 (1), 1–13. Conti, S. and A. O’Hagan (2010). Bayesian emulation of complex multi-output and dynamic computer models. Journal of Statistical Planning and Inference 140 (3), 640–651. Ding, L., S. Mak, and C. Wu (2019). Bdrygp: a new gaussian process model for incorpo-rating boundary information. Doob, J. L. (1953). Stochastic processes. New York: Wiley. 654 p. (1953). Ehlers, R., Y. Ji, P. Jacobs, and S. Mak (2026). Varp-gp: cost-efficient bayesian emulation of quark-gluon plasma modeling with variable statistical precision. Fadikar, A., D. Higdon, J. Chen, B. Lewis, S. Venkatramanan, and M. Marathe (2018). Calibrating a stochastic, agent-based model using quantile-based emulation. SIAM/ASA Journal on Uncertainty Quantification 6 (4), 1685–1706. Forrester, S´ obester, K. (2008). Multi-Fidelity Analysis , Chapter 8, pp. 167–177. John Wiley & Sons, Ltd. Fricker, T. E., J. E. Oakley, and N. M. Urban (2013). Multivariate gaussian process emu-lators with nonseparable covariance structures. Technometrics 55 (1), 47–56. Gneiting, T. and A. E. Raftery (2007). Strictly proper scoring rules, prediction, and esti-mation. Journal of the American Statistical Association 102 (477), 359–378. Gramacy, R. B. (2020). Surrogates: Gaussian Process Modeling, Design, and Optimization for the Applied Sciences . Chapman & Hall/CRC Texts in Statistical Science. Boca Raton, FL: CRC Press. 28 Gramacy, R. B. and H. K. H. Lee (2012). Cases for the nugget in modeling computer experiments. Statistics and Computing 22 (3), 713–722. Gu, M. and J. O. Berger (2016). Parallel partial gaussian process emulation for computer models with massive output. The Annals of Applied Statistics 10 (3), 1317–1347. H¨ ardle, W. and Z. Hl´ avka (2015). Multivariate statistics: exercises and solutions . Springer. Harville, D. A. (2008). Matrix Algebra From a Statistician’s Perspective . New York: Springer. Herbei, R. and L. M. Berliner (2014). Estimating ocean circulation: An MCMC approach with approximated likelihoods via the Bernoulli factory. Journal of the American Statis-tical Association 109 (507), 944–954. Higdon, D., J. Gattiker, B. Williams, and M. Rightley (2008). Computer model calibration using high-dimensional output. Journal of the American Statistical Association 103 (482), 570–583. Higdon, D., J. D. McDonnell, N. Schunck, J. Sarich, and S. M. Wild (2015). A bayesian ap-proach for parameter estimation and prediction using a computationally intensive model. 
+
+Journal of Physics G: Nuclear and Particle Physics 42 (3), 034009. Hung, Y., V. R. Joseph, and S. N. Melkote (2015). Analysis of computer experiments with functional response. Technometrics 57 (1), 35–44. Joseph, V. R. (2025). Rational kriging. Journal of the American Statistical Associa-tion 120 (549), 548–558. Joseph, V. R. (2026). Experimental Design for Data Science and Engineering . Chapman & Hall/CRC Texts in Statistical Science. Chapman & Hall/CRC. Kennedy, M. C. and A. O’Hagan (2001). Bayesian calibration of computer models. Journal of the Royal Statistical Society: Series B (Statistical Methodology) 63 (3), 425–464. Lartaud, P., P. Humbert, and J. Garnier (2022). Multi-output gaussian processes for inverse uncertainty quantification in neutron noise analysis. Li, K., S. Mak, J.-F. Paquet, and S. A. Bass (2026). Additive multi-index gaussian pro-cess modeling, with application to multi-physics surrogate modeling of the quark-gluon plasma. Journal of the American Statistical Association 121 (553), 44–59. Liu, H., J. Cai, and Y.-S. Ong (2018). Remarks on multi-output gaussian process regression. 
+
+Knowledge-Based Systems 144 , 102–121. Liyanage, D., ¨O. S¨ urer, M. Plumlee, S. M. Wild, and U. Heinz (2023). Bayesian calibration of viscous anisotropic hydrodynamic simulations of heavy-ion collisions. Physical Review C 108 (5), 054905. Marrel, A., B. Iooss, S. Da Veiga, and M. Ribatet (2012). Global sensitivity analysis of stochastic computer models with joint metamodels. Statistics and Computing 22 (3), 833–847. McNelis, M., D. Bazow, and U. Heinz (2018). (3+ 1)-dimensional anisotropic fluid dynamics with a lattice qcd equation of state. Physical Review C 97 (5), 054912. 29 McNelis, M., D. Bazow, and U. Heinz (2021). Anisotropic fluid dynamical simulations of heavy-ion collisions. Computer Physics Communications 267 , 108077. Morris, M. D., T. J. Mitchell, and D. Ylvisaker (1993). Bayesian design and analysis of computer experiments: Use of derivatives in surface prediction. Technometrics 35 (3), 243–255. O’Gara, D., M. Binois, R. Garnett, and R. A. Hammond (2025). hetGPy: Heteroskedastic gaussian process modeling in python. Journal of Open Source Software 10 (106), 7518. Paulo, R., G. Garc´ ıa-Donato, and J. Palomo (2012). Calibration of computer models with multivariate output. Computational Statistics & Data Analysis 56 (12), 3959–3974. Phillips, D. R., R. J. Furnstahl, U. Heinz, T. Maiti, W. Nazarewicz, F. M. Nunes, M. Plum-lee, M. T. Pratola, S. Pratt, F. G. Viens, and S. M. Wild (2021). Get on the BAND wagon: A Bayesian framework for quantifying model uncertainties in nuclear dynamics. 
+
+Journal of Physics G: Nuclear and Particle Physics 48 (7), 072001. Plumlee, M. (2017). Bayesian calibration of inexact computer models. Journal of the American Statistical Association 112 (519), 1274–1285. Plumlee, M., T. G. Asher, W. Chang, and M. V. Bilskie (2021). High-fidelity hurricane surge forecasting using emulation and sequential experiments. The Annals of Applied Statistics 15 (1), 460–480. Plumlee, M. and V. R. Joseph (2018). Orthogonal gaussian process models. Statistica Sinica 28 (2), 601–619. Rasmussen, C. E. and C. K. I. Williams (2006). Gaussian Processes for Machine Learning .Adaptive Computation and Machine Learning. Cambridge, MA: MIT Press. Rougier, J. (2008). Efficient emulators for multivariate deterministic functions. Journal of Computational and Graphical Statistics 17 (4), 827–843. Sacks, J., W. J. Welch, T. J. Mitchell, and H. P. Wynn (1989). Design and analysis of computer experiments. Statistical Science 4 (4), 409–435. Santner, T. J., B. J. Williams, and W. I. Notz (2003). The Design and Analysis of Computer Experiments . Springer Series in Statistics. New York: Springer. S¨ urer, ¨O., D. O’Gara, M. Plumlee, and S. M. Wild (2025). PUQ users manual. Tan, M. H. Y. (2018). Gaussian process modeling with boundary information. Statistica Sinica 28 (2), 621–648. Teh, Y. W., M. Seeger, and M. I. Jordan (2005). Semiparametric latent factor models. In R. G. Cowell and Z. Ghahramani (Eds.), Proceedings of the Tenth International Workshop on Artificial Intelligence and Statistics , Volume R5 of Proceedings of Machine Learning Research , pp. 333–340. PMLR. Tuo, R. (2019). Adjustments to computer models via projected kernel calibration. 
+
+SIAM/ASA Journal on Uncertainty Quantification 7 (2), 553–578. Xie, F. and Y. Xu (2021). Bayesian projected calibration of computer models. Journal of the American Statistical Association 116 (536), 1965–1982. 30 Appendix for “Multi-output Orthogonal Gaussian Processes for Noisy Simulator Outputs” 
+
+# A Proof of Theorem 1 
+
+Proof. Fix k and suppress the latent-component subscript. Because c∗ is continuous on X × X , z ∗ is mean-square continuous, implying continuity in probability. Hence, a measurable 
+
+z∗ via standard modification can be chosen (Doob, 1953, ch. 2). Since X has finite measure and g and c∗ are bounded, the stochastic integrals below exist and Fubini’s theorem applies to their first and second moments. Define 
+
+A := 
+
+Z
+
+> X
+
+g(x)z∗(x) dx.
+
+This random vector has mean zero. Using Equation (11), kernel symmetry, and the defini-tions of h and H in Equation (10), Cov( A) = 
+
+Z
+
+> X
+
+Z
+
+> X
+
+g(x)c∗(x, x′)g(x′)⊤ dx dx′
+
+= H −
+
+Z 
+
+> X
+
+g(x)h(x)⊤ dx
+
+
+
+H−1
+
+Z 
+
+> X
+
+h(x′)g(x′)⊤ dx′
+
+
+
+= H − HH −1H = 0r×r.
+
+Therefore, E[∥A∥22] = tr (Cov( A)) = 0, so A = 0 with probability one. This proves part (i). Because q is finite, part (i) holds simultaneously for every latent component. Hence, 
+
+Z
+
+> X
+
+g(x)w(x)⊤ dx =
+
+Z
+
+> X
+
+g(x)z∗(x)⊤ dx Ψ⊤
+
+=
+
+h
+
+0 · · · 0
+
+i
+
+Ψ⊤ = 0r×p,
+
+which proves part (ii). 
+
+# B Closed Forms for Squared-Exponential Integrals 
+
+Following Plumlee and Joseph (2018), we reproduce the component-wise closed forms used by MOOGP. They assume a separable squared-exponential kernel on the standardized domain [ −1, 1] d and basis functions formed from products of distinct input coordinates. 31 Output mixing and observation noise are applied only after each c∗ 
+
+> k
+
+is constructed, so neither enters the calculations below. Suppress the latent-component subscript and let 
+
+c(x, x′) = σ2
+
+> d
+
+Y
+
+> j=1
+
+kj (xj , x ′ 
+
+> j
+
+), kj (u, v ) = exp 
+
+(
+
+− (u − v)2
+
+ℓ2
+
+> j
+
+)
+
+,
+
+where σ2 > 0 and ℓj > 0. For gs(x) = Q 
+
+> j∈J s
+
+xj , with Js ⊆ { 1, . . . , d } and the empty product equal to one, define 
+
+Mj (t) := 
+
+Z 1
+
+> −1
+
+kj (t, u ) du, Lj (t) := 
+
+Z 1
+
+> −1
+
+u k j (t, u ) du, (18) 
+
+IM,j := 
+
+Z 1
+
+> −1
+
+Z 1
+
+> −1
+
+kj (u, v ) du dv, ILL,j := 
+
+Z 1
+
+> −1
+
+Z 1
+
+> −1
+
+uv k j (u, v ) du dv. (19) Their closed forms are 
+
+Mj (t) = 
+
+√πℓ j
+
+2
+
+
+
+erf 
+
+ 1 + tℓj
+
+
+
++ erf 
+
+ 1 − tℓj
+
+ 
+
+, (20) 
+
+Lj (t) = tM j (t) + ℓ2
+
+> j
+
+2
+
+"
+
+exp 
+
+(
+
+− (1 + t)2
+
+ℓ2
+
+> j
+
+)
+
+− exp 
+
+(
+
+− (1 − t)2
+
+ℓ2
+
+> j
+
+)# 
+
+, (21) 
+
+IM,j = 2 √πℓ j erf 
+
+ 2
+
+ℓj
+
+
+
+− ℓ2 
+
+> j
+
+1 − exp 
+
+(
+
+− 4
+
+ℓ2
+
+> j
+
+)! 
+
+, (22) 
+
+ILL,j = ℓ4
+
+> j
+
+6 1 − exp 
+
+(
+
+− 4
+
+ℓ2
+
+> j
+
+)! 
+
+− ℓ2
+
+> j
+
+3 3 − exp 
+
+(
+
+− 4
+
+ℓ2
+
+> j
+
+)! 
+
++ 2√πℓ j
+
+3 erf 
+
+ 2
+
+ℓj
+
+
+
+. (23) Symmetry makes both mixed moments zero and H diagonal. Consequently, 
+
+hs(x) = σ2 Y
+
+> j∈J s
+
+Lj (xj ) Y
+
+> j / ∈J s
+
+Mj (xj ), Hss = σ2 Y
+
+> j∈J s
+
+ILL,j 
+
+Y
+
+> j / ∈J s
+
+IM,j .
+
+Thus, each orthogonalized latent covariance is 
+
+c∗(x, x′) = σ2 exp 
+
+−
+
+> d
+
+X
+
+> j=1
+
+(xj − x′ 
+
+> j
+
+)2
+
+ℓ2
+
+> j
+
+ −
+
+> r
+
+X
+
+> s=1
+
+hs(x)hs(x′)
+
+Hss 
+
+.
+
+32

@@ -1,0 +1,728 @@
+Title: HyperODE: Zero-Shot Surrogate for Simulation and Inference of Dynamical Systems
+
+URL Source: https://arxiv.org/pdf/2608.00852v1
+
+Published Time: Tue, 04 Aug 2026 00:54:17 GMT
+
+Number of Pages: 13
+
+Markdown Content:
+# HyperODE: Zero-Shot Surrogate for Simulation and Inference of Dynamical Systems 
+
+# Ajitesh Srivastava 
+
+Northeastern University aj.srivastava@northeastern.edu 
+
+Abstract 
+
+Understanding and controlling complex dynamical systems often requires executing thousands of numerical simulations across vast parametric landscapes, which is time-consuming. Machine learning surrogates significantly accelerate simula-tion by predicting state trajectories across different initial-izations and parameter values. However, surrogate models are specialized to one simulation model. Modifying the un-derlying differential equations - e.g., adding a physiological state or altering an epidemiological contact network - renders trained models obsolete and forces computationally expensive retraining from scratch. We introduce HyperODE, a surrogate capable of operating across an entire class of approximately mass-conserving compartmental models without retraining. By mapping the structure of ordinary differential equations (ODEs) into directed hypergraphs, HyperODE decouples the functional form of system interactions from the neural net-work architecture. HyperODE takes a compartmental model in the form of an ODE with an arbitrary parameter distribution defined through quantiles and transforms it into a hypergraph. It builds a hypergraph neural ODE, which results in the distri-bution of the trajectories for all the states in the original ODE in the form of quantiles. We then use this surrogate to build an encoder that takes a noisy trajectory and outputs a distribution over the parameters of the original ODE, thus calibrating the model in a single forward pass instead of traditional expensive Markov Chain Monte Carlo (MCMC) sampling. On model families and system sizes never seen in training, HyperODE produces calibrated quantile bands in a single forward pass, with weighted-interval score and coverage on par with spe-cialized surrogates for each structure. For inverse inference, HyperODE produces calibration from noisy state trajectories in a few milliseconds with a single shared encoder, compet-itive with existing methods. HyperODE extends zero-shot to ODEs that break mass conservation and to external forcing. 
+
+# Introduction 
+
+Numerical simulation of parameterized dynamical systems is fundamental to much of computational sciences. Scenario modeling in an epidemic, screening a chemical reaction net-work, or designing a control policy all reduce to solving a system of ordinary differential equations (ODEs) thousands of times, sweeping over uncertain parameters and initial con-ditions. This process takes a considerable amount of time and computational resources, and accelerating it can help advance scientific discovery. Machine learning surrogates aim to achieve this by replacing the numerical solver with a fast neural forward pass mapping parameters and initial conditions to state trajectories (Lu et al. 2021; Li et al. 2021; Sanchez-Gonzalez et al. 2020; Pfaff et al. 2021; Kochkov et al. 2021). Existing surrogates, however, are almost always tied to a single, fixed model. Even a small change in the gov-erning equations – e.g., adding a latent compartment to an epidemic model, rewiring a contact or mobility network, or introducing a new reaction channel, the learned surrogate is invalidated and must be retrained from scratch, at the cost of regenerating training data and re-optimizing the network. This prevents surrogates from being reused across the many closely related models that arise in practice. 
+
+Figure 1: Simulating a meta-population SIR model over k
+
+coupled groups. We instead seek a single surrogate that works across an entire class of models with no retraining: given an ODE with distribution over parameters it should return calibrated uncer-tainty on the resulting trajectories (not a point estimate). For example, consider the meta-population SIR epidemic model over k coupled groups, with susceptible Si, infected Ii, and recovered Ri states in each group i = 1 , . . . , k (Figure 1). For simulating this with an initial condition, one may assume some distributions for the parameters βij , γi, and mij , and then sample from these distributions to generate a set of tra-jectories – requiring one ODE solve per sampled parameter set. The result is a distribution over trajectories quantified by trajectory quantiles. Alternatively, given a single observed arXiv:2608.00852v1 [cs.LG] 1 Aug 2026 trajectory, one may want to calibrate the models by inferring the parameters, typically done with MCMC sampling, which requires many ODE solves to explore the posterior distribu-tion over parameters (Tan et al. 2022). Both processes are expensive, especially for large k.Our key observation is that the structure of an ODE can be exposed to a neural network as a directed hypergraph ,in which each node is a state variable and each hyperedge is one additive monomial term of the dynamics, describ-ing the interactions between the states. A single hyperedge operator, shared across every node and edge of every sys-tem defines the vector field. We propose HyperODE – a single pretrained model (with less than 15 k parameters) pre-dicts quantile trajectory bands for an unseen system in one forward pass. Being a fully differentiable model, it enables gradient-based calibration to recover a parameter distribution from a single noisy trajectory. HyperODE can be further de-veloped into a single-pass calibration approach that uses an encoder to consume a noisy trajectory, produces parameter distributions, and reuses the surrogate to construct quantile trajectory bands in milliseconds. The same surrogate and cal-ibration model generalize zero-shot across a wide range of ODE families, system size, and interaction order. HyperODE is designed for inference on approximately mass conserving systems such as meta-population compartmental models and reaction networks. Specifically, our contributions are: 1. We propose a hypergraph operator, agnostic to system structure, scale, and interaction order, that generates the trajectory distribution of ODEs, given the structure and a distribution over parameters. 2. We show that the surrogate can be utilized for gradient-based calibration from noisy input trajectory. 3. We propose an encoder that when attached to the surro-gate can directly generate a calibration distribution from a single noisy trajectory in one forward pass. It trades off accuracy for speed. 4. We demonstrate that it applies to external forcing (sea-sonality, time-varying mobility) that reuses the pretrained model without retraining. 
+
+# Background and Related Work 
+
+Simulation and Machine Learning surrogates. Across the sciences, understanding and controlling a system means simulating its governing equations, often ordinary differen-tial equations, repeatedly across many parameter settings and initial conditions. As an example, for performing scenario projection for an ongoing epidemic, a common approach is as follows (Borchering et al. 2021). We sample model param-eters from distributions and solve an ODE thousands of time to get multiple trajectories and then generate quantile bands to present distribution of the outcome. These thousands of ODE solves constitute the bottleneck for calibration, uncer-tainty quantification, and control. Machine-learning surro-gates attempt to reduce this cost – a trained neural network maps parameters and initial conditions directly to trajecto-ries in a single fast forward pass, replacing the numerical solver. Neural operators such as the Fourier neural operator and DeepONet learn the solution map of a differential equa-tion directly, so that a single forward pass returns the solution for a new parameter field in place of a numerical solve (Li et al. 2021; Lu et al. 2021). Graph-network simulators instead learn the local update rule of a physical system from data, rolling out particle or mesh dynamics faster than the simu-lator they imitate (Sanchez-Gonzalez et al. 2020; Pfaff et al. 2021). A complementary line embeds learned components inside the numerical method itself, accelerating a classical solver while preserving its stability and accuracy guaran-tees (Kochkov et al. 2021). However, every such surrogate is trained for one fixed system, so any change to the governing equations – adding a compartment, rewiring a contact net-work, introducing a reaction – makes the trained surrogate obsolete and forces retraining. We aim to design a single sur-rogate that can serve an entire class of systems, transferring across structures and scales without retraining. 
+
+Inverse Problems and Calibration. Another critical task is to calibrate a given ODE from noisy observed data. As an example, for performing scenario projections of an on-going epidemic, we first fit the model parameters to noisy observations accounting for uncertainty (Borchering et al. 2021), so that we can alter them to emulate a future scenario and run the forward simulations. Complex models are often unidentifiable – distinct set of parameters can produce iden-tical results. Therefore, the quality of calibration is measured by how well the quantile bands generated by simulating with the inferred parameters cover the observed noisy trajecto-ries. Recovering parameters from observations is classically posed as Bayesian calibration and solved by MCMC or varia-tional inference on the true simulator – accurate but expensive and, as we show, prone to poor mixing at scale. Amortized simulation-based inference instead trains a neural estimator to map an observation to a posterior in one forward pass, such as neural posterior and neural ratio estimation (Papa-makarios and Murray 2016; Greenberg, Nonnenmacher, and Macke 2019; Hermans, Begy, and Louppe 2020). Crucially, these estimators are trained per simulator : a new structure requires new simulations and a newly trained network. HyperODE addresses both directions with the same shared model. Because the surrogate is differentiable, we can cali-brate a system by gradient descent through the trained for-ward model, optimizing a parameter distribution whose in-duced trajectory bands are calibrated against the observation. Alternatively, we proposed a single encoder with the trained decoder that maps a noisy trajectory directly to a parameter distribution in one forward pass, giving millisecond-scale in-ference across every structure with no per-system retraining. We evaluate calibration with the weighted interval score (WIS), a proper scoring rule from the forecasting litera-ture that jointly rewards sharpness and calibration (Bracher et al. 2021), together with interval coverage. WIS is ex-actly the mean pinball (quantile) loss averaged over the pre-dicted quantile levels, so minimizing it during training is a distribution-free way to fit calibrated bands – connecting our objective to quantile regression (Koenker and Hallock 2001) and conformal-style calibration (Shafer and Vovk 2008). Foundation models and learning ODEs. There have been attempts to create “foundation models” for ODEs – single 
+
+model that, given an observed trajectory, discovers the dy-namics of a new system in one forward pass. These include ODEformer (d’Ascoli et al. 2024) that infers ODE symbol-ically, and Foundation Inference Models for ODEs (FIM-ODE) (Mauel et al. 2026) that infers a neural field. However, they discover the vector field from data, whereas HyperODE 
+
+exploits the known structure that is available in compart-mental and reaction-network modeling. These foundation models are demonstrated only on low-dimensional systems (ODEformer and FIM-ODE are evaluated up to three to four state dimensions), and emit point estimates rather than cali-brated uncertainty. Instead, HyperODE is not limited by scale (demonstrate for 500+ coupled states) and returns calibrated quantile bands. 
+
+ODEs covered by HyperODE HyperODE targets mass-conserving systems with bounded states, and whose right-hand sides are polynomials, which spans compartmental epi-demic models (SIR, SEIR, and their metapopulation variants) and a broad space of chemical reaction networks. However, two observations widen this scope well beyond what the definition suggests. First, although the training class is mass-conserving and autonomous, the learned operator extrapo-lates zero-shot to systems that violate these assumptions: systems with birth and death rates, and externally forced, time-varying transmission. Second, a large family of ODEs, including those with rational, exponential, and trigonomet-ric terms, can be rewritten as equivalent systems with only quadratic terms by introducing auxiliary variables using quadratization / quadratic recasting (Kerner 1981; Carothers et al. 2005; Hemery, Fages, and Soliman 2020). A surrogate applicable to quadratic mass action may reach substantial portion of the ODEs that arise in practice. 
+
+Graph and hypergraph neural networks Message-passing graph neural networks aggregate information over pairwise edges and are effective learning processes over networks (Battaglia et al. 2016; Sanchez-Gonzalez et al. 2020; Li et al. 2021). Hypergraph neural networks gener-alize message passing to higher-order relations, in which a single hyperedge connects an arbitrary set of nodes (Feng et al. 2019). We adopt a hypergraph representation because it allows us to naturally group multiple states appearing in a mass-action monomial, but our operator departs from generic (hyper)graph networks in one decisive respect: it carries an explicit multiplicative product of its source states as an in-ductive bias, matching the mass-action law exactly rather than approximating it through learned message functions. Our ablation confirms that the hyperedge view matters – clique-expanded GCN and GAT baselines, which lack it, are several times worse. 
+
+# Problem Setup and Metrics 
+
+We first consider the class of compartmental ODEs ˙X =
+
+f (X; θ), where f is a sum of polynomial (mass-action) terms and total mass is conserved. Concretely this includes meta-population SIS , SIR , SI , SIRS , and SEIR models over an arbitrary number k of coupled groups, as well as ran-domly generated polynomial reaction networks. Each sys-tem is specified by a known structure (which states appear in which terms) and a vector of rate parameters θ. These parameters are described as distributions rather than fixed values, thus introducing uncertainty. We study two tasks. The forward task takes a structure, an initial condition, and a distribution over θ, and predicts per-state trajectory quantile bands –the induced uncertainty on 
+
+X(t). The inverse task takes a single noisy observed trajec-tory together with the known structure and recovers a distri-bution over θ consistent with it in order to generate trajectory quantile bands over the observations. Our data splits are out-of-distribution (OOD) by design, so that test performance measures genuine transfer rather than interpolation. Training uses SIS /SIR /SI families plus randomly generated ODEs (emulating reaction networks); validation uses the held-out 
+
+SIRS family; and the test set uses the entirely unseen SEIR 
+
+family plus random ODE structures unseen during training. 
+
+# Method: HyperODE 
+
+Figure 2: Overview of HyperODE forward surrogate. It rep-resents the given ODE as a hypergraph, takes uncertain pa-rameters in the form of quantiles, and directly outputs trajec-tory distributions. 
+
+ODE as a directed hypergraph We represent an ODE structurally using a hypergraph (Figure 2). Each state vari-able becomes a node , and each additive monomial term on a right-hand side becomes a directed hyperedge whose source set is the states involved in that term and whose target is the state it updates. For instance, a term −βS 1I1 contributing to 
+
+˙S1 contributes a hyperedge with sources {S1, I 1}. The co-efficient β is introduced in the structure as a q-dimensional weight vector on the hyperedge. The vector represents a vec-tor of quantiles encoding the provided distribution. In this way, the representation is distribution-independent. The node feature is a Q-dimensional vector representing the quantiles of the state at time t. So, at t = 0 , the vectors, when the state has no uncertainty, all quantiles are the same – the initial value. Our objective is to train a hypergraph neural network F on this hypergraph H, such that the solution to ˙X = F (X, H )
+
+with the given initial values results in the Q trajectories per state that represent the quantiles of the solutions to the original ODE ˙X = f (X). Here X ∈ Rn×Q represents the 
+
+Q quantiles of all the n states in the system. 
+
+Shared hyperedge operator Each node v carries a hidden state h(l)v that is refined over L layers and initialized to the state value, h(0) v = xv . For a hyperedge h with source set 
+
+Sh, target th, and coefficient ch, layer l pools its sources through a shared MLP ϕ(l), forms the mass-action product from the raw state, concatenates these with |Sh| and edge features eh, and emits a message through a second shared MLP ψ(l); each node then adds its incoming messages to a self-transform: 
+
+pool (l) 
+
+> h
+
+= P 
+
+> s∈Sh
+
+ϕ(l) h(l)
+
+> s
+
+, prod h = Q 
+
+> s∈Sh
+
+xs,z(l) 
+
+> h
+
+=  pool (l) 
+
+> h
+
+, prod h, |Sh|, e h
+
+, m(l) 
+
+> h
+
+= ch ψ(l) z(l)
+
+> h
+
+,h(l+1)  
+
+> v
+
+= σl
+
+
+
+W (l)self h(l) 
+
+> v
+
++ P  
+
+> h:th=v
+
+m(l)
+
+> h
+
+
+
+,
+
+where σl is sigmoid for all layers except the final one where it is replaced by identity so that h(L)v is node v’s time deriva-tive. The resulting field is integrated with a fixed-step solver to obtain trajectory quantiles for each state. The explicit product Q 
+
+> s∈Sh
+
+xs supplies the exact mass-action monomial as an inductive bias. The network only needs to learn “corrections” rather than rediscover the prod-uct. As in a typical GNN, the operator’s weights are not state-specific. They encode how states impact each other in the system, and so can generalize to different systems and scales. Stacking multiple layers helps capture higher com-plexities (we hope to capture trajectory distributions, not just mean or median outcome) and implicit correlations across coefficients. This may arise if coefficients are formed by composition of parameters (e.g., β and β/γ ). 
+
+Quantile (UQ) Forward Surrogate 
+
+Each node (state) carries a vector of Q = 5 quantiles (τ ∈ { .05 , . 25 , . 5, . 75 , . 95 }) rather than a scalar, and the edge features encode the parameter distribution through coeffi-cient quantiles, keeping the representation distribution-free. We train the surrogate against the K Monte-Carlo rollouts 
+
+{y(k)} of the true ODE with a pinball (quantile) loss and two light regularizers—a monotonicity penalty against quantile crossing and a range penalty that keeps predictions in the valid state interval: 
+
+L = Lpin + λmono Lmono + λrng Lrng ,
+
+Lpin = mean  
+
+> k,t,n,q
+
+ρτq
+
+ y(k) 
+
+> t,n
+
+− ˆqt,n,q 
+
+,
+
+Lmono = mean 
+
+> t,n,q
+
+ ˆqt,n,q − ˆqt,n,q +1 
+
+
+
+> +
+
+,
+
+Lrng = mean 
+
+> t,n,q
+
+ − ˆqt,n,q 
+
+2+ + ˆqt,n,q − C2+,
+
+where ρτ (u) = max( τ u, (τ − 1) u) is the pinball loss and 
+
+[·]+ = max( ·, 0) . The monotonicity term discourages quan-tile crossing, and the range term keeps each predicted quan-tile within bounds [0 , C ]. The bound is introduced to avoid instability due to large prediction. However, ablations reveal that the impact of this term is negligible. The loss scores the predicted band against the K Monte Carlo rollouts. We note that each rollout is an unbiased sam-ple of the population WIS. As a result, with large enough number of training systems (ODE structure and parameter distribution combinations), the number of rollouts K per system does not need to be large (we use K=48 ). The Monte-Carlo WIS objective is a two-stage (cluster) sample of the population score - systems are primary units, rollouts sec-ondary. So its variance is σ2 
+
+> b
+
+/M + σ2
+
+> w
+
+/(M K ) and the cost-optimal number of rollouts per system is K⋆ = pσ2
+
+> w
+
+/σ 2 
+
+> b
+
+, the classical optimal allocation (Cochran 1977). Because WIS is an average of per-rollout scores (linear in the inner samples), the empirical objective is unbiased for the population WIS at every K and small K suffices when systems are diverse. A detailed analysis is presented in the Appendix. This enables generating thousands of systems for training and evaluations 
+
+without a high cost of generating “ground truth” per system. 
+
+Inverse: Noisy Data to Calibration 
+
+Gradient-Based Calibration Since the forward surrogate is fully differentiable, we can calibrate a system given noisy state trajectories using gradient descent. Holding the surro-gate weights frozen, we treat the parameter quantiles as free variables and minimize the WIS between the calibrated tra-jectory bands and noisy observed trajectories by gradient descent. This approach requires multiple epochs and can be slower than MCMC on small systems. However, it is compar-atively, highly scalable - MCMC cost grows super-linearly with the number of parameters. 
+
+Single-pass Encoder To accelerate calibration we propose a “single-pass” encoder trained to find the calibration in a sin-gle forward pass. We train an encoder Eη that maps a noisy observed trajectory directly to a distribution over parameters. It is the transpose of the forward operator: while the surro-gate pushes parameters forward through the hypergraph to a trajectory, the encoder pulls the trajectory back through the same structure to the parameters. Given an observation 
+
+y ∈ RT ×n (one time series per state), it runs in four stages. 
+
+(i) Per-node GRU. A GRU with weights shared across nodes embeds each state’s noisy time series: 
+
+hv = GRU  y:, v 
+
+ ∈ Rd, v = 1 , . . . , n. (ii) Nodes to edges. For each hyperedge h with sources Sh
+
+and target th,
+
+eh = ϕE
+
+ 1
+
+> |Sh|
+
+P 
+
+> s∈Sh
+
+hs, h th , |Sh|
+
+
+
+∈ Rd,
+
+where ϕE is a shared MLP. (iii) Edges to parameters. We reuse the known affine map between parameters and coeffi-cients, c = c0 + W θ with W ∈ RH×P fixed by the ODE structure: using the column-normalized incidence Ahp =
+
+|Whp |/ P 
+
+> h′
+
+|Wh′p|, each parameter embedding pools its edges, gp = P 
+
+> h
+
+Ahp eh. (iv) Monotone quantile head. With global context ¯h = 1
+
+> n
+
+P 
+
+> v
+
+hv ,
+
+ˆθp, : = cumsum 
+
+
+
+softplus  MLP([ gp ∥ ¯h ]) 
+
+,
+
+so each parameter’s predicted quantiles ( Qin = 5 levels) are positive and non-decreasing by construction. The encoder is trained through the frozen forward surrogate as a fixed decoder F : it predicts ˆθ = Eη (y), F re-simulates a band, and the loss is the reconstruction WIS against the observation, 
+
+L(η) = WIS  D(ˆθ), y .
+
+Freezing H is what prevents the usual autoencoder collapse – the decoder cannot bend to meet a degenerate encoding – so the only way to lower the loss is to emit parameters that actually reproduce the data. is a genuine zero-shot inverse. 
+
+# Experiments 
+
+We intende to demonstrate that: (i) HyperODE surrogate accurately replicates MC at a much lower runtime; (ii) Hy-perODE can be used to calibrate from noisy data; (iii) Hy-perODE extends to a large class of systems and families not seen in training (larger systems, non mass-conserving, external forcing). All our code is publicly available 1.
+
+Setup. We generate data from two sources. Meta-population compartmental families : SIS, SIR, SI, SIRS, and SEIR models replicated over k groups coupled on a ring, where each group may interact with other groups. We keep the number of interactions as O(k). The coupling in-duces transmission across groups/patches and linear inter-patch mobility ( mij ), and every right-hand-side term is thus a monomial; the aggregate infectious count Itot = P 
+
+> i
+
+Ii
+
+is tracked as an extra node. Random reaction networks :mass-conserving systems of linear reactions a → b (rate κx a)and quadratic catalysed reactions a → b (rate κx axc, c̸ = a)on n ∈ [2 , 6] compartments whose states start on the simplex, with an optional aggregate pseudo-node summing a random subset of derivatives; conservation and non-negativity hold by construction. The per-instance parameter uncertainty is itself randomized – each rate independently draws its distri-bution family from {log-normal, uniform, truncated-normal} and then picks random distribution parameters – so the surro-gate can be trained across many shapes of parameter uncer-tainty. We also generate random initial values for these sys-tems. For each (ODE, parameter distribution, initial value) configurations, we generate K = 48 samples from the dis-tribution and solve the ODE to form the targets (as noted  
+
+> 1https://github.com/scc-usc/hyperODE
+> (a) Test WIS vs. capacity. (b) Forward predictive band.
+
+Figure 3: Left : Performance of all surrogate models and a sample output. earlier, K need not be large when computing loss across large batches). Trajectories are integrated with a fixed step to 
+
+tmax =8 (40 steps, dt=0 .2). Splits are structure-level out-of-distribution: only {SIS , SIR , SI } and random networks are seen in training, SIRS is held out for validation, and 
+
+SEIR for test ; the validation/test random networks use dis-joint structure seeds, so at evaluation both the compartmental 
+
+family and the specific random topologies are unseen. Models train on k ∈ { 1, 2, . . . , 64 } and are evaluated out to k=128 .We use 4270, 1600, and 1420 configurations for training, validation, and testing, respectively. 
+
+Metrics We use WIS and Coverage as our main met-rics. WIS (the weighted interval score) is the mean pin-ball loss of the predicted quantiles across the levels τ ∈{0.05 , 0.25 , 0.5, 0.75 , 0.95 }, scored against the Monte-Carlo samples. Coverage cov90 is the empirical fraction of the ground truth falling inside the central 5-95% predictive band. A perfectly calibrated model attains the nominal 0.90 , and both over- and under-coverage are miscalibrations. 
+
+Forward Surrogate 
+
+We trained many forward surrogates with varying layers, dimensions per layer and learning rates. Based on the valida-tion errors, we chose a 3 layer model with hidden dimension 32 as it achieved validation WIS close to the best model (3 layer, 128 dimension) with only around 10 k parameters. The results for all the models on the test set are shown in Fig-ure 3a. The chosen h32-L3 model ( ≈13 k parameters) attains a test WIS of 0.0087 while remaining well-calibrated (cov90 
+
+≈ 0.88 , close to the nominal 0.90 ). We also observe that 2 and 3 layers significantly improve upon a single layer. Figure 3b shows the output of the surrogate compared to Monte Carlo oracle on a held-out large SEIR system. It is able to closely track the oracle and its distribution. 
+
+Baselines and ablations. We consider a baseline which is a per-structure specialist : a surrogate of the same architec-ture trained exclusively on one structure. Our general model beats the specialist by 7–11% WIS at every k even though 
+
+SEIR is held out (Table 1). So cross-structure training ac-tually helps the model rather than diluting it. We also ran variations of hyperGNN and GNN architectures. On the test set the hypergraph grouping is decisive for raw accuracy (Table 2). GCN and GAT baselines are roughly 5× worse in WIS and attention does not help (GAT ≈GCN), confirming k (SEIR) generalist WIS ↓ specialist WIS ↓        
+
+> 10.00762 0.00853
+> 20.01033 0.01127
+> 40.01069 0.01147
+> 80.01056 0.01148
+
+Table 1: One shared generalist versus a specialist of the same architecture trained exclusively on each held-out SEIR -k.            
+
+> model WIS ↓cov90 ( →0.90 )hyperODE 0.0093 ±.0071 0.872
+> GCN (vanilla) 0.0441 ±.0278 0.868
+> GAT (attention) 0.0503 ±.0221 0.914
+
+Table 2: Ablation on the h32-L3 backbone for the forward surrogate. (Figure 5). that treating each monomial as a hyperedge matters. A more detailed ablation study for hypergraph features appears in Appendix. In particular, the product’s value shows up out of distribution, at higher interaction order (see Figure 4). 
+
+Scaling and interaction order. We tested zero-shot gen-eralization against a K=200 -sample Monte Carlo oracle on held-out SEIR family up to n=257 states ( k=64 ) and on random reaction networks forced far beyond their training size ( n≤6) up to n=128 . The MC oracle is obtained by scoring using K/ 2 samples against the rest K/ 2. With no re-training, the WIS and coverage deviation from 0.90 remains low across scales (Figure 4). Note that the standard devia-tion in the errors seem to decrease with size. This is due to the fact that larger systems have errors aggregated over larger number of states. The forward surrogate also handles higher-order interactions it never saw: on random networks with cubic and quartic terms (order 2→4) the forward WIS and coverage stay essentially flat (Figure 5), and removing the product costs a modest but growing penalty ( ≈1.2× at order 3, 1.4× at order 4). This suggests that explicit product term helps with generalization to unseen orders. 
+
+Figure 4: Zero-shot forward scale-generalization (both fam-ilies, std error bars over structures). 
+
+Inverse: Noisy Data to Calibration 
+
+We sample one trajectory per configuration and introduce 5% 
+
+noise. On these, we perform calibrations three ways: a per-instance gradient calibration ( 300 Adam steps through the 
+
+Figure 5: Zero-shot forward generalization to higher interac-tion order, highlighting the impact of prod feature. frozen surrogate), our single shared single-pass encoder (ob-servation to parameters in one forward pass, no per-instance optimization), and MCMC on the true ODE ( 700 –1600 solves per problem). For training single pass encoder, we ran an-other hyperparameter sweep, and ended up with h128_L2 as the forward surrogate decoder. The single-pass encoder’s decisive advantage is cost: since the MCMC iteration budget is a free parameter, we compare the intrinsic per-run cost (Figure 6a): one encoder pass ( 6–
+
+13 ms) is ∼15 –25 × cheaper than a single MCMC solve and 
+
+∼50 –80 × cheaper than a single gradient step; accounting for iteration counts, the encoder is ∼10 3–10 4× faster end-to-end (milliseconds vs. 72 –310 s). While MCMC may seem faster than our gradient-based approach, the number of iterations needed to achieve good results with MCMC scales super-linearly with number of states. This is reflected in the errors (Table 3). The gradient-based inverse is the most accurate and could be accelerated by batching multiple systems leveraging the GPU. While both single-pass and limited-budget MCMC miscalibrate, MCMC performs worse, and achieving better results would require MCMC a much larger time budget. Figure 6b shows the calibration in one such instance. Against per-structure simulation based inference – NPE and NRE (Papamakarios and Murray 2016; Hermans, Begy, and Louppe 2020) with 2000 runs, our single encoder matches NPE on some models and outperforms both NPE and MCMC on the large SEIR system, with no per-structure training (Table 4). We also compare against a foundation ODE model (FIM-ODE) in Table 5. FIM-ODE is structure-blind and infers the dynamics from data, whereas Hyper-ODE is given the known structure and exploits it, so this comparison favors HyperODE by design and should be read as characterizing where each method applies rather than as a head-to-head on equal footing. FIM-ODE is further limited to systems with 3 states or fewer and produces point estimates rather than calibrated quantiles. Our single-shot encoder per-forms worse on less noisy data but overtakes FIM-ODE as noise increases, owing to its knowledge of the underlying ODE; the gradient-based approach outperforms both by a wide margin at while being a small model, at the cost of multiple gradient steps. 
+
+Extensions 
+
+External forcing. Since we have a neural ODE, we can swap a different hypergraph at each step. This allows for method WIS ↓ cov90 ( →0.90 ) runtime small gradient .0053 ±.0027 0.97 36 s encoder .0156 ±.0121 0.88 4.1 ms                 
+
+> MCMC .0066 ±.0029 0.78 4.1 s large gradient .0027 ±.0023 0.96 191 s encoder .0129 ±.0125 0.85 9.5 ms
+> MCMC .0223 ±.0236 0.37 142 s
+
+Table 3: Inverse methods on noisy test data (cov90 target 
+
+0.90 ).                      
+
+> method rand rand k=32 SEIR k=32
+> ours (one model) single-pass 0.0067 0.0018 0.0227
+> gradient 0.0038 0.0009 0.0047
+> classic MCMC 0.0050 0.0011 0.0335
+> per-struct. SBI NPE 0.0065 0.0017 0.0260
+> NRE 0.0120 ––
+
+Table 4: Comparison against per structure simulation-based inference (SBI).       
+
+> (a) Inference cost per run vs. sys-tem size k.
+> (b) Calibration bands, held-out large SEIR (k=32 ,I20 ).
+
+Figure 6: Inverse calibration: runtimes and calibrated bands. external forcing such as seasonal transmission through a dy-namic hypergraph. We can update the transmission edge with the known driver at each step z(t). Doing this reproduces the forced SEIR dynamics to ≈2% relative error (rising to ≈5% 
+
+on a larger instance) and yields a well-calibrated forced band (cov90 ≈ 0.91 ), whereas an unforced control that ignores 
+
+z(t) instead produces the non-seasonal trajectory (Figure 7). 
+
+Vital dynamics (birth/death). The learned operator is lo-cal —it sums monomial messages and never hard-codes a global conservation law – so, reusing the dynamic-graph reformulation (clamped source/sink nodes for influx and re-moval), it extrapolates zero-shot to systems that violate con-servation. Adding vital dynamics (birth rate Λ, death rate μ)to SEIR makes the total population N drift by up to ±41% ,yet the frozen surrogate tracks the state trajectories to ≈2% 
+
+relative error and N itself to ≈1% (Figure 8). 
+
+Handling non-polynomial terms. Frequency-dependent transmission βSI/N is non-polynomial and thus outside the mass-action class. However, we can polynomialize by introducing an auxiliary state M = 1 /N . This was used                
+
+> fit MAE ↓(D≤3slice) method 5% noise 10% 25% FIM-ODE (pretrained, 13M) 0.0203 0.0256 0.0623
+> HyperODE (gradient, 13k) 0.0044 0.0069 0.0157 HyperODE (one-shot, 140k) 0.0591 0.0593 0.0591
+
+Table 5: FIM-ODE vs HyperODE for calibration from noisy data. FIM degrades with noise. 
+
+Figure 7: Introducing seasonal forcing via a dynamic graph. in Figure 8 mentioned above. This indicates that HyperODE applies to approximately mass-conserving dynamics well be-yond the class it was trained on. 
+
+Figure 8: Zero-shot frequency-dependent transmission with non-polynomial terms βSI/N via polynomialization. 
+
+# Conclusion 
+
+We propose a single surrogate, HyperODE, that generalizes across the structure, scale, and interaction order of a class of approximately mass-conserving ODEs. It produces cali-brated uncertainty in one forward pass and supports both a gradient and a single-pass inverse. By exposing the ODE as a directed hypergraph and applying a shared operator with an explicit mass-action product, it transfers zero-shot where conventional surrogates would require retraining. While we trained with only mass-conserving systems with maximum degree 2 terms, we have demonstrated that Hyper-ODE applies to higher degrees, non-polynomials, and non-mass conserving systems as well. Further, external forces can be introduced into the system despite their absence in train-ing. Our experiments are limited to compartmental models and reaction networks. A more diverse data generation can potentially make HyperODE more general and lead us to-wards a true foundation model. Finally, the performance gap between gradient-based inverse and single pass inverse sug-gests that the encoder architecture may be improved. References 
+
+Battaglia, P. W.; Pascanu, R.; Lai, M.; Rezende, D.; and Kavukcuoglu, K. 2016. Interaction Networks for Learning about Objects, Relations and Physics. In Advances in Neural Information Processing Systems (NeurIPS) .Borchering, R. K.; Viboud, C.; Howerton, E.; Smith, C. P.; Truelove, S.; Runge, M. C.; Reich, N. G.; Contamin, L.; Levander, J.; Salerno, J.; et al. 2021. Modeling of Future COVID-19 Cases, Hospitalizations, and Deaths, by Vacci-nation Rates and Nonpharmaceutical Intervention Scenar-ios—United States, April–September 2021. MMWR. Mor-bidity and Mortality Weekly Report , 70(19): 719–724. Bracher, J.; Ray, E. L.; Gneiting, T.; and Reich, N. G. 2021. Evaluating Epidemic Forecasts in an Interval Format. PLOS Computational Biology , 17(2): e1008618. Carothers, D. C.; Parker, G. E.; Sochacki, J. S.; and Warne, P. G. 2005. Some Properties of Solutions to Polynomial Systems of Differential Equations. Electronic Journal of Differential Equations , 2005(40): 1–17. Cochran, W. G. 1977. Sampling techniques . john wiley & sons. d’Ascoli, S.; Becker, S.; Mathis, A.; Schwaller, P.; and Kilber-tus, N. 2024. ODEFormer: Symbolic Regression of Dynami-cal Systems with Transformers. In International Conference on Learning Representations (ICLR) .Feng, Y.; You, H.; Zhang, Z.; Ji, R.; and Gao, Y. 2019. Hy-pergraph Neural Networks. In AAAI Conference on Artificial Intelligence .Greenberg, D. S.; Nonnenmacher, M.; and Macke, J. H. 2019. Automatic Posterior Transformation for Likelihood-Free In-ference. In International Conference on Machine Learning (ICML) .Hemery, M.; Fages, F.; and Soliman, S. 2020. On the Complexity of Quadratization for Polynomial Differential Equations. In Computational Methods in Systems Biology (CMSB) .Hermans, J.; Begy, V.; and Louppe, G. 2020. Likelihood-Free MCMC with Amortized Approximate Ratio Estimators. In International Conference on Machine Learning (ICML) .Kerner, E. H. 1981. Universal Formats for Nonlinear Ordi-nary Differential Systems. Journal of Mathematical Physics ,22(7): 1366–1371. Kochkov, D.; Smith, J. A.; Alieva, A.; Wang, Q.; Brenner, M. P.; and Hoyer, S. 2021. Machine Learning–Accelerated Computational Fluid Dynamics. Proceedings of the National Academy of Sciences , 118(21): e2101784118. Koenker, R.; and Hallock, K. F. 2001. Quantile Regression. 
+
+Journal of Economic Perspectives , 15(4): 143–156. Li, Z.; Kovachki, N.; Azizzadenesheli, K.; Liu, B.; Bhat-tacharya, K.; Stuart, A.; and Anandkumar, A. 2021. Fourier Neural Operator for Parametric Partial Differential Equa-tions. In International Conference on Learning Representa-tions (ICLR) .Lu, L.; Jin, P.; Pang, G.; Zhang, Z.; and Karniadakis, G. E. 2021. Learning Nonlinear Operators via DeepONet Based on the Universal Approximation Theorem of Operators. Nature Machine Intelligence , 3(3): 218–229. Mauel, M.; Hübers, J. R.; Berghaus, D.; Seifner, P.; and Sanchez, R. J. 2026. Foundation Inference Mod-els for Ordinary Differential Equations. arXiv preprint arXiv:2602.08733 .Papamakarios, G.; and Murray, I. 2016. Fast ε-free Inference of Simulation Models with Bayesian Conditional Density Estimation. In Advances in Neural Information Processing Systems (NeurIPS) .Pfaff, T.; Fortunato, M.; Sanchez-Gonzalez, A.; and Battaglia, P. W. 2021. Learning Mesh-Based Simulation with Graph Networks. In International Conference on Learning Representations (ICLR) .Sanchez-Gonzalez, A.; Godwin, J.; Pfaff, T.; Ying, R.; Leskovec, J.; and Battaglia, P. W. 2020. Learning to Simu-late Complex Physics with Graph Networks. In International Conference on Machine Learning (ICML) .Shafer, G.; and Vovk, V. 2008. A Tutorial on Conformal Prediction. Journal of Machine Learning Research , 9: 371– 421. Tan, Y.; Zhang, Y.; Cheng, X.; and Zhou, X.-H. 2022. Statisti-cal inference using GLEaM model with spatial heterogeneity and correlation between regions. Scientific Reports , 12(1): 16630. Monte-Carlo Sample Size Sufficiency 
+
+Every system is scored against K=48 true-ODE rollouts during training and most of testing. Because WIS is an av-erage of per-rollout scores, the empirical objective ˆRM,K =
+
+> 1
+> M
+
+P 
+
+> m1
+> K
+
+P 
+
+> k
+
+ℓ(f ; gm, y m,k ) is a two-stage (cluster) sample of the population score (systems are the primary units, roll-outs the secondary), so it is unbiased for the population WIS at every K, with the classical two-stage variance (Cochran 1977) 
+
+Var[ ˆRM,K ] = σ2
+
+> b
+
+M + σ2
+
+> w
+
+M K ,
+
+where σ2 
+
+> b
+
+is the between-system and σ2 
+
+> w
+
+the within-system variance of the per-rollout WIS. Averaging over the inner rollouts is what removes any small-K bias. Two conse-quences follow. At a fixed budget N =M K the variance is  
+
+> KN
+
+σ2 
+
+> b
+
++ 1 
+
+> N
+
+σ2
+
+> w
+
+, minimized by spending on more systems (small 
+
+K, large M ); and extra rollouts stop helping once σ2
+
+> w
+
+/(M K )
+
+is dominated by σ2 
+
+> b
+
+/M , i.e. for K ≳ ρ ≡ σ2
+
+> w
+
+/σ 2 
+
+> b
+
+.
+
+How far is the reported WIS from the true loss? The train/test WIS standard error due to K rollouts for each of the M systems is given by 
+
+SE[ ˆRM,K ] = 
+
+r σ2
+
+> b
+
+M + σ2
+
+> w
+
+M K .
+
+We estimate σ2
+
+> w
+
+, σ 2 
+
+> b
+
+directly from the generated data by a one-way random-effects ANOVA: for each system m, the MC-oracle band (empirical quantiles of its K rollouts) is scored against each rollout k, giving per-rollout scores ℓm,k ;then 
+
+ˆσ2 
+
+> w
+
+= 1
+
+> M
+
+X
+
+> m
+
+Var k(ℓm,k ), ˆσ2 
+
+> b
+
+= Var m(¯ℓm) − ˆσ2
+
+> w
+
+/K. 
+
+The components σ2
+
+> w
+
+, σ 2 
+
+> b
+
+are themselves estimated, but from the full pool ( M =4270 configurations at K=48 each), so σ2
+
+> w
+
+carries M (K−1) ≈ 2×10 5 and σ2 
+
+> b
+
+carries M −1 degrees of freedom. Table 6, shows the resulting standard error from the choice of K. Observe that increasing K would have limited impact on the computed loss. variance ( 10 −5) SE[ ˆR] (10 −4)scope σ2 
+
+> w
+
+σ2 
+
+> b
+
+K=48 K→∞ 
+
+train 5.2 7.4 1.33 1.32 
+
+test 4.3 4.0 1.70 1.68 
+
+Table 6: Sampling accuracy of the reported (set-averaged) WIS. SE[ ˆRK,M ] = pσ2 
+
+> b
+
+/M + σ2
+
+> w
+
+/(M K ), with M =4270 
+
+(train) and 1420 (test). The K=48 and K → ∞ columns differ by <1.2% .
+
+# Inverse: Batched-Inference Throughput 
+
+Table 7 measures per-problem wall time vs. batch size B on a single GPU. The gradient inverse benefits most – batching fills the GPU across its 300 optimization steps, cutting per-problem time by an order of magnitude. This substantiates the main-text remark that the gradient inverse can be accelerated by batching.                               
+
+> method kB=1 B=8 B=32 B=64 speedup single pass 41.0 ms 0.7 ms 0.7 ms 0.7 ms 1.4×
+> single pass 32 1.4 ms 1.1 ms 1.1 ms 1.1 ms 1.3×
+> gradient 458.6 s 8.2 s 2.5 s 1.5 s 38 ×
+> gradient 32 60.7 s 8.5 s 4.6 s 4.4 s 14 ×
+
+Table 7: Per-problem inference time vs. batch size B (V100 GPU), for the two surrogate inverses at a small ( k=4 ) and large ( k=32 ) system. 
+
+# Extension: Generalized Product 
+
+The most important extension of the operator is that its mass-action product feature is not locked to a monomial: swapping it at inference lets one pretrained model integrate systems far outside the training class. We first establish that within the mass-conserving training class the product feature does not matter at all, so its value is entirely a generalization effect. 
+
+In distribution, the product feature is redundant 
+
+We compare our approach with inclusion (full vs no-product) and exclusion of the product feature across interaction order 
+
+(2 → 6, random reaction networks) and the system scale 
+
+(held-out SEIR, k=1 → 64 , n=5 → 257 ) in Figure 9. The large, robust effect is hyperedge grouping : the GCN/GAT clique-expansions are 7–8× worse on the order axis and 4–
+
+5× worse on the scale axis, at every order and every scale. For some other backbones, we found that the pooling term was necessary to prevent the training from diverging. Generally, we observe that for mass-conserving training class, explicit computation of product does not matter. However, we show next that such explicit computation is necessary for zero shot generalization across products. 
+
+Out of distribution, the product becomes essential 
+
+The mass-action product prod h = Q 
+
+> s∈Sh
+
+xs is a per-hyperedge feature computed from the raw sources at every solver substep. Nothing ties it to a monomial product – it can be replaced at inference by any driving nonlinearity gh(xSh ).Feeding the correct nonlinearity lets the same operator in-tegrate systems outside the mass-action class. In addition to swapping, we also ensure the following. (i) Every state is shifted and normalized into [0 , 1] . (ii) The mass-action product Q 
+
+> s
+
+xs is always non-negative , since ψ only ever saw non-negative prod .
+
+No-prod with polynomialization. To assist the no-prod 
+
+version address this we need to polynomialize as discussed earlier, as it was only trained to approximate products. Many of these terms can be polynomialized through introduction of auxiliary variables. However, this may also lead to states going unbounded (e.g., X = 1 /Y , when Y is small) or lead to large coefficients. Large coefficients can be reduced by changing the timescale, however, this may cause changes in step size or time horizon that are difficult for the surrogate. We swapped the transmission edge’s product, Q 
+
+> s
+
+xs →
+
+g(S, I ) to the following functions forms – sub/super-linear 
+
+SI p, saturating (Holling-II) SI/ (1+ αI ), Ricker SI e −αI ,(a) Interaction order. (b) System scale (SEIR k). 
+
+Figure 9: Operator differentiation at h32-L3: interaction order (left) and system scale (right). The choice of explicit product term does not matter within our test set, but it does in zero-shot generalization to other functions (see Table 8).                                                   
+
+> swap (ours) no-prod no-prod + poly incidence g(S, I )WIS cov90 WIS cov90 WIS cov90 poly. pipeline sublinear SI 0.50.011 0.88 0.031 0.36 0.020 0.63 norm+rescale ( λ=91 )superlinear SI 1.50.004 0.81 0.031 0.15 0.077 0.73 norm+rescale ( λ=811 )saturating SI/ (1+8 I)0.008 0.74 0.014 0.63 0.011 0.65 recast only Ricker SI e −3I0.010 0.73 0.012 0.73 0.013 0.71 recast only Hill SI 3/(0 .13+I3)0.014 0.83 0.035 0.35 144 .50.08 norm+rescale ( λ=3594 )
+
+Table 8: Generalized product vs. polynomialization. Replacing SEIR incidence with-non polynomials. swap feeds the true nonlinearity g(S, I ) into the pretrained operator with no retraining. no-prod is the mass-action baseline: it has no product feature to swap. The alternative is to polynomialize g into auxiliary states and run the no-product model ( no-prod + poly ), with the recast recipe in the last column. While polynomialization often helps, swap achieves better results. 
+
+Figure 10: Generalized product across ODE families (zero-shot, one pretrained operator): damped pendulum, Michaelis-Menten, Gompertz, Hill toggle, and a Lotka-Volterra control. and Hill SI n/(Kn+In). For all these cases, HyperODE with swap with no retraining continues to demonstrate good WIS and coverage. no-prod only manages to keep up when the functions are approximately multiplicative for small I
+
+(saturating and Ricker). Polynomialization helps, however it remains worse than swap and fails when time-scale ( λ) needs to be changed significantly. 
+
+Other Families 
+
+Figure 10 applies the generalized product zero-shot across five ODE families from different domains, using the single pretrained operator with no retraining. Each system contains a term outside the mass-action class; at inference we substi-tute that hyperedge’s product feature Q 
+
+> s
+
+xs with the term’s actual driving nonlinearity g(·), after shifting/normalizing the states into [0 , 1] and keeping g non-negative. On the dis-sipative/monotone families (Michaelis–Menten, Gompertz, Hill toggle) the surrogate’s 25 –75% predictive band closely matches the Monte-Carlo band under parameter uncertainty. On the oscillators (pendulum, Lotka–Volterra) the median tracks the true trajectory trend approximately zero-shot while the band over-covers. Experimental Setup 
+
+Architecture and Training 
+
+The hyperedge operator uses two MLPs ϕ, ψ : each hyperedge 
+
+h emits a message ch ψ([ P 
+
+> s
+
+ϕ(xs), Q 
+
+> s
+
+xs, |Sh|, efeat h]) ,with the product computed in log-space for numerical stabil-ity and always taken from the raw state values. The forward sweep spans hidden width ∈ { 16 , 32 , 64 , 128 }, learning rate 
+
+∈ { 5×10 −4, 10 −3, 5×10 −3}, and depth ∈ { 1, 2, 3}; every model uses an Euler solver with 2 substeps, batch size 32, and no range penalty, and is selected by validation pinball loss. The selected model is h32-L3 ( ≈13k parameters). Training minimizes the pinball loss plus a monotonicity penalty ( λ=1 ) with Adam and a plateau-based learning-rate schedule, gradient clipping at 5, skipping any batch with a non-finite loss, and best-by-validation checkpointing. The single-pass inverse encoder maps observations through a per-node GRU, a hyperedge message-passing layer, and an affine map W to parameters, followed by a monotone quantile head. 
+
+Hardware All neural-network training and inference ran on a single NVIDIA V100 GPU (32 GB). Data generation and the classical baselines are CPU-bound and were run on 28-core Intel Xeon with 256 GB RAM. The batched-inference timings (Table 7) were measured on the same V100. 
+
+Data Generation 
+
+Two family generators supply structures. Meta-population compartmental models (SIS/SIR/SI/SIRS/SEIR) use k
+
+groups with ring coupling, mass-action transmission, and linear mobility, while random reaction networks place mass-conserving linear and quadratic reactions on n ∈ [2 , 6] com-partments, with an optional aggregate pseudo-node. A test-only higher-order generator adds order-m reactions a → b at rate k Q 
+
+> s∈S
+
+xs over m distinct compartments including a,preserving conservation and non-negativity; order ≥ 3 never appears in training. Splits are out-of-distribution by both family and seed: training draws SIS/SIR/SI plus random networks, validation the held-out SIRS family plus disjoint random networks, and testing the entirely unseen SEIR family plus further disjoint random networks — 4270 , 1600 , and 1420 configurations respectively. For forward UQ, each instance is solved with 
+
+K=48 true-ODE rollouts to tmax =8 over T =40 steps. The encoder trains against the frozen surrogate decoder with ob-servation noise drawn log-uniformly in [1% , 25%] . All ex-periments use fixed random seeds, and the data splits are disjoint by seed and by family. 
+
+Metrics 
+
+WIS is the mean pinball (quantile) loss over the quantile levels τ ∈ Q = {.05 , . 25 , . 5, . 75 , . 95 }. For a predicted τ -quantile ˆqτ and an observation y, the pinball loss 
+
+ρτ (y, ˆqτ ) = 
+
+(τ (y − ˆqτ ), y ≥ ˆqτ ,
+
+(1 − τ ) (ˆ qτ − y), y < ˆqτ ,
+
+penalizes under-prediction with weight τ and over-prediction with weight 1 − τ , and is minimized in expectation by the 
+
+Figure 11: Reliability diagrams (empirical vs. nominal cov-erage; diagonal is perfect calibration). Left: operator com-parison. Right: across model capacity. true τ -quantile. The score is averaged over all quantile levels and evaluation points (time steps and states), 
+
+WIS = 1
+
+|Q|
+
+X 
+
+> τ∈Q
+
+ρτ (y, ˆqτ ).
+
+The coverage at level q is ˆτq = Pr[ Y ≤ ˆqτq ], the 90% -band coverage is cov90 = ˆτ.95 − ˆτ.05 (target 0.90 ). For the inverse task we report the reconstruction WIS of the posterior-predictive band and coverage based on observed noisy trajectory. 
+
+# Additional Experiments 
+
+Forward Calibration Across Quantiles 
+
+Throughout the paper, for coverage we have used coverage at 0.90 quantile (cov90). Figure 11 gives the full coverage diagram – empirical vs. nominal coverage at every quantile level, the diagonal being ideal. Left: the hypergraph operator (full and no-product) tracks the diagonal closely, whereas the GCN/GAT clique-expansions mis-place the interior quan-tiles (GCN’s nominal 25 –75% interval over-covers; GAT under-covers the lower tail). Right: calibration is essentially invariant to model capacity across the 80 × span (h16-L2 →
+
+h128-L3). Aggregated over in-distribution random networks (order 2) and the held-out SEIR family. 
+
+Forward Baselines: Floor, Oracle, and Specialists 
+
+Table 9 places the surrogate between a naive floor and the MC oracle ceiling. The MC oracle is the empirical band of the K true-ODE solves, scored on a held-out K/ 2. Recall that the reported mean is across a large number of systems, making the size K/ 2 = 24 less relevant, given the variance across systems. The surrogate sits within 2.6% of this floor in mean WIS and is marginally better on the median (it avoids the oracle’s finite-sample quantile noise), while beating the flatline floor by ∼ 14 ×.
+
+Median of HyperODE vs ODE with median parameters 
+
+Does the surrogate learn anything a single ODE solve does not? Specifically, we test if the surrogate median is just learn-ing what a single ODE solve with median of parameters (solve-median ) would produce. On the test dataset solve-median recovers the MC median to ≈ 2.4% relative error. estimator WIS (mean ±std) median flatline ( x≡x0) 0.1248 ± .0736 0.1344         
+
+> MC oracle (irred. floor) 0.00867 ±.0062 0.00953
+> surrogate h32-L3 0.00890 ±.0068 0.00945
+
+Table 9: Forward baselines on the 1420 -structure test split (per-structure WIS): the surrogate sits at the irreducible MC-oracle floor and ∼ 14 × below the flatline floor.             
+
+> ksig=0 .4sig=0 .6sig=0 .8
+> 472% 68% 88%
+> 880% 78% 98 %
+> 16 88% 92% 97 %
+
+Table 10: Beyond the median. Fraction of held-out SEIR 
+
+systems where the surrogate’s median trajectory is closer to the true median-of-solves than a single solve(median θ), vs. system size k and transmission-rate spread sig (n=60 /cell. So on the point estimate at moderate uncertainty a surrogate median does not earn a speedup, however, it does contribute the calibrated band and the differentiable inverse. But that tie is specific to limited spread in parameters in the test set. We generated more test instances where the param-eter uncertainty is around thresholds leading to significantly different peak heights and timings per run. Testing the pre-trained h128 model (no retraining) on held-out SEIR across system size k and transmission spread sig , the surrogate me-dian beats a single solve on 72 –98% of systems, growing with both size and uncertainty (Table 10), with lopsided margins (k≥8, sig=0 .8: wins by ∼+0 .05 , loses by ∼− 0.01 ). Fig-ure 12 shows one of the difficult test samples – solve-median 
+
+produces a trajectory that even goes out of the 95% interval. HyperODE forward surrogate, while not a perfect match, still remains within the interval. 
+
+Temporal and Step-Size Generalization 
+
+The learned field is time-independent, so the pretrained sur-rogate can be integrated beyond its trajectories times seen during training with no retraining. We consider two exten-sions in time. Horizon: integrating to t=32 (4× the t ≤ 8
+
+training horizon) at the same dt, WIS rises only ∼ 1.3×
+
+over the window (0 , 8] → (24 , 32] and coverage drifts 
+
+0.87 → 0.80 (Fig. 13, left). Step size: evaluating at inte-gration steps coarser than the dt=0 .2 training grid, the me-dian prediction is step-size invariant to ∼ 4× and calibration holds to ∼ 4× before degrades at an impractically large step size (Fig. 13, right). 
+
+Inverse: Parameter Recovery 
+
+The paper scores the predictive band , not parameter recov-ery, as the systems are unidentifiable. Figure 14 makes this explicit: the median relative parameter error is large for both 
+
+the gradient inverse ( 17 –36% ) and true-ODE MCMC ( 28 –
+
+83% ), and grows with system size. Yet, the gradient inverse recovers parameters better than MCMC at every size, and MCMC with limited budget degrades sharply at large k – the 
+
+Figure 12: Median-of-solves vs. solve-at-median on a wide-spread SEIR ( k=8 ). The single central solve mistimes the peak ( t ≈ 12 ); the surrogate median tracks the true early rise (t ≈ 6–9), inside the MC band. 
+
+> (a) Horizon extrapolation ( 4×).
+> (b) Step-size coarsening (cov90).
+
+Figure 13: Temporal extrapolation and step-size coarsening of the frozen surrogate. same random-walk mixing failure that collapses its predic-tive band. A parameter-recovery comparison therefore scores an ill-posed quantity; the calibrated posterior-predictive band is the well-defined target. 
+
+Inverse: Compute Budgets and Baseline Details 
+
+• Gradient inverse: 300 Adam steps through the frozen sur-rogate (lr 0.05 ), per instance. 
+
+• MCMC: random-walk Metropolis on the true ODE, Gaus-Figure 14: Median relative parameter-recovery error vs. sys-tem size (median ± IQR). sian likelihood, flat prior on log θ; budget = burn + samples ×thin true-ODE solves = 1600 (small/test) vs 700 (large k) – large-k used fewer iters, so its runtime is a lower bound. The reported MCMC runtime is the se-quential single-chain sampling time (one true-ODE solve per step; the chain cannot be parallelized). 
+
+• Per-structure simulation-based inference (NPE/NRE): a normalizing-flow / ratio estimator with an MLP trajectory embedding, retrained per structure; NPE inference is slow at scale ( ∼ 1 h at k=32 , P =224 ), NRE MCMC-based. Our single-pass encoder is a single general model (no per-structure training). 
+
+• FIM-ODE (foundation model, 13 M params): structure-blind, D ≤ 3 only, point estimates; overtaken by the single-pass encoder as noise grows (Table 5).
