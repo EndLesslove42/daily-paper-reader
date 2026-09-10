@@ -4,6 +4,8 @@ import base64, json, os, re, shutil, subprocess, sys
 from pathlib import Path
 from datetime import datetime
 ROOT = Path(__file__).resolve().parents[2]
+if os.name == "nt" and not str(ROOT).startswith("\\\\?\\"):
+    ROOT = Path("\\\\?\\" + str(ROOT))
 CONFIG = {"config.yaml", "secret.private"}
 TRAILERS = "\n\nCo-Authored-By: lilmortyj <781113402@qq.com>\nCo-Authored-By: xixi <3495302215@qq.com>\nCo-Authored-By: wy <345619498@qq.com>"
 TOKEN = re.compile(rb"(?<![A-Za-z0-9])(?:sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})")
@@ -96,6 +98,7 @@ def validate(name, data):
     if data is not None:
         (check_config if name == "config.yaml" else check_secret)(data)
 def sync():
+    git("config", "--local", "core.longpaths", "true")
     dirty, tracked = preflight()
     print(text("status", "--short"))
     local = {p: safe_path(p).read_bytes() if safe_path(p).exists() else None for p in CONFIG}
@@ -187,6 +190,7 @@ def sync():
             raise RuntimeError("远端同时修改配置；已中止 rebase 并保留远端版本，请人工确认。") from None
     raise RuntimeError("远端持续更新，已保留提交，请稍后再运行。")
 def update():
+    git("config", "--local", "core.longpaths", "true")
     if text("branch", "--show-current") != "main":
         raise RuntimeError("请在 main 执行更新。")
     if paths("diff", "--name-only") or paths("diff", "--cached", "--name-only"):

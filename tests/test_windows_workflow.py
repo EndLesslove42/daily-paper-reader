@@ -47,6 +47,13 @@ class WindowsSyncTests(unittest.TestCase):
         w.ROOT = self.local
     def tearDown(self):
         w.ROOT = self.previous
+        import os
+        # Cleanup must use the same extended-path support as the operation under test.
+        if os.name == "nt":
+            temp_root = Path(tempfile.gettempdir()).resolve()
+            if not Path(self.temp.name).resolve().is_relative_to(temp_root):
+                raise RuntimeError("Unexpected fixture path")
+            self.temp.name = chr(92)*2 + "?" + chr(92) + self.temp.name
         self.temp.cleanup()
     def publish(self, changes):
         for name, value in changes.items():
@@ -132,5 +139,43 @@ class WindowsSyncTests(unittest.TestCase):
         self.git(self.local,"commit","-m","unpublished code")
         with self.assertRaisesRegex(RuntimeError, "非配置"):
             self.sync()
+    def test_windows_long_backup_paths(self):
+        import os
+        if os.name != "nt":
+            self.skipTest("Windows extended paths")
+        w.ROOT = Path(chr(92)*2 + "?" + chr(92) + str(self.local))
+        name = "docs/nested/" + "a" * 170 + ".md"
+        self.put(w.ROOT, name, "local long output")
+        self.sync()
+        self.assertTrue(list((w.ROOT/".local_backup").glob("*/generated/" + name)))
+    def test_update_cancel_keeps_head(self):
+        self.git(self.local,"remote","add","upstream",str(self.remote))
+        self.publish({"new-code.txt":"new"})
+        before=self.git(self.local,"rev-parse","HEAD")
+        with patch("builtins.input",return_value="n"), contextlib.redirect_stdout(io.StringIO()):
+            w.update()
+        self.assertEqual(before,self.git(self.local,"rev-parse","HEAD"))
+
+    def test_update_preserves_user_config(self):
+        self.git(self.local,"remote","add","upstream",str(self.remote))
+        original=(self.local/"config.yaml").read_bytes()
+        self.publish({"new-code.txt":"new", "config.yaml":"query: upstream-default\n"})
+        with patch("builtins.input",return_value="y"), contextlib.redirect_stdout(io.StringIO()):
+            w.update()
+        self.assertEqual(original,(self.local/"config.yaml").read_bytes())
+        self.assertTrue((self.local/"new-code.txt").exists())
+        self.assertEqual(self.git(self.local,"status","--short"),"")
+    def test_update_conflict_preserves_git_versions(self):
+        self.git(self.local,"remote","add","upstream",str(self.remote))
+        self.put(self.local,"config.yaml","query: local-committed\n")
+        self.git(self.local,"add","config.yaml")
+        self.git(self.local,"commit","-m","local config")
+        self.publish({"config.yaml":"query: upstream\n"})
+        with patch("builtins.input",return_value="y"), contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(RuntimeError,"冲突"):
+                w.update()
+        self.assertEqual(self.git(self.local,"diff","--name-only","--diff-filter=U"),"config.yaml")
+        self.assertTrue(list((self.local/".local_backup").glob("*/protected/config.yaml")))
+
 if __name__ == "__main__":
     unittest.main()
