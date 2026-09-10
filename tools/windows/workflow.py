@@ -215,7 +215,7 @@ def update():
     if result.returncode:
         raise RuntimeError("更新未完成；双方版本保留在 Git，备份: " + str(b) +
                            "\n冲突文件:\n" + text("diff", "--name-only", "--diff-filter=U"))
-    tracked = set(paths("ls-files"))
+    tracked = set(paths("ls-tree", "-r", "--name-only", "HEAD")) | set(paths("ls-files"))
     for p in protected:
         source = b / "protected" / p
         if source.exists():

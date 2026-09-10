@@ -177,5 +177,19 @@ class WindowsSyncTests(unittest.TestCase):
         self.assertEqual(self.git(self.local,"diff","--name-only","--diff-filter=U"),"config.yaml")
         self.assertTrue(list((self.local/".local_backup").glob("*/protected/config.yaml")))
 
+    def test_update_restores_upstream_deleted_config(self):
+        self.git(self.local,"remote","add","upstream",str(self.remote))
+        original=(self.local/"config.yaml").read_bytes()
+        self.git(self.peer,"rm","config.yaml")
+        self.put(self.peer,"new-code.txt","new")
+        self.git(self.peer,"add","new-code.txt")
+        self.git(self.peer,"commit","-m","upstream deletion")
+        self.git(self.peer,"push","origin","main")
+        with patch("builtins.input",return_value="y"), contextlib.redirect_stdout(io.StringIO()):
+            w.update()
+        self.assertEqual(original,(self.local/"config.yaml").read_bytes())
+        self.assertIn("config.yaml",self.git(self.local,"ls-files").splitlines())
+        self.assertEqual(self.git(self.local,"status","--short"),"")
+
 if __name__ == "__main__":
     unittest.main()
