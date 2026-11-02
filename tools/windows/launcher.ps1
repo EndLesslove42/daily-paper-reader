@@ -1,4 +1,4 @@
-﻿param([ValidateSet('menu','admin','sync','sync-run','workflow','actions','status','update')][string]$Action = 'menu')
+param([ValidateSet('menu','admin','sync','sync-run','workflow','actions','status','update')][string]$Action = 'menu')
 $ErrorActionPreference = 'Stop'
 $Root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 Set-Location -LiteralPath $Root
@@ -93,6 +93,11 @@ function Sync-Config {
     if ($LASTEXITCODE -ne 0) { throw '配置同步未完成；未触发工作流。请查看上方原因及备份目录。' }
 }
 function Run-Workflow {
+    if (Test-Path -LiteralPath (Join-Path $Root 'tools\codex\DAILY_PROMPT.txt')) {
+        Write-Host '当前日报由 Codex 订阅任务每日生成并归档到原网页。'
+        Write-Host '已保存主题配置；不会触发旧 API 流程。立即更新请在原 Codex 聊天提出。'
+        return
+    }
     $available = $false
     if (Get-Command gh -ErrorAction SilentlyContinue) {
         & gh auth status *> $null
