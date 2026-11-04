@@ -15,11 +15,11 @@ from urllib.parse import urlsplit
 
 SHANGHAI = timezone(timedelta(hours=8))
 TOPICS = {
-    'deposition-surrogates': '沉降过程替代',
-    'surface-exchange': '干沉降与双向交换',
-    'deposition-constraints': '沉降观测约束',
-    'geospatial-surface': '遥感地表表征',
-    'source-sink-coupling': '源汇数值耦合',
+    'deposition-surrogates': '过程模块AI替代',
+    'surface-exchange': '沉降与陆气交换',
+    'deposition-constraints': '观测约束与反演',
+    'geospatial-surface': '遥感与地表表征',
+    'source-sink-coupling': '过程耦合与数值方法',
 }
 TRAILERS = ('\n\nCo-Authored-By: lilmortyj <781113402@qq.com>'
             '\nCo-Authored-By: xixi <3495302215@qq.com>'
