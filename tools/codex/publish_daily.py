@@ -162,7 +162,7 @@ def paper_page(paper):
     # JSON strings/arrays/numbers are valid YAML and work with the existing front-end.
     lines = ['---'] + [f'{k}: {json.dumps(v, ensure_ascii=False)}' for k, v in fields.items()] + ['---', '']
     level = '已阅读全文' if paper['evidence_level'] == 'full_text' else '仅核对摘要'
-    novelty = '近期文献' if paper['novelty'] == 'recent' else '方法补充（非今日新发表）'
+    novelty = '近期文献' if paper['novelty'] == 'recent' else '非近期文献（按研究价值选入）'
     lines += [f'[原文]({paper["url"]}) · {novelty} · {level}', '',
               '## 研究内容', safe_text(paper['summary']), '',
               '## 方法与结果', safe_text(paper['method']), '', safe_text(paper['result']), '',
