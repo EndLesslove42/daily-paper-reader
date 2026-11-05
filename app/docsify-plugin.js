@@ -4400,7 +4400,7 @@ window.$docsify = {
         lines.push('');
 
         // 速览区域
-        if (meta.motivation || meta.method || meta.result || meta.conclusion) {
+        if (meta.summary_format !== 'problem-oriented' && (meta.motivation || meta.method || meta.result || meta.conclusion)) {
           lines.push('<div class="paper-glance-section">');
           lines.push('<div class="paper-glance-row">');
 

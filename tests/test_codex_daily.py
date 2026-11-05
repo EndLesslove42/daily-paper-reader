@@ -34,6 +34,8 @@ class DailyPublicationTests(unittest.TestCase):
         }
 
     def test_compatible_pages_and_preserved_history(self):
+        self.payload['papers'][0]['critical_assessment'] = '假设：<高频误差未检验>，需要留时段验证。'
+        self.payload['papers'][0]['differences'] = '观测是累计量，目标输出是分钟Vd。'
         names = daily.render(copy.deepcopy(self.payload), self.repo)
         sidebar = (self.repo/'docs/_sidebar.md').read_text(encoding='utf-8')
         self.assertIn('old paper', sidebar)
@@ -42,10 +44,19 @@ class DailyPublicationTests(unittest.TestCase):
         self.assertIn('#/202611/02/codex-', sidebar)
         meta = json.loads((self.repo/'docs/202611/02/papers.meta.json').read_text(encoding='utf-8'))
         self.assertEqual(meta['count'], 1)
+        self.assertEqual(meta['papers'][0]['differences'], self.payload['papers'][0]['differences'])
+        self.assertEqual(meta['papers'][0]['critical_assessment'], self.payload['papers'][0]['critical_assessment'])
         page = (self.repo/next(n for n in names if '/codex-' in n and n.endswith('.md'))).read_text(encoding='utf-8')
         self.assertTrue(page.startswith('---\ntitle: '))
         self.assertIn('selection_source: "codex-subscription"', page)
         self.assertIn('仅核对摘要', page)
+        body = page.split('---\n', 2)[-1]
+        questions = ('## 本文研究了什么？', '## 有哪些局限或隐含问题？', '## 对我的研究有什么用，哪里不同？')
+        self.assertEqual([line for line in body.splitlines() if line.startswith('## ')], list(questions))
+        self.assertIn('&lt;高频误差未检验&gt;', body)
+        self.assertIn('阅读者推断', body)
+        self.assertIn('观测是累计量，目标输出是分钟Vd。', body)
+        self.assertIn('summary_format: "problem-oriented"', page)
         self.assertNotIn('api_key', page)
 
     def test_same_day_is_idempotent_and_other_dates_cannot_repeat_a_paper(self):

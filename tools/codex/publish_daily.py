@@ -121,6 +121,9 @@ def validate(payload, repo):
             raise ValueError('Invalid section or evidence_level')
         if paper['section'] == 'deep' and paper['evidence_level'] != 'full_text':
             raise ValueError('Full text must be read before calling a paper deep reading')
+        for field in ('critical_assessment', 'differences'):
+            if field in paper and (not isinstance(paper[field], str) or not paper[field].strip()):
+                raise ValueError(field + ' must be nonempty text when provided')
         https_url(paper['url'])
         if paper.get('pdf_url'):
             https_url(paper['pdf_url'])
@@ -152,22 +155,29 @@ def paper_page(paper):
                 + ['query:' + t for t in paper['topics']],
         'score': float(paper.get('score', 8)), 'evidence': paper['relevance'],
         'tldr': paper['summary'], 'source': paper['source'],
-        'selection_source': 'codex-subscription', 'method': paper['method'],
+        'selection_source': 'codex-subscription', 'summary_format': 'problem-oriented', 'method': paper['method'],
         'result': paper['result'], 'conclusion': paper['limitations'],
     }
     if paper.get('pdf_url'):
         fields['pdf'] = paper['pdf_url']
     if paper.get('motivation'):
         fields['motivation'] = paper['motivation']
+    for field in ('critical_assessment', 'differences'):
+        if paper.get(field):
+            fields[field] = paper[field]
     # JSON strings/arrays/numbers are valid YAML and work with the existing front-end.
     lines = ['---'] + [f'{k}: {json.dumps(v, ensure_ascii=False)}' for k, v in fields.items()] + ['---', '']
     level = '已阅读全文' if paper['evidence_level'] == 'full_text' else '仅核对摘要'
     novelty = '近期文献' if paper['novelty'] == 'recent' else '非近期文献（按研究价值选入）'
     lines += [f'[原文]({paper["url"]}) · {novelty} · {level}', '',
-              '## 研究内容', safe_text(paper['summary']), '',
-              '## 方法与结果', safe_text(paper['method']), '', safe_text(paper['result']), '',
-              '## 与当前实验的联系（阅读判断）', safe_text(paper['relevance']), '',
-              '## 局限与待验证问题', safe_text(paper['limitations']), '']
+              '## 本文研究了什么？', safe_text(paper['summary']), '',
+              safe_text(paper['method']), '', safe_text(paper['result']), '',
+              '## 有哪些局限或隐含问题？', safe_text(paper['limitations']), '']
+    if paper.get('critical_assessment'):
+        lines += ['**隐含问题分析（阅读者推断）**', '', safe_text(paper['critical_assessment']), '']
+    lines += ['## 对我的研究有什么用，哪里不同？', safe_text(paper['relevance']), '']
+    if paper.get('differences'):
+        lines += ['**差异与迁移前提**', '', safe_text(paper['differences']), '']
     return '\n'.join(lines)
 
 
@@ -228,6 +238,9 @@ def output_files(payload, repo):
                          'tags': ', '.join('query:' + t for t in paper['topics']),
                          'source': paper['source'], 'selection_source': 'codex-subscription',
                          'evidence_level': paper['evidence_level'], 'abstract_en': ''})
+        for field in ('critical_assessment', 'differences'):
+            if paper.get(field):
+                metadata[-1][field] = paper[field]
     outputs[f'docs/{daypath}/papers.meta.json'] = json_text(
         {'label': payload['date'], 'date': payload['date'], 'generated_at': timestamp,
          'count': len(papers), 'papers': metadata, 'errors': []})
