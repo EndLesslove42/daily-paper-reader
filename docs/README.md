@@ -1,33 +1,38 @@
-# 日报 · 2026-11-07
+# 日报 · 2026-11-08
 
-- 生成时间：2026-11-07T09:51:49+08:00
+- 生成时间：2026-11-08T09:42:57+08:00
 - 当次推荐总数：3
-- 精读区：2
-- 速读区：1
+- 精读区：3
+- 速读区：0
 
 ## 今日简报
-今天选读3篇经典与方法应用：臭氧干沉降综述帮助厘清通量观测究竟测到什么；dPL奠基工作解释如何跨站共享参数映射；FATES光合作用研究展示真实、非连续观测如何训练内部参数。后两篇属于同一方法路线的框架和应用，不是两项独立交叉验证。重点从“有稀疏数据”推进到“监督对象是否匹配、共享约束是否可信、未知站点是否真的泛化”。
+今天选读3篇较早研究，围绕“替代边界如何满足收支闭合”“遥感时序能否在循环外编码”“稀疏观测下怎样检验真正的泛化”。建议先读Beucler的硬约束模块，再用Roberts设计留站、留年份检验；Presto补充动态地表输入与离线特征缓存的思路。均保留真实发表日期，不把参数少、FLOPs低或预算闭合写成CMAQ已提速、瞬时Vd已被观测验证。
 
 ## 精读区
-1. [从逐站校准到共享参数学习：让稀疏站点借用跨区域信息](/202611/07/codex-8d0273237823-from-calibration-to-parameter-learning-harnessing-the-scaling-effects-of-bi) — 可以让共享的小网络从地表/气象特征预测有限校正参数，在多个站点的真实观测窗口上联合训练；无观测网格用同一映射。对能使用历史观测的站点与完全无观测网格，应分别规定网络输入。
-2. [真实非连续观测如何学习内部参数？FATES光合作用模块的实例](/202611/07/codex-503fd41df41d-a-differentiable-physics-informed-ecosystem-modeling-and-learning-framework) — 可借鉴“已知参数合成恢复→真实稀疏观测训练→独立过程验证”的实验顺序。先检查哪些共享Vd校正参数在理想观测下可恢复，再增加缺测、窗口累计、噪声和宿主偏差，评估可辨识性如何退化。
+1. [把解析约束写进神经网络：模块边界必须包含哪些收支项？](/202611/08/codex-edf9a8126da8-enforcing-analytic-constraints-in-neural-networks-emulating-physical-system) — 先画两种候选接口：①预测阻力或交换系数，保留宿主的通量与质量更新；②联合预测一组交换通道，并由固定更新层闭合空气与地表收支。用相同的小MLP比较软、硬约束的精度、非负性、CPU调用耗时和整模式误差。这能帮助确定哪些输出应一起替代，但边界增大后的速度必须另测。
+2. [稀疏站点的“好精度”可信吗？按预测目标设计时空分块验证](/202611/08/codex-5f50e02b2a17-cross-validation-strategies-for-data-with-temporal-spatial-hierarchical-or) — 建议分别报告同站未来时段、新站同气候条件、新地区三个目标；用不重叠观测窗口分组，必要时设时间缓冲。调参采用训练内分块，最终测试站点和年份锁定。月累计沉降就评价相同窗口的累计量；高频Vd另需独立高频证据。比较AEF或时序表征时沿用同一划分，避免把地点记忆误判为地表机制增益。
+3. [Presto：把慢变化地表时序编码留在CMAQ时间循环之外](/202611/08/codex-0d50b9ae770c-lightweight-pre-trained-transformers-for-remote-sensing-timeseries) — 可做“时间循环外编码＋循环内小MLP”的分层方案：预处理慢变化地表时序，按月或所需频率缓存网格特征，分钟级调用仅读缓存并结合即时气象与浓度。与AEF、常规LAI/土地类型和无编码基线比较；计时包含预处理摊销、缓存读取和MPI内存开销，实际验证能否降低总耗时。
 
 ## 速读区
-1. [干沉降观测究竟约束什么？从臭氧测量与过程综述建立边界](/202611/07/codex-a6000c3ce840-dry-deposition-of-ozone-over-land-processes-measurement-and-modeling) — 建立观测元数据表，记录通量或累计量、窗口、参考浓度高度、单位、足迹与处理方法。先定义从CMAQ输出到观测的映射，再构造损失，避免只用最近网格和同名变量硬配。
+- 本次无合适推荐。
 
 ## 检索记录
-不设发表年份窗口，检索干沉降观测解释、跨站参数学习及可微生态模块反演。核查Reviews of Geophysics原始摘要与测量章节，Nature Communications原始论文的PMC全文，以及Biogeosciences原始正文。Nature直接页面重定向失败，改用公开PMC版本；JGR光合作用后续候选未取得足够内容，本期未选。综述按速读归档，其余两篇按正文阅读归档，未复现代码。明确区分：塔上湍流通量与地表沉降、叶片非连续快照与月年累计量、日径流监督与极稀疏长期监督、校准耗时与CMAQ部署提速。日期使用期刊首次在线日期，预印本身份用于去重。
+未设年份窗口。检索并打开过程代理硬约束、轻量遥感时序表征、时空依赖数据验证的原文，结合11月2–7日已推条目去重；今天补充输入表征与验证设计，不再重复集合反演和可微参数学习。PRL主文、Presto arXiv v4主文、Ecography正文均已阅读，补充材料与代码未运行或逐项复现。Presto明确为NeurIPS 2023气候机器学习workshop Spotlight，不标作NeurIPS主会；依据公开代码、跨任务对照和消融选入，定位为地表输入方法参考，非CMAQ加速证据。Ecography网页显示2016-12-08在线首发、2017年卷期，日期字段采用前者。APS DOI入口在工具内不可达，改读作者机构公开的正式版PDF；WSL的Roberts PDF返回404，但Wiley全文可读；一次组合请求连接失败后重试成功，未把访问失败当作文献空缺。未调用旧API或旧工作流。
 
-- [检索来源 1](https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2019RG000670)
-- [检索来源 2](https://www.nature.com/articles/s41467-021-26107-z)
-- [检索来源 3](https://pmc.ncbi.nlm.nih.gov/articles/PMC8514470/)
-- [检索来源 4](https://arxiv.org/abs/2007.15751)
-- [检索来源 5](https://bg.copernicus.org/articles/20/2671/2023/)
+- [检索来源 1](https://gentinelab.eee.columbia.edu/sites/gentinelab.eee.columbia.edu/files/content/PhysRevLett.126.098302.pdf)
+- [检索来源 2](https://arxiv.org/abs/1909.00912)
+- [检索来源 3](https://nsojournals.onlinelibrary.wiley.com/doi/full/10.1111/ecog.02881)
+- [检索来源 4](https://epub.uni-regensburg.de/39299/)
+- [检索来源 5](https://arxiv.org/abs/2304.14065)
+- [检索来源 6](https://arxiv.org/html/2304.14065v4)
+- [检索来源 7](https://github.com/nasaharvest/presto)
+- [检索来源 8](https://gabrieltseng.github.io/publications)
 
 ---
 
 ## 历史日报
 
+- [2026-11-07](/202611/07/README)
 - [2026-11-06](/202611/06/README)
 - [2026-11-05](/202611/05/README)
 - [2026-11-04](/202611/04/README)
@@ -87,4 +92,3 @@
 - [2026-08-10](/202608/10/README)
 - [2026-08-09](/202608/09/README)
 - [2026-08-08](/202608/08/README)
-- [2026-08-07](/202608/07/README)
