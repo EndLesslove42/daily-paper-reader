@@ -1,37 +1,38 @@
-# 日报 · 2026-11-08
+# 日报 · 2026-11-09
 
-- 生成时间：2026-11-08T09:42:57+08:00
+- 生成时间：2026-11-09T10:16:51+08:00
 - 当次推荐总数：3
-- 精读区：3
-- 速读区：0
+- 精读区：2
+- 速读区：1
 
 ## 今日简报
-今天选读3篇较早研究，围绕“替代边界如何满足收支闭合”“遥感时序能否在循环外编码”“稀疏观测下怎样检验真正的泛化”。建议先读Beucler的硬约束模块，再用Roberts设计留站、留年份检验；Presto补充动态地表输入与离线特征缓存的思路。均保留真实发表日期，不把参数少、FLOPs低或预算闭合写成CMAQ已提速、瞬时Vd已被观测验证。
+今天选读3篇：先看真正嵌回GEOS-Chem、在CPU上获得模块提速的化学代理案例；再看保留少量可调物理输入、利用长期统计校准神经参数化的方法；最后用剖面似然判断稀疏观测究竟约束了什么。重点区分模块速度与整模式速度、改善统计量与恢复真实参数。今天的组合可形成一条实验线：确定模块接口和计时范围→保留低维可调参数→按真实观测窗口校准→检验可辨识性。
 
 ## 精读区
-1. [把解析约束写进神经网络：模块边界必须包含哪些收支项？](/202611/08/codex-edf9a8126da8-enforcing-analytic-constraints-in-neural-networks-emulating-physical-system) — 先画两种候选接口：①预测阻力或交换系数，保留宿主的通量与质量更新；②联合预测一组交换通道，并由固定更新层闭合空气与地表收支。用相同的小MLP比较软、硬约束的精度、非负性、CPU调用耗时和整模式误差。这能帮助确定哪些输出应一起替代，但边界增大后的速度必须另测。
-2. [稀疏站点的“好精度”可信吗？按预测目标设计时空分块验证](/202611/08/codex-5f50e02b2a17-cross-validation-strategies-for-data-with-temporal-spatial-hierarchical-or) — 建议分别报告同站未来时段、新站同气候条件、新地区三个目标；用不重叠观测窗口分组，必要时设时间缓冲。调参采用训练内分块，最终测试站点和年份锁定。月累计沉降就评价相同窗口的累计量；高频Vd另需独立高频证据。比较AEF或时序表征时沿用同一划分，避免把地点记忆误判为地表机制增益。
-3. [Presto：把慢变化地表时序编码留在CMAQ时间循环之外](/202611/08/codex-0d50b9ae770c-lightweight-pre-trained-transformers-for-remote-sensing-timeseries) — 可做“时间循环外编码＋循环内小MLP”的分层方案：预处理慢变化地表时序，按月或所需频率缓存网格特征，分钟级调用仅读缓存并结合即时气象与浓度。与AEF、常规LAI/土地类型和无编码基线比较；计时包含预处理摊销、缓存读取和MPI内存开销，实际验证能否降低总耗时。
+1. [嵌回GEOS-Chem后化学积分提速5倍：CPU接口、分裂耦合与区域偏差](/202611/09/codex-cf48cbf4a166-an-online-learned-neural-network-chemical-solver-for-stable-long-term-globa) — 对你的Vd代理最直接的用处是先测清接口账：分别计时原沉降调用、纯CPU推理、数组整理/语言接口及整段CMAQ。再比较Vd-only与共享输入的多通道交换代理，确保输入在每个宿主步骤重新同步。CPU小MLP/残差网络加批量调用可作为Transformer的对照；是否更快由同一硬件、编译优化和误差容许范围下的实测决定。
+2. [给神经参数化保留少量可调物理输入，用长期统计而非逐步标签校准](/202611/09/codex-c252edb94221-how-to-calibrate-a-dynamical-system-with-neural-network-based-physics) — 可先冻结已能逼近CMAQ的网络，保留少数有物理意义的阻力修正或通道系数作为条件输入；用真实站点和窗口算子生成模拟月累计/平均观测，在宿主外层做低维校准。先检查现有网络是否能表示这些参数变化；若训练只覆盖固定参数，需补采样训练，不能任意附加新输入。低维目标可试高斯过程辅助搜索，减少整段CMAQ调用。
 
 ## 速读区
-- 本次无合适推荐。
+1. [拟合月年累计量之后，哪些过程参数仍不可辨识？剖面似然提供的诊断](/202611/09/codex-4e123a7bdfeb-structural-and-practical-identifiability-analysis-of-partially-observed-dyn) — 先用少数通道系数做合成反演：保持真实稀疏站点和月年窗口，构造累计沉降损失；固定一个系数时允许其他系数及选定的排放扰动重新优化。收集同样拟合累计量的参数组，比较其日夜Vd、干湿分配和未观测站点预测。若分歧大，再比较增加浓度观测、短期通量观测或新增站点能否收紧可行范围。
 
 ## 检索记录
-未设年份窗口。检索并打开过程代理硬约束、轻量遥感时序表征、时空依赖数据验证的原文，结合11月2–7日已推条目去重；今天补充输入表征与验证设计，不再重复集合反演和可微参数学习。PRL主文、Presto arXiv v4主文、Ecography正文均已阅读，补充材料与代码未运行或逐项复现。Presto明确为NeurIPS 2023气候机器学习workshop Spotlight，不标作NeurIPS主会；依据公开代码、跨任务对照和消融选入，定位为地表输入方法参考，非CMAQ加速证据。Ecography网页显示2016-12-08在线首发、2017年卷期，日期字段采用前者。APS DOI入口在工具内不可达，改读作者机构公开的正式版PDF；WSL的Roberts PDF返回404，但Wiley全文可读；一次组合请求连接失败后重试成功，未把访问失败当作文献空缺。未调用旧API或旧工作流。
+未设年份窗口。检索过程代理的CPU嵌回、在线训练/长期统计校准、部分观测动力系统可辨识性；核对近7天及历史条目，未重复推荐。Kelp与Balogh两篇已读出版社主文，代码归档页面已核查，未执行或复现代码；Raue的出版社入口发生重定向错误，作者机构及大学库PDF超时，故仅据出版社索引返回的摘要、方法与部分案例文字作保守速读，不标全文精读。EarthArXiv页面返回人机检测，未尝试绕过；同文关系据出版社/预印本检索记录核对。未把访问失败写成没有文献。Balogh日期采用期刊接受稿在线首发2022-04-11，正式版在线2022-04-14；Kelp采用期刊页面首发2022-05-19，未用代码归档或预印本日期替代。入选依据是明确模块边界、在线实验、公开实现与可检验方法；不因主题贴近而接受夸大加速或参数恢复结论。
 
-- [检索来源 1](https://gentinelab.eee.columbia.edu/sites/gentinelab.eee.columbia.edu/files/content/PhysRevLett.126.098302.pdf)
-- [检索来源 2](https://arxiv.org/abs/1909.00912)
-- [检索来源 3](https://nsojournals.onlinelibrary.wiley.com/doi/full/10.1111/ecog.02881)
-- [检索来源 4](https://epub.uni-regensburg.de/39299/)
-- [检索来源 5](https://arxiv.org/abs/2304.14065)
-- [检索来源 6](https://arxiv.org/html/2304.14065v4)
-- [检索来源 7](https://github.com/nasaharvest/presto)
-- [检索来源 8](https://gabrieltseng.github.io/publications)
+- [检索来源 1](https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2021MS002926)
+- [检索来源 2](https://zenodo.org/records/5736524)
+- [检索来源 3](https://eartharxiv.org/repository/view/2886/)
+- [检索来源 4](https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2022GL097872)
+- [检索来源 5](https://agupubs.onlinelibrary.wiley.com/doi/abs/10.1029/2022GL097872)
+- [检索来源 6](https://zenodo.org/records/6141165)
+- [检索来源 7](https://academic.oup.com/bioinformatics/article/25/15/1923/213246)
+- [检索来源 8](https://www.jeti.uni-freiburg.de/papers/Raue_Bioinformatics_printed_1923.pdf)
+- [检索来源 9](https://opus.bibliothek.uni-augsburg.de/opus4/frontdoor/deliver/index/docId/113236/file/113236.pdf)
 
 ---
 
 ## 历史日报
 
+- [2026-11-08](/202611/08/README)
 - [2026-11-07](/202611/07/README)
 - [2026-11-06](/202611/06/README)
 - [2026-11-05](/202611/05/README)
@@ -91,4 +92,3 @@
 - [2026-08-11](/202608/11/README)
 - [2026-08-10](/202608/10/README)
 - [2026-08-09](/202608/09/README)
-- [2026-08-08](/202608/08/README)
