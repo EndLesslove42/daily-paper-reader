@@ -1,37 +1,37 @@
-# 日报 · 2026-11-09
+# 日报 · 2026-11-10
 
-- 生成时间：2026-11-09T10:16:51+08:00
+- 生成时间：2026-11-10T09:03:22+08:00
 - 当次推荐总数：3
 - 精读区：2
 - 速读区：1
 
 ## 今日简报
-今天选读3篇：先看真正嵌回GEOS-Chem、在CPU上获得模块提速的化学代理案例；再看保留少量可调物理输入、利用长期统计校准神经参数化的方法；最后用剖面似然判断稀疏观测究竟约束了什么。重点区分模块速度与整模式速度、改善统计量与恢复真实参数。今天的组合可形成一条实验线：确定模块接口和计时范围→保留低维可调参数→按真实观测窗口校准→检验可辨识性。
+今天选读3篇，补上模块替代容易忽略的两层问题：长窗口观测首先测量了什么，以及网络是否在补偿宿主的时间离散误差。建议先读GEOS-Chem算子时长敏感性，再读隐式可微水文模型；周收集沉降观测的案例用于设计真实的观测算子。本文组合不提供一个可直接套用的CMAQ加速倍率，而是帮助区分网络计算、调用频率、耦合误差与观测支持。
 
 ## 精读区
-1. [嵌回GEOS-Chem后化学积分提速5倍：CPU接口、分裂耦合与区域偏差](/202611/09/codex-cf48cbf4a166-an-online-learned-neural-network-chemical-solver-for-stable-long-term-globa) — 对你的Vd代理最直接的用处是先测清接口账：分别计时原沉降调用、纯CPU推理、数组整理/语言接口及整段CMAQ。再比较Vd-only与共享输入的多通道交换代理，确保输入在每个宿主步骤重新同步。CPU小MLP/残差网络加批量调用可作为Transformer的对照；是否更快由同一硬件、编译优化和误差容许范围下的实测决定。
-2. [给神经参数化保留少量可调物理输入，用长期统计而非逐步标签校准](/202611/09/codex-c252edb94221-how-to-calibrate-a-dynamical-system-with-neural-network-based-physics) — 可先冻结已能逼近CMAQ的网络，保留少数有物理意义的阻力修正或通道系数作为条件输入；用真实站点和窗口算子生成模拟月累计/平均观测，在宿主外层做低维校准。先检查现有网络是否能表示这些参数变化；若训练只覆盖固定参数，需补采样训练，不能任意附加新输入。低维目标可试高斯过程辅助搜索，减少整段CMAQ调用。
+1. [减少模块调用次数能否提速？先量化算子时长引入的耦合误差](/202611/10/codex-7bfac0c59eff-sensitivity-of-chemistry-transport-model-simulations-to-the-duration-of-che) — 提速试验分两步：先在原调用频率下比较小CPU网络、批量推理与Transformer，测纯推理、接口和整模式墙钟时间；然后才单独测试较低频更新慢变量或交换系数。即时浓度与实际质量更新仍按宿主方案处理，必要时设变化触发的提前刷新。将两类收益拆开，避免把少调用带来的数值变化计为AI推理优化。
+2. [网络学到的是过程参数还是数值误差？隐式求解与离散伴随的检验](/202611/10/codex-277a3d2f788b-when-ancient-numerical-demons-meet-physics-informed-machine-learning-adjoin) — 构造一个保留表面库和浓度更新的简化交换宿主，只让网络输出少量过程系数；用原步长与细步长分别校准，比较同等累计量拟合下的系数、日夜通量和内部收支。若需通过隐式更新学习，可借鉴“局部自定义反向＋其余自动微分”，先对一个交换子系统做验证，而非立即将整个CMAQ重写。
 
 ## 速读区
-1. [拟合月年累计量之后，哪些过程参数仍不可辨识？剖面似然提供的诊断](/202611/09/codex-4e123a7bdfeb-structural-and-practical-identifiability-analysis-of-partially-observed-dyn) — 先用少数通道系数做合成反演：保持真实稀疏站点和月年窗口，构造累计沉降损失；固定一个系数时允许其他系数及选定的排放扰动重新优化。收集同样拟合累计量的参数组，比较其日夜Vd、干湿分配和未观测站点预测。若分歧大，再比较增加浓度观测、短期通量观测或新增站点能否收紧可行范围。
+1. [周收集沉降究竟约束什么？九年观测中的干湿混合与来源差异](/202611/10/codex-f60bc16ebc5e-aerosol-populations-processes-and-ages-in-bulk-deposition-insights-from-a-9) — 为你的数据先建观测字典：收集起止时刻、累计量或平均量、总体或湿沉降、单位、检出限和处理校正。总体沉降应比较同一窗口内干湿通量之和；若数据是窗口平均，再除以真实时长。核素还需一致处理衰变与校正基准，避免重复校正。训练时保留这些支持信息，不把周平均拆成七个日真值。
 
 ## 检索记录
-未设年份窗口。检索过程代理的CPU嵌回、在线训练/长期统计校准、部分观测动力系统可辨识性；核对近7天及历史条目，未重复推荐。Kelp与Balogh两篇已读出版社主文，代码归档页面已核查，未执行或复现代码；Raue的出版社入口发生重定向错误，作者机构及大学库PDF超时，故仅据出版社索引返回的摘要、方法与部分案例文字作保守速读，不标全文精读。EarthArXiv页面返回人机检测，未尝试绕过；同文关系据出版社/预印本检索记录核对。未把访问失败写成没有文献。Balogh日期采用期刊接受稿在线首发2022-04-11，正式版在线2022-04-14；Kelp采用期刊页面首发2022-05-19，未用代码归档或预印本日期替代。入选依据是明确模块边界、在线实验、公开实现与可检验方法；不因主题贴近而接受夸大加速或参数恢复结论。
+未设发表年份窗口。检索周/月聚合观测、湿清除与输送约束、CTM算子时长、可微隐式求解和参数补偿，结合近7天内容补充数值方法和真实沉降采样设计。正式推荐3篇，均通过历史身份核查；HESS与GMD已读主文，HESS代码仓库已核对但未运行，附录表格未逐项复现。Landis论文全文页面可读，本次只核对摘要、采样方法和相关结果/讨论，保守列速读，不标全文精读。HESS预印本页面只返回跳转提示，GMDD预印本PDF可读；Landis的ESSOAr入口不可达，同文关系依据作者团队另一篇正式论文的参考文献核对。未将访问失败写作无文可推，未调用旧API或工作流。计时采用各论文实际口径：GMD排除数据输出，HESS的5–10倍是计算成本增加而非加速。
 
-- [检索来源 1](https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2021MS002926)
-- [检索来源 2](https://zenodo.org/records/5736524)
-- [检索来源 3](https://eartharxiv.org/repository/view/2886/)
-- [检索来源 4](https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2022GL097872)
-- [检索来源 5](https://agupubs.onlinelibrary.wiley.com/doi/abs/10.1029/2022GL097872)
-- [检索来源 6](https://zenodo.org/records/6141165)
-- [检索来源 7](https://academic.oup.com/bioinformatics/article/25/15/1923/213246)
-- [检索来源 8](https://www.jeti.uni-freiburg.de/papers/Raue_Bioinformatics_printed_1923.pdf)
-- [检索来源 9](https://opus.bibliothek.uni-augsburg.de/opus4/frontdoor/deliver/index/docId/113236/file/113236.pdf)
+- [检索来源 1](https://gmd.copernicus.org/articles/9/1683/2016/)
+- [检索来源 2](https://gmd.copernicus.org/articles/9/1683/2016/gmd-9-1683-2016.pdf)
+- [检索来源 3](https://gmd.copernicus.org/preprints/8/9589/2015/gmdd-8-9589-2015.pdf)
+- [检索来源 4](https://hess.copernicus.org/articles/28/3051/2024/)
+- [检索来源 5](https://hess.copernicus.org/preprints/hess-2023-258/)
+- [检索来源 6](https://github.com/mhpi/HydroDLAdj)
+- [检索来源 7](https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2021JD035612)
+- [检索来源 8](https://doi.org/10.1002/essoar.10507641.1)
 
 ---
 
 ## 历史日报
 
+- [2026-11-09](/202611/09/README)
 - [2026-11-08](/202611/08/README)
 - [2026-11-07](/202611/07/README)
 - [2026-11-06](/202611/06/README)
@@ -91,4 +91,3 @@
 - [2026-08-12](/202608/12/README)
 - [2026-08-11](/202608/11/README)
 - [2026-08-10](/202608/10/README)
-- [2026-08-09](/202608/09/README)
