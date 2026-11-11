@@ -1,36 +1,39 @@
-# 日报 · 2026-11-10
+# 日报 · 2026-11-11
 
-- 生成时间：2026-11-10T09:03:22+08:00
+- 生成时间：2026-11-11T09:29:13+08:00
 - 当次推荐总数：3
-- 精读区：2
-- 速读区：1
+- 精读区：1
+- 速读区：2
 
 ## 今日简报
-今天选读3篇，补上模块替代容易忽略的两层问题：长窗口观测首先测量了什么，以及网络是否在补偿宿主的时间离散误差。建议先读GEOS-Chem算子时长敏感性，再读隐式可微水文模型；周收集沉降观测的案例用于设计真实的观测算子。本文组合不提供一个可直接套用的CMAQ加速倍率，而是帮助区分网络计算、调用频率、耦合误差与观测支持。
+今天选读3篇，围绕“模块需要哪些宿主反馈”“稀疏站点实际代表哪片地表”“遥感表征应保留什么尺度信息”。Bennett与Nijssen给出真实Fortran宿主中的模块替代案例；FFP用于构造通量塔的空间支持；Galileo补充局部—整体表征的输入设计。沉降仍是应用主线，但今天不要求每篇直接研究沉降，也不把遥感分类分数或原位部署等同于CMAQ提速。
 
 ## 精读区
-1. [减少模块调用次数能否提速？先量化算子时长引入的耦合误差](/202611/10/codex-7bfac0c59eff-sensitivity-of-chemistry-transport-model-simulations-to-the-duration-of-che) — 提速试验分两步：先在原调用频率下比较小CPU网络、批量推理与Transformer，测纯推理、接口和整模式墙钟时间；然后才单独测试较低频更新慢变量或交换系数。即时浓度与实际质量更新仍按宿主方案处理，必要时设变化触发的提前刷新。将两类收益拆开，避免把少调用带来的数值变化计为AI推理优化。
-2. [网络学到的是过程参数还是数值误差？隐式求解与离散伴随的检验](/202611/10/codex-277a3d2f788b-when-ancient-numerical-demons-meet-physics-informed-machine-learning-adjoin) — 构造一个保留表面库和浓度更新的简化交换宿主，只让网络输出少量过程系数；用原步长与细步长分别校准，比较同等累计量拟合下的系数、日夜通量和内部收支。若需通过隐式更新学习，可借鉴“局部自定义反向＋其余自动微分”，先对一个交换子系统做验证，而非立即将整个CMAQ重写。
+1. [嵌回SUMMA的热通量替代：小型单步网络为何仍需要宿主状态反馈？](/202611/11/codex-99843074638a-deep-learned-process-parameterizations-provide-better-representations-of-tu) — 你的CPU对照不必先增加时间架构复杂度：可比较外部气象驱动的小MLP、增加宿主表面湿度/库状态反馈的小MLP，以及现有Transformer；宿主状态可携带部分历史信息，但是否足够应实测。将网络输出和宿主的通量、库更新边界写清，并计时Fortran前向、数组准备和整模式。训练样本还应覆盖替代模块改变后的宿主状态，避免只在原模块轨迹上训练。
 
 ## 速读区
-1. [周收集沉降究竟约束什么？九年观测中的干湿混合与来源差异](/202611/10/codex-f60bc16ebc5e-aerosol-populations-processes-and-ages-in-bulk-deposition-insights-from-a-9) — 为你的数据先建观测字典：收集起止时刻、累计量或平均量、总体或湿沉降、单位、检出限和处理校正。总体沉降应比较同一窗口内干湿通量之和；若数据是窗口平均，再除以真实时长。核素还需一致处理衰变与校正基准，避免重复校正。训练时保留这些支持信息，不把周平均拆成七个日真值。
+1. [站点不是一个像元：用通量足迹把塔观测与地表预测对齐](/202611/11/codex-fd499553a96d-a-simple-two-dimensional-parameterisation-for-flux-footprint-prediction-ffp) — 对通量塔数据，先逐时或按其积分时段计算地表通量的足迹加权值，再按实际观测窗口累计/平均；同时将足迹叠加到土地类型、LAI或遥感表征图上，检查测试样本究竟覆盖什么地表。比较最近像元、固定缓冲区和动态足迹三种匹配方式，判断所谓模型误差是否主要来自空间支持错配。
+2. [Galileo：局部地表差异与整体时序模式是否应由同一种表征承担？](/202611/11/codex-67a0f9d77543-galileo-learning-global-local-features-of-many-remote-sensing-modalities) — 以冻结编码器加同一轻量过程头做输入消融：常规地表变量、现有AEF、局部特征、整体时序特征以及二者组合。通量塔训练可结合FFP匹配地表支持；聚合特征后预测与先预测细尺度通量再聚合一般不等价，应分别检验。慢变化特征可预计算，但要计入预处理、存储读取及更新频率成本。
 
 ## 检索记录
-未设发表年份窗口。检索周/月聚合观测、湿清除与输送约束、CTM算子时长、可微隐式求解和参数补偿，结合近7天内容补充数值方法和真实沉降采样设计。正式推荐3篇，均通过历史身份核查；HESS与GMD已读主文，HESS代码仓库已核对但未运行，附录表格未逐项复现。Landis论文全文页面可读，本次只核对摘要、采样方法和相关结果/讨论，保守列速读，不标全文精读。HESS预印本页面只返回跳转提示，GMDD预印本PDF可读；Landis的ESSOAr入口不可达，同文关系依据作者团队另一篇正式论文的参考文献核对。未将访问失败写作无文可推，未调用旧API或工作流。计时采用各论文实际口径：GMD排除数据输出，HESS的5–10倍是计算成本增加而非加速。
+未设年份窗口。检索模块级陆面热通量替代、通量足迹和多模态时空遥感表征，结合近7天已推内容补充输入与空间支持，核对历史身份及预印本别名。Bennett论文已读出版社主文；FFP核对摘要、空间传递函数、评估和适用限制等段落，未通读全部推导；Galileo核对ICML/PMLR摘要及arXiv v3输入、实验、消融等段落，未通读全文。后二者保守列速读，不能视为完成全文精读。代码仓库已打开核对，未运行或测时。Bennett预印本旧DOI入口不可达，别名依据作者学位论文及预印本记录核对；FFP预印本PDF可读。Galileo日期采用可核实的首次预印本2025-02-13，主会版本为2025年7月ICML，不伪造精确的正式出版日。未调用旧API、旧流程，也未把访问失败写成没有文献。
 
-- [检索来源 1](https://gmd.copernicus.org/articles/9/1683/2016/)
-- [检索来源 2](https://gmd.copernicus.org/articles/9/1683/2016/gmd-9-1683-2016.pdf)
-- [检索来源 3](https://gmd.copernicus.org/preprints/8/9589/2015/gmdd-8-9589-2015.pdf)
-- [检索来源 4](https://hess.copernicus.org/articles/28/3051/2024/)
-- [检索来源 5](https://hess.copernicus.org/preprints/hess-2023-258/)
-- [检索来源 6](https://github.com/mhpi/HydroDLAdj)
-- [检索来源 7](https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2021JD035612)
-- [检索来源 8](https://doi.org/10.1002/essoar.10507641.1)
+- [检索来源 1](https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2020WR029328)
+- [检索来源 2](https://github.com/arbennett/coupled_ml_summa)
+- [检索来源 3](https://doi.org/10.1002/essoar.10505081.1)
+- [检索来源 4](https://gmd.copernicus.org/articles/8/3695/2015/)
+- [检索来源 5](https://gmd.copernicus.org/articles/8/3695/2015/gmd-8-3695-2015.pdf)
+- [检索来源 6](https://gmd.copernicus.org/preprints/8/6757/2015/gmdd-8-6757-2015.pdf)
+- [检索来源 7](https://proceedings.mlr.press/v267/tseng25a.html)
+- [检索来源 8](https://arxiv.org/abs/2502.09356)
+- [检索来源 9](https://arxiv.org/html/2502.09356v3)
+- [检索来源 10](https://github.com/nasaharvest/galileo)
 
 ---
 
 ## 历史日报
 
+- [2026-11-10](/202611/10/README)
 - [2026-11-09](/202611/09/README)
 - [2026-11-08](/202611/08/README)
 - [2026-11-07](/202611/07/README)
@@ -90,4 +93,3 @@
 - [2026-08-14](/202608/14/README)
 - [2026-08-12](/202608/12/README)
 - [2026-08-11](/202608/11/README)
-- [2026-08-10](/202608/10/README)

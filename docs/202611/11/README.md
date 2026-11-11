@@ -1,0 +1,30 @@
+# 日报 · 2026-11-11
+
+- 生成时间：2026-11-11T09:29:13+08:00
+- 当次推荐总数：3
+- 精读区：1
+- 速读区：2
+
+## 今日简报
+今天选读3篇，围绕“模块需要哪些宿主反馈”“稀疏站点实际代表哪片地表”“遥感表征应保留什么尺度信息”。Bennett与Nijssen给出真实Fortran宿主中的模块替代案例；FFP用于构造通量塔的空间支持；Galileo补充局部—整体表征的输入设计。沉降仍是应用主线，但今天不要求每篇直接研究沉降，也不把遥感分类分数或原位部署等同于CMAQ提速。
+
+## 精读区
+1. [嵌回SUMMA的热通量替代：小型单步网络为何仍需要宿主状态反馈？](/202611/11/codex-99843074638a-deep-learned-process-parameterizations-provide-better-representations-of-tu) — 你的CPU对照不必先增加时间架构复杂度：可比较外部气象驱动的小MLP、增加宿主表面湿度/库状态反馈的小MLP，以及现有Transformer；宿主状态可携带部分历史信息，但是否足够应实测。将网络输出和宿主的通量、库更新边界写清，并计时Fortran前向、数组准备和整模式。训练样本还应覆盖替代模块改变后的宿主状态，避免只在原模块轨迹上训练。
+
+## 速读区
+1. [站点不是一个像元：用通量足迹把塔观测与地表预测对齐](/202611/11/codex-fd499553a96d-a-simple-two-dimensional-parameterisation-for-flux-footprint-prediction-ffp) — 对通量塔数据，先逐时或按其积分时段计算地表通量的足迹加权值，再按实际观测窗口累计/平均；同时将足迹叠加到土地类型、LAI或遥感表征图上，检查测试样本究竟覆盖什么地表。比较最近像元、固定缓冲区和动态足迹三种匹配方式，判断所谓模型误差是否主要来自空间支持错配。
+2. [Galileo：局部地表差异与整体时序模式是否应由同一种表征承担？](/202611/11/codex-67a0f9d77543-galileo-learning-global-local-features-of-many-remote-sensing-modalities) — 以冻结编码器加同一轻量过程头做输入消融：常规地表变量、现有AEF、局部特征、整体时序特征以及二者组合。通量塔训练可结合FFP匹配地表支持；聚合特征后预测与先预测细尺度通量再聚合一般不等价，应分别检验。慢变化特征可预计算，但要计入预处理、存储读取及更新频率成本。
+
+## 检索记录
+未设年份窗口。检索模块级陆面热通量替代、通量足迹和多模态时空遥感表征，结合近7天已推内容补充输入与空间支持，核对历史身份及预印本别名。Bennett论文已读出版社主文；FFP核对摘要、空间传递函数、评估和适用限制等段落，未通读全部推导；Galileo核对ICML/PMLR摘要及arXiv v3输入、实验、消融等段落，未通读全文。后二者保守列速读，不能视为完成全文精读。代码仓库已打开核对，未运行或测时。Bennett预印本旧DOI入口不可达，别名依据作者学位论文及预印本记录核对；FFP预印本PDF可读。Galileo日期采用可核实的首次预印本2025-02-13，主会版本为2025年7月ICML，不伪造精确的正式出版日。未调用旧API、旧流程，也未把访问失败写成没有文献。
+
+- [检索来源 1](https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2020WR029328)
+- [检索来源 2](https://github.com/arbennett/coupled_ml_summa)
+- [检索来源 3](https://doi.org/10.1002/essoar.10505081.1)
+- [检索来源 4](https://gmd.copernicus.org/articles/8/3695/2015/)
+- [检索来源 5](https://gmd.copernicus.org/articles/8/3695/2015/gmd-8-3695-2015.pdf)
+- [检索来源 6](https://gmd.copernicus.org/preprints/8/6757/2015/gmdd-8-6757-2015.pdf)
+- [检索来源 7](https://proceedings.mlr.press/v267/tseng25a.html)
+- [检索来源 8](https://arxiv.org/abs/2502.09356)
+- [检索来源 9](https://arxiv.org/html/2502.09356v3)
+- [检索来源 10](https://github.com/nasaharvest/galileo)
