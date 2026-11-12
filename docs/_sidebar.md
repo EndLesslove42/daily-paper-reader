@@ -1,6 +1,13 @@
 * <a class="dpr-sidebar-root-link" href="#/">首页</a>
 * <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/tutorial/README">使用教程</a>
 * Daily Papers
+  * 2026-11-12 <!--dpr-date:20261112-->
+    * [当日日报](/202611/12/README)
+    * 精读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202611/12/codex-33edcf723deb-emulation-of-cloud-microphysics-in-a-climate-model" data-sidebar-item="{&quot;title&quot;: &quot;Emulation of Cloud Microphysics in a Climate Model&quot;, &quot;link&quot;: &quot;https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2023MS003851&quot;, &quot;score&quot;: &quot;9.5&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;deposition-surrogates&quot;}, {&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;source-sink-coupling&quot;}], &quot;evidence&quot;: &quot;把Vd-only与覆盖共享阻力/多物种通道的候选边界列成接口表，先测各自可省的原物理时间和新增输入输出字节数。即使外部调用合并，也可在代理内部保留物理子过程和方向依赖；以整个CMAQ墙钟时间筛边界，同时做在线误差检验。&quot;}">Emulation of Cloud Microphysics in a Climate Model</a>
+    * 速读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202611/12/codex-9825ad632da7-online-test-of-a-neural-network-deep-convection-parameterization-in-arp-gem" data-sidebar-item="{&quot;title&quot;: &quot;Online Test of a Neural Network Deep Convection Parameterization in ARP-GEM1&quot;, &quot;link&quot;: &quot;https://journals.ametsoc.org/view/journals/aies/4/3/AIES-D-24-0100.1.xml&quot;, &quot;score&quot;: &quot;9.4&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;deposition-surrogates&quot;}, {&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;source-sink-coupling&quot;}], &quot;evidence&quot;: &quot;在CMAQ列出代理调用前后必须完成的依赖，确认哪些独立物理计算可与推理重叠，再比较本地CPU调用与远端GPU组件。仅当被移除的物理成本超过新增关键路径成本时继续异构路线；同时报告墙钟、CPU核时和GPU用量。&quot;}">Online Test of a Neural Network Deep Convection Parameterization in ARP-GEM1</a>
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202611/12/codex-788d6b5aa5e1-calibrate-emulate-sample" data-sidebar-item="{&quot;title&quot;: &quot;Calibrate, emulate, sample&quot;, &quot;link&quot;: &quot;https://doi.org/10.1016/j.jcp.2020.109716&quot;, &quot;score&quot;: &quot;9.2&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;deposition-constraints&quot;}, {&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;source-sink-coupling&quot;}], &quot;evidence&quot;: &quot;冻结Vd网络主体，仅学习少量分地表类型校准系数或低维适配参数。每次CMAQ运行输出与观测一致的站点空间支持和月/年累计质量，再建立“参数→长窗口观测”的外层代理以降低校准成本。先比较原模型、点校准与后验预测，不能把累计量拟合解释成瞬时Vd验证。&quot;}">Calibrate, emulate, sample</a>
   * 2026-11-11 <!--dpr-date:20261111-->
     * [当日日报](/202611/11/README)
     * 精读区
