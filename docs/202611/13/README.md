@@ -1,0 +1,27 @@
+# 日报 · 2026-11-13
+
+- 生成时间：2026-11-13T10:03:34+08:00
+- 当次推荐总数：3
+- 精读区：2
+- 速读区：1
+
+## 今日简报
+今天选3篇非近期研究，把昨日“嵌回为何变慢”和“长窗口怎样校准”继续推进到可检验的实验：先测模块占整模型的时间比例，再区分稀疏观测能改善预测、能识别参数、能校准不确定性这三件事。IFS重力波模块给出CPU原位部署与数据搬运的具体证据；CLM-FATES把CES用到真实陆气通量，结果比合成数据更不确定；Seibert与Beven的多流域实验检验少量观测的时机与集合预测价值。建议先做低维参数、真实观测支持、留站留年的小型对照，暂不把少量累计观测用于无约束调整全部网络权重。
+
+## 精读区
+1. [重力波模块原位替代：减少参数量之后，CPU数据搬运仍是瓶颈](/202611/13/codex-4baa8dcc8dab-machine-learning-emulation-of-gravity-wave-drag-in-numerical-weather-foreca) — 为Vd-only、共享阻力/多物种计算等候选边界建立“可移除时间—新增输入输出—在线误差”表。CPU侧比较驻留权重、复用连续批缓冲区及不同批量，单列打包、标准化、BLAS和写回；以完整CMAQ墙钟时间决定是否扩大边界或迁往GPU。
+2. [少量观测何时有用：采样时机、集合预测与参数识别的区别](/202611/13/codex-f92a37111453-gauging-the-ungauged-basin-how-many-discharge-measurements-are-needed) — 在有较密集观测的少数站点做稀疏化压力测试：固定、随机、按可提前获得的气象条件触发采样，并重复不同站点和年份。另设月/年累计观测算子对照，比较同一采样预算下哪些低维校准参数仍可识别；保留多个合理解而非只取单次最优权重。
+
+## 速读区
+1. [真实陆气通量约束CLM-FATES：拟合改善，并不保证参数后验可靠](/202611/13/codex-d27b1ad0e3d4-inferring-parameters-in-a-complex-land-surface-model-by-combining-data-assi) — 先冻结Vd网络主体，只调整少量物理校准系数或适配参数。让CMAQ在真实采样日历和空间支持上输出累计量，再用完整窗口误差更新参数；比较合成孪生试验与真实观测试验，检查参数是否撞边界、不同参数组是否产生相似累计通量。
+
+## 检索记录
+未设发表年份窗口或新旧比例。先同步独立副本并读取DAILY_PROMPT，核对最近7日覆盖与全历史身份去重；本期补充CPU原位部署、真实陆气交换参数反演、稀疏采样设计三个具体环节。检索了重力波模块Fortran/BLAS耦合、月尺度与不连续水文观测、CES在陆面模型中的后续应用，并打开两篇JAMES正式原文、HESS正式PDF及出版社页、WRR Budyko校准候选和作者机构/预印本记录。Budyko候选未入选，因本期优先有更直接的计时和稀疏采样对照；未将泛泛月径流神经预报当作过程参数学习。重力波论文与HESS论文已读全文正文；CLM-FATES论文核对摘要、观测及误差模型、校准计算量、真实数据结果和展望关键章节，未标作全文精读。Oxford备份PDF读取失败，重力波研究仍从出版社HTML完成阅读；HESS旧预印本入口未能直接打开，不影响正式PDF阅读。不把访问失败解释成没有合适论文。日期按正式论文首次上线，尤其Chantry为2021-06-17，而非机构库的7月卷期/入库时间。全部为按当前问题选入的旧文，非今日新发表；保留arXiv/ESSOAr/HESSD身份用于去重。稀疏抽样日值、每日平均通量和月年累计沉降量在文中明确区分。
+
+- [检索来源 1](https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2021MS002477)
+- [检索来源 2](https://arxiv.org/abs/2101.08195)
+- [检索来源 3](https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2024MS004542)
+- [检索来源 4](https://www.understanding-ecosystems.net/publications)
+- [检索来源 5](https://hess.copernicus.org/articles/13/883/2009/)
+- [检索来源 6](https://hess.copernicus.org/articles/13/883/2009/hess-13-883-2009.pdf)
+- [检索来源 7](https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2019WR026280)
