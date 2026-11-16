@@ -7,6 +7,8 @@ const {
   resolveChatModels,
   resolveSummaryLLM,
   inferProviderType,
+  getProviderPreset,
+  buildProviderConfig,
   getDeepSeekPreset,
   inferChatApiProfile,
   resolveJsonResponseMode,
@@ -93,7 +95,7 @@ function testInferProviderType() {
         model: 'other-model',
       },
     }),
-    'deepseek',
+    'custom',
   );
 }
 
@@ -250,6 +252,39 @@ function testBuildConnectivityTestPayload() {
 
 }
 
+function testParateraAndCustomConfiguration() {
+  const preset = getProviderPreset('paratera');
+  assert.equal(preset.baseUrl, 'https://llm.paratera.com');
+  assert.deepEqual(preset.models, ['DeepSeek-V4-Pro-0813']);
+  preset.models.push('local-mutation');
+  assert.deepEqual(getProviderPreset('paratera').models, ['DeepSeek-V4-Pro-0813']);
+  assert.equal(getProviderPreset('__proto__'), null);
+
+  const config = buildProviderConfig({
+    providerType: 'paratera', apiKey: 'test-key',
+    baseUrl: 'https://llm.paratera.com/v1/chat/completions', model: 'DeepSeek-V4-Pro-0813',
+  });
+  assert.equal(config.providerType, 'paratera');
+  assert.equal(config.summaryBaseUrl, 'https://llm.paratera.com/v1');
+  assert.equal(buildChatCompletionsEndpoint(config.summaryBaseUrl), 'https://llm.paratera.com/v1/chat/completions');
+  assert.deepEqual(config.chatModels, ['DeepSeek-V4-Pro-0813']);
+  assert.equal(inferProviderType({
+    llmProvider: { type: 'deepseek' },
+    summarizedLLM: { apiKey: 'test-key', baseUrl: config.summaryBaseUrl, model: config.summaryModel },
+  }), 'paratera');
+
+  // A third-party DeepSeek model must not inherit the official endpoint's token limit.
+  assert.equal(resolveMaxOutputTokens({ baseUrl: preset.baseUrl, model: 'deepseek-v4-pro' }), null);
+  assert.equal(inferChatApiProfile(preset.baseUrl, 'deepseek-v4-pro'), 'unsupported');
+  assert.equal(buildStreamingChatPayload({ baseUrl: preset.baseUrl, model: 'DeepSeek-V4-Pro-0813', messages: [] }).max_tokens, undefined);
+  assert.equal(buildProviderConfig({ providerType: 'custom', apiKey: 'test-key', baseUrl: 'https://other.example/v1', model: 'Exact-Model-ID' }).summaryModel, 'Exact-Model-ID');
+  assert.equal(inferProviderType({}), 'deepseek');
+  assert.throws(() => buildProviderConfig({ providerType: 'paratera', apiKey: 'test-key', baseUrl: '', model: 'model' }), /Base URL/);
+  assert.throws(() => buildProviderConfig({ apiKey: 'test-key', baseUrl: 'javascript:alert(1)', model: 'model' }), /http/);
+  assert.throws(() => buildProviderConfig({ apiKey: 'test-key', baseUrl: 'https://name:password@example.com', model: 'model' }), /Base URL/);
+  assert.throws(() => buildProviderConfig({ apiKey: 'test-key', baseUrl: 'https://example.com', model: '<img src=x onerror=alert(1)>' }), /模型 ID/);
+}
+
 testNormalizeBaseUrlForStorage();
 testBuildChatCompletionsEndpoint();
 testSanitizeModelList();
@@ -262,5 +297,6 @@ testResolveMaxOutputTokens();
 testShouldUseXApiKeyHeader();
 testBuildStreamingChatPayload();
 testBuildConnectivityTestPayload();
+testParateraAndCustomConfiguration();
 
 console.log('llm config utils tests passed');
